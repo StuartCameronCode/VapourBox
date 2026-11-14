@@ -63,10 +63,19 @@ String? filterBitDepthWarning({
 /// no conversion, unknown format, or the target is deep enough to hold the
 /// source — so choosing 4:2:2 10-bit for a 10-bit source stays silent, while
 /// choosing it for a 12-bit source correctly says 10-bit rather than 8-bit.
+///
+/// Silent for ProRes, whose depth is fixed at 10 bits by the encoder rather
+/// than chosen: the advice ("Choose Match source") would not apply, and every
+/// ProRes 4444 source decodes as 12-bit (`yuv444p12le`) whatever it holds, so
+/// a ProRes-to-ProRes job would warn on every run. (With "Match source" it was
+/// silent before, too; an explicit selection no longer reaches a ProRes
+/// encode at all, and `proresChromaPinWarning` says so.)
 String? chromaConversionBitDepthWarning({
   required int? targetBitDepth,
   String? pixelFormat,
+  VideoCodec? codec,
 }) {
+  if (codec != null && codec.isProRes) return null;
   if (targetBitDepth == null || pixelFormat == null) return null;
   final depth = pixelFormatBitDepth(pixelFormat);
   if (depth <= targetBitDepth) return null;
@@ -234,85 +243,109 @@ String? hardwareEncoderChromaWarning({
       '$substitute.$advice';
 }
 
-/// Warning message when the selected ProRes profile stores a different chroma
-/// layout than the chosen output colour format, or `null` when they agree.
+/// Warning when a ProRes profile overrides the chosen output colour format or
+/// changes the source's chroma, or `null` when there is nothing to say.
+///
+/// A ProRes profile stores one format: 10-bit 4:2:2 (Proxy, LT, 422, 422 HQ)
+/// or 10-bit 4:4:4 (4444, 4444 XQ). The worker converts to exactly that in the
+/// script, whatever Color Format is selected
+/// (`EncodingSettings::effective_chroma_subsampling`), so that the conversion
+/// of an interlaced source is field-aware (ffmpeg's `-pix_fmt` blended the two
+/// fields' chroma). The selection is therefore ignored rather than applied and
+/// then padded or reduced, and what is lost or padded depends on the
+/// **source** alone.
 ///
 /// A deliberate sibling of [hardwareEncoderChromaWarning] rather than an
 /// extension of it, because the two make opposite claims. That one says the
 /// hardware *cannot* encode what you asked for and something will be lost.
 /// This one says the profile *defines* what is stored — ProRes 4444 pads 4:2:0
 /// up rather than losing anything, and the cost is file size, not detail.
-/// Folding them together would blur both messages and would drag ProRes into a
-/// test table pinned specifically to the NVENC/QSV arms of `forced_pix_fmt`.
 ///
 /// **It is a second implementation of the worker's decision, and that is the
 /// risk.** If the two disagree the interface promises one thing and the encode
 /// does another, which is worse than either being wrong alone. Both sides are
-/// pinned to the same table of cases: `prores_profile_decides_the_chroma` in
+/// pinned to the same table of cases:
+/// `prores_converts_to_its_profile_format_whatever_is_selected` in
 /// `worker/src/models/video_job.rs` against
 /// `app/test/prores_chroma_pin_warning_test.dart`. Change one, change both.
 ///
 /// Deliberately silent about bit depth on its own. ProRes is always 10-bit, so
-/// an 8-bit selection into any profile is "converted" — warning about that
-/// would fire on the majority of ProRes jobs, and a banner that is always
-/// there is wallpaper.
+/// an 8-bit selection into any profile is overridden — warning about depth
+/// alone would fire on the majority of ProRes jobs, and a banner that is
+/// always there is wallpaper. A 4:2:0 source into a 4:2:2 profile with "Match
+/// source" stays quiet for the same reason: it is the ordinary capture case.
 String? proresChromaPinWarning({
   required VideoCodec codec,
   required ChromaSubsampling chromaSubsampling,
   String? pixelFormat,
 }) {
   if (!codec.isProRes) return null;
-
-  // What the encoder will actually be handed: the output conversion when one
-  // is selected, the source's own format otherwise.
-  final ChromaLayout chosen;
-  final String describedAs;
-  if (chromaSubsampling == ChromaSubsampling.original) {
-    // Nothing to say until a file is loaded and we know its format.
-    if (pixelFormat == null) return null;
-    chosen = pixelFormatChromaLayout(pixelFormat);
-    describedAs = 'Your source is $pixelFormat, and "Match source" keeps it';
-  } else {
-    chosen = pixelFormatChromaLayout(chromaSubsampling.value);
-    describedAs = '${chromaSubsampling.label} is selected';
-  }
-
-  // Mirrors VideoCodec::forced_pix_fmt: profiles 4 and 5 store 4:4:4,
-  // everything below them 4:2:2.
-  final storesC444 =
-      codec == VideoCodec.prores4444 || codec == VideoCodec.prores4444Xq;
-  final stored = storesC444 ? ChromaLayout.c444 : ChromaLayout.c422;
-  if (chosen == stored) return null;
-
-  if (storesC444) {
-    // Padding up. Nothing is lost, so the cost to name is size.
-    return '$describedAs, but ${codec.displayName} always stores 4:4:4, so the '
-        'chroma will be padded up to it. Nothing is lost, but the file is '
-        'much larger than the colour detail in it warrants — ProRes 422 HQ is '
-        'the 4:2:2 equivalent.';
-  }
-
-  if (chosen == ChromaLayout.c444) {
-    // The only case where the user's choice is genuinely discarded.
-    return '$describedAs, but ${codec.displayName} stores 4:2:2, so the '
-        'output will be resampled back down to it. Choose ProRes 4444 to keep '
-        'the full chroma.';
-  }
-
-  // 4:2:0 into a 4:2:2 profile: padded up, same reasoning as above but far
-  // less costly, so this stays quiet.
-  return null;
+  return _fixedFormatWarning(
+    codec: codec,
+    stored: codec.fixedOutputFormat!,
+    selection: chromaSubsampling,
+    pixelFormat: pixelFormat,
+  );
 }
 
-/// Warning when v210 overrides the chosen output colour format, or `null`
-/// when there is nothing to say.
+/// The shared body of [proresChromaPinWarning] and [v210ChromaPinWarning]:
+/// [codec] stores [stored] whatever [selection] is. Three facts, each its own
+/// sentence, the same three the worker's tables assert:
+///   * ignored — a selection other than "Match source" or [stored] itself;
+///   * lost    — [stored] is 4:2:2 and the source is 4:4:4;
+///   * padded  — [stored] is 4:4:4 and the source is narrower.
+/// Lost and padded need the source's format, so before a file is loaded only
+/// "ignored" can be said.
+String? _fixedFormatWarning({
+  required VideoCodec codec,
+  required ChromaSubsampling stored,
+  required ChromaSubsampling selection,
+  String? pixelFormat,
+}) {
+  final stores444 = stored == ChromaSubsampling.yuv444p10;
+  final storedName = stores444 ? '4:4:4' : '4:2:2';
+  final source = pixelFormat == null ? null : pixelFormatChromaLayout(pixelFormat);
+  final ignored =
+      selection != ChromaSubsampling.original && selection != stored;
+  final lost = !stores444 && source == ChromaLayout.c444;
+  final padded = stores444 && source != null && source != ChromaLayout.c444;
+
+  final parts = <String>[];
+  if (ignored) {
+    parts.add('${selection.label} is selected, but ${codec.displayName} '
+        'always stores 10-bit $storedName, so this setting is ignored: the '
+        'picture goes to 10-bit $storedName directly.');
+  }
+  if (lost) {
+    parts.add('Your source is $pixelFormat, and ${codec.displayName} stores '
+        '4:2:2, so its chroma will be resampled down to it. Choose ProRes 4444 '
+        'to keep the full chroma.');
+  } else if (ignored &&
+      !stores444 &&
+      pixelFormatChromaLayout(selection.value) == ChromaLayout.c444) {
+    // Asked for 4:4:4 from a source that may not have it: name the way to
+    // get 4:4:4 without claiming anything is lost.
+    parts.add('Choose ProRes 4444 to store 4:4:4.');
+  }
+  if (padded) {
+    parts.add('Your source is $pixelFormat, so ${codec.displayName} pads its '
+        'chroma up to 4:4:4. Nothing is lost, but the file is much larger '
+        'than the colour detail in it warrants — ProRes 422 HQ is the 4:2:2 '
+        'equivalent.');
+  }
+  return parts.isEmpty ? null : parts.join(' ');
+}
+
+/// Warning when v210 overrides the chosen output colour format or changes the
+/// source's chroma, or `null` when there is nothing to say.
 ///
 /// v210 stores uncompressed 10-bit 4:2:2 and nothing else, so the worker
 /// converts to exactly that in the script, whatever Color Format is selected
 /// (`EncodingSettings::effective_chroma_subsampling`). A sibling of
-/// [proresChromaPinWarning], with the same silences: padding 4:2:0 up loses
-/// nothing, and depth on its own is not mentioned (the bit-depth warning
-/// covers a source deeper than 10 bits, from the effective format).
+/// [proresChromaPinWarning], with the same rules and the same silences:
+/// padding 4:2:0 up loses nothing, and depth on its own is not mentioned (the
+/// bit-depth warning covers a source deeper than 10 bits, from the effective
+/// format).
 ///
 /// **A second implementation of the worker's decision.** Pinned case for case
 /// to `v210_stores_422_10_whatever_is_selected` in
@@ -324,23 +357,10 @@ String? v210ChromaPinWarning({
   String? pixelFormat,
 }) {
   if (!codec.isUncompressed) return null;
-
-  if (chromaSubsampling == ChromaSubsampling.yuv422p10) return null;
-
-  if (chromaSubsampling == ChromaSubsampling.original) {
-    // Nothing to say until a file is loaded and we know its format, and
-    // nothing to say about a 4:2:0 or 4:2:2 source: it is padded up.
-    if (pixelFormat == null) return null;
-    if (pixelFormatChromaLayout(pixelFormat) != ChromaLayout.c444) return null;
-    return 'Your source is $pixelFormat, and "Match source" keeps it, but '
-        '${codec.displayName} stores 4:2:2, so the chroma will be resampled '
-        'down to it. Choose ProRes 4444 to keep the full chroma.';
-  }
-
-  final lost = pixelFormatChromaLayout(chromaSubsampling.value) == ChromaLayout.c444
-      ? ' The extra chroma detail is resampled down.'
-      : '';
-  return '${chromaSubsampling.label} is selected, but ${codec.displayName} '
-      'always stores 10-bit 4:2:2, so this setting is ignored: the picture '
-      'goes to 10-bit 4:2:2 directly.$lost';
+  return _fixedFormatWarning(
+    codec: codec,
+    stored: ChromaSubsampling.yuv422p10,
+    selection: chromaSubsampling,
+    pixelFormat: pixelFormat,
+  );
 }

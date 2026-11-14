@@ -242,12 +242,14 @@ class EncodingSettings {
   Map<String, dynamic> toJson() => _$EncodingSettingsToJson(this);
 
   /// The colour format the script actually converts to: [chromaSubsampling],
-  /// except for v210, which stores 10-bit 4:2:2 and nothing else, so the
-  /// worker converts to that whatever is selected (field-aware, in the
-  /// script). Mirrors `EncodingSettings::effective_chroma_subsampling`; see
-  /// `v210ChromaPinWarning` for what the user is told.
+  /// except for a codec that stores one format and nothing else (v210, every
+  /// ProRes profile: [VideoCodec.fixedOutputFormat]), which the worker
+  /// converts to whatever is selected (field-aware, in the script). Mirrors
+  /// `EncodingSettings::effective_chroma_subsampling`; see
+  /// `proresChromaPinWarning` / `v210ChromaPinWarning` for what the user is
+  /// told.
   ChromaSubsampling get effectiveChromaSubsampling =>
-      codec.isUncompressed ? ChromaSubsampling.yuv422p10 : chromaSubsampling;
+      codec.fixedOutputFormat ?? chromaSubsampling;
 
   /// Backward compatibility: alias for audioMode == passthrough.
   @Deprecated('Use audioMode instead')

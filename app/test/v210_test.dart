@@ -67,54 +67,60 @@ void main() {
   });
 
   group('effectiveChromaSubsampling', () {
-    test('v210 always converts to 10-bit 4:2:2; other codecs keep the choice',
-        () {
-      for (final cs in ChromaSubsampling.values) {
-        expect(
-          EncodingSettings(codec: VideoCodec.v210, chromaSubsampling: cs)
-              .effectiveChromaSubsampling,
-          ChromaSubsampling.yuv422p10,
-          reason: cs.value,
-        );
-        expect(
-          EncodingSettings(codec: VideoCodec.proresHQ, chromaSubsampling: cs)
-              .effectiveChromaSubsampling,
-          cs,
-        );
+    test('a codec that stores one format converts to it; others keep the '
+        'choice', () {
+      for (final codec in VideoCodec.values) {
+        for (final cs in ChromaSubsampling.values) {
+          final fixed = codec.isUncompressed
+              ? ChromaSubsampling.yuv422p10
+              : codec.isProRes
+                  ? (codec.proresProfile! >= 4
+                      ? ChromaSubsampling.yuv444p10
+                      : ChromaSubsampling.yuv422p10)
+                  : null;
+          expect(codec.fixedOutputFormat, fixed, reason: codec.name);
+          expect(
+            EncodingSettings(codec: codec, chromaSubsampling: cs)
+                .effectiveChromaSubsampling,
+            fixed ?? cs,
+            reason: '${codec.name} ${cs.value}',
+          );
+        }
       }
     });
   });
 
   group('v210ChromaPinWarning (pinned to the worker table)', () {
-    // (selection, source) -> (chroma lost, selection ignored). The same rows
-    // as `v210_stores_422_10_whatever_is_selected`.
+    // (selection, source) -> (selection ignored, source chroma lost). The same
+    // rows as `v210_stores_422_10_whatever_is_selected`: the selection is not
+    // applied, so what is lost depends on the source alone.
     const sources = [
       'yuv420p',
       'yuv411p',
       'yuv422p',
       'yuv422p10le',
       'yuv444p10le',
+      'yuv444p12le',
       'yuv422p16le',
     ];
     (bool, bool) expected(ChromaSubsampling cs, String src) {
+      final src444 = src.startsWith('yuv444');
       switch (cs) {
         case ChromaSubsampling.original:
-          return (src == 'yuv444p10le', false);
         case ChromaSubsampling.yuv422p10:
-          return (false, false);
-        case ChromaSubsampling.yuv444p10:
-          return (true, true);
+          return (false, src444);
         case ChromaSubsampling.yuv420:
         case ChromaSubsampling.yuv420p10:
         case ChromaSubsampling.yuv422:
-          return (false, true);
+        case ChromaSubsampling.yuv444p10:
+          return (true, src444);
       }
     }
 
     test('speaks exactly where chroma is lost or the choice is ignored', () {
       for (final cs in ChromaSubsampling.values) {
         for (final src in sources) {
-          final (lost, ignored) = expected(cs, src);
+          final (ignored, lost) = expected(cs, src);
           final message = v210ChromaPinWarning(
             codec: VideoCodec.v210,
             chromaSubsampling: cs,
@@ -126,6 +132,7 @@ void main() {
           expect(message, contains('4:2:2'), reason: ctx);
           expect(message.contains('ignored'), ignored, reason: ctx);
           expect(message.contains('resampled down'), lost, reason: ctx);
+          expect(message.contains('Nothing is lost'), isFalse, reason: ctx);
         }
       }
     });

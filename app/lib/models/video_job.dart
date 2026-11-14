@@ -299,6 +299,27 @@ enum VideoCodec {
   /// `VideoCodec::is_uncompressed` in the worker.
   bool get isUncompressed => this == VideoCodec.v210;
 
+  /// The ProRes profile number (`-profile:v N`, 0 Proxy .. 5 4444 XQ), read
+  /// from the wire value the worker dispatches on, or null for any other
+  /// codec. Mirrors `VideoCodec::prores_profile`.
+  int? get proresProfile {
+    if (!isProRes) return null;
+    final m = RegExp(r'-profile:v (\d+)').firstMatch(value);
+    return m == null ? null : int.parse(m.group(1)!);
+  }
+
+  /// The one output format this codec stores, whatever Color Format is
+  /// selected, or null when the selection applies: 10-bit 4:2:2 for v210 and
+  /// ProRes Proxy..HQ, 10-bit 4:4:4 for ProRes 4444/XQ (profile 4 and up).
+  /// The worker converts to it in the script, field-aware. Mirrors
+  /// `VideoCodec::fixed_output_format`.
+  ChromaSubsampling? get fixedOutputFormat {
+    if (isUncompressed) return ChromaSubsampling.yuv422p10;
+    final profile = proresProfile;
+    if (profile == null) return null;
+    return profile >= 4 ? ChromaSubsampling.yuv444p10 : ChromaSubsampling.yuv422p10;
+  }
+
   /// Whether this codec produces H.264 output (software or hardware).
   bool get isH264 => this == h264 || this == h264Nvenc || this == h264Qsv ||
       this == h264Videotoolbox || this == h264Amf;

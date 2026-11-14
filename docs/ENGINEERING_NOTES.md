@@ -3589,10 +3589,33 @@ Premiere/Resolve. Full evidence:
   keeps 64/192). v210's 4:2:2 10-bit is therefore made in the script
   (`EncodingSettings::effective_chroma_subsampling`). ProRes from interlaced
   4:2:0 still goes through FFmpeg's conversion: a follow-up, since changing it
-  changes existing output.
+  changes existing output. (Done 2026-11-14, next entry.)
 - v210 is ~221 Mbit/s at 720x576 25p and ~1.1 Gbit/s at 1080p25, so it skips
   `+faststart` (a second full pass over the file) and restored audio beside it
   is PCM.
 - Found on the way: `DependencyLocator::probe_frame_count` failed on a MOV
   whose stream FFmpeg 9 also prints under a stream group (`125\n125\n`), so a
   job without `totalFrames` encoded one frame. It now takes the first line.
+
+### ProRes converts to its profile's format in the script (2026-11-14)
+
+Follow-up to the v210 entry above: every ProRes profile now gets its stored
+format (10-bit 4:2:2, or 4:4:4 for 4444/XQ) from the script's field-aware
+`resize`, not from ffmpeg's `-pix_fmt`; the Color Format selection is ignored,
+as for v210. Full evidence:
+[docs/reports/2026-11-prores-script-chroma/](reports/2026-11-prores-script-chroma/index.html).
+
+- **Interlaced 4:2:0**: an interlaced 4:2:2 clip subsampled per field and
+  brought back: chroma PSNR 38.5 → 49.5 dB (U), 41.9 → 52.7 dB (V), the same
+  after ProRes 422 HQ. Only when the clip is marked field-based: with no
+  detected field order the result equals the old one.
+- **Existing output changes** wherever the script now converts, and every
+  case measured equal or better: progressive 4:2:0 → 4:2:2 +0.5 dB (OLD vs
+  NEW 0.03 levels mean), 4:2:0/4:2:2 → 4:4:4 about +3 dB, 12/16-bit → 10-bit
+  RMS error 14-18% lower with zimg's error diffusion (so the dither stays). A
+  source already in the profile's format is bit-identical (the block is
+  guarded by the format id). An 8-bit selection no longer drops a deeper
+  source to 8 bits. No measurable speed cost.
+- The warnings judge loss/padding from the source (the selection never
+  reaches the encode); the bit-depth warning is silent for ProRes, or every
+  ProRes 4444 source (decoded as 12-bit) would warn on every job.

@@ -913,6 +913,43 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // --- PRORES OUTPUT FORMAT (effective_chroma_subsampling) ---
+    test('ProRes: the script converts to the profile format, not the selection',
+        () async {
+      // ProRes stores 10-bit 4:2:2 (Proxy..HQ) or 10-bit 4:4:4 (4444/XQ)
+      // whatever Color Format is selected; the worker converts to it in the
+      // script, after the field marking, so an interlaced 4:2:0 source keeps
+      // each field's chroma (docs/reports/2026-11-prores-script-chroma).
+      final base = buildJob(testName: 'prores_format').copyWith(
+        inputPixelFormat: 'yuv420p',
+        detectedFieldOrder: FieldOrder.topFieldFirst,
+      );
+      for (final (codec, chroma, want) in [
+        (VideoCodec.proresHQ, ChromaSubsampling.yuv420, 'vs.YUV422P10'),
+        (VideoCodec.proresProxy, ChromaSubsampling.original, 'vs.YUV422P10'),
+        (VideoCodec.prores4444, ChromaSubsampling.original, 'vs.YUV444P10'),
+        (VideoCodec.prores4444Xq, ChromaSubsampling.yuv422, 'vs.YUV444P10'),
+      ]) {
+        final script = await generateScriptViaWorker(base.copyWith(
+          outputPath: '${TestConfig.outputDir}/prores_format.mov',
+          encodingSettings: EncodingSettings(
+            codec: codec,
+            container: ContainerFormat.mov,
+            audioMode: AudioMode.none,
+            chromaSubsampling: chroma,
+          ),
+        ));
+        final ctx = '${codec.displayName} with ${chroma.label}';
+        expect(script, contains('target_format = $want'), reason: ctx);
+        expect('target_format = '.allMatches(script).length, 1, reason: ctx);
+        expect(script, isNot(contains('vs.YUV420P8')), reason: ctx);
+        expect(script.indexOf('core.std.SetFieldBased(clip, 2)'),
+            allOf(isNonNegative, lessThan(script.indexOf('target_format = '))),
+            reason: '$ctx: the conversion must follow the field marking');
+      }
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- DESCRATCH (core.descratch.DeScratch) ---
     test('descratch: DeScratch params', () async {
       loadSchema('descratch'); // confirm schema parses

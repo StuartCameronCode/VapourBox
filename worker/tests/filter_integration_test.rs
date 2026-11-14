@@ -8333,6 +8333,51 @@ fn test_221_template_field_based_sites_are_all_accounted_for() {
     }
 }
 
+#[test]
+fn test_223_prores_converts_to_its_profile_format_in_both_scripts() {
+    // ProRes stores the profile's format whatever Color Format is selected:
+    // 10-bit 4:2:2 for Proxy..HQ, 10-bit 4:4:4 for 4444/XQ. The script converts
+    // to it itself, after the field marking, so an interlaced 4:2:0 source keeps
+    // each field's chroma (ffmpeg's -pix_fmt blended them:
+    // docs/reports/2026-11-prores-script-chroma). The selection never reaches
+    // the script, so an 8-bit choice no longer drops a deeper source to 8 bits.
+    create_output_dir();
+    let prores: Vec<VideoCodec> = VideoCodec::ALL.iter().copied().filter(|c| c.is_prores()).collect();
+    assert_eq!(prores.len(), 6);
+    for codec in prores {
+        let target = if codec.prores_profile().unwrap() >= 4 {
+            "target_format = vs.YUV444P10"
+        } else {
+            "target_format = vs.YUV422P10"
+        };
+        for cs in ChromaSubsampling::ALL.iter().copied() {
+            let mut job = create_base_job("test_223_prores");
+            job.encoding_settings.codec = codec;
+            job.encoding_settings.container = ContainerFormat::Mov;
+            job.encoding_settings.chroma_subsampling = cs;
+            job.input_pixel_format = Some("yuv420p".to_string());
+            let mut pipeline = ProcessingPipeline::default();
+            pipeline.deinterlace.enabled = false;
+            job.processing_pipeline = Some(pipeline);
+            let (encode, preview) = generate_both_scripts(&job);
+            for (label, script) in [("encode", &encode), ("preview", &preview)] {
+                assert!(
+                    script.contains(target),
+                    "{codec:?} {cs:?} {label}: expected {target}"
+                );
+                assert_eq!(
+                    script.matches("target_format = ").count(),
+                    1,
+                    "{codec:?} {cs:?} {label}: the selection must not add a second conversion"
+                );
+                let mark = script.find("core.std.SetFieldBased(clip, 2)").expect("marked TFF");
+                let conv = script.find(target).unwrap();
+                assert!(mark < conv, "{codec:?} {cs:?} {label}: conversion must follow the field marking");
+            }
+        }
+    }
+}
+
 /// BT.601 -> BT.709 "Always" with no crop or resize (forum #154/#155): the
 /// pass's switch decides, not its geometry. An enabled Crop & Resize with every
 /// geometry control off converts an SD source at its own size, in BOTH scripts,

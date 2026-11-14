@@ -94,7 +94,7 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 | | |
 |---|---|
-| **Video** | H.264, H.265, ProRes (Proxy to 4444 XQ), uncompressed 10-bit 4:2:2 (v210, for Premiere and Resolve: MOV is the container to choose), FFV1, HuffYUV or FFVHuff (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF. ProRes and v210 of a picture left interlaced are flagged with its field order in MOV and MKV (AVI cannot carry it) |
+| **Video** | H.264, H.265, ProRes (Proxy to 4444 XQ), uncompressed 10-bit 4:2:2 (v210, for Premiere and Resolve: MOV is the container to choose), FFV1, HuffYUV or FFVHuff (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF. ProRes and v210 store their own colour format (10-bit 4:2:2, or 4:4:4 for ProRes 4444), converted field by field from an interlaced source, and a picture left interlaced is flagged with its field order in MOV and MKV (AVI cannot carry it) |
 | **Audio** | Passthrough; AAC, MP3, AC-3, Opus, FLAC or uncompressed PCM; or none |
 | **Containers** | MKV, MP4, MOV, AVI |
 | **Reads** | `.dv` · `.mts` `.m2ts` · `.vob` `.m2v` `.mpg` `.mpeg` · `.mxf` · `.avi` `.mov` `.mp4` `.mkv` `.ts` `.wmv` `.webm` `.flv`, DVD discs and `VIDEO_TS` folders |
