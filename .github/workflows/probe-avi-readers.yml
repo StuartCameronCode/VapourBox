@@ -1,0 +1,92 @@
+name: Probe AVI readers (24-bit PCM)
+
+# Evidence for F6 of docs/reports/2026-11-intermediate-pcm-depth: what
+# Windows' own readers (Video for Windows, ACM, DirectShow, Media Foundation)
+# and VirtualDub 1.10.4 / VirtualDub2 make of 24-bit PCM in AVI, which ffmpeg
+# writes as WAVE_FORMAT_EXTENSIBLE. A one-off: deleted once the report's run was
+# recorded (restore it from git history to re-run). Triggered by push, because
+# workflow_dispatch needs the file on main.
+on:
+  push:
+    paths:
+      - docs/reports/2026-11-intermediate-pcm-depth/scripts/avi_readers/**
+      - .github/workflows/probe-avi-readers.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      WORK: ${{ github.workspace }}\probe-work
+      SCRIPTS: ${{ github.workspace }}\docs\reports\2026-11-intermediate-pcm-depth\scripts\avi_readers
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read the deps pointer
+        id: deps
+        shell: bash
+        run: |
+          echo "tag=$(python -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")" >> "$GITHUB_OUTPUT"
+          echo "ver=$(python -c "import json;print(json.load(open('app/assets/deps-version.json'))['version'])")" >> "$GITHUB_OUTPUT"
+
+      - name: Download dependencies (windows-x64)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/install-deps-bundle.sh windows-x64 "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/windows-x64
+
+      - name: Fixtures
+        shell: pwsh
+        run: |
+          $env:FFMPEG = "$PWD\deps\windows-x64\ffmpeg\ffmpeg.exe"
+          & $env:FFMPEG -version | Select-Object -First 1
+          python "$env:SCRIPTS\make_fixtures.py"
+
+      - name: Build the reader
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VS=%%i
+          call "%VS%\VC\Auxiliary\Build\vcvars64.bat" >nul
+          cd /d "%WORK%"
+          cl /nologo /EHsc /O2 /DUNICODE /D_UNICODE "%SCRIPTS%\avi_readers.cpp" /Fe:avi_readers.exe
+
+      - name: Fetch VirtualDub 1.10.4 and VirtualDub2 (pinned)
+        shell: pwsh
+        run: |
+          $t = "$env:WORK\tools"
+          New-Item -ItemType Directory -Force $t | Out-Null
+          $pins = @(
+            @{ n = 'vd1104'; u = 'https://sourceforge.net/projects/virtualdub/files/virtualdub-win/1.10.4.35491/VirtualDub-1.10.4-AMD64.zip/download'; h = '9bf4df3de27b204c5dd4feaf7f72cd4d7e025d72bb46f39daf0587da4a824e5b' },
+            @{ n = 'vd2'; u = 'https://sourceforge.net/projects/vdfiltermod/files/VirtualDub%20pack/version%2020/VirtualDub2_44282.zip/download'; h = '732246abb9b0cd6101428189df1ac34703aac9c48449fef05e38b5354f0f821f' }
+          )
+          foreach ($p in $pins) {
+            $zip = "$t\$($p.n).zip"
+            curl.exe -sSL --retry 3 -o $zip $p.u
+            $got = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+            if ($got -ne $p.h) { throw "$($p.n): sha256 $got, expected $($p.h)" }
+            Expand-Archive $zip -DestinationPath "$t\$($p.n)"
+          }
+
+      - name: VirtualDub
+        shell: pwsh
+        run: pwsh "$env:SCRIPTS\virtualdub.ps1" -Work $env:WORK -Tools "$env:WORK\tools"
+
+      - name: Windows readers and comparison
+        shell: pwsh
+        run: |
+          [System.Environment]::OSVersion.VersionString
+          python "$env:SCRIPTS\compare.py" "$env:WORK\avi_readers.exe" | Tee-Object "$env:WORK\results.jsonl"
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: avi-reader-probe
+          path: |
+            probe-work/results.jsonl
+            probe-work/vdub/*.status
+            probe-work/vdub/*.log
+            probe-work/vdub/*.png
+          if-no-files-found: warn
