@@ -123,7 +123,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
-| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded (see "Source Frame Size") |
+| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek (see "Source Frame Size") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
@@ -1023,10 +1023,25 @@ the **single** builder of both decoders' arguments (encode + preview):
   `explain_decoder_failure` ahead of the vspipe/encoder status. A job that
   omits `inputWidth`/`inputHeight` gets them probed by the worker
   (`fill_frame_size`), not the old 720x480 fallback.
+- **A decoder that seeks resets PTS first (issue #157).** `rawvideo` gets
+  constant-rate output timing, and after an `-ss` to `(N - 0.5)/fps` that
+  timing repeated the first kept frame on many time bases (MP4 1/2997, MOV
+  1/11988, MKV 1/1000): the preview showed N-1, a trim of 41..52 came out
+  `41, 41, 42 .. 51`, and the noise score read duplicated pairs as noiseless.
+  So `RESET_PTS_FILTER` (`setpts=PTS-STARTPTS`) goes **first in the one
+  `-vf`**, only when the decoder seeks; a decoder that doesn't seek passes no
+  `-ss` (not even `-ss 0`) and no reset, so untrimmed encodes are untouched and
+  preview frame 0 is the encode's frame 0. Never `-fps_mode passthrough` here:
+  it drops the constant-rate slots a soft-telecine source decodes to (only the
+  VFR decoder uses it). **Test seek alignment against an independent decode**
+  (`select=eq(n,N)` of the source), never preview against encode, which shift
+  together — `integration_seek_alignment_test.dart` (heavy). MPEG-PS/TS, MPEG-2
+  in AVI and leading null frames still seek to the wrong picture for other
+  reasons (docs/reports/issue-157-seek-alignment).
 
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
-"Clean aperture".
+"Clean aperture" and "Seek alignment".
 
 ### Variable Frame Rate Sources (issue #137)
 

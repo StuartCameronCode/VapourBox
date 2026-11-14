@@ -211,12 +211,43 @@ class PreviewGenerator {
     return thumbnails;
   }
 
-  /// Get the unprocessed source frame at an exact frame index.
+  /// The ffmpeg arguments that write source frame [frameIndex] (the "before"
+  /// picture) to [outputPath].
   ///
   /// Frame-accurate: seeks to the midpoint of the interval *before* the target
   /// frame ((index - 0.5)/fps) so the first decoded frame (PTS >= seek time) is
   /// exactly `frameIndex`. This matches the worker's preview seek, so the
-  /// before/after comparison always shows the same source frame.
+  /// before/after comparison always shows the same source frame. An image
+  /// output is written with passthrough timing, so unlike the worker's
+  /// `rawvideo` decoders it needs no PTS reset after the seek (issue #157).
+  ///
+  /// `integration_seek_alignment_test.dart` runs exactly these arguments (with
+  /// a PNG [outputPath]) against an independent sequential decode, so keep
+  /// every decode option here rather than at the call site.
+  static List<String> beforeFrameArgs({
+    required String videoPath,
+    required int frameIndex,
+    required double frameRate,
+    String? toneMap,
+    required String outputPath,
+  }) {
+    final frame = frameIndex < 0 ? 0 : frameIndex;
+    final seekTime = (frame - 0.5) / frameRate;
+    final ss = seekTime < 0 ? 0.0 : seekTime;
+    return [
+      '-y',
+      '-ss', ss.toStringAsFixed(6),
+      ...sourceDecodeOptions,
+      '-i', videoPath,
+      '-frames:v', '1',
+      if (toneMap != null) ...['-vf', toneMap],
+      '-q:v', '2',
+      outputPath,
+    ];
+  }
+
+  /// Get the unprocessed source frame at an exact frame index — see
+  /// [beforeFrameArgs].
   Future<Uint8List?> getFrameAtIndex(int frameIndex) async {
     if (_currentVideoPath == null || _ffmpegPath == null) return null;
 
@@ -229,22 +260,17 @@ class PreviewGenerator {
 
     // Extract frame
     final outputPath = '$_tempDir/frame_$frame.jpg';
-    final seekTime = ((frame - 0.5) / _frameRate);
-    final ss = seekTime < 0 ? 0.0 : seekTime;
 
     try {
       final result = await Process.run(
         _ffmpegPath!,
-        [
-          '-y',
-          '-ss', ss.toStringAsFixed(6),
-          ...sourceDecodeOptions,
-          '-i', _currentVideoPath!,
-          '-frames:v', '1',
-          if (_toneMap case final toneMap?) ...['-vf', toneMap],
-          '-q:v', '2',
-          outputPath,
-        ],
+        beforeFrameArgs(
+          videoPath: _currentVideoPath!,
+          frameIndex: frame,
+          frameRate: _frameRate,
+          toneMap: _toneMap,
+          outputPath: outputPath,
+        ),
       );
 
       if (result.exitCode == 0 && await File(outputPath).exists()) {
