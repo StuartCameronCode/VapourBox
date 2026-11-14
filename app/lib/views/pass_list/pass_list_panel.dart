@@ -40,6 +40,7 @@ class PassListPanel extends StatelessWidget {
       title: 'Deinterlace & Film Damage',
       passes: [
         PassType.deinterlace,
+        PassType.unblend,
         PassType.edgeRepair,
         PassType.ghostRemoval,
         PassType.deflicker,
@@ -169,6 +170,9 @@ class PassListPanel extends StatelessWidget {
                   pipeline.frameRate.enabled,
                   onToggle: (enabled) =>
                       _handleModelAddonToggle(context, viewModel, passType, enabled));
+            case PassType.unblend:
+              return item(passType, 'Unblend (SRestore)', pipeline.unblend.summary,
+                  pipeline.unblend.enabled);
             case PassType.deflicker:
               return item(passType, 'Deflicker', pipeline.deflicker.summary,
                   pipeline.deflicker.enabled);

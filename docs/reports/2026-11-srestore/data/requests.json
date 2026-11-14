@@ -1,0 +1,40 @@
+{
+ "requests_1": {
+  "evaluations": 143,
+  "jmp_true": 0,
+  "first_frames_evaluated": [
+   0,
+   2,
+   4,
+   6,
+   8,
+   10,
+   12,
+   14,
+   16,
+   18,
+   20,
+   22
+  ],
+  "make_linear_warning": "Critical: Explicitly instantiated a Cache with make_linear set. This is no longer possible and the original clip has been passed through instead which may cause severe issues."
+ },
+ "requests_8": {
+  "evaluations": 143,
+  "jmp_true": 0,
+  "first_frames_evaluated": [
+   0,
+   2,
+   4,
+   6,
+   8,
+   10,
+   12,
+   14,
+   16,
+   18,
+   20,
+   22
+  ],
+  "make_linear_warning": "Critical: Explicitly instantiated a Cache with make_linear set. This is no longer possible and the original clip has been passed through instead which may cause severe issues."
+ }
+}

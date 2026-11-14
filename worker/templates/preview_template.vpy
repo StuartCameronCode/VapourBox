@@ -500,6 +500,29 @@ clip = core.resize.Point(clip, format=_fade_fmt.id, dither_type="error_diffusion
 {{/DEINTERLACE}}
 
 # ============================================================================
+# PASS 2b: UNBLEND (SRestore)
+# ============================================================================
+{{#UNBLEND}}
+# Recover the original frames of a frame-rate conversion done by blending
+# (film shown on PAL through a standards converter, PAL converted to NTSC).
+# Straight after deinterlacing: the detector has to see the blends exactly as
+# the deinterlacer leaves them. srestore.py is VapourBox's port of srestore
+# 2.7e, not havsfunc.srestore, which on this VapourSynth never sees two
+# consecutive frames and only decimates (docs/reports/2026-11-srestore). Each
+# decision replays a fixed window, so the preview and the encode agree.
+import sys as _unb_sys
+_unb_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+import srestore as _unb
+# Preview only: copies of the window's first frame in front, so the pass's
+# phase (frame index mod its ratio's period) is the encode's, and the
+# detector told where the real frames start (ProcessingPipeline::preview_output).
+_unb_pad = {{PREVIEW_UNBLEND_PAD}}
+if _unb_pad:
+    clip = clip[0] * _unb_pad + clip
+clip = _unb.unblend(clip, {{UNBLEND_NUM}}, {{UNBLEND_DEN}}, origin={{PREVIEW_UNBLEND_ORIGIN}}, window={{UNBLEND_WINDOW}})
+{{/UNBLEND}}
+
+# ============================================================================
 # PASS 3: DESCRATCH (scratch removal)
 # ============================================================================
 # PASS 1c: EDGE REPAIR / GHOST REMOVAL

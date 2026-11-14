@@ -87,6 +87,12 @@ class FieldOrderDetector {
         duration: _parseDuration(videoStream['duration'] as String?) ?? duration,
         frameRate: frameRate,
       );
+      final videoStart = await probeVideoStart(
+        ffprobe,
+        videoPath,
+        streamStart: double.tryParse('${videoStream['start_time']}'),
+        containerStart: double.tryParse('${format?['start_time']}'),
+      );
       final codec = videoStream['codec_name'] as String?;
       final pixelFormat = videoStream['pix_fmt'] as String?;
 
@@ -123,7 +129,13 @@ class FieldOrderDetector {
         height: height ?? 0,
         frameRate: frameRate ?? 0,
         duration: duration ?? 0,
-        frameCount: frameCount ?? _estimateFrameCount(duration, frameRate),
+        frameCount: frameCount ??
+            frameCountFromDuration(
+              streamDuration: _parseDuration(videoStream['duration'] as String?),
+              containerDuration: duration,
+              start: videoStart,
+              frameRate: frameRate,
+            ),
         codec: codec ?? 'unknown',
         pixelFormat: pixelFormat ?? 'unknown',
         fieldOrder: fieldOrder,
@@ -135,6 +147,7 @@ class FieldOrderDetector {
         colorTransfer: colorTag(videoStream, 'color_transfer'),
         colorRange: colorTag(videoStream, 'color_range'),
         dolbyVision: DolbyVisionInfo.fromStream(videoStream),
+        videoStartOffset: videoStart.offset,
       );
     } catch (e) {
       return null;
@@ -550,10 +563,115 @@ class FieldOrderDetector {
     return int.tryParse(countStr);
   }
 
-  int _estimateFrameCount(double? duration, double? frameRate) {
-    if (duration == null || frameRate == null) return 0;
-    return (duration * frameRate).round();
+  /// The length in frames of a constant-rate source with no stored count
+  /// (`nb_frames` absent: TS, most MKV), counted from the video's first
+  /// picture, as the worker decodes it:
+  ///
+  /// 1. the video stream's own duration plus its leading pictures (an open
+  ///    GOP's B pictures shown before the stream's `start_time`);
+  /// 2. else the container's duration less the video's start offset.
+  ///
+  /// The container's duration alone runs from the earliest stream: on a DVB-T
+  /// capture whose sound starts 1.2 s first it counted 158 frames for a
+  /// 128-frame video, and the encode padded the difference with repeats.
+  static int frameCountFromDuration({
+    required double? streamDuration,
+    required double? containerDuration,
+    required VideoStart start,
+    required double? frameRate,
+  }) {
+    if (frameRate == null || frameRate <= 0) return 0;
+    if (streamDuration != null && streamDuration > 0) {
+      return ((streamDuration + start.leading) * frameRate).round();
+    }
+    if (containerDuration == null) return 0;
+    final d = containerDuration - start.offset;
+    return d > 0 ? (d * frameRate).round() : 0;
   }
+
+  /// ffprobe's arguments (before the input) for [videoStartFromProbe]: the
+  /// worker's `source_decode::VIDEO_START_PROBE_ARGS`, word for word.
+  static const videoStartProbeArgs = [
+    '-v', 'error',
+    '-select_streams', 'v:0',
+    '-show_entries', 'packet=pts_time:stream=start_time:format=start_time',
+    '-read_intervals', '%+#64',
+    '-of', 'json',
+  ];
+
+  /// Where the video's first picture sits (see [VideoStart]), from ffprobe's
+  /// answer to [videoStartProbeArgs]: the earlier of the stream's
+  /// `start_time` and the smallest PTS among its first packets (an open GOP
+  /// shows pictures stored after the first packet; MPEG-2 in AVI stores
+  /// packets with no PTS at all), less the container's `start_time`.
+  /// Twin of the worker's `source_decode::video_start_from_probe`; both read
+  /// `Tests/TestResources/video_start_probe_dvbt.json` in their tests.
+  static VideoStart videoStartFromProbe(Map<String, dynamic> json) {
+    double? num(Object? v) => v == null ? null : double.tryParse('$v');
+    final format = json['format'] as Map<String, dynamic>?;
+    final container = num(format?['start_time']);
+    final streams = (json['streams'] as List<dynamic>?) ?? const [];
+    final streamStart = streams.isEmpty
+        ? null
+        : num((streams.first as Map<String, dynamic>)['start_time']);
+    final packets = (json['packets'] as List<dynamic>?) ?? const [];
+    double? first = streamStart;
+    for (final p in packets) {
+      final t = num((p as Map<String, dynamic>)['pts_time']);
+      if (t != null && t.isFinite && (first == null || t < first)) first = t;
+    }
+    if (first == null) return VideoStart.none;
+    final offset =
+        container != null && first > container ? first - container : 0.0;
+    final leading =
+        streamStart != null && streamStart > first ? streamStart - first : 0.0;
+    return VideoStart(offset: offset, leading: leading);
+  }
+
+  /// Probe where the video's first picture sits, but only when the video
+  /// stream starts after the container (its sound starts first): the first
+  /// picture is never later than the stream's `start_time`, so otherwise
+  /// there is nothing to find. Then, and on any failure, [VideoStart.none]:
+  /// frame N means what it always meant.
+  static Future<VideoStart> probeVideoStart(
+    String ffprobe,
+    String videoPath, {
+    required double? streamStart,
+    required double? containerStart,
+  }) async {
+    if (streamStart == null ||
+        containerStart == null ||
+        streamStart <= containerStart) {
+      return VideoStart.none;
+    }
+    try {
+      final result =
+          await Process.run(ffprobe, [...videoStartProbeArgs, videoPath]);
+      if (result.exitCode != 0) return VideoStart.none;
+      return videoStartFromProbe(
+          jsonDecode(result.stdout as String) as Map<String, dynamic>);
+    } catch (_) {
+      return VideoStart.none;
+    }
+  }
+}
+
+/// Where a source's video starts, for a file whose sound starts first (a
+/// broadcast capture). Frame N counts from the video's first picture, so
+/// every seek of the source adds [offset]: an input `-ss` is measured from
+/// the container's start, which is the earliest stream's.
+class VideoStart {
+  /// Seconds from the container's start to the first picture shown (the
+  /// smallest PTS among the first packets), never negative.
+  final double offset;
+
+  /// Seconds the first picture comes before the stream's `start_time`, which
+  /// is its first *packet*: an open GOP shows B pictures stored after it.
+  final double leading;
+
+  const VideoStart({required this.offset, required this.leading});
+
+  static const none = VideoStart(offset: 0, leading: 0);
 }
 
 /// Results from ffmpeg idet filter analysis.
@@ -676,6 +794,12 @@ class VideoInfo {
   /// layer is ordinary HDR10, HLG or SDR.
   final DolbyVisionInfo? dolbyVision;
 
+  /// Seconds the video's first picture starts after the file's start (its
+  /// sound starts first), 0 for most files. See [VideoStart]. The output
+  /// keeps that layout unless Audio Restoration's "start the sound with the
+  /// picture" drops the sound before the picture.
+  final double videoStartOffset;
+
   const VideoInfo({
     required this.width,
     required this.height,
@@ -693,6 +817,7 @@ class VideoInfo {
     this.colorTransfer,
     this.colorRange,
     this.dolbyVision,
+    this.videoStartOffset = 0,
   });
 
   String get resolution => '${width}x$height';

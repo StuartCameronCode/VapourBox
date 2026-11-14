@@ -97,9 +97,92 @@ pub struct VideoJob {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pitch_factors_path: Option<String>,
 
+    /// Seconds from the container's start to the video's first picture
+    /// (`source_decode::video_start_from_probe`). Non-zero when the audio
+    /// starts first, as on broadcast captures. Every seek adds it, and the
+    /// output keeps the gap (see `output_video_delay`). Filled by the worker
+    /// when the job omits it; `None` and 0 both mean "no gap".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_start_offset: Option<f64>,
+
+    /// Whether the source has an audio stream, probed by the worker only when
+    /// the video starts late (`source_decode::probe_has_audio`). `None` means
+    /// unknown and is treated as yes. Not on the wire.
+    #[serde(skip)]
+    pub source_has_audio: Option<bool>,
+
 }
 
 impl VideoJob {
+    /// The video start offset in seconds, 0 when unknown or invalid.
+    pub fn video_start(&self) -> f64 {
+        self.video_start_offset.filter(|o| o.is_finite() && *o > 0.0).unwrap_or(0.0)
+    }
+
+    /// The in-point in seconds on the video's own timeline (0 untrimmed).
+    fn in_point_secs(&self) -> f64 {
+        let fps = self.input_frame_rate.filter(|f| *f > 0.0).unwrap_or(29.97);
+        self.start_frame.filter(|s| *s > 0).map_or(0.0, |s| s as f64 / fps)
+    }
+
+    /// Seconds the output's picture starts after its sound: the one decision
+    /// for how a source whose video starts after its audio is laid out.
+    ///
+    /// By default the output keeps the source's own layout, sound first, the
+    /// picture joining `video_start` later: the encoder delays the video by
+    /// this much and the sound is copied (or rendered) from the container's
+    /// start. That is in sync and loses nothing. It is 0 when there is no gap,
+    /// when the job is trimmed (both then start at the in-point), when the
+    /// output or the source has no audio, and when Audio Restoration's "start
+    /// the sound with the picture" drops the sound before the first picture
+    /// instead.
+    pub fn output_video_delay(&self) -> f64 {
+        let offset = self.video_start();
+        if offset <= 0.0
+            || self.in_point_secs() > 0.0
+            || self.encoding_settings.audio_mode == AudioMode::None
+            || self.source_has_audio == Some(false)
+        {
+            return 0.0;
+        }
+        let audio = self.effective_pipeline().audio;
+        if audio.enabled && audio.start_with_picture {
+            return 0.0;
+        }
+        offset
+    }
+
+    /// The span of the source's sound the output carries, as `(start,
+    /// duration)` on the container timeline, for reading the source's audio
+    /// directly (transcription without Audio Restoration): what the encoder's
+    /// audio input covers. `None` for the whole track, which is what an
+    /// untrimmed job whose streams start together carries.
+    pub fn source_audio_window(&self) -> Option<(f64, Option<f64>)> {
+        let fps = self.input_frame_rate.filter(|f| *f > 0.0).unwrap_or(29.97);
+        let start = self.source_audio_start();
+        let delay = self.output_video_delay();
+        let picture = match (self.start_frame, self.end_frame) {
+            (Some(s), Some(e)) if e >= s => Some((e - s + 1) as f64 / fps),
+            (None, Some(e)) | (Some(0), Some(e)) => Some((e + 1) as f64 / fps),
+            _ => None,
+        };
+        if start <= 0.0 && picture.is_none() {
+            return None;
+        }
+        Some((start, picture.map(|p| p + delay)))
+    }
+
+    /// Where the output's sound starts on the source's container timeline (what
+    /// an input `-ss` on the source counts from): the container's start when
+    /// the picture is delayed, else the in-point's picture.
+    pub fn source_audio_start(&self) -> f64 {
+        if self.output_video_delay() > 0.0 {
+            0.0
+        } else {
+            self.video_start() + self.in_point_secs()
+        }
+    }
+
     /// The source's colour tags, validated. Empty when the source was untagged.
     pub fn color_metadata(&self) -> ColorMetadata {
         ColorMetadata::from_raw(
@@ -212,6 +295,13 @@ impl VideoJob {
             let (num, den) = self.input_fps_rational();
             fr.source_fps_num = Some(num);
             fr.source_fps_den = Some(den);
+        }
+        // Unblend's ratio is taken against the same rate.
+        let ub = &mut pipeline.unblend;
+        if ub.source_fps_num.is_none() || ub.source_fps_den.is_none() {
+            let (num, den) = self.input_fps_rational();
+            ub.source_fps_num = Some(num);
+            ub.source_fps_den = Some(den);
         }
         pipeline
     }
@@ -706,22 +796,22 @@ impl EncodingSettings {
     }
 
     /// The output colour format the script actually converts to: the user's
-    /// choice, except where the codec stores one format and only one.
+    /// choice, except where the codec stores one format and only one
+    /// ([`VideoCodec::fixed_output_format`]: v210, and every ProRes profile).
     ///
-    /// v210 is always 10-bit 4:2:2, so the conversion is done here, in the
-    /// script, where `_FieldBased` makes zimg field-aware. Left to ffmpeg's
-    /// `-pix_fmt`, an interlaced 4:2:0 source would have its two fields'
-    /// chroma blended together (measured: rows of 64/192 came out 84/172),
+    /// The conversion is done here, in the script, where `_FieldBased` makes
+    /// zimg field-aware. Left to ffmpeg's `-pix_fmt`, an interlaced 4:2:0
+    /// source would have its two fields' chroma blended together (measured:
+    /// rows of 64/192 came out 84/172; docs/reports/2026-11-prores-script-chroma),
     /// and a user-selected 8-bit format would be reduced first and padded
-    /// back up, losing depth for nothing. `v210ChromaPinWarning` in
-    /// `app/lib/utils/pixel_format.dart` tells the user, pinned to
-    /// `v210_stores_422_10_whatever_is_selected`.
+    /// back up, losing depth for nothing. `v210ChromaPinWarning` and
+    /// `proresChromaPinWarning` in `app/lib/utils/pixel_format.dart` tell the
+    /// user, pinned to `v210_stores_422_10_whatever_is_selected` and
+    /// `prores_converts_to_its_profile_format_whatever_is_selected`.
     pub fn effective_chroma_subsampling(&self) -> ChromaSubsampling {
-        if self.codec.is_uncompressed() {
-            ChromaSubsampling::Yuv422P10
-        } else {
-            self.chroma_subsampling
-        }
+        self.codec
+            .fixed_output_format()
+            .unwrap_or(self.chroma_subsampling)
     }
 }
 
@@ -820,6 +910,23 @@ pub enum VideoCodec {
     /// script produces itself (see `EncodingSettings::effective_chroma_subsampling`).
     #[serde(rename = "v210")]
     V210,
+}
+
+/// How a codec declares a still-interlaced picture's field order
+/// (`VideoCodec::field_order_signal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldOrderSignal {
+    /// Not declared: the file says progressive (or nothing).
+    None,
+    /// `-top 1|0` on the pipe input; the container (and FFV1's bitstream)
+    /// records it. Pixels unchanged.
+    Container,
+    /// `-top`, and ProRes codes the frame as fields (`-flags +ildct`), which
+    /// sets its own frame header's field flag.
+    ProResFields,
+    /// `-top`, `-flags +ildct` and `-x264-params tff=1|bff=1`: libx264 codes
+    /// the picture interlaced (MBAFF).
+    X264Interlaced,
 }
 
 /// Encoder family for grouping quality/preset logic.
@@ -945,20 +1052,81 @@ impl VideoCodec {
     }
 
     /// Whether this is an editing intermediate (ProRes, v210): a file made to
-    /// be cut in an NLE, not delivered. Three output decisions key off it:
-    /// the field-order flag (`flags_field_order`), no `+faststart`
+    /// be cut in an NLE, not delivered. It gets no `+faststart`
     /// (`pipeline_executor::uses_faststart`) and PCM for a restored audio
     /// track under Passthrough (`audio_restoration::restored_passthrough_codec`).
+    /// Field-order flagging is decided separately (`field_order_signal`).
     pub fn is_editing_intermediate(&self) -> bool {
         self.is_prores() || self.is_uncompressed()
     }
 
+    /// How this codec declares a still-interlaced picture's field order (see
+    /// `ScriptGenerator::output_field_order`, `pipeline_executor::field_order_args`).
+    /// Measured in docs/reports/2026-11-field-order-other-codecs.
+    ///
+    /// Deliberately exhaustive — no catch-all arm — so a new codec cannot be
+    /// added without deciding this.
+    pub fn field_order_signal(&self) -> FieldOrderSignal {
+        match self {
+            // Metadata only, and lossless either way: MKV's FieldOrder, MOV's
+            // `fiel`. FFV1 also writes it in its own bitstream, so it survives
+            // even in AVI. The decoded pixels are bit-identical.
+            VideoCodec::V210 | VideoCodec::FFV1 | VideoCodec::Huffyuv | VideoCodec::Ffvhuff => {
+                FieldOrderSignal::Container
+            }
+            VideoCodec::ProResProxy
+            | VideoCodec::ProResLT
+            | VideoCodec::ProRes422
+            | VideoCodec::ProResHQ
+            | VideoCodec::ProRes4444
+            | VideoCodec::ProRes4444Xq => FieldOrderSignal::ProResFields,
+            // Real interlaced coding (MBAFF). At equal bitrate it beat coding
+            // the woven frame as progressive on every fixture.
+            VideoCodec::H264 => FieldOrderSignal::X264Interlaced,
+            // x265 has no interlaced coding: its `interlace` mode declares
+            // every woven frame to be a single field (`field_seq_flag=1`), and
+            // a container-only flag is read by AVFoundation but not by
+            // FFmpeg-based players, so the two would disagree about one file.
+            // The hardware encoders can't code fields either (VideoToolbox
+            // ignores `+ildct`) or can't be verified (NVENC, QSV, AMF).
+            VideoCodec::H265
+            | VideoCodec::H264Nvenc
+            | VideoCodec::H265Nvenc
+            | VideoCodec::H264Qsv
+            | VideoCodec::H265Qsv
+            | VideoCodec::H264Videotoolbox
+            | VideoCodec::H265Videotoolbox
+            | VideoCodec::H264Amf
+            | VideoCodec::H265Amf => FieldOrderSignal::None,
+        }
+    }
+
     /// Whether the output is flagged with the picture's field order when it is
-    /// still interlaced (see `ScriptGenerator::output_field_order`). The
-    /// editing intermediates only: an NLE reads the flag to decide how to
-    /// treat the fields. Other codecs are unchanged.
+    /// still interlaced. See [`Self::field_order_signal`].
     pub fn flags_field_order(&self) -> bool {
-        self.is_editing_intermediate()
+        self.field_order_signal() != FieldOrderSignal::None
+    }
+
+    /// The one output format this codec stores, whatever Color Format is
+    /// selected, or `None` when the selection applies. The script converts to
+    /// it itself (see [`EncodingSettings::effective_chroma_subsampling`]), and
+    /// [`forced_pix_fmt`](Self::forced_pix_fmt) pins the same format as a
+    /// guard (`fixed_output_format_agrees_with_the_pin`).
+    ///
+    /// ProRes is derived from the profile number, as the pin is, so a profile
+    /// added later cannot be missed: 4 and above store 4:4:4, the rest 4:2:2,
+    /// all at 10 bits (`prores_ks` has no other depth).
+    pub fn fixed_output_format(&self) -> Option<ChromaSubsampling> {
+        if self.is_uncompressed() {
+            return Some(ChromaSubsampling::Yuv422P10);
+        }
+        self.prores_profile().map(|profile| {
+            if profile >= 4 {
+                ChromaSubsampling::Yuv444P10
+            } else {
+                ChromaSubsampling::Yuv422P10
+            }
+        })
     }
 
     /// FFmpeg output pixel format to force for this codec, given the format the
@@ -998,6 +1166,11 @@ impl VideoCodec {
         // negotiation already picks. Verified on pal-sd-25.mov at all four
         // profiles — identical `framemd5` with and without the flag, so this
         // changes nothing for anyone already encoding ProRes.
+        //
+        // Since the script converts to the profile's format itself
+        // (`fixed_output_format`), field-aware, this is a guard rather than a
+        // conversion: ffmpeg's own 4:2:0 -> 4:2:2 conversion blends the two
+        // fields' chroma of an interlaced picture.
         if let Some(profile) = self.prores_profile() {
             return Some(if profile >= 4 {
                 "yuv444p10le" // 4444 and 4444 XQ. Alpha is never carried here,
@@ -1529,59 +1702,190 @@ mod tests {
         assert!(c.flags_field_order());
         for codec in VideoCodec::ALL.iter().copied() {
             assert_eq!(codec.is_uncompressed(), codec == VideoCodec::V210, "{codec:?}");
-            assert_eq!(codec.flags_field_order(), codec.is_prores() || codec == VideoCodec::V210);
         }
         for fmt in ["yuv420p", "yuv422p", "yuv420p10le", "yuv422p10le", "yuv444p10le", "yuv422p16le"] {
             assert_eq!(c.forced_pix_fmt(fmt), Some("yuv422p10le"), "{fmt}");
         }
     }
 
+    /// A job with `codec`, `selection` and source `src`, for the tables below.
+    fn fixed_format_job(codec: VideoCodec, selection: ChromaSubsampling, src: &str) -> VideoJob {
+        let mut job: VideoJob = serde_json::from_value(serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "inputPath": "in.mov",
+            "outputPath": "out.mov",
+            "qtgmcParameters": {},
+            "encodingSettings": {},
+        }))
+        .unwrap();
+        job.input_pixel_format = Some(src.to_string());
+        job.encoding_settings.codec = codec;
+        job.encoding_settings.chroma_subsampling = selection;
+        job
+    }
+
+    /// The sources both pin-warning tables run over: every chroma layout, and
+    /// depths below, at and above ProRes/v210's 10 bits (`yuv444p12le` is what
+    /// the decoder reports for every ProRes 4444 source).
+    const FIXED_FORMAT_SOURCES: [&str; 7] = [
+        "yuv420p", "yuv411p", "yuv422p", "yuv422p10le", "yuv444p10le", "yuv444p12le", "yuv422p16le",
+    ];
+
+    /// What a pin warning reports for a codec that stores `stored` whatever is
+    /// selected: (selection ignored, source chroma lost, padded up to 4:4:4).
+    /// Derived from the facts; the tables check it against hand-written rows.
+    fn fixed_format_facts(
+        stored: ChromaSubsampling,
+        selection: ChromaSubsampling,
+        src: &str,
+    ) -> (bool, bool, bool) {
+        use crate::pixel_format::{chroma_and_depth, ChromaClass};
+        let (src_chroma, _) = chroma_and_depth(src);
+        let stores_444 = stored == ChromaSubsampling::Yuv444P10;
+        let ignored = !(selection == ChromaSubsampling::Original || selection == stored);
+        // The selection is not applied, so what is lost or padded depends on
+        // the source alone.
+        let lost = !stores_444 && src_chroma == ChromaClass::C444;
+        let padded = stores_444 && src_chroma != ChromaClass::C444;
+        (ignored, lost, padded)
+    }
+
+    /// Which codecs declare a still-interlaced picture's field order, stated
+    /// from the families rather than the table itself
+    /// (docs/reports/2026-11-field-order-other-codecs).
+    #[test]
+    fn field_order_signal_per_codec() {
+        for codec in VideoCodec::ALL.iter().copied() {
+            let expected = if codec.is_prores() {
+                FieldOrderSignal::ProResFields
+            } else if codec.is_lossless() || codec.is_uncompressed() {
+                FieldOrderSignal::Container
+            } else if codec == VideoCodec::H264 {
+                FieldOrderSignal::X264Interlaced
+            } else {
+                // x265 and every hardware encoder.
+                assert!(codec.is_h265() || codec.is_hardware(), "{codec:?}");
+                FieldOrderSignal::None
+            };
+            assert_eq!(codec.field_order_signal(), expected, "{codec:?}");
+            assert_eq!(codec.flags_field_order(), expected != FieldOrderSignal::None, "{codec:?}");
+        }
+    }
+
     /// The table `v210ChromaPinWarning` (app/lib/utils/pixel_format.dart) is
-    /// pinned to, in `app/test/v210_test.dart`. Change one,
-    /// change both.
+    /// pinned to, in `app/test/v210_test.dart`. Change one, change both.
     ///
     /// Whatever Color Format is selected, the script converts to 10-bit 4:2:2
-    /// for v210. Each row: (selection, source, chroma lost, selection ignored).
+    /// for v210. Each row: (selection ignored, source chroma lost, padded).
     #[test]
     fn v210_stores_422_10_whatever_is_selected() {
-        use crate::pixel_format::{chroma_and_depth, ChromaClass};
         use ChromaSubsampling as C;
-        let sources = ["yuv420p", "yuv411p", "yuv422p", "yuv422p10le", "yuv444p10le", "yuv422p16le"];
         for &cs in ChromaSubsampling::ALL {
-            for src in sources {
-                let mut job: VideoJob = serde_json::from_value(serde_json::json!({
-                    "id": "00000000-0000-0000-0000-000000000000",
-                    "inputPath": "in.mov",
-                    "outputPath": "out.mov",
-                    "qtgmcParameters": {},
-                    "encodingSettings": {},
-                }))
-                .unwrap();
-                job.input_pixel_format = Some(src.to_string());
-                job.encoding_settings.codec = VideoCodec::V210;
-                job.encoding_settings.chroma_subsampling = cs;
+            for src in FIXED_FORMAT_SOURCES {
+                let job = fixed_format_job(VideoCodec::V210, cs, src);
                 assert_eq!(job.encoding_settings.effective_chroma_subsampling(), C::Yuv422P10);
                 assert_eq!(job.encoder_input_pix_fmt(), "yuv422p10le", "{cs:?} {src}");
 
-                // What the pin warning reports, derived from the same facts.
-                let chosen = cs.ffmpeg_pix_fmt().unwrap_or(src);
-                let (chosen_chroma, _) = chroma_and_depth(chosen);
-                let chroma_lost = chosen_chroma == ChromaClass::C444;
-                let ignored = !matches!(cs, C::Original | C::Yuv422P10);
-                let expected: (bool, bool) = match (cs, src) {
-                    (C::Original, "yuv444p10le") => (true, false),
-                    (C::Original, _) => (false, false),
-                    (C::Yuv422P10, _) => (false, false),
-                    (C::Yuv444P10, _) => (true, true),
-                    (C::Yuv420 | C::Yuv420P10 | C::Yuv422, _) => (false, true),
+                let src_444 = src.starts_with("yuv444");
+                let expected = match cs {
+                    C::Original | C::Yuv422P10 => (false, src_444, false),
+                    C::Yuv420 | C::Yuv420P10 | C::Yuv422 | C::Yuv444P10 => (true, src_444, false),
                 };
-                assert_eq!((chroma_lost, ignored), expected, "{cs:?} from {src}");
+                assert_eq!(
+                    fixed_format_facts(C::Yuv422P10, cs, src),
+                    expected,
+                    "{cs:?} from {src}"
+                );
             }
         }
-        // Any other codec keeps the selection.
+        // A codec without a fixed format keeps the selection.
         let mut s = EncodingSettings::default();
         s.chroma_subsampling = C::Yuv420;
         assert_eq!(s.effective_chroma_subsampling(), C::Yuv420);
+    }
+
+    /// The table `proresChromaPinWarning` (app/lib/utils/pixel_format.dart) is
+    /// pinned to, in `app/test/prores_chroma_pin_warning_test.dart`. Change one,
+    /// change both.
+    ///
+    /// The script converts straight to the profile's format (field-aware),
+    /// whatever Color Format is selected, and nothing is left for ffmpeg's
+    /// `-pix_fmt` to convert. Each row: (selection ignored, source chroma lost,
+    /// padded up to 4:4:4).
+    #[test]
+    fn prores_converts_to_its_profile_format_whatever_is_selected() {
+        use ChromaSubsampling as C;
+        let prores: Vec<VideoCodec> =
+            VideoCodec::ALL.iter().copied().filter(|c| c.is_prores()).collect();
+        assert_eq!(prores.len(), 6);
+        for codec in prores {
+            let stores_444 = codec.prores_profile().unwrap() >= 4;
+            let (stored, pix) = if stores_444 {
+                (C::Yuv444P10, "yuv444p10le")
+            } else {
+                (C::Yuv422P10, "yuv422p10le")
+            };
+            for &cs in ChromaSubsampling::ALL {
+                for src in FIXED_FORMAT_SOURCES {
+                    let job = fixed_format_job(codec, cs, src);
+                    assert_eq!(job.encoding_settings.effective_chroma_subsampling(), stored);
+                    assert_eq!(job.encoder_input_pix_fmt(), pix, "{codec:?} {cs:?} {src}");
+                    // The pin asks for exactly what the script delivers, so
+                    // ffmpeg inserts no scaler of its own.
+                    assert_eq!(codec.forced_pix_fmt(&job.encoder_input_pix_fmt()), Some(pix));
+
+                    let src_444 = src.starts_with("yuv444");
+                    let expected = match (stores_444, cs) {
+                        (false, C::Original | C::Yuv422P10) => (false, src_444, false),
+                        (false, C::Yuv420 | C::Yuv420P10 | C::Yuv422 | C::Yuv444P10) => {
+                            (true, src_444, false)
+                        }
+                        (true, C::Original | C::Yuv444P10) => (false, false, !src_444),
+                        (true, C::Yuv420 | C::Yuv420P10 | C::Yuv422 | C::Yuv422P10) => {
+                            (true, false, !src_444)
+                        }
+                    };
+                    assert_eq!(
+                        fixed_format_facts(stored, cs, src),
+                        expected,
+                        "{codec:?} {cs:?} from {src}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The codecs that store one format pin ffmpeg to that same format, from
+    /// any input, and every other codec keeps the user's selection.
+    #[test]
+    fn fixed_output_format_agrees_with_the_pin() {
+        for codec in VideoCodec::ALL.iter().copied() {
+            let mut s = EncodingSettings::default();
+            s.codec = codec;
+            s.chroma_subsampling = ChromaSubsampling::Yuv420;
+            match codec.fixed_output_format() {
+                Some(fixed) => {
+                    assert_eq!(s.effective_chroma_subsampling(), fixed, "{codec:?}");
+                    for input in ["yuv420p", "yuv422p", "yuv420p10le", "yuv444p12le"] {
+                        assert_eq!(
+                            codec.forced_pix_fmt(input),
+                            fixed.ffmpeg_pix_fmt(),
+                            "{codec:?} from {input}"
+                        );
+                    }
+                }
+                None => assert_eq!(
+                    s.effective_chroma_subsampling(),
+                    ChromaSubsampling::Yuv420,
+                    "{codec:?}"
+                ),
+            }
+            assert_eq!(
+                codec.fixed_output_format().is_some(),
+                codec.is_prores() || codec.is_uncompressed(),
+                "{codec:?}"
+            );
+        }
     }
 
     /// ProRes stores a chroma layout fixed by its profile, and ffmpeg's format
@@ -1771,5 +2075,110 @@ mod tests {
             serde_json::to_string(&FieldOrder::TopFieldFirst).unwrap(),
             "\"tff\""
         );
+    }
+}
+
+#[cfg(test)]
+mod video_start_tests {
+    use super::*;
+
+    /// 125 frames at 25 fps whose video starts `offset` s after its sound.
+    fn job(offset: Option<f64>) -> VideoJob {
+        let mut job: VideoJob = serde_json::from_value(serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "inputPath": "in.ts",
+            "outputPath": "out.mkv",
+            "qtgmcParameters": {},
+            "encodingSettings": {},
+            "totalFrames": 125,
+            "inputFrameRate": 25.0,
+        }))
+        .unwrap();
+        let mut pipeline = ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = false;
+        job.processing_pipeline = Some(pipeline);
+        job.video_start_offset = offset;
+        job
+    }
+
+    fn start_with_picture(job: &mut VideoJob) {
+        let mut p = job.effective_pipeline();
+        p.audio.enabled = true;
+        p.audio.start_with_picture = true;
+        job.processing_pipeline = Some(p);
+    }
+
+    #[test]
+    fn the_field_is_optional_on_the_wire() {
+        let j = job(None);
+        assert!(!serde_json::to_string(&j).unwrap().contains("videoStartOffset"));
+        let mut j = job(Some(1.25));
+        let back: VideoJob = serde_json::from_str(&serde_json::to_string(&j).unwrap()).unwrap();
+        assert_eq!(back.video_start_offset, Some(1.25));
+        j.video_start_offset = Some(f64::NAN);
+        assert_eq!(j.video_start(), 0.0);
+        assert_eq!(job(Some(-0.5)).video_start(), 0.0);
+    }
+
+    #[test]
+    fn untrimmed_output_keeps_the_sound_first_layout() {
+        let j = job(Some(1.322));
+        assert_eq!(j.output_video_delay(), 1.322);
+        assert_eq!(j.source_audio_start(), 0.0);
+        assert_eq!(j.source_audio_window(), None, "the whole track");
+
+        // No gap: nothing changes.
+        for offset in [None, Some(0.0)] {
+            let j = job(offset);
+            assert_eq!(j.output_video_delay(), 0.0);
+            assert_eq!(j.source_audio_start(), 0.0);
+            assert_eq!(j.source_audio_window(), None);
+        }
+    }
+
+    #[test]
+    fn a_trim_starts_sound_and_picture_together_at_the_in_point() {
+        let mut j = job(Some(1.322));
+        j.start_frame = Some(40);
+        j.end_frame = Some(89);
+        assert_eq!(j.output_video_delay(), 0.0);
+        assert!((j.source_audio_start() - (1.322 + 1.6)).abs() < 1e-9);
+        let (s, d) = j.source_audio_window().unwrap();
+        assert!((s - 2.922).abs() < 1e-9 && (d.unwrap() - 2.0).abs() < 1e-9);
+
+        // Without a gap it is exactly the old trim window.
+        j.video_start_offset = None;
+        assert_eq!(j.source_audio_window(), Some((1.6, Some(2.0))));
+
+        // An out-point alone keeps the delay, so the sound runs that much longer.
+        let mut j = job(Some(1.0));
+        j.end_frame = Some(49);
+        assert_eq!(j.output_video_delay(), 1.0);
+        assert_eq!(j.source_audio_window(), Some((0.0, Some(3.0))));
+    }
+
+    #[test]
+    fn start_with_picture_or_no_audio_drops_the_delay() {
+        let mut j = job(Some(1.322));
+        start_with_picture(&mut j);
+        assert_eq!(j.output_video_delay(), 0.0);
+        assert_eq!(j.source_audio_start(), 1.322);
+
+        // The step does nothing while the pass is off.
+        let mut p = j.effective_pipeline();
+        p.audio.enabled = false;
+        j.processing_pipeline = Some(p);
+        assert_eq!(j.output_video_delay(), 1.322);
+
+        let mut j = job(Some(1.322));
+        j.encoding_settings.audio_mode = AudioMode::None;
+        assert_eq!(j.output_video_delay(), 0.0, "no sound to keep in sync");
+
+        // A source with no audio stream at all (an earlier data stream made
+        // the gap): seeks still need the offset, the output needs no delay.
+        let mut j = job(Some(1.322));
+        j.source_has_audio = Some(false);
+        assert_eq!(j.output_video_delay(), 0.0);
+        assert_eq!(j.video_start(), 1.322);
     }
 }

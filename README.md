@@ -94,7 +94,7 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 | | |
 |---|---|
-| **Video** | H.264, H.265, ProRes (Proxy to 4444 XQ), uncompressed 10-bit 4:2:2 (v210, for Premiere and Resolve: MOV is the container to choose), FFV1, HuffYUV or FFVHuff (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF. ProRes and v210 of a picture left interlaced are flagged with its field order in MOV and MKV (AVI cannot carry it) |
+| **Video** | H.264, H.265, ProRes (Proxy to 4444 XQ), uncompressed 10-bit 4:2:2 (v210, for Premiere and Resolve: MOV is the container to choose), FFV1, HuffYUV or FFVHuff (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF. ProRes and v210 store their own colour format (10-bit 4:2:2, or 4:4:4 for ProRes 4444), converted field by field from an interlaced source. A picture left interlaced is flagged with its field order by ProRes, v210, FFV1, HuffYUV and FFVHuff in MOV and MKV (in AVI only FFV1 keeps it), and H.264 codes it as interlaced; H.265 and the hardware encoders cannot, and the job log says so |
 | **Audio** | Passthrough; AAC, MP3, AC-3, Opus, FLAC or uncompressed PCM; or none |
 | **Containers** | MKV, MP4, MOV, AVI |
 | **Reads** | `.dv` · `.mts` `.m2ts` · `.vob` `.m2v` `.mpg` `.mpeg` · `.mxf` · `.avi` `.mov` `.mp4` `.mkv` `.ts` `.wmv` `.webm` `.flv`, DVD discs and `VIDEO_TS` folders |
@@ -110,30 +110,31 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | # | Filter | What it fixes |
 |---|--------|---------------|
 | 1 | **Deinterlace** | Combing on motion: QTGMC for interlaced video, IVTC for telecined film, Bwdif for speed |
-| 2 | **Edge Repair** | Dirty rows and columns at the edge of a tape capture, rebuilt instead of cropped |
-| 3 | **Ghost Removal** | A faint shifted copy of the picture from an aerial or long cable |
-| 4 | **Deflicker** | Brightness pulsing between frames, typical of scanned cine film |
-| 5 | **DeScratch** | Vertical scratches on scanned film |
-| 6 | **SpotLess** | Dust, dirt and single-frame specks |
-| 7 | **Descale** | Soft, haloed line art in anime the studio upscaled; **Detect** finds the original resolution |
-| 8 | **Noise Reduction** | Grain and video noise. Motion-compensated by default, with BM3D, KNLMeans and more under advanced options |
-| 9 | **Chroma Denoise** | Blotchy, smeared colour, common on VHS |
-| 10 | **Dehalo** | Bright outlines and ringing around edges |
-| 11 | **Deblock** | Blocking from heavy compression |
-| 12 | **Deband** | Visible steps in gradients and skies |
-| 13 | **Anti-Aliasing** | Stair-stepping on diagonal edges: daa, santiag, or SangNom (sharpest) |
-| 14 | **Chroma Fixes** | Colour shifted off the picture, bleeding, rainbowing, dot crawl and leftover combing |
-| 15 | **Colourisation** | Black-and-white footage, coloured by AI (DDColor or DeOldify Video, optional downloads); the brightness of every pixel is kept exactly |
-| 16 | **Color Correction** | Brightness, contrast, saturation, levels, white balance, shadow detail and local contrast, set by hand or measured |
-| 17 | **Stabilize** | Shake and weave from telecine, film scans or a handheld camera, and the frame-height "breathing" of pull-through film scanners (8mm, Super 8): measured from the footage, or read per frame from a factor file (`reel.pitch.txt` next to `reel.mp4` is picked up automatically; file format in [docs/PITCH_FACTOR_FILES.md](docs/PITCH_FACTOR_FILES.md)) |
-| 18 | **Rotate / Flip** | Sideways, upside-down or mirrored footage |
-| 19 | **Crop & Resize** | Black borders, tape blanking and head-switching noise (measured for you by **Detect borders**), scaling and upscaling (edge-directed or AI) with SD colour converted to BT.709 (for HD, or always), and borders to reach an exact frame size |
-| 20 | **Face Restoration** | Blurry, low-resolution faces, redrawn by AI at the output resolution (optional download) |
-| 21 | **Sharpen** | Soft pictures, sharpened after the resize so the result isn't softened again |
-| 22 | **Film Grain** | Grain added back after denoising, so the picture doesn't look plastic |
-| 23 | **Frame Rate** | PAL ↔ NTSC and other rate changes, or any custom rate, by motion interpolation, RIFE, or frame repetition |
-| 24 | **Audio Restoration** | A dead channel, hum, rumble, clicks, clipping, hiss, sound out of sync or drifting, uneven loudness; speech enhancement with DeepFilterNet |
-| 25 | **Subtitles** | Speech-to-text with Whisper AI, from the restored sound |
+| 2 | **Unblend (SRestore)** | Ghostly double images on every movement from a frame-rate conversion done by blending (film on PAL, PAL converted to NTSC): the clean frames are found and the original rate restored |
+| 3 | **Edge Repair** | Dirty rows and columns at the edge of a tape capture, rebuilt instead of cropped |
+| 4 | **Ghost Removal** | A faint shifted copy of the picture from an aerial or long cable |
+| 5 | **Deflicker** | Brightness pulsing between frames, typical of scanned cine film |
+| 6 | **DeScratch** | Vertical scratches on scanned film |
+| 7 | **SpotLess** | Dust, dirt and single-frame specks |
+| 8 | **Descale** | Soft, haloed line art in anime the studio upscaled; **Detect** finds the original resolution |
+| 9 | **Noise Reduction** | Grain and video noise. Motion-compensated by default, with BM3D, KNLMeans and more under advanced options |
+| 10 | **Chroma Denoise** | Blotchy, smeared colour, common on VHS |
+| 11 | **Dehalo** | Bright outlines and ringing around edges |
+| 12 | **Deblock** | Blocking from heavy compression |
+| 13 | **Deband** | Visible steps in gradients and skies |
+| 14 | **Anti-Aliasing** | Stair-stepping on diagonal edges: daa, santiag, or SangNom (sharpest) |
+| 15 | **Chroma Fixes** | Colour shifted off the picture, bleeding, rainbowing, dot crawl and leftover combing |
+| 16 | **Colourisation** | Black-and-white footage, coloured by AI (DDColor or DeOldify Video, optional downloads); the brightness of every pixel is kept exactly |
+| 17 | **Color Correction** | Brightness, contrast, saturation, levels, white balance, shadow detail and local contrast, set by hand or measured |
+| 18 | **Stabilize** | Shake and weave from telecine, film scans or a handheld camera, and the frame-height "breathing" of pull-through film scanners (8mm, Super 8): measured from the footage, or read per frame from a factor file (`reel.pitch.txt` next to `reel.mp4` is picked up automatically; file format in [docs/PITCH_FACTOR_FILES.md](docs/PITCH_FACTOR_FILES.md)) |
+| 19 | **Rotate / Flip** | Sideways, upside-down or mirrored footage |
+| 20 | **Crop & Resize** | Black borders, tape blanking and head-switching noise (measured for you by **Detect borders**), scaling and upscaling (edge-directed or AI) with SD colour converted to BT.709 (for HD, or always), and borders to reach an exact frame size |
+| 21 | **Face Restoration** | Blurry, low-resolution faces, redrawn by AI at the output resolution (optional download) |
+| 22 | **Sharpen** | Soft pictures, sharpened after the resize so the result isn't softened again |
+| 23 | **Film Grain** | Grain added back after denoising, so the picture doesn't look plastic |
+| 24 | **Frame Rate** | PAL ↔ NTSC and other rate changes, or any custom rate, by motion interpolation, RIFE, or frame repetition |
+| 25 | **Audio Restoration** | A dead channel, hum, rumble, clicks, clipping, hiss, sound out of sync or drifting, uneven loudness; speech enhancement with DeepFilterNet; sound that starts before the picture (broadcast captures) |
+| 26 | **Subtitles** | Speech-to-text with Whisper AI, from the restored sound |
 
 The order is designed so each step works on the right picture: damage and noise are removed first, the picture is framed and resized next, and only then sharpened and given grain. The frame rate is converted last, so every other filter works on real frames. Borders are added after everything else, so nothing touches them.
 
@@ -287,6 +288,7 @@ VapourBox is a front end to other people's work. Thanks in particular to:
 - **Frechdachs** (maintained by Jaded Encoding Thaumaturgy) — descale
 - **vszip** by Julek — CLAHE, the local-contrast lift in Color Correction, and NLMeans, the CPU non-local-means denoiser
 - **SangNom** by james1201 and Victor Efimov — the SangNom anti-aliasing method
+- **srestore** 2.7e, from havsfunc, ported into VapourBox's filter scripts for the Unblend pass
 - **vs-jetpack** by the Jaded Encoding Thaumaturgy project — FixInterlacedFades, vine_dehalo and mpeg2stinx, ported into VapourBox's filter scripts
 - **RIFE** by hzwer (with Megvii) — the frame interpolation network, an optional download, run through HolyWu's VapourSynth plugin (built on nihui's rife-ncnn-vulkan and Tencent's ncnn), with **MoltenVK** for Vulkan on macOS
 - **Real-ESRGAN** by Xintao Wang and **Real-CUGAN** by bilibili — the anime upscaling networks, an optional download, run through AmusementClub's **vs-mlrt** (VSNCNN)

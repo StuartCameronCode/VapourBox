@@ -1,4 +1,5 @@
 import '../services/field_order_detector.dart';
+import 'audio_restoration_parameters.dart';
 import 'noise_halo_report.dart';
 import 'processing_pipeline.dart';
 
@@ -152,6 +153,19 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info,
       }
       return PassRelevanceResult.neutral;
 
+    // A dead channel, hum or drift is not in the metadata, but a sound track
+    // that starts before the picture is: the container's timestamps say so
+    // exactly. The output keeps that layout in sync by default, so this only
+    // points at the one step that changes it, never at the sync offset.
+    case PassType.audioRestoration:
+      if (info.videoStartOffset >= videoStartSuggestThreshold) {
+        return PassRelevanceResult(
+          PassRelevance.recommended,
+          'sound starts ${info.videoStartOffset.toStringAsFixed(2)} s before the picture',
+        );
+      }
+      return PassRelevanceResult.neutral;
+
     // Everything below is invisible to detection. Film dirt, scratches,
     // banding and colour casts need eyes on the picture, so the app has no
     // opinion and offers none. (Chroma noise is not measured: the noise score
@@ -168,8 +182,6 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info,
     // chroma, so its metadata does not say it is black and white.
     case PassType.colorize:
     case PassType.subtitles:
-    // A dead channel, hum or drift is not in the metadata either.
-    case PassType.audioRestoration:
     // Anti-aliasing and stabilisation are tempting to tie to detection —
     // jaggies follow deinterlacing, shake follows handheld capture — but
     // neither is actually visible in the metadata, only plausible from it.
@@ -191,6 +203,9 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info,
     // metadata at all; only the pass's own detection can tell.
     case PassType.descale:
     case PassType.frameRate:
+    // Whether a conversion was done by blending is not in the metadata; only
+    // looking at the frames could tell, and nothing measures that yet.
+    case PassType.unblend:
     case PassType.grain:
       return PassRelevanceResult.neutral;
   }

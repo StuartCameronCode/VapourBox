@@ -1,0 +1,21 @@
+{
+ "window": 48,
+ "film": {
+  "port_r1_equals_default": true,
+  "havsfunc_r1_equals_default": true,
+  "reach_back": 46,
+  "reach_ahead": 4,
+  "preview_radius_used": 52,
+  "preview_targets": 22,
+  "preview_mismatches": []
+ },
+ "pal": {
+  "port_r1_equals_default": true,
+  "havsfunc_r1_equals_default": true,
+  "reach_back": 46,
+  "reach_ahead": 4,
+  "preview_radius_used": 52,
+  "preview_targets": 20,
+  "preview_mismatches": []
+ }
+}

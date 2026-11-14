@@ -65,6 +65,10 @@ class PreviewGenerator {
   /// Total frame count.
   int _totalFrames = 0;
 
+  /// Seconds the video's first picture starts after the file's start (its
+  /// sound starts first; see [VideoStart]). Every seek of the source adds it.
+  double _videoStartOffset = 0;
+
   /// Video dimensions and pixel format (for pipe source).
   int _videoWidth = 0;
   int _videoHeight = 0;
@@ -103,18 +107,21 @@ class PreviewGenerator {
         transfer: _colorTransfer,
       );
 
-  /// The ffmpeg arguments for one timeline thumbnail at [time] seconds.
-  /// [tagFix] precedes `scale`, which is the step that converts.
+  /// The ffmpeg arguments for one timeline thumbnail at [time] seconds on
+  /// the video's own timeline (0 = its first picture). [videoStartOffset] is
+  /// added because `-ss` counts from the file's start. [tagFix] precedes
+  /// `scale`, which is the step that converts.
   static List<String> thumbnailArgs({
     required String videoPath,
     required double time,
+    double videoStartOffset = 0,
     String? toneMap,
     String? tagFix,
     required String outputPath,
   }) {
     return [
       '-y',
-      '-ss', time.toStringAsFixed(3),
+      '-ss', (time + videoStartOffset).toStringAsFixed(3),
       ...sourceDecodeOptions,
       '-i', videoPath,
       '-vframes', '1',
@@ -143,6 +150,7 @@ class PreviewGenerator {
   double get duration => _duration;
   double get frameRate => _frameRate;
   int get totalFrames => _totalFrames;
+  double get videoStartOffset => _videoStartOffset;
 
   /// Get all preview log messages.
   List<String> get previewLog => List.unmodifiable(_previewLog);
@@ -252,8 +260,13 @@ class PreviewGenerator {
   ///
   /// Frame-accurate: seeks to the midpoint of the interval *before* the target
   /// frame ((index - 0.5)/fps) so the first decoded frame (PTS >= seek time) is
-  /// exactly `frameIndex`. This matches the worker's preview seek, so the
-  /// before/after comparison always shows the same source frame. An image
+  /// exactly `frameIndex`. This matches the worker's preview seek
+  /// (`source_decode::seek_time`), so the before/after comparison always shows
+  /// the same source frame. Like it, frame 0 does not seek at all (a seek on
+  /// an MPEG-TS drops an open GOP's leading pictures), and every other seek
+  /// adds [videoStartOffset]: frame N counts from the video's first picture,
+  /// while `-ss` counts from the file's start, which is the sound's on a
+  /// broadcast capture (see [VideoStart]). An image
   /// output is written with passthrough timing, so unlike the worker's
   /// `rawvideo` decoders it needs no PTS reset after the seek (issue #157).
   ///
@@ -268,17 +281,17 @@ class PreviewGenerator {
     required String videoPath,
     required int frameIndex,
     required double frameRate,
+    double videoStartOffset = 0,
     String? toneMap,
     String? tagFix,
     required String outputPath,
   }) {
     final frame = frameIndex < 0 ? 0 : frameIndex;
-    final seekTime = (frame - 0.5) / frameRate;
-    final ss = seekTime < 0 ? 0.0 : seekTime;
+    final offset = videoStartOffset > 0 ? videoStartOffset : 0.0;
     final vf = [if (tagFix != null) tagFix, if (toneMap != null) toneMap];
     return [
       '-y',
-      '-ss', ss.toStringAsFixed(6),
+      if (frame > 0) ...['-ss', ((frame - 0.5) / frameRate + offset).toStringAsFixed(6)],
       ...sourceDecodeOptions,
       '-i', videoPath,
       '-frames:v', '1',
@@ -310,6 +323,7 @@ class PreviewGenerator {
           videoPath: _currentVideoPath!,
           frameIndex: frame,
           frameRate: _frameRate,
+          videoStartOffset: _videoStartOffset,
           toneMap: _toneMap,
           tagFix: _tagFix,
           outputPath: outputPath,
@@ -623,18 +637,40 @@ class PreviewGenerator {
       _frameRate = selected;
     }
 
+    // Where the video's first picture sits: frame N counts from it, so every
+    // seek adds the offset (FieldOrderDetector's twin of the worker's probe).
+    final videoStart = await FieldOrderDetector.probeVideoStart(
+      _ffprobePath!,
+      videoPath,
+      streamStart: double.tryParse('${videoStream['start_time']}'),
+      containerStart: double.tryParse('${format?['start_time']}'),
+    );
+    _videoStartOffset = videoStart.offset;
+
     // Parse frame count: the same length the job is built with, which for a
     // variable-frame-rate source is its duration, not its stored frames.
+    final streamDuration =
+        double.tryParse(videoStream['duration']?.toString() ?? '');
     _totalFrames = FieldOrderDetector.frameCountFor(
           storedFrames:
               int.tryParse(videoStream['nb_frames']?.toString() ?? ''),
           rFrameRate: rFrameRate,
           avgFrameRate: avgFrameRate,
-          duration: double.tryParse(videoStream['duration']?.toString() ?? '') ??
-              _duration,
+          duration: streamDuration ?? _duration,
           frameRate: _frameRate,
         ) ??
-        (_duration * _frameRate).round();
+        FieldOrderDetector.frameCountFromDuration(
+          streamDuration: streamDuration,
+          containerDuration: _duration,
+          start: videoStart,
+          frameRate: _frameRate,
+        );
+
+    // The timeline is the video's: with the sound starting first, the file's
+    // duration includes time before the first picture, which no frame shows.
+    if (_videoStartOffset > 0 && _frameRate > 0) {
+      _duration = _totalFrames / _frameRate;
+    }
 
     // Parse video dimensions and pixel format
     _videoWidth = videoStream['width'] as int? ?? 0;
@@ -697,6 +733,7 @@ class PreviewGenerator {
         thumbnailArgs(
           videoPath: videoPath,
           time: time,
+          videoStartOffset: _videoStartOffset,
           toneMap: _toneMap,
           tagFix: _tagFix,
           outputPath: outputPath,

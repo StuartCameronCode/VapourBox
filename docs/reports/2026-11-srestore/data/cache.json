@@ -1,0 +1,20 @@
+{
+ "qtgmc_alone": {
+  "seconds": 2.4,
+  "output_frames": 300,
+  "qtgmc_frames_computed": 300,
+  "max_per_frame": 1
+ },
+ "with_unblend": {
+  "seconds": 2.46,
+  "output_frames": 143,
+  "qtgmc_frames_computed": 299,
+  "max_per_frame": 1
+ },
+ "with_unblend_no_cache_pin": {
+  "seconds": 8.13,
+  "output_frames": 143,
+  "qtgmc_frames_computed": 844,
+  "max_per_frame": 13
+ }
+}

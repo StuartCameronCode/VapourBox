@@ -107,6 +107,43 @@ void main() {
     expect(af(restoreTrimmed), endsWith('apad=whole_len=144000,atrim=end_sample=144000'));
   });
 
+  test('a video that starts after its sound: kept, or dropped with "start with the picture"',
+      () async {
+    // late_video.mkv: 100 frames at 25 fps, the video starting 1 s after the
+    // sound (Tests/TestResources/generate_video_start_offset.sh).
+    final late = p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', 'late_video.mkv');
+    const size = {'inputWidth': 320, 'inputHeight': 240, 'totalFrames': 100};
+
+    // By default the output keeps the sound before the picture, which the
+    // encoder delays by as much: the rendered track is that much longer.
+    final kept = await AudioFixtures.plan(
+        AudioFixtures.job(late, {'limiter': true}, extra: size));
+    expect(kept['videoStartOffset'], closeTo(1.0, 1e-6));
+    expect(kept['videoDelay'], closeTo(1.0, 1e-6));
+    expect(kept['readStart'], 0);
+    expect(kept['outSamples'], 5 * 48000);
+
+    // Dropping it reads from the first picture, exactly the picture's length.
+    final dropped = await AudioFixtures.plan(
+        AudioFixtures.job(late, {'startWithPicture': true}, extra: size));
+    expect(dropped['active'], isTrue);
+    expect(dropped['videoDelay'], 0);
+    expect(dropped['readStart'], closeTo(1.0, 1e-6));
+    expect(dropped['outSamples'], 4 * 48000);
+    expect((dropped['notes'] as List).join(' '), contains('1.000 s'));
+
+    // A trim reads from the in-point's picture, the gap included.
+    final trimmed = await AudioFixtures.plan(AudioFixtures.job(late, {'limiter': true},
+        extra: {...size, 'startFrame': 30, 'endFrame': 59, 'totalFrames': 30}));
+    expect(trimmed['videoDelay'], 0);
+    expect(trimmed['readStart'], closeTo(1.0 + 30 / 25, 1e-6));
+
+    // With nothing to drop, the step alone leaves the sound to the encoder.
+    final none = await AudioFixtures.plan(
+        AudioFixtures.job(deadRightHum, {'startWithPicture': true}));
+    expect(none['active'], isFalse);
+  });
+
   test('the length follows the encoded picture, not the source frame count', () async {
     // Double-rate deinterlacing doubles the frames and the rate: same length.
     final plan = await AudioFixtures.plan(AudioFixtures.job(deadRightHum, {'limiter': true},

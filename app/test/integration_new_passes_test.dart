@@ -37,6 +37,8 @@ import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
 import 'package:vapourbox/models/stabilize_parameters.dart';
 import 'package:vapourbox/models/subtitle_parameters.dart';
+import 'package:vapourbox/models/frame_rate_parameters.dart';
+import 'package:vapourbox/models/unblend_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
 import 'support/worker_harness.dart';
@@ -446,6 +448,35 @@ void main() {
           await WorkerHarness.runJob(job.toJson(), label: 'aa_santiag');
       await _expectValidVideo(result);
     }, timeout: const Timeout(Duration(minutes: 8)));
+
+    // Unblend's own heavy test (integration_unblend_test.dart) checks what it
+    // recovers on blended fixtures; this is the smoke test on the usual clip.
+    test('unblend: SRestore port runs end-to-end after QTGMC', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: WorkerHarness.inputFile,
+        outputPath: '$_outDir/unblend.mkv',
+        processingPipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(preset: QTGMCPreset.fast, tff: true),
+          unblend: UnblendParameters(enabled: true, target: FrameRateTarget.film23976),
+        ),
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.h264,
+          container: ContainerFormat.mkv,
+          audioMode: AudioMode.none,
+        ),
+        inputFrameRate: 29.97,
+        startFrame: 0,
+        endFrame: 59,
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'unblend');
+      await _expectValidVideo(result);
+      // 60 frames of 29.97 -> 120 at 59.94 -> 2/5 of that at 23.976.
+      final v = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0', entries: ['nb_read_frames', 'r_frame_rate'], countFrames: true);
+      expect(v?['nb_read_frames'], '48');
+      expect(v?['r_frame_rate'], '24000/1001');
+    }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('stabilize: Stab runs end-to-end', () async {
       final job = _baseJob(

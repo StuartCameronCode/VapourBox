@@ -35,6 +35,7 @@ import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/sharpen_parameters.dart';
 import 'package:vapourbox/models/spotless_parameters.dart';
 import 'package:vapourbox/models/stabilize_parameters.dart';
+import 'package:vapourbox/models/unblend_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
 import 'package:vapourbox/services/manifest_addon.dart';
@@ -913,6 +914,43 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // --- PRORES OUTPUT FORMAT (effective_chroma_subsampling) ---
+    test('ProRes: the script converts to the profile format, not the selection',
+        () async {
+      // ProRes stores 10-bit 4:2:2 (Proxy..HQ) or 10-bit 4:4:4 (4444/XQ)
+      // whatever Color Format is selected; the worker converts to it in the
+      // script, after the field marking, so an interlaced 4:2:0 source keeps
+      // each field's chroma (docs/reports/2026-11-prores-script-chroma).
+      final base = buildJob(testName: 'prores_format').copyWith(
+        inputPixelFormat: 'yuv420p',
+        detectedFieldOrder: FieldOrder.topFieldFirst,
+      );
+      for (final (codec, chroma, want) in [
+        (VideoCodec.proresHQ, ChromaSubsampling.yuv420, 'vs.YUV422P10'),
+        (VideoCodec.proresProxy, ChromaSubsampling.original, 'vs.YUV422P10'),
+        (VideoCodec.prores4444, ChromaSubsampling.original, 'vs.YUV444P10'),
+        (VideoCodec.prores4444Xq, ChromaSubsampling.yuv422, 'vs.YUV444P10'),
+      ]) {
+        final script = await generateScriptViaWorker(base.copyWith(
+          outputPath: '${TestConfig.outputDir}/prores_format.mov',
+          encodingSettings: EncodingSettings(
+            codec: codec,
+            container: ContainerFormat.mov,
+            audioMode: AudioMode.none,
+            chromaSubsampling: chroma,
+          ),
+        ));
+        final ctx = '${codec.displayName} with ${chroma.label}';
+        expect(script, contains('target_format = $want'), reason: ctx);
+        expect('target_format = '.allMatches(script).length, 1, reason: ctx);
+        expect(script, isNot(contains('vs.YUV420P8')), reason: ctx);
+        expect(script.indexOf('core.std.SetFieldBased(clip, 2)'),
+            allOf(isNonNegative, lessThan(script.indexOf('target_format = '))),
+            reason: '$ctx: the conversion must follow the field marking');
+      }
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- DESCRATCH (core.descratch.DeScratch) ---
     test('descratch: DeScratch params', () async {
       loadSchema('descratch'); // confirm schema parses
@@ -1011,6 +1049,55 @@ void main() {
       final ntsc = await generateScriptViaWorker(
           customJob('fr_custom_ntsc', 59.94, FrameRateMethod.duplicate));
       expect(ntsc, contains('haf.ChangeFPS(clip, 60000, 1001)'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    // --- UNBLEND (SRestore port) ---
+    test('unblend: the target reaches the port, right after QTGMC', () async {
+      loadSchema('unblend'); // confirm schema parses
+      // Through the converter, as the panel does: the schema's values in.
+      final typed = ParameterConverter.toUnblend(const DynamicParameters(
+        filterId: 'unblend',
+        enabled: true,
+        values: {'target': 'film24', 'customFps': 24.0},
+      ));
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/unblend.mkv',
+        processingPipeline: ProcessingPipeline(
+          // small_clip is 29.97: double rate gives Unblend 59.94.
+          deinterlace: const QTGMCParameters(enabled: true, tff: true),
+          unblend: typed,
+          noiseReduction: const NoiseReductionParameters(enabled: true),
+        ),
+        encodingSettings: const EncodingSettings(),
+        inputFrameRate: 29.97,
+      );
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('import srestore as _unb'));
+      expect(script, contains('clip = _unb.unblend(clip, 24, 1, origin=0, window=48)'));
+      expect(script, isNot(contains('haf.srestore(')));
+      final qtgmc = script.indexOf('haf.QTGMC(');
+      final unblend = script.indexOf('_unb.unblend(');
+      final denoise = script.indexOf('PASS 5: NOISE REDUCTION');
+      expect(qtgmc < unblend && unblend < denoise, isTrue,
+          reason: 'Unblend must run between Deinterlace and Noise Reduction');
+
+      // A target above the rate at the pass is refused, not scripted.
+      final up = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: TestConfig.inputFile,
+        outputPath: '${TestConfig.outputDir}/unblend_up.mkv',
+        processingPipeline: const ProcessingPipeline(
+          deinterlace: QTGMCParameters(enabled: false),
+          unblend: UnblendParameters(enabled: true, target: FrameRateTarget.ntsc2997),
+        ),
+        encodingSettings: const EncodingSettings(),
+        inputFrameRate: 29.97,
+      );
+      await expectLater(generateScriptViaWorker(up), throwsA(isA<StateError>()
+          .having((e) => e.message, 'message', contains('can only lower the frame rate'))));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

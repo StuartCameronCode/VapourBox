@@ -8,7 +8,7 @@ use super::{
     AntiAliasParameters, GeometryParameters, GrainParameters, StabilizeParameters,
     ChromaDenoiseParameters, ChromaFixParameters, ColorCorrectionParameters, CropResizeParameters,
     DebandParameters, DeblockParameters, DehaloParameters, DeinterlaceMethod, DeScratchParameters,
-    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, NoiseReductionMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters, DescaleParameters, FaceRestoreParameters, ColorizeParameters, AudioRestorationParameters,};
+    SpotLessParameters, SharpenParameters, NoiseReductionParameters, QTGMCParameters, FrameRateParameters, FrameRateMethod, NoiseReductionMethod, DeflickerParameters, EdgeRepairParameters, GhostRemovalParameters, DescaleParameters, FaceRestoreParameters, ColorizeParameters, AudioRestorationParameters, UnblendParameters, UNBLEND_WINDOW, UNBLEND_REACH,};
 use super::AspectDeclaration;
 
 /// Minimum temporal context (frames on each side of the target) a windowed
@@ -46,6 +46,14 @@ pub struct PreviewOutput {
     pub sub_frames: u64,
     /// Made by interpolation rather than taken from a source frame.
     pub generated: bool,
+    /// The same as `rate_pad`, for the Unblend pass: copies of its input's
+    /// first frame so its phase (srestore's `n mod denm`) is the encode's.
+    pub unblend_pad: u64,
+    /// Index, in Unblend's padded input, of the encode's first frame (or of
+    /// the window's first real frame when the encode started earlier). Its
+    /// detector never reads frames before it, so the padding — and frames
+    /// before an in-point — never feed a decision the encode doesn't make.
+    pub unblend_origin: u64,
 }
 
 /// How one pass relates its *input* clip to its *output* clip on the frame
@@ -145,6 +153,8 @@ impl FrameMap {
 #[allow(dead_code)]
 pub enum PassType {
     Deinterlace,
+    /// Recover the original frames of a blended frame-rate conversion.
+    Unblend,
     DeScratch,
     SpotLess,
     /// Undo a studio's upscale and upscale again properly.
@@ -182,6 +192,7 @@ impl PassType {
     pub fn display_name(&self) -> &'static str {
         match self {
             PassType::Deinterlace => "Deinterlace",
+            PassType::Unblend => "Unblend (SRestore)",
             PassType::DeScratch => "DeScratch",
             PassType::SpotLess => "SpotLess",
             PassType::NoiseReduction => "Noise Reduction",
@@ -211,6 +222,7 @@ impl PassType {
     pub fn description(&self) -> &'static str {
         match self {
             PassType::Deinterlace => "Deinterlace (QTGMC) or inverse telecine (IVTC)",
+            PassType::Unblend => "Recover the original frames of a blended frame-rate conversion",
             PassType::DeScratch => "Remove vertical scratches from scanned film",
             PassType::SpotLess => "Remove dust, dirt, and temporal spots from film",
             PassType::NoiseReduction => "Reduce video noise and grain",
@@ -311,6 +323,10 @@ pub struct ProcessingPipeline {
     #[serde(default)]
     pub frame_rate: FrameRateParameters,
 
+    /// Unblend (SRestore), right after deinterlacing. Off by default.
+    #[serde(default)]
+    pub unblend: UnblendParameters,
+
     /// Color correction pass parameters.
     #[serde(default)]
     pub color_correction: ColorCorrectionParameters,
@@ -358,6 +374,7 @@ impl Default for ProcessingPipeline {
             descale: DescaleParameters::default(),
             edge_repair: EdgeRepairParameters::default(),
             frame_rate: FrameRateParameters::default(),
+            unblend: UnblendParameters::default(),
             color_correction: ColorCorrectionParameters::default(),
             chroma_fixes: ChromaFixParameters::default(),
             crop_resize: CropResizeParameters::default(),
@@ -391,6 +408,7 @@ impl ProcessingPipeline {
             descale: DescaleParameters::default(),
             edge_repair: EdgeRepairParameters { enabled: false, ..Default::default() },
             frame_rate: FrameRateParameters { enabled: false, ..Default::default() },
+            unblend: UnblendParameters::default(),
             color_correction: ColorCorrectionParameters { enabled: false, ..Default::default() },
             chroma_fixes: ChromaFixParameters { enabled: false, ..Default::default() },
             crop_resize: CropResizeParameters { enabled: false, ..Default::default() },
@@ -409,6 +427,13 @@ impl ProcessingPipeline {
         // restoration, then sharpen, grain, frame rate.
         if self.deinterlace_enabled() {
             passes.push(PassType::Deinterlace);
+        }
+        // Unblend reads the blends exactly as the deinterlacer leaves them:
+        // every later pass that averages frames (denoising, deflicker), adds
+        // frame-to-frame differences (grain, sharpening) or resizes changes
+        // what its detector measures.
+        if self.unblend.enabled {
+            passes.push(PassType::Unblend);
         }
         // Edge repair must precede every spatial filter, or denoising and
         // sharpening smear the bad rows inward — and it must precede the resize,
@@ -542,6 +567,7 @@ impl ProcessingPipeline {
     pub fn enabled_pass_count(&self) -> usize {
         let mut count = 0;
         if self.deinterlace.enabled { count += 1; }
+        if self.unblend.enabled { count += 1; }
         if self.descratch.enabled { count += 1; }
         if self.spotless.enabled { count += 1; }
         if self.noise_reduction.enabled { count += 1; }
@@ -667,6 +693,9 @@ impl ProcessingPipeline {
             // the count is exact; `synthesizes` is true only for the
             // interpolating method, where an output frame has no single source.
             PassType::FrameRate => self.frame_rate_frame_map(),
+            // Decimates to its target. Its decisions replay UNBLEND_WINDOW
+            // frames, so a preview must decode that far back.
+            PassType::Unblend => self.unblend_frame_map(),
             // Purely spatial passes.
             _ => FrameMap::Identity { radius: 0 },
         }
@@ -700,22 +729,46 @@ impl ProcessingPipeline {
     /// 50p from a 25i source, and its target is absolute, so the ratio has to
     /// be taken against that, not against the source.
     fn frame_rate_input_fps(&self) -> Option<(u32, u32)> {
-        let (mut num, mut den) = (
-            self.frame_rate.source_fps_num? as u64,
-            self.frame_rate.source_fps_den? as u64,
+        let (num, den) = self.rate_before(PassType::FrameRate);
+        let (num, den) = (
+            self.frame_rate.source_fps_num? as u64 * num,
+            self.frame_rate.source_fps_den? as u64 * den,
         );
-        for pass in self.enabled_passes() {
-            if pass == PassType::FrameRate {
-                break;
-            }
-            let (f_num, f_den) = self.frame_map_for(pass).rate_factor();
-            num *= f_num;
-            den *= f_den;
-            let g = gcd(num, den);
-            num /= g;
-            den /= g;
+        let g = gcd(num, den);
+        Some((u32::try_from(num / g).ok()?, u32::try_from(den / g).ok()?))
+    }
+
+    /// The rate Unblend converts from: the source rate as changed by the
+    /// passes ahead of it (×2 after double-rate deinterlacing).
+    pub fn unblend_input_fps(&self) -> Option<(u32, u32)> {
+        let (num, den) = self.rate_before(PassType::Unblend);
+        let (num, den) = (
+            self.unblend.source_fps_num? as u64 * num,
+            self.unblend.source_fps_den? as u64 * den,
+        );
+        let g = gcd(num, den);
+        Some((u32::try_from(num / g).ok()?, u32::try_from(den / g).ok()?))
+    }
+
+    /// Unblend's ratio, or why it cannot run (`None` without a source rate,
+    /// which `VideoJob::effective_pipeline` always fills).
+    pub fn unblend_ratio(&self) -> Option<Result<(u32, u32), String>> {
+        let (n, d) = self.unblend_input_fps()?;
+        Some(self.unblend.ratio_at(n, d))
+    }
+
+    fn unblend_frame_map(&self) -> FrameMap {
+        // The radius is in source frames, like every pass's: the window is
+        // counted at the pass's input, which runs faster after double-rate
+        // deinterlacing.
+        let (r_num, r_den) = self.rate_before(PassType::Unblend);
+        let reach = (UNBLEND_WINDOW + UNBLEND_REACH) as u64;
+        let radius = (reach * r_den).div_ceil(r_num.max(1)) as u32;
+        match self.unblend_ratio() {
+            Some(Ok((num, den))) => FrameMap::Retime { num, den, synthesizes: false, radius },
+            // Refused at script generation; nothing to count.
+            _ => FrameMap::Identity { radius },
         }
-        Some((u32::try_from(num).ok()?, u32::try_from(den).ok()?))
     }
 
     /// Frame mapping for the deinterlace pass. QTGMC double-rate (FPSDivisor=1,
@@ -755,17 +808,25 @@ impl ProcessingPipeline {
     /// pass's per-source-frame lookup — the pitch factor file — maps its clip
     /// frame `n` back to source frame `offset + n * den / num` (issue #150).
     pub fn rate_before_stabilize(&self) -> (u64, u64) {
+        self.rate_before(PassType::Stabilize)
+    }
+
+    /// Frame-rate change, as `(num, den)` output/input, of the enabled passes
+    /// that run before `pass` (all of them if it is not enabled).
+    pub fn rate_before(&self, pass: PassType) -> (u64, u64) {
         let (mut num, mut den) = (1u64, 1u64);
-        for pass in self.enabled_passes() {
-            if pass == PassType::Stabilize {
+        for p in self.enabled_passes() {
+            if p == pass {
                 break;
             }
-            let (n, d) = self.frame_map_for(pass).rate_factor();
+            let (n, d) = self.frame_map_for(p).rate_factor();
             num *= n;
             den *= d;
+            let g = gcd(num, den).max(1);
+            num /= g;
+            den /= g;
         }
-        let g = gcd(num, den).max(1);
-        (num / g, den / g)
+        (num, den)
     }
 
     /// Total output frame count for a given source frame count, composing every
@@ -835,44 +896,70 @@ impl ProcessingPipeline {
     /// A source frame a decimation or down-conversion leaves no output of
     /// its own shows the output just before it.
     pub fn preview_output(&self, origin: u64, first: u64, target: u64, sub_frame: u64) -> PreviewOutput {
-        let local = target.saturating_sub(first);
-        let passes = self.enabled_passes();
-        let retime = passes.iter().position(|p| *p == PassType::FrameRate).and_then(|i| {
-            match self.frame_map_for(passes[i]) {
-                FrameMap::Retime { num, den, synthesizes, .. } => Some((i, num as u64, den as u64, synthesizes)),
-                _ => None,
+        // Walk the passes in order, keeping
+        //   e0: the encode's index (at this point in the pipeline) of the
+        //       preview clip's frame 0 — negative when the window starts
+        //       before the in-point;
+        //   (la, lb): the target's span in the preview clip's own frames.
+        // Passes that don't retime map both like the window's own counts, as
+        // the preview always has. A retime first gets padding that puts e0 on
+        // a whole period of its ratio, so it runs in the encode's phase; its
+        // span is then taken in encode terms, where outputs fall at
+        // ceil(p * num / den).
+        let mut e0 = first as i64 - origin as i64;
+        let local = target.saturating_sub(first) as i64;
+        let (mut la, mut lb) = (local, local + 1);
+        let mut out = PreviewOutput {
+            local_index: 0,
+            rate_pad: 0,
+            sub_frame: 0,
+            sub_frames: 1,
+            generated: false,
+            unblend_pad: 0,
+            unblend_origin: 0,
+        };
+        let mut frame_rate_ratio: Option<(i64, i64, bool)> = None;
+        for pass in self.enabled_passes() {
+            match self.frame_map_for(pass) {
+                FrameMap::Retime { num, den, synthesizes, .. } => {
+                    let (num, den) = (num as i64, den as i64);
+                    let pad = e0.rem_euclid(den);
+                    let ceil = |x: i64| (x * num).div_euclid(den) + i64::from((x * num).rem_euclid(den) != 0);
+                    let (pa, pb) = (e0 + la, e0 + lb);
+                    if pass == PassType::Unblend {
+                        out.unblend_pad = pad as u64;
+                        out.unblend_origin = (pad + (-e0).max(0)) as u64;
+                    } else {
+                        out.rate_pad = pad as u64;
+                        frame_rate_ratio = Some((num, den, synthesizes));
+                    }
+                    e0 = (e0 - pad) / den * num;
+                    let (lo, hi) = (ceil(pa), ceil(pb));
+                    // A span with no output of its own shows the one before.
+                    let (lo, hi) = if hi > lo { (lo, hi) } else { (lo - 1, lo) };
+                    la = lo - e0;
+                    lb = hi - e0;
+                }
+                map => {
+                    let fwd = |n: i64| map.output_count(n.max(0) as u64) as i64;
+                    e0 = if e0 >= 0 { fwd(e0) } else { -fwd(-e0) };
+                    let (a, b) = (fwd(la), fwd(lb));
+                    la = a;
+                    lb = b.max(a + 1);
+                }
             }
-        });
-
-        let Some((at, num, den, synthesizes)) = retime else {
-            let lo = self.output_count(local);
-            let n = self.output_count(local + 1).saturating_sub(lo).max(1);
-            let k = sub_frame.min(n - 1);
-            return PreviewOutput { local_index: lo + k, rate_pad: 0, sub_frame: k, sub_frames: n, generated: false };
-        };
-
-        // Frame counts at the retime's input, from the encode's first frame.
-        // A window before the in-point is not in the encode at all; its phase
-        // is taken from the start of the source instead.
-        let before = |n: u64| passes[..at].iter().fold(n, |n, p| self.frame_map_for(*p).output_count(n));
-        let start = before(first.checked_sub(origin).unwrap_or(first));
-        let pad = start % den;
-        let (p, p_next) = (start + before(local), start + before(local + 1));
-        let ceil = |x: u64| (x * num).div_ceil(den);
-        let (lo, hi) = (ceil(p), ceil(p_next));
-        let (m, n, k) = if hi > lo {
-            let k = sub_frame.min(hi - lo - 1);
-            (lo + k, hi - lo, k)
-        } else {
-            (p * num / den, 1, 0)
-        };
-        PreviewOutput {
-            local_index: m - (start - pad) * num / den,
-            rate_pad: pad,
-            sub_frame: k,
-            sub_frames: n,
-            generated: synthesizes && (m * den) % num != 0,
         }
+        let n = (lb - la).max(1) as u64;
+        let k = sub_frame.min(n - 1);
+        let m = la + k as i64;
+        out.local_index = m.max(0) as u64;
+        out.sub_frame = k;
+        out.sub_frames = n;
+        if let Some((num, den, synthesizes)) = frame_rate_ratio {
+            // In encode terms, at the Frame Rate pass's output (the last pass).
+            out.generated = synthesizes && ((m + e0) * den).rem_euclid(num) != 0;
+        }
+        out
     }
 
     /// Conservative temporal padding (frames each side) a windowed preview
@@ -901,6 +988,7 @@ impl ProcessingPipeline {
     pub fn is_pass_enabled(&self, pass: PassType) -> bool {
         match pass {
             PassType::Deinterlace => self.deinterlace_enabled(),
+            PassType::Unblend => self.unblend.enabled,
             PassType::DeScratch => self.descratch.enabled,
             PassType::SpotLess => self.spotless.enabled,
             PassType::NoiseReduction => self.noise_reduction.enabled,
@@ -1098,6 +1186,114 @@ mod tests {
         let out = p.preview_output(0, 4, 5, 0);
         assert_eq!(out.sub_frames, 1);
         assert_eq!(encode_index(&p, 0, 4, out), 2);
+    }
+
+    /// 25i double-rate deinterlaced (50p) then unblended to `target`.
+    fn unblended(target: crate::models::FrameRateTarget, frame_rate: Option<(f64, FrameRateMethod)>) -> ProcessingPipeline {
+        ProcessingPipeline {
+            unblend: UnblendParameters {
+                enabled: true,
+                target,
+                source_fps_num: Some(25),
+                source_fps_den: Some(1),
+                ..Default::default()
+            },
+            frame_rate: match frame_rate {
+                Some((fps, method)) => FrameRateParameters {
+                    enabled: true,
+                    target: crate::models::FrameRateTarget::Custom,
+                    custom_fps: fps,
+                    method,
+                    source_fps_num: Some(25),
+                    source_fps_den: Some(1),
+                    ..Default::default()
+                },
+                None => FrameRateParameters::default(),
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn unblend_runs_right_after_deinterlacing_at_the_doubled_rate() {
+        let p = ProcessingPipeline {
+            noise_reduction: NoiseReductionParameters { enabled: true, ..Default::default() },
+            ..unblended(crate::models::FrameRateTarget::Film23976, None)
+        };
+        let passes = p.enabled_passes();
+        assert_eq!(&passes[..3], &[PassType::Deinterlace, PassType::Unblend, PassType::NoiseReduction]);
+        assert_eq!(p.unblend_input_fps(), Some((50, 1)));
+        // 50 -> 23.976 is 480/1001; the radius is the window in source frames.
+        match p.frame_maps()[1] {
+            FrameMap::Retime { num, den, synthesizes, radius } => {
+                assert_eq!((num, den, synthesizes), (480, 1001, false));
+                assert_eq!(radius, (UNBLEND_WINDOW + UNBLEND_REACH).div_ceil(2));
+            }
+            ref m => panic!("{m:?}"),
+        }
+        // 1000 fields-frames of 25i: 2000 at 50p, floor(2000 * 480/1001) out.
+        assert_eq!(p.output_count(1000), 959);
+        let secs = p.output_duration_secs(1000, 25.0).unwrap();
+        assert!((secs - 40.0).abs() < 0.05, "{secs}");
+        // The Frame Rate pass after it converts from what Unblend delivered.
+        let both = unblended(crate::models::FrameRateTarget::Film23976, Some((30000.0 / 1001.0, FrameRateMethod::FlowFps)));
+        assert_eq!(both.frame_rate_input_fps(), Some((24000, 1001)));
+        assert_eq!(both.output_count(1000), 959 * 5 / 4);
+    }
+
+    #[test]
+    fn a_refused_unblend_target_counts_as_the_identity() {
+        let p = unblended(crate::models::FrameRateTarget::Ntsc5994, None);
+        assert!(matches!(p.unblend_ratio(), Some(Err(_))));
+        assert_eq!(p.output_count(100), 200);
+    }
+
+    /// The preview pads Unblend's input so its phase is the encode's, and
+    /// points the detector at the first real frame; the frame it shows is
+    /// the encode's for that source frame.
+    #[test]
+    fn an_unblend_preview_shows_the_encodes_frames_in_its_phase() {
+        let p = unblended(crate::models::FrameRateTarget::Film23976, None);
+        for origin in [0u64, 7] {
+            for target in origin..origin + 30 {
+                for first in target.saturating_sub(40)..=target {
+                    let out = p.preview_output(origin, first, target, 0);
+                    // At Unblend's input (50p) the window starts at encode
+                    // index e0, which may be before the in-point.
+                    let e0 = 2 * (first as i64 - origin as i64);
+                    assert_eq!(out.unblend_pad as i64, e0.rem_euclid(1001));
+                    assert_eq!(out.unblend_origin as i64, out.unblend_pad as i64 + (-e0).max(0));
+                    assert_eq!(out.rate_pad, 0);
+                    // The encode frame the preview's index stands for.
+                    let base = (e0 - out.unblend_pad as i64) / 1001 * 480;
+                    let m = out.local_index as i64 + base;
+                    // Output m is taken from 50p frame floor(m * 1001/480)
+                    // (the script's SelectEvery). Source frame t's outputs are
+                    // those taken from [2t, 2t + 2); with none, the one before.
+                    let t = 2 * (target as i64 - origin as i64);
+                    let pos = |m: i64| (m * 1001).div_euclid(480);
+                    let first_out = (0..).map(|k| (t * 480).div_euclid(1001) - 2 + k).find(|&m| pos(m) >= t).unwrap();
+                    let want = if pos(first_out) < t + 2 { first_out } else { first_out - 1 };
+                    assert_eq!(m, want, "origin {origin} first {first} target {target}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unblend_then_frame_rate_pads_both_in_the_encodes_phase() {
+        // 25i -> 50p -> Unblend 23.976 -> FlowFPS 29.97 (5/4).
+        let p = unblended(crate::models::FrameRateTarget::Film23976, Some((30000.0 / 1001.0, FrameRateMethod::FlowFps)));
+        for first in [0u64, 3, 500, 501, 1234] {
+            let out = p.preview_output(0, first, first + 20, 0);
+            let e0 = 2 * first as i64;
+            let pad_u = e0.rem_euclid(1001);
+            assert_eq!(out.unblend_pad as i64, pad_u);
+            // The Frame Rate pass sees Unblend's output, which starts at
+            // encode index (e0 - pad) * 480 / 1001.
+            let e1 = (e0 - pad_u) / 1001 * 480;
+            assert_eq!(out.rate_pad as i64, e1.rem_euclid(4));
+        }
     }
 
     #[test]

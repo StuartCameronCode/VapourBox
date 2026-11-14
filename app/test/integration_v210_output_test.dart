@@ -1,17 +1,16 @@
-/// Full-encode tests for uncompressed v210 output, and for the field order the
-/// editing intermediates (v210, ProRes) declare on a still-interlaced picture.
+/// Full-encode tests for uncompressed v210 output, and for the chroma
+/// conversion the script makes for the editing intermediates (v210, ProRes).
 ///
 /// What only a real encode can show:
 ///   * v210 really is uncompressed: a 10-bit 4:2:2 source with every pass off
 ///     comes back bit for bit.
 ///   * The output is 10-bit 4:2:2 whatever Color Format is selected, and the
 ///     4:2:0 -> 4:2:2 conversion keeps each field's chroma to itself. Left to
-///     ffmpeg's `-pix_fmt`, the two fields' chroma was blended.
-///   * A still-interlaced v210 or ProRes MOV says so: the `fiel` atom is
-///     0x0209 (TFF) / 0x020e (BFF). Before this, vspipe's Y4M (always `Ip`)
-///     made every one of them 0x0100, progressive. The atom bytes are what an
-///     editor reads, so they are checked directly, not only through ffprobe's
-///     `tb` / `bt` labels.
+///     ffmpeg's `-pix_fmt`, the two fields' chroma was blended. ProRes gets the
+///     same in-script conversion to its profile's format (4:2:2 or 4:4:4).
+///   * A deinterlaced v210 MOV is flagged progressive (`fiel` 0x0100). The
+///     field order of a still-interlaced one, for every codec, is checked in
+///     integration_field_order_test.dart.
 ///   * PCM audio is kept and offered in MOV, and the preview is the encode.
 ///
 /// Heavy (full-encode) — runs in the nightly workflow, not the push gate.
@@ -89,24 +88,6 @@ Future<String> _encode(Map<String, dynamic> job, String label) async {
   }
   expect(result.success, isTrue, reason: '$label: ${result.error}');
   return job['outputPath'] as String;
-}
-
-/// The two bytes after the MOV `fiel` atom's type, as hex, or null if absent.
-String? _fiel(String movPath) {
-  final bytes = File(movPath).readAsBytesSync();
-  const tag = [0x66, 0x69, 0x65, 0x6c]; // "fiel"
-  for (var i = 0; i + 6 <= bytes.length; i++) {
-    if (bytes[i] == tag[0] &&
-        bytes[i + 1] == tag[1] &&
-        bytes[i + 2] == tag[2] &&
-        bytes[i + 3] == tag[3]) {
-      return bytes
-          .sublist(i + 4, i + 6)
-          .map((b) => b.toRadixString(16).padLeft(2, '0'))
-          .join();
-    }
-  }
-  return null;
 }
 
 /// Per-frame MD5s of [path] decoded to [pixFmt] (framemd5's hash column).
@@ -201,7 +182,7 @@ void main() {
     expect(s['pix_fmt'], 'yuv422p10le');
     expect(s['field_order'], 'progressive');
     expect(int.parse(s['nb_read_frames'].toString()), 25);
-    expect(_fiel(out), '0100');
+    expect(WorkerHarness.movFielAtom(out), '0100');
 
     final expected = await _frameMd5s(src, 'yuv422p10le', frames: 25);
     final actual = await _frameMd5s(out, 'yuv422p10le');
@@ -273,85 +254,87 @@ void main() {
             selector: 'v:0',
             entries: ['field_order']))?['field_order'] as String?;
 
-    for (final (order, label, atom) in [
-      (FieldOrder.topFieldFirst, 'tb', '0209'),
-      (FieldOrder.bottomFieldFirst, 'bt', '020e'),
-    ]) {
-      test('v210 MOV and MKV, ${order.value}', () async {
-        final mov = await encode('v210_${order.value}', VideoCodec.v210,
-            ContainerFormat.mov, order);
-        expect(await fieldOrder(mov), label);
-        expect(_fiel(mov), atom, reason: 'the fiel atom is what an editor reads');
-
-        final mkv = await encode('v210_${order.value}_mkv', VideoCodec.v210,
-            ContainerFormat.mkv, order);
-        expect(await fieldOrder(mkv), label);
-      }, timeout: const Timeout(Duration(minutes: 5)));
-
-      test('ProRes 422 HQ MOV, ${order.value}: container and bitstream',
-          () async {
-        final mov = await encode('prores_${order.value}', VideoCodec.proresHQ,
-            ContainerFormat.mov, order);
-        expect(await fieldOrder(mov), label);
-        expect(_fiel(mov), atom);
-        // ProRes carries its own field flag, which needs field coding.
-        final frames = await WorkerHarness.ffprobeJson([
-          '-v', 'error', '-select_streams', 'v:0',
-          '-read_intervals', '%+#1',
-          '-show_entries', 'frame=interlaced_frame,top_field_first',
-          '-of', 'json', mov,
-        ]);
-        final f = (frames['frames'] as List).first as Map<String, dynamic>;
-        expect(f['interlaced_frame'], 1, reason: 'ProRes frame header: $f');
-        expect(f['top_field_first'], order == FieldOrder.topFieldFirst ? 1 : 0);
-      }, timeout: const Timeout(Duration(minutes: 5)));
-    }
-
-    test('AVI cannot carry it (documented limitation)', () async {
-      final avi = await encode('v210_tff_avi', VideoCodec.v210,
-          ContainerFormat.avi, FieldOrder.topFieldFirst);
-      final s = await WorkerHarness.firstStream(avi,
-          selector: 'v:0', entries: ['codec_name', 'field_order']);
-      expect(s!['codec_name'], 'v210');
-      expect(s['field_order'] ?? 'unknown', 'unknown');
-    }, timeout: const Timeout(Duration(minutes: 5)));
+    // The per-codec, per-container field-order checks (v210 among them)
+    // are in integration_field_order_test.dart.
 
     test('deinterlaced output is progressive', () async {
       final mov = await encode('v210_deint', VideoCodec.v210, ContainerFormat.mov,
           FieldOrder.topFieldFirst,
           deinterlace: true);
       expect(await fieldOrder(mov), 'progressive');
-      expect(_fiel(mov), '0100');
+      expect(WorkerHarness.movFielAtom(mov), '0100');
     }, timeout: const Timeout(Duration(minutes: 10)));
 
-    test('4:2:0 -> 4:2:2 keeps each field\'s chroma to itself', () async {
-      final mov = await encode('v210_chroma_fields', VideoCodec.v210,
-          ContainerFormat.mov, FieldOrder.topFieldFirst);
+    // The script converts to the codec's one stored format itself, after the
+    // clip is marked field-based, so zimg keeps each field's chroma to itself.
+    // Left to ffmpeg's `-pix_fmt` (ProRes until app 1.8.0), the two fields'
+    // chroma was blended: these rows came out 454,454,866,866 instead of
+    // 360,960,360,960 (docs/reports/2026-11-prores-script-chroma).
+    for (final (codec, pixFmt, chroma444) in [
+      (VideoCodec.v210, 'yuv422p10le', false),
+      (VideoCodec.proresProxy, 'yuv422p10le', false),
+      (VideoCodec.proresHQ, 'yuv422p10le', false),
+      (VideoCodec.prores4444, 'yuv444p10le', true),
+    ]) {
+      test('${codec.displayName}: 4:2:0 -> ${chroma444 ? "4:4:4" : "4:2:2"} '
+          'keeps each field\'s chroma to itself', () async {
+        final name = 'chroma_fields_${codec.name}';
+        final mov = await encode(
+            name, codec, ContainerFormat.mov, FieldOrder.topFieldFirst);
+        expect(WorkerHarness.movFielAtom(mov), '0209', reason: 'still flagged TFF');
 
-      // The fixture's per-field chroma, in 8-bit units: U of chroma rows 0, 1.
-      final src = await _rawFrame(fixture, 'yuv420p');
-      final cw = _fw ~/ 2;
-      final srcU = _fw * _fh;
-      final topU = src[srcU + 0 * cw + cw ~/ 2];
-      final botU = src[srcU + 1 * cw + cw ~/ 2];
-      expect((topU - botU).abs(), greaterThan(50), reason: 'fixture fields differ');
+        // The fixture's per-field chroma, in 8-bit units: U of chroma rows 0, 1.
+        final src = await _rawFrame(fixture, 'yuv420p');
+        final cw = _fw ~/ 2;
+        final srcU = _fw * _fh;
+        final topU = src[srcU + 0 * cw + cw ~/ 2];
+        final botU = src[srcU + 1 * cw + cw ~/ 2];
+        expect((topU - botU).abs(), greaterThan(50), reason: 'fixture fields differ');
 
-      // The output's U plane, 4:2:2 10-bit: one chroma row per luma row,
-      // row r in field r % 2.
-      final out = await _rawFrame(mov, 'yuv422p10le');
-      final y10 = _fw * _fh * 2;
-      int u(int row) {
-        final o = y10 + (row * cw + cw ~/ 2) * 2;
-        return out[o] | (out[o + 1] << 8);
-      }
+        // The output's U plane at 10 bits: one chroma row per luma row, row r
+        // in field r % 2. (ProRes 4444 decodes as 12-bit; read at 10.)
+        final out = await _rawFrame(mov, pixFmt);
+        final ow = chroma444 ? _fw : cw;
+        final y10 = _fw * _fh * 2;
+        int u(int row) {
+          final o = y10 + (row * ow + ow ~/ 2) * 2;
+          return out[o] | (out[o + 1] << 8);
+        }
 
-      final rows = [for (var r = 100; r < 112; r++) u(r)];
-      print('  output U rows (10-bit) 100..111: $rows; fields 8-bit $topU / $botU');
-      for (var r = 100; r < 112; r++) {
-        final want = (r.isEven ? topU : botU) * 4;
-        expect((u(r) - want).abs(), lessThanOrEqualTo(8),
-            reason: 'row $r: ${u(r)} vs its field\'s $want — fields blended');
-      }
+        final rows = [for (var r = 100; r < 112; r++) u(r)];
+        print('  ${codec.displayName} U rows (10-bit) 100..111: $rows; '
+            'fields 8-bit $topU / $botU');
+        for (var r = 100; r < 112; r++) {
+          final want = (r.isEven ? topU : botU) * 4;
+          // Measured exact for every profile (each field is flat, and ProRes
+          // codes the fields apart with +ildct); 8 leaves room for the codec.
+          expect((u(r) - want).abs(), lessThanOrEqualTo(8),
+              reason: 'row $r: ${u(r)} vs its field\'s $want — fields blended');
+        }
+      }, timeout: const Timeout(Duration(minutes: 5)));
+    }
+
+    test('ProRes 422 HQ from interlaced 4:2:0: the preview is the encode',
+        () async {
+      final job = _job(
+        name: 'prores_hq_preview',
+        input: fixture,
+        pixFmt: 'yuv420p',
+        width: _fw,
+        height: _fh,
+        fps: 25,
+        codec: VideoCodec.proresHQ,
+        fieldOrder: FieldOrder.topFieldFirst,
+      );
+      final out = await _encode(job, 'ProRes HQ preview');
+      final pv = await WorkerHarness.runPreview(job, frame: 3, label: 'prores preview');
+      expect(pv.png, isNotNull, reason: '${pv.error}\n${pv.logs}');
+      final diff = WorkerHarness.meanAbsDiff(
+        await WorkerHarness.imageToRgb24(pv.png!, label: 'prores_pv'),
+        await WorkerHarness.frameRgb24(out, 3, label: 'prores_enc'),
+      );
+      print('  ProRes HQ preview vs encode: meanAbsDiff ${diff.toStringAsFixed(3)}');
+      expect(diff, lessThan(1.0), reason: 'the preview is not the encoded picture');
     }, timeout: const Timeout(Duration(minutes: 5)));
   });
 

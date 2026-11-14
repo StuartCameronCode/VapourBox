@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProRes chroma conversion in the script</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>ProRes chroma conversion in the script</h1>
+<p class="meta">2026-11-14 · follow-up to <a href="../2026-11-v210-field-order/index.html">v210 output and
+interlaced field-order flagging</a> (P7) · measured on Apple Silicon (macOS arm64), deps 1.16.0 bundle
+(FFmpeg 9.0.2, VapourSynth R78)</p>
+
+<div class="card">
+<strong>Outcome: built.</strong> Every ProRes profile now gets its stored format from the script, as v210
+already did: 10-bit 4:2:2 for Proxy, LT, 422 and 422 HQ, and 10-bit 4:4:4 for 4444 and 4444 XQ. The
+script's resize honours <code>_FieldBased</code>, so <span class="good">an interlaced 4:2:0 source keeps each
+field's chroma</span>. FFmpeg's <code>-pix_fmt</code> used to mix the two fields' chroma: on real interlaced
+4:2:2 → 4:2:0 → 4:2:2 round trips this gains <strong>+11 dB</strong> chroma PSNR. Existing ProRes output
+changes wherever a conversion happens (4:2:0, 4:1:1, 4:2:2 into 4444, and sources deeper than 10 bits).
+Every one of those cases measured the same or better, and a source already in the profile's format is
+bit-identical. The Color Format setting is now ignored for ProRes, as it is for v210, and the settings
+dialog says so.
+</div>
+
+<h2>What was asked</h2>
+<p>Task 7 found that FFmpeg's automatic 4:2:0 → 4:2:2 conversion treats a woven interlaced frame as
+progressive and blends the fields' chroma, and moved v210's conversion into the script. ProRes still went
+through FFmpeg whenever the pipeline handed it 4:2:0: a DV PAL, DVD or DVB source left interlaced, with
+Color Format at "Match source". That is the usual archival job. This change extends the override to ProRes.
+Because that changes existing ProRes output, also for progressive sources (zimg's Bicubic instead of
+swscale), the change is measured here.</p>
+
+<p><strong>OLD</strong> is the previous behaviour: the script leaves the format alone (or applies the Color
+Format selection), and FFmpeg's <code>-pix_fmt</code> pin produces the profile's format. <strong>NEW</strong>:
+the script converts to the profile's format itself (<code>resize.Bicubic</code>, with
+<code>_FieldBased</code> set when the clip is still interlaced). The pin then converts nothing. Both run
+through the same vspipe → FFmpeg pipe as the worker.</p>
+
+<h2>Findings</h2>
+
+<h3>M1 · Synthetic: one colour per field</h3>
+<p>The heavy test's fixture: an interlaced 4:2:0 frame whose top field has U = 90 and bottom field U = 240
+(8-bit). U rows 100…111 of the output, 10-bit, where the correct answer is 360, 960, 360, 960…</p>
+<div class="scroll"><table>
+<tr><th>Path</th><th>OLD</th><th>NEW</th></tr>
+<tr><td>4:2:0 → 4:2:2 (raw)</td><td class="bad">454 454 866 866 454 454 866 866…</td><td class="good">360 960 360 960 360 960…</td></tr>
+<tr><td>4:2:0 → 4:4:4 (raw)</td><td class="bad">454 454 866 866…</td><td class="good">360 960 360 960…</td></tr>
+<tr><td>ProRes Proxy, decoded</td><td class="bad">459 459 858 858 462 462 861 861…</td><td class="good">360 960 360 960…</td></tr>
+<tr><td>ProRes 422 HQ, decoded</td><td class="bad">454 454 866 866…</td><td class="good">360 960 360 960…</td></tr>
+<tr><td>ProRes 4444, decoded</td><td class="bad">454 454 866 866…</td><td class="good">360 960 360 960…</td></tr>
+</table></div>
+<p class="caption">A synthetic worst case: fully saturated, opposite colours per field. In real footage the
+error appears only where the two fields' chroma differs, which means moving edges.</p>
+
+<h3>M2 · Real interlaced 4:2:0</h3>
+<p><strong>With a ground truth:</strong> <code>interlaced_test.avi</code> (interlaced 4:2:2) is subsampled
+to 4:2:0 <em>per field</em> with MPEG-2 siting, the way a DVD or DVB encoder would, and then converted
+back to 4:2:2 both ways. The result is compared with the original 4:2:2 (10-bit units).</p>
+<table>
+<tr><th>Path</th><th class="num">U PSNR</th><th class="num">V PSNR</th><th class="num">U max |d|</th><th class="num">V max |d|</th></tr>
+<tr><td>OLD (FFmpeg <code>-pix_fmt</code>)</td><td class="num bad">38.49 dB</td><td class="num bad">41.94 dB</td><td class="num">207</td><td class="num">79</td></tr>
+<tr><td>NEW (script, <code>_FieldBased=2</code>)</td><td class="num good">49.45 dB</td><td class="num good">52.69 dB</td><td class="num">57</td><td class="num">48</td></tr>
+<tr><td>NEW, but the clip is not marked interlaced</td><td class="num">38.54 dB</td><td class="num">41.96 dB</td><td class="num">206</td><td class="num">79</td></tr>
+<tr><td>OLD through ProRes 422 HQ (<code>+ildct</code>)</td><td class="num">38.55 dB</td><td class="num">42.03 dB</td><td class="num">209</td><td class="num">78</td></tr>
+<tr><td>NEW through ProRes 422 HQ (<code>+ildct</code>)</td><td class="num">49.11 dB</td><td class="num">52.15 dB</td><td class="num">58</td><td class="num">47</td></tr>
+</table>
+<p>The gain depends on the clip being marked field-based. The script marks it when deinterlacing is on or
+a field order was detected (<code>ScriptGenerator::field_based_for</code>). An interlaced source whose order
+is not detected gets the old result, no worse.</p>
+<p class="caption">Limits: PSNR against a re-subsampled ground truth measures the round trip, not perceived
+quality, and our own per-field 4:2:0 step is part of what is measured.</p>
+
+<p><strong>Without a ground truth:</strong> <code>pal-dvbt-fieldcoded-25i.ts</code> (a real DVB-T capture,
+interlaced 4:2:0). OLD and NEW differ by U 49.98 dB / V 52.32 dB on average, with up to 88 / 91 (10-bit)
+at single samples. The differences sit on moving coloured edges. The figures below show the block where
+OLD and NEW differ most:</p>
+<img src="img/1-dvbt-picture-old-new.png" alt="Crop of the DVB-T frame's news caption, OLD on the left and NEW on the right, enlarged 4x">
+<p class="caption">Figure 1. The DVB-T frame, 96x48 crop at the largest OLD/NEW chroma difference, 4x
+nearest-neighbour. Left OLD, right NEW. OLD's blue box has a lighter band along its top edge, where one
+field's chroma has bled into the other.</p>
+<img src="img/2-dvbt-u-plane-old-new.png" alt="The U plane of the same crop, OLD on the left and NEW on the right">
+<p class="caption">Figure 2. The U plane of the same block (48x48 chroma samples, 4x). Left OLD, right NEW.
+NEW keeps the box's top and bottom edges as sharp in chroma as the fields carry them. OLD smears them over
+two chroma rows. No ground truth exists for this clip, so this shows where the two differ, not which is
+right. M2's ground-truth case answers that.</p>
+
+<h3>M3 · Progressive 4:2:0: interpolation only</h3>
+<p>With no fields involved, the change is zimg's Bicubic against swscale's default. Ground-truth round
+trips, 10-bit units:</p>
+<table>
+<tr><th>Case</th><th>Path</th><th class="num">U PSNR</th><th class="num">V PSNR</th></tr>
+<tr><td rowspan="3"><code>pal-sd-25.mov</code> 4:2:2 → 4:2:0 → 4:2:2</td><td>OLD</td><td class="num">48.71 dB</td><td class="num">45.44 dB</td></tr>
+<tr><td>NEW</td><td class="num good">49.23 dB</td><td class="num good">45.99 dB</td></tr>
+<tr><td>OLD vs NEW</td><td class="num">71.85 dB</td><td class="num">67.78 dB</td></tr>
+<tr><td rowspan="2">ProRes 4444 fixture 4:4:4 → 4:2:0 → 4:4:4</td><td>OLD</td><td class="num">34.04 dB</td><td class="num">31.05 dB</td></tr>
+<tr><td>NEW</td><td class="num good">37.15 dB</td><td class="num good">34.02 dB</td></tr>
+</table>
+<p>The 4:2:2 case barely moves (OLD and NEW are within 0.04 levels on average, max 9). Upsampling
+4:2:0 to 4:4:4 gains about 3 dB. Chroma siting was not measured separately; it would show up
+here as a PSNR loss, and NEW is ahead in both cases.</p>
+
+<h3>M4 · Already in the profile's format: untouched</h3>
+<p><code>pal-sd-25.mov</code> (10-bit 4:2:2) into ProRes 422 HQ with "Match source": the script's
+output and the decoded ProRes are bit-identical OLD vs NEW (MD5 <code>1b1bc05e…</code> raw,
+<code>b2d4a79f…</code> decoded). The conversion block is guarded by <code>clip.format.id != target</code>,
+so it does nothing here. This is the common ProRes-to-ProRes job.</p>
+
+<h3>M5 · 4:2:2 into ProRes 4444</h3>
+<table>
+<tr><th>Case</th><th>Path</th><th class="num">U PSNR</th><th class="num">V PSNR</th></tr>
+<tr><td rowspan="2">ProRes 4444 fixture 4:4:4 → 4:2:2 → 4:4:4</td><td>OLD</td><td class="num">34.19 dB</td><td class="num">31.27 dB</td></tr>
+<tr><td>NEW</td><td class="num good">37.57 dB</td><td class="num good">34.60 dB</td></tr>
+</table>
+<p>On <code>pal-sd-25.mov</code> (4:2:2, no ground truth) OLD and NEW differ by 41.3 / 42.9 dB: a visible
+but small interpolation difference, in NEW's favour wherever a ground truth exists.</p>
+
+<h3>M6 · Deeper than 10 bits</h3>
+<p>RMS error against the deep source, in 10-bit units (the ideal is quantisation alone):</p>
+<table>
+<tr><th>Source</th><th>Path</th><th class="num">Y rms</th><th class="num">U rms</th><th class="num">V rms</th><th class="num">max</th></tr>
+<tr><td rowspan="2">ProRes 4444 (decodes 12-bit)</td><td>OLD</td><td class="num">0.153</td><td class="num">0.219</td><td class="num">0.215</td><td class="num">0.750</td></tr>
+<tr><td>NEW</td><td class="num good">0.132</td><td class="num good">0.182</td><td class="num good">0.180</td><td class="num">0.750</td></tr>
+<tr><td rowspan="2">16-bit 4:2:2 gradient</td><td>OLD</td><td class="num">0.413</td><td class="num">0.408</td><td class="num">0.409</td><td class="num">0.984</td></tr>
+<tr><td>NEW</td><td class="num good">0.339</td><td class="num good">0.333</td><td class="num good">0.332</td><td class="num">0.953</td></tr>
+</table>
+<p>The plan's decision point was whether zimg's error-diffusion dither hurts at a 10-bit target. It
+doesn't: the error is lower and the maximum stays within one 10-bit step. The dither is unchanged.</p>
+
+<h3>M7 · An 8-bit Color Format selection</h3>
+<p>Previously, a ProRes job with "4:2:0 (8-bit)" selected was reduced to 8 bits in the script and padded
+back to 10 by FFmpeg. On the 16-bit gradient: OLD's Y RMS error is 1.358 (max 3.98, 0% of luma samples off
+the 8-bit grid). NEW ignores the selection: 0.339 (max 0.98), 75% of samples between 8-bit steps.</p>
+<p class="caption"><code>pal-sd-25.mov</code> itself carries 8-bit content in a 10-bit container (0% off
+the 8-bit grid in the source), which is why the gradient is used here.</p>
+
+<h3>M8 · Speed</h3>
+<p>1080i 4:2:0, 100 frames into ProRes 422 HQ: OLD 25.8 fps, NEW 28.0 fps. That is one run each, within
+run-to-run noise. The conversion costs nothing measurable next to the encode.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>One statement of the stored format.</strong> <code>VideoCodec::fixed_output_format</code>
+(Dart <code>fixedOutputFormat</code>) is v210 → 4:2:2 10-bit, and ProRes by profile number (≥ 4 → 4:4:4).
+<code>effective_chroma_subsampling</code> is that, or the selection. <code>forced_pix_fmt</code> still pins the
+same format as a guard, and <code>fixed_output_format_agrees_with_the_pin</code> asserts they agree.</li>
+<li><strong>The Color Format selection is ignored for ProRes.</strong> <code>proresChromaPinWarning</code>
+and <code>v210ChromaPinWarning</code> now share one body. They say the selection is ignored, that a 4:4:4
+source loses chroma in a 4:2:2 profile, or that a narrower source is padded into 4444. The selection no
+longer reaches the encode, so loss and padding are judged from the source alone. Both are pinned row for
+row to the worker's tables (<code>prores_converts_to_its_profile_format_whatever_is_selected</code>,
+<code>v210_stores_422_10_whatever_is_selected</code>).</li>
+<li><strong>The bit-depth warning is silent for ProRes.</strong> Otherwise every ProRes 4444 source
+(decoded as 12-bit) would warn "12-bit to 10-bit, choose Match source" on every ProRes job, advice that
+does not apply.</li>
+</ul>
+
+<h2>Verification</h2>
+<ul>
+<li><code>integration_v210_output_test.dart</code> (heavy): "keeps each field's chroma" now runs for v210,
+ProRes Proxy, 422 HQ and 4444 (rows exactly 360/960, <code>fiel 0x0209</code>), and a ProRes HQ preview of
+interlaced 4:2:0 matches the encode (meanAbsDiff 0.000).</li>
+<li><code>test_223</code> (Rust): both scripts convert to the profile's format, after
+<code>SetFieldBased</code>, for every ProRes codec × every selection, with no second conversion.</li>
+<li>Script-generation coverage in <code>integration_filter_parameters_test.dart</code> (push gate), and unit
+tables in <code>prores_chroma_pin_warning_test.dart</code>, <code>v210_test.dart</code> and
+<code>pixel_format_test.dart</code>.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>Windows and Linux. The conversion is zimg in VapourSynth on every platform, so nightly's heavy run is
+the check there.</li>
+<li>Perceived quality on a broad set of real footage: one real interlaced clip with a ground truth, one
+without.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>SCRATCH=/path/to/scratch docs/reports/2026-11-prores-script-chroma/scripts/probe.sh</pre>
+<p>It needs the deps bundle (<code>deps/macos-arm64</code>, or <code>DEPS=…</code>), writes only under
+<code>$SCRATCH</code> apart from regenerating <code>img/</code>, and prints every number above.
+<code>planes.py</code> does the plane arithmetic in plain Python; <code>convert.vpy</code> is the NEW
+conversion, the same <code>resize</code> call as the templates' block.</p>
+</main>
+</body>
+</html>

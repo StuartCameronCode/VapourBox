@@ -122,8 +122,10 @@ VapourBox/
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
+| `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
+| `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
-| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared (see "Source Frame Size", "Colour metadata") |
+| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset and the one `seek_time` (see "Source Frame Size", "Colour metadata") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
@@ -726,6 +728,8 @@ trimmed window the encode uses (`extract_audio_range`), or cues drift by exactly
 the trimmed-off head; that is safe because nothing *else* retimes audio (IVTC
 and frame-rate conversion change the video timeline only). Any new step that
 moves audio in time belongs in `audio_restoration`, never in the encode.
+(The encoder's delay of a late-starting picture, `output_video_delay`, is not
+an exception: it keeps the source's own timing and moves no audio.)
 `SubtitleOutput::{burns_in, muxes, keeps_srt_file}` are asserted to cover every
 mode, so a mode that does none of the three can't silently produce nothing.
 
@@ -1062,6 +1066,43 @@ the **single** builder of both decoders' arguments (encode + preview):
   in AVI and leading null frames still seek to the wrong picture for other
   reasons (docs/reports/issue-157-seek-alignment).
 
+- **Frame N counts from the video's first picture, and every seek says so.**
+  An input `-ss` counts from the *container's* start, the earliest stream's;
+  on a broadcast (DVB-T) capture that is the sound, 1.2 s before the first
+  picture, so frame N used to name a picture ~30 frames early. The offset is
+  the earlier of the video stream's `start_time` and the smallest PTS of its
+  first 64 packets, less the container's `start_time`
+  (`source_decode::video_start_from_probe`; an open GOP shows B pictures
+  stored after the first packet, MPEG-2 in AVI stores packets with no PTS).
+  The worker probes it (`VideoJob.video_start_offset`, filled in `main.rs`);
+  the app's twin is `FieldOrderDetector.videoStartFromProbe`, run with the
+  same `videoStartProbeArgs` (a test pins them word for word).
+  - **Every seek goes through `source_decode::seek_time`** (encode, preview,
+    every detector) and the app's `beforeFrameArgs` / `thumbnailArgs`; none
+    keeps its own `(N - 0.5)/fps`. Frame 0 never seeks, on either side.
+  - **A decoder that does not seek still resets PTS when the offset is
+    non-zero** (`resets_pts`): that drops ffmpeg's constant-rate copies of
+    the first picture (MKV/MP4) and keeps an open GOP's leading pictures
+    (TS). With offset 0 every argument list is byte-for-byte as before.
+  - **The frame count is the video's**, not the file's:
+    `FieldOrderDetector.frameCountFromDuration` (stream duration plus leading
+    pictures, else container duration less the offset) when `nb_frames` is
+    absent.
+  - **The output keeps the source's layout: sound first, picture delayed.**
+    `VideoJob::output_video_delay` is the one decision (0 when trimmed, when
+    there is no sound, or with Audio Restoration's `startWithPicture`); the
+    encoder delays the picture in its one `-vf` (`settb=1/120000`, `setpts`,
+    `-enc_time_base`) and copies the sound from the start, which is in sync
+    and lossless. A trim seeks the sound to offset + in-point
+    (`source_audio_start`), as do `OutputWindow` and transcription.
+  - **Only `startWithPicture` drops the sound before the first picture**, and
+    **never prefill the sync offset (`offsetMs`) from the start offset**: it
+    moves sound against picture and would create the desync it seems to fix.
+  `integration_video_start_offset_test.dart` (heavy) checks pictures and sync
+  on late-video TS/MKV/MP4 fixtures (docs/reports/2026-11-video-start-offset).
+  MPEG-TS seeks that land on a later keyframe are a separate fault (the DVB-T
+  clip's preview is still off for that reason).
+
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
 "Clean aperture" and "Seek alignment".
@@ -1386,6 +1427,49 @@ time span `[t, t+1)`; the worker reports `sub_frame`, `sub_frames` and
   frame against a lossless encode, and fails by 13 levels without the pad.
 - A source frame with no output of its own (down-conversion, decimation)
   shows the output just before it, as the preview always has.
+
+### Unblend (SRestore) (app 1.8.0)
+
+The Unblend pass (`UnblendParameters`, `PassType::Unblend`) recovers the
+original frames of a frame-rate conversion done by blending. Rules, from
+[docs/reports/2026-11-srestore](docs/reports/2026-11-srestore/index.html):
+
+- **Never call `haf.srestore`.** On R78 it is plain decimation: it relied on
+  `std.Cache(make_linear=True)`, which R78 ignores, and its detector's
+  history only advances on consecutive frames, which `ChangeFPS` never
+  requests. `worker/templates/srestore.py` runs upstream's arithmetic
+  unchanged (`_Detector.step`); keep it line for line with havsfunc.
+- **Every decision is a pure function of a window**: a replay over frames
+  `max(origin, n - UNBLEND_WINDOW) .. n` with fresh state, in encode and
+  preview alike. The detector's phase tracker never converges from a fresh
+  start, so pre-rolling a preview or forcing linear access cannot make it
+  match the encode. No state may survive between frames other than memos of
+  pure values.
+- **Its own pass, right after Deinterlace** (before Edge Repair): denoising,
+  deflicker, sharpening, grain and resizing all change what the detector
+  measures. Not a Frame Rate method; the two combine.
+- **The preview pads and tells the detector where real frames start**
+  (`PreviewOutput::unblend_pad` / `unblend_origin`, `{{PREVIEW_UNBLEND_*}}`),
+  computed by `preview_output`, which walks every retime the same way. The
+  `FrameMap` radius covers the replay's start index (window + 8), not only
+  the pixels it reads: a radius of the measured reach mismatched.
+- **The measurement clip's cache is pinned** (`std.SetVideoCache` in
+  `stats_clip`). Each decision reads it through one shifted copy per window
+  frame; left to automatic sizing it was evicted and QTGMC ran ~3x.
+  Picks come from a few pre-built shifted clips, never a node per frame.
+- **Only exact ratios run.** srestore computes `numr/denm` in floating point;
+  `unblend_ratio` (Rust port, tested against the report's
+  `data/ratio_table.json`) refuses any target where that is not exactly the
+  target/input ratio, or where srestore would not decimate (not lower, or
+  below a fifth). The script raises on the same condition. The app warns with
+  the same wording (`unblendTargetProblem`) and advises on Deinterlace off,
+  single rate or IVTC (`pass_advice.dart`).
+- Not exposed: `thresh`, `mode`, `omode`, `speed` (upstream defaults); no
+  built-in preset turns it on.
+
+`integration_unblend_test.dart` (heavy) checks recovery on the blended
+fixtures (`generate_blended_test.sh`) against plain decimation, exact length
+and rate, 8 = 10-bit, and preview = encode.
 
 ### Frame Rate targets (issue #129)
 
@@ -1882,6 +1966,13 @@ Rules, from docs/reports/2026-11-audio-restoration:
   trim's in-point, `output_duration_secs` long. The rendered track is exactly
   that many samples, so with restoration the output's audio is the picture's
   length (passthrough could leave it longer).
+- **"Start the sound with the picture"** (`startWithPicture`) drops the sound
+  before a late-starting video's first picture: the window starts at the
+  offset and the encoder's video delay goes to 0. It has no value (the worker
+  reads the gap from the timestamps) and does nothing without a gap. The pass
+  list suggests the pass when the gap is ≥ 0.25 s
+  (`videoStartSuggestThreshold`; ffmpeg's TS muxer leaves 10–21 ms), and the
+  panel describes any gap; neither ticks anything. See "Source Frame Size".
 - **One stream is restored** (`streamIndex`, default the first). The encoder
   maps the rendered track first, then the source's other audio streams
   untouched, each with its own tags (`encode_map_args`; naming one stream's
@@ -2128,7 +2219,7 @@ See docs/ENGINEERING_NOTES.md for the specific measurements (which profiles are
 bit-identical with/without the pin, the dB gain from the advanced quant-matrix
 options) and the `copyWith`/enum-dispatch traps this shipped with.
 
-### Intermediate codecs: v210 and ProRes (field order, chroma)
+### Intermediate codecs: v210 and ProRes; field order for every codec
 
 `VideoCodec::V210` (serde `"v210"`, app 1.8.0) is uncompressed 10-bit 4:2:2
 for editors: MOV (default), MKV, AVI; never MP4 (no tag). Its own family,
@@ -2138,38 +2229,72 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
 
 - **vspipe's Y4M header always says `Ip`**, whatever `_FieldBased` is, so
   ffmpeg never learns a still-interlaced picture's field order from the pipe.
-  For the codecs that flag it (`VideoCodec::flags_field_order`: ProRes, v210)
-  `pipeline_executor::field_order_args` declares it **on the pipe input**,
-  `-top 1|0` before `-i -`, from `ScriptGenerator::output_field_order`. Never
-  `-field_order` (inert in FFmpeg 9: overwritten from the frame flags) and
-  never `setfield` in `-vf` (a Custom FFmpeg Argument `-vf` drops it). Without
-  it a MOV's `fiel` atom says progressive (`0x0100`).
-- **ProRes also gets `-flags +ildct`**: its frame header has its own field
-  flag, which stays progressive unless the frame is coded as fields.
+  `VideoCodec::field_order_signal` decides per codec, exhaustively (no
+  catch-all arm), and `pipeline_executor::field_order_args` declares it
+  **on the pipe input**, `-top 1|0` before `-i -`, from
+  `ScriptGenerator::output_field_order`. Never `-field_order` (inert in
+  FFmpeg 9: overwritten from the frame flags) and never `setfield` in `-vf`
+  (a Custom FFmpeg Argument `-vf` drops it). Without it a MOV's `fiel` atom
+  says progressive (`0x0100`). Per codec (docs/reports/2026-11-field-order-other-codecs):
+  - **v210, FFV1, HuffYUV, FFVHuff: `-top` only** — MKV FieldOrder, MOV
+    `fiel`; pixels bit-identical. FFV1 also writes it in its own bitstream,
+    so it survives in AVI; the others in AVI carry nothing.
+  - **ProRes: `-top` + `-flags +ildct`** — its frame header has its own
+    field flag, which stays progressive unless the frame is coded as fields.
+  - **x264: `-top` + `-flags +ildct` + `-x264-params tff=1|bff=1`** — real
+    interlaced (MBAFF) coding; it beat progressive coding of the woven frame
+    at equal bitrate on every fixture. `+ildct` alone left a BFF picture's
+    `pic_struct` SEI saying top-first on most frames (libx264 starts from
+    TFF). A Custom FFmpeg Argument `-x264-params` replaces ours. Apple's
+    hardware decoder refuses MBAFF (AVFoundation decodes it in software).
+  - **x265 and every hardware encoder: nothing.** x265 has no interlaced
+    coding (its `interlace` mode declares each woven frame one field,
+    `field_seq_flag=1`); a container-only flag is read by AVFoundation but
+    not by FFmpeg-based players, so they would disagree about one file.
+    VideoToolbox ignores `+ildct`; NVENC/QSV/AMF can't be verified here.
+  - **`field_order_note` logs it** when a still-interlaced picture goes out
+    unflagged (these codecs, or a container-only codec in AVI). Said, never
+    refused.
 - **A pass that makes a still-interlaced clip progressive must be taught to
   `output_field_order`** (today: Stabilize pitch, Deblock mpeg2stinx, the
   Frame Rate pass). `test_221` counts every `SetFieldBased(` in both templates
   and fails on one it doesn't know.
-- **v210's 4:2:2 10-bit comes from the script, never from ffmpeg's
+- **The stored format comes from the script, never from ffmpeg's
   `-pix_fmt`**, which blends interlaced 4:2:0 chroma across the fields; zimg
-  honours `_FieldBased`. `forced_pix_fmt` still pins `yuv422p10le` as a guard.
-  ProRes from 4:2:0 still converts in ffmpeg (open follow-up).
-- `v210ChromaPinWarning` (Dart) is a second implementation of the override
-  and is pinned case for case to `v210_stores_422_10_whatever_is_selected`.
+  honours `_FieldBased`. `VideoCodec::fixed_output_format` (Dart
+  `fixedOutputFormat`) is the one statement: v210 → 10-bit 4:2:2, ProRes by
+  profile number (≥ 4 → 10-bit 4:4:4, else 4:2:2). The Color Format
+  selection is ignored for both. `forced_pix_fmt` still pins the same format
+  as a guard (`fixed_output_format_agrees_with_the_pin`). This changed
+  existing ProRes output (app 1.8.0) wherever a conversion happens; every case
+  measured equal or better, and a source already in the profile's format is
+  bit-identical (docs/reports/2026-11-prores-script-chroma).
+- `v210ChromaPinWarning` / `proresChromaPinWarning` (Dart, one shared body)
+  are second implementations of the override, pinned case for case to
+  `v210_stores_422_10_whatever_is_selected` /
+  `prores_converts_to_its_profile_format_whatever_is_selected`. Loss and
+  padding are judged from the **source**, since the selection never reaches
+  the encode. `chromaConversionBitDepthWarning` is silent for ProRes (every
+  ProRes 4444 source decodes as 12-bit).
 - **Editing intermediates (ProRes and v210, `VideoCodec::is_editing_intermediate`)
   get no `+faststart` and PCM restored audio.** Faststart reads and rewrites
   the whole file after the last frame (in place, no extra space; ~0.9 s/GB on
   an internal SSD, much more on a USB disk or NAS, with the progress bar at
   100%) for web playback no editor needs (`uses_faststart`). A restored track
   under Passthrough is PCM rather than AAC, since the editor encodes the
-  soundtrack again on delivery (`restored_passthrough_codec`). The same
-  predicate decides `flags_field_order`. See
+  soundtrack again on delivery (`restored_passthrough_codec`). Field-order
+  flagging is a separate table (`field_order_signal`). See
   docs/reports/2026-11-prores-faststart.
 - **Test field order with the `fiel` atom's bytes** (`0x0209` TFF, `0x020e`
-  BFF), not only ffprobe's `tb`/`bt` labels. AVI carries no field order at
-  all. `integration_v210_output_test.dart` (heavy) checks these, v210 bit-exact
-  against a 10-bit 4:2:2 source, per-field chroma, PCM in MOV and preview =
-  encode.
+  BFF; `WorkerHarness.movFielAtom`, which walks the boxes — x265's option
+  string contains "fiel"), not only ffprobe's `tb`/`bt` labels, and x264's
+  with the bitstream (`bitstreamHeaderCounts`: `frame_mbs_only_flag`,
+  `pic_struct`). `test_field_order_args_matrix` sweeps every codec x
+  container. `integration_field_order_test.dart` (heavy) checks each codec's
+  flags and that the lossless ones stay bit-exact;
+  `integration_v210_output_test.dart` (heavy) checks v210 bit-exact against a
+  10-bit 4:2:2 source, per-field chroma (v210, ProRes Proxy/HQ/4444), PCM in
+  MOV and preview = encode.
 
 ## QTGMC Parameters Reference
 

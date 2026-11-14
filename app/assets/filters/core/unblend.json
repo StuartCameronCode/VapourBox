@@ -1,0 +1,84 @@
+{
+  "$schema": "https://vapourbox.app/schemas/filter-v1.json",
+  "id": "unblend",
+  "version": "1.0.0",
+  "sinceAppVersion": "1.8.0",
+  "name": "Unblend (SRestore)",
+  "description": "Recover the original frames of a blended frame-rate conversion",
+  "longDescription": "Some video was converted from one frame rate to another by blending neighbouring frames together: a film or an American programme shown on PAL television through a standards converter, or a PAL programme converted to NTSC. Played back, it looks smeary, with ghostly double images on every movement, and no amount of deinterlacing removes them.\n\nUnblend finds the frames that are still clean and puts the original sequence back together at the rate the footage was made at, dropping the blended ones. Choose that rate as the target: 23.976 or 24 fps for film, 25 fps for a PAL programme, 29.97 for NTSC. It can only lower the frame rate.\n\nIt works on the deinterlaced picture and runs straight after Deinterlace, so keep Deinterlace on at double rate (the default) for interlaced video. On video that was never blended it has nothing to recover and simply drops frames, which judders.\n\nIt is a port of srestore 2.7e, as found in havsfunc.",
+  "category": "cleanup",
+  "icon": "filter_none",
+  "methods": [
+    {
+      "id": "srestore",
+      "name": "SRestore",
+      "description": "Measures how blended each frame is against its neighbours and keeps the cleanest frame near each output position.",
+      "function": "srestore.unblend",
+      "parameters": [
+        "target",
+        "customFps"
+      ]
+    }
+  ],
+  "parameters": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "ui": {
+        "hidden": true
+      }
+    },
+    "target": {
+      "type": "enum",
+      "default": "film23976",
+      "options": [
+        "film23976",
+        "film24",
+        "pal25",
+        "ntsc2997",
+        "custom"
+      ],
+      "ui": {
+        "label": "Original frame rate",
+        "description": "The rate the footage was made at, which is the rate the output will run at. It must be lower than the rate after deinterlacing.",
+        "widget": "dropdown",
+        "optionLabels": {
+          "film23976": "Film (23.976 fps)",
+          "film24": "Film (24 fps)",
+          "pal25": "PAL (25 fps)",
+          "ntsc2997": "NTSC (29.97 fps)",
+          "custom": "Custom…"
+        }
+      }
+    },
+    "customFps": {
+      "type": "number",
+      "default": 24,
+      "min": 1,
+      "max": 240,
+      "step": 0.001,
+      "ui": {
+        "label": "Custom rate (fps)",
+        "description": "The original rate. NTSC rates (23.976, 29.97) are taken exactly.",
+        "widget": "number",
+        "visibleWhen": {
+          "target": [
+            "custom"
+          ]
+        }
+      }
+    }
+  },
+  "ui": {
+    "sections": [
+      {
+        "title": "Unblend",
+        "parameters": [
+          "target",
+          "customFps"
+        ],
+        "expanded": true
+      }
+    ]
+  }
+}

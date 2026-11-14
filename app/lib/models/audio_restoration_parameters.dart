@@ -16,6 +16,25 @@ bool deepFilterChosen(
     newValues['deepFilter'] == true &&
     oldValues['deepFilter'] != true;
 
+/// The video start offset (seconds) from which the pass list suggests Audio
+/// Restoration for "start the sound with the picture". ffmpeg's own MPEG-TS
+/// muxer leaves 10-21 ms between streams, which is not worth a badge;
+/// broadcast captures measured 1.0-1.3 s (docs/reports/2026-11-video-start-offset).
+const double videoStartSuggestThreshold = 0.25;
+
+/// What the Audio Restoration panel says about a source whose sound starts
+/// before its picture, or null when they start together. Informational
+/// only: it never ticks the step, and it never suggests the sync offset,
+/// which would move the sound against the picture.
+String? videoStartNotice(double videoStartOffset) {
+  if (videoStartOffset <= 0) return null;
+  final secs = videoStartOffset.toStringAsFixed(2);
+  return "This video's sound starts $secs s before its picture. The output "
+      'keeps that, in sync: sound first, the picture joining when it does in '
+      'the recording. "Start the sound with the picture" drops those $secs s '
+      'instead, so both start together (the sound is then re-encoded).';
+}
+
 /// What to do about the two channels of a stereo source.
 enum ChannelFix {
   @JsonValue('off')
@@ -64,6 +83,14 @@ class AudioRestorationParameters {
   /// Positive delays the sound, negative advances it (milliseconds).
   final int offsetMs;
 
+  /// Drop the sound before the video's first picture, so the output starts
+  /// with both (twin of the worker's `start_with_picture`). Only does
+  /// anything on a source whose video starts after its audio
+  /// ([VideoInfo.videoStartOffset]); without it the output keeps that
+  /// layout, in sync. Never a value: the worker reads the gap from the
+  /// file's timestamps.
+  final bool startWithPicture;
+
   final bool driftCorrection;
 
   /// The largest drift corrected, as a percentage of the length.
@@ -107,6 +134,7 @@ class AudioRestorationParameters {
     this.streamIndex = 0,
     this.channelFix = ChannelFix.off,
     this.offsetMs = 0,
+    this.startWithPicture = false,
     this.driftCorrection = false,
     this.driftMaxPercent = 0.5,
     this.declip = false,
@@ -131,6 +159,7 @@ class AudioRestorationParameters {
     int? streamIndex,
     ChannelFix? channelFix,
     int? offsetMs,
+    bool? startWithPicture,
     bool? driftCorrection,
     double? driftMaxPercent,
     bool? declip,
@@ -154,6 +183,7 @@ class AudioRestorationParameters {
       streamIndex: streamIndex ?? this.streamIndex,
       channelFix: channelFix ?? this.channelFix,
       offsetMs: offsetMs ?? this.offsetMs,
+      startWithPicture: startWithPicture ?? this.startWithPicture,
       driftCorrection: driftCorrection ?? this.driftCorrection,
       driftMaxPercent: driftMaxPercent ?? this.driftMaxPercent,
       declip: declip ?? this.declip,
@@ -180,6 +210,7 @@ class AudioRestorationParameters {
       enabled &&
       (channelFix != ChannelFix.off ||
           offsetMs != 0 ||
+          startWithPicture ||
           driftCorrection ||
           declip ||
           declick ||
@@ -198,6 +229,7 @@ class AudioRestorationParameters {
         if (rumbleFilter) 'Rumble',
         if (humRemoval) 'Hum',
         if (denoise) 'Denoise',
+        if (startWithPicture) 'Start with picture',
         if (offsetMs != 0) 'Sync ${offsetMs > 0 ? '+' : ''}$offsetMs ms',
         if (driftCorrection) 'Drift',
         if (deepFilter) 'DeepFilterNet',

@@ -1,0 +1,27 @@
+{
+ "depth": {
+  "props_identical": true,
+  "decisions_identical": true,
+  "output_10bit_down_vs_8bit_max_mad": 0.0
+ },
+ "expr_film": {
+  "props_identical": true,
+  "frames_differing": 0
+ },
+ "expr_pal": {
+  "props_identical": true,
+  "frames_differing": 0
+ },
+ "speed_sd": {
+  "qtgmc_s": 2.62,
+  "qtgmc_frames": 300,
+  "qtgmc_unblend_s": 2.51,
+  "unblend_frames": 143,
+  "source_fields_per_s_qtgmc": 114.4,
+  "source_fields_per_s_with_unblend": 119.5
+ },
+ "preview_s": {
+  "qtgmc_only_radius8": 0.04,
+  "qtgmc_unblend_radius34": 0.43
+ }
+}

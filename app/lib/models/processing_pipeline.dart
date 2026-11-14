@@ -27,12 +27,14 @@ import 'parameter_converter.dart';
 import 'qtgmc_parameters.dart';
 import 'sharpen_parameters.dart';
 import 'subtitle_parameters.dart';
+import 'unblend_parameters.dart';
 
 part 'processing_pipeline.g.dart';
 
 /// Defines the type of each processing pass.
 enum PassType {
   deinterlace,
+  unblend,
   descratch,
   spotless,
   noiseReduction,
@@ -91,6 +93,8 @@ extension PassTypeExtension on PassType {
         return 'Film Grain';
       case PassType.frameRate:
         return 'Frame Rate';
+      case PassType.unblend:
+        return 'Unblend (SRestore)';
       case PassType.deflicker:
         return 'Deflicker';
       case PassType.edgeRepair:
@@ -146,6 +150,8 @@ extension PassTypeExtension on PassType {
         return 'Add film grain back after denoising';
       case PassType.frameRate:
         return 'Convert between PAL and NTSC, or to any frame rate';
+      case PassType.unblend:
+        return 'Recover the original frames of a blended frame-rate conversion';
       case PassType.deflicker:
         return 'Even out brightness pulsing between frames';
       case PassType.edgeRepair:
@@ -207,6 +213,9 @@ class ProcessingPipeline {
   final GeometryParameters geometry;
   final GrainParameters grain;
   final FrameRateParameters frameRate;
+
+  /// Unblend (SRestore), right after Deinterlace.
+  final UnblendParameters unblend;
   final DeflickerParameters deflicker;
   final DescaleParameters descale;
   final EdgeRepairParameters edgeRepair;
@@ -248,6 +257,7 @@ class ProcessingPipeline {
     this.geometry = const GeometryParameters(),
     this.grain = const GrainParameters(),
     this.frameRate = const FrameRateParameters(),
+    this.unblend = const UnblendParameters(),
     this.deflicker = const DeflickerParameters(),
     this.descale = const DescaleParameters(),
     this.edgeRepair = const EdgeRepairParameters(),
@@ -279,6 +289,7 @@ class ProcessingPipeline {
       geometry: const GeometryParameters(enabled: false),
       grain: const GrainParameters(enabled: false),
       frameRate: const FrameRateParameters(enabled: false),
+      unblend: const UnblendParameters(enabled: false),
       deflicker: const DeflickerParameters(enabled: false),
       descale: const DescaleParameters(enabled: false),
       edgeRepair: const EdgeRepairParameters(enabled: false),
@@ -301,6 +312,11 @@ class ProcessingPipeline {
     // frame rate.
     if (deinterlace.enabled) {
       passes.add(PassType.deinterlace);
+    }
+    // Unblend reads the blends exactly as the deinterlacer leaves them, so
+    // nothing that averages, sharpens or resizes frames may come before it.
+    if (unblend.enabled) {
+      passes.add(PassType.unblend);
     }
     // Edge repair precedes every spatial filter, or denoising and sharpening
     // smear the bad rows inward; and precedes the resize, or resampling spreads
@@ -426,6 +442,7 @@ class ProcessingPipeline {
     if (geometry.hasEffect) count++;
     if (grain.hasEffect) count++;
     if (frameRate.enabled) count++;
+    if (unblend.enabled) count++;
     if (deflicker.enabled) count++;
     if (descale.enabled) count++;
     if (edgeRepair.hasEffect) count++;
@@ -465,6 +482,7 @@ class ProcessingPipeline {
     if (geometry.hasEffect) count++;
     if (grain.hasEffect) count++;
     if (frameRate.enabled) count++;
+    if (unblend.enabled) count++;
     if (deflicker.enabled) count++;
     if (descale.enabled) count++;
     if (edgeRepair.hasEffect) count++;
@@ -508,6 +526,8 @@ class ProcessingPipeline {
         return grain.hasEffect;
       case PassType.frameRate:
         return frameRate.enabled;
+      case PassType.unblend:
+        return unblend.enabled;
       case PassType.deflicker:
         return deflicker.enabled;
       case PassType.descale:
@@ -566,6 +586,8 @@ class ProcessingPipeline {
         return grain.summary;
       case PassType.frameRate:
         return frameRate.summary;
+      case PassType.unblend:
+        return unblend.summary;
       case PassType.deflicker:
         return deflicker.summary;
       case PassType.descale:
@@ -606,6 +628,7 @@ class ProcessingPipeline {
     GeometryParameters? geometry,
     GrainParameters? grain,
     FrameRateParameters? frameRate,
+    UnblendParameters? unblend,
     DeflickerParameters? deflicker,
     DescaleParameters? descale,
     EdgeRepairParameters? edgeRepair,
@@ -633,6 +656,7 @@ class ProcessingPipeline {
       geometry: geometry ?? this.geometry,
       grain: grain ?? this.grain,
       frameRate: frameRate ?? this.frameRate,
+      unblend: unblend ?? this.unblend,
       deflicker: deflicker ?? this.deflicker,
       descale: descale ?? this.descale,
       edgeRepair: edgeRepair ?? this.edgeRepair,
@@ -706,6 +730,8 @@ class ProcessingPipeline {
         return copyWith(
           frameRate: frameRate.copyWith(enabled: enabled),
         );
+      case PassType.unblend:
+        return copyWith(unblend: unblend.copyWith(enabled: enabled));
       case PassType.deflicker:
         return copyWith(deflicker: deflicker.copyWith(enabled: enabled));
       case PassType.descale:

@@ -59,6 +59,14 @@ Neither change fixes a reported bug. Both change existing ProRes output, which i
 and recorded here.
 </div>
 
+<div class="card correction">
+<strong>Correction (2026-11-14, at review).</strong> The predicate was written as also deciding the
+field-order flag. Meanwhile the field-order work for the other codecs
+(<a href="../2026-11-field-order-other-codecs/index.html">report</a>) gave FFV1, HuffYUV, FFVHuff and x264
+their own flags through <code>VideoCodec::field_order_signal</code>. So <code>is_editing_intermediate</code>
+now decides only <code>+faststart</code> and the restored track's codec.
+</div>
+
 <h2>Why ask</h2>
 <p>A ProRes or v210 file is made to be cut in an editor, not delivered. Two of the encoder's container
 defaults are aimed at delivery:</p>

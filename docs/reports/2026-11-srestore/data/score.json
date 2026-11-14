@@ -1,0 +1,264 @@
+{
+ "film": {
+  "clean_limit": 1.774,
+  "floor_p50": 1.067,
+  "floor_p99": 1.524,
+  "blend_mad_p10": 0.278,
+  "blend_mad_p50": 3.601,
+  "truth_frames": 144,
+  "rows": [
+   {
+    "label": "Plain decimation (Frame Rate: Duplicate)",
+    "frames": 143,
+    "clean": 87,
+    "clean_pct": 60.8,
+    "distinct_clean": 80,
+    "steps": 70,
+    "dups": 36,
+    "skips": 36,
+    "mean_mad": 1.973
+   },
+   {
+    "label": "havsfunc srestore as shipped (R78)",
+    "frames": 143,
+    "clean": 87,
+    "clean_pct": 60.8,
+    "distinct_clean": 80,
+    "steps": 70,
+    "dups": 36,
+    "skips": 36,
+    "mean_mad": 1.973
+   },
+   {
+    "label": "Port, linear (every frame in order)",
+    "frames": 143,
+    "clean": 143,
+    "clean_pct": 100.0,
+    "distinct_clean": 126,
+    "steps": 109,
+    "dups": 17,
+    "skips": 16,
+    "mean_mad": 1.063
+   },
+   {
+    "label": "Port, window 8",
+    "frames": 143,
+    "clean": 133,
+    "clean_pct": 93.0,
+    "distinct_clean": 106,
+    "steps": 70,
+    "dups": 36,
+    "skips": 36,
+    "mean_mad": 1.159
+   },
+   {
+    "label": "Port, window 16",
+    "frames": 143,
+    "clean": 131,
+    "clean_pct": 91.6,
+    "distinct_clean": 103,
+    "steps": 68,
+    "dups": 37,
+    "skips": 37,
+    "mean_mad": 1.197
+   },
+   {
+    "label": "Port, window 24",
+    "frames": 143,
+    "clean": 133,
+    "clean_pct": 93.0,
+    "distinct_clean": 105,
+    "steps": 82,
+    "dups": 32,
+    "skips": 28,
+    "mean_mad": 1.156
+   },
+   {
+    "label": "Port, window 32",
+    "frames": 143,
+    "clean": 141,
+    "clean_pct": 98.6,
+    "distinct_clean": 117,
+    "steps": 95,
+    "dups": 24,
+    "skips": 23,
+    "mean_mad": 1.073
+   },
+   {
+    "label": "Port, window 48",
+    "frames": 143,
+    "clean": 143,
+    "clean_pct": 100.0,
+    "distinct_clean": 117,
+    "steps": 91,
+    "dups": 26,
+    "skips": 25,
+    "mean_mad": 1.074
+   },
+   {
+    "label": "Port, window 64",
+    "frames": 143,
+    "clean": 142,
+    "clean_pct": 99.3,
+    "distinct_clean": 119,
+    "steps": 97,
+    "dups": 23,
+    "skips": 22,
+    "mean_mad": 1.068
+   },
+   {
+    "label": "Port, window 96",
+    "frames": 143,
+    "clean": 143,
+    "clean_pct": 100.0,
+    "distinct_clean": 118,
+    "steps": 93,
+    "dups": 25,
+    "skips": 24,
+    "mean_mad": 1.049
+   },
+   {
+    "label": "Port, window 128",
+    "frames": 143,
+    "clean": 143,
+    "clean_pct": 100.0,
+    "distinct_clean": 120,
+    "steps": 99,
+    "dups": 23,
+    "skips": 20,
+    "mean_mad": 1.07
+   }
+  ]
+ },
+ "pal": {
+  "clean_limit": 1.72,
+  "floor_p50": 1.037,
+  "floor_p99": 1.47,
+  "blend_mad_p10": 0.278,
+  "blend_mad_p50": 3.525,
+  "truth_frames": 125,
+  "rows": [
+   {
+    "label": "Plain decimation (Frame Rate: Duplicate)",
+    "frames": 125,
+    "clean": 73,
+    "clean_pct": 58.4,
+    "distinct_clean": 73,
+    "steps": 124,
+    "dups": 0,
+    "skips": 0,
+    "mean_mad": 1.96
+   },
+   {
+    "label": "havsfunc srestore as shipped (R78)",
+    "frames": 125,
+    "clean": 73,
+    "clean_pct": 58.4,
+    "distinct_clean": 73,
+    "steps": 124,
+    "dups": 0,
+    "skips": 0,
+    "mean_mad": 1.96
+   },
+   {
+    "label": "Port, linear (every frame in order)",
+    "frames": 125,
+    "clean": 93,
+    "clean_pct": 74.4,
+    "distinct_clean": 91,
+    "steps": 118,
+    "dups": 3,
+    "skips": 3,
+    "mean_mad": 1.472
+   },
+   {
+    "label": "Port, window 8",
+    "frames": 125,
+    "clean": 97,
+    "clean_pct": 77.6,
+    "distinct_clean": 90,
+    "steps": 110,
+    "dups": 7,
+    "skips": 7,
+    "mean_mad": 1.505
+   },
+   {
+    "label": "Port, window 16",
+    "frames": 125,
+    "clean": 101,
+    "clean_pct": 80.8,
+    "distinct_clean": 94,
+    "steps": 110,
+    "dups": 7,
+    "skips": 7,
+    "mean_mad": 1.395
+   },
+   {
+    "label": "Port, window 24",
+    "frames": 125,
+    "clean": 101,
+    "clean_pct": 80.8,
+    "distinct_clean": 94,
+    "steps": 110,
+    "dups": 7,
+    "skips": 7,
+    "mean_mad": 1.395
+   },
+   {
+    "label": "Port, window 32",
+    "frames": 125,
+    "clean": 101,
+    "clean_pct": 80.8,
+    "distinct_clean": 94,
+    "steps": 110,
+    "dups": 7,
+    "skips": 7,
+    "mean_mad": 1.378
+   },
+   {
+    "label": "Port, window 48",
+    "frames": 125,
+    "clean": 101,
+    "clean_pct": 80.8,
+    "distinct_clean": 94,
+    "steps": 110,
+    "dups": 7,
+    "skips": 7,
+    "mean_mad": 1.378
+   },
+   {
+    "label": "Port, window 64",
+    "frames": 125,
+    "clean": 101,
+    "clean_pct": 80.8,
+    "distinct_clean": 94,
+    "steps": 110,
+    "dups": 7,
+    "skips": 7,
+    "mean_mad": 1.379
+   },
+   {
+    "label": "Port, window 96",
+    "frames": 125,
+    "clean": 101,
+    "clean_pct": 80.8,
+    "distinct_clean": 95,
+    "steps": 112,
+    "dups": 6,
+    "skips": 6,
+    "mean_mad": 1.381
+   },
+   {
+    "label": "Port, window 128",
+    "frames": 125,
+    "clean": 101,
+    "clean_pct": 80.8,
+    "distinct_clean": 95,
+    "steps": 112,
+    "dups": 6,
+    "skips": 6,
+    "mean_mad": 1.381
+   }
+  ]
+ }
+}

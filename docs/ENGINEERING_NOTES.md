@@ -3570,6 +3570,24 @@ Full report with scripts:
   AVI null frames and soft telecine give an untrimmed decode leading repeat
   slots (79 slots for 75 frames; 122 for 120), so frame numbers disagree.
 
+### Field order for FFV1/HuffYUV/FFVHuff and x264; not x265 (2026-11-14)
+
+Follow-up to the v210 entry below. Full evidence:
+[docs/reports/2026-11-field-order-other-codecs/](reports/2026-11-field-order-other-codecs/index.html).
+
+- **FFV1, HuffYUV, FFVHuff take `-top` like v210**: MKV `tb`/`bt`, MOV
+  `fiel`, bit-identical pixels. FFV1 also writes it in its bitstream, so it
+  survives in AVI; HuffYUV/FFVHuff in AVI record nothing (job log says so).
+- **x264 codes interlaced (MBAFF)**: `-flags +ildct -x264-params tff=1|bff=1`.
+  Field PSNR at equal bitrate +0.33 to +1.00 dB (VHS), +0.07 to +0.18 dB
+  (DVB-T); BD-rate −16.5 % / −2.2 %; ~20 % slower; Apple's hardware decoder
+  refuses MBAFF (software decode is fine). `+ildct` alone left a BFF
+  picture's `pic_struct` saying top-first on 46 of 79 frames.
+- **x265 and the hardware encoders stay unflagged.** x265's `interlace` mode
+  declares each woven frame one field; a container-only flag is read by
+  AVFoundation and ignored by VLC. VideoToolbox ignores `+ildct`; NVENC/QSV/AMF
+  were not available. `field_order_note` logs it instead of refusing.
+
 ### v210 output, and interlaced ProRes/v210 flagged progressive (2026-11-10)
 
 Forum request (videohelp 419911, #154): uncompressed 10-bit 4:2:2 in MOV for
@@ -3589,13 +3607,129 @@ Premiere/Resolve. Full evidence:
   keeps 64/192). v210's 4:2:2 10-bit is therefore made in the script
   (`EncodingSettings::effective_chroma_subsampling`). ProRes from interlaced
   4:2:0 still goes through FFmpeg's conversion: a follow-up, since changing it
-  changes existing output.
+  changes existing output. (Done 2026-11-14, next entry.)
 - v210 is ~221 Mbit/s at 720x576 25p and ~1.1 Gbit/s at 1080p25, so it skips
   `+faststart` (a second full pass over the file) and restored audio beside it
   is PCM.
 - Found on the way: `DependencyLocator::probe_frame_count` failed on a MOV
   whose stream FFmpeg 9 also prints under a stream group (`125\n125\n`), so a
   job without `totalFrames` encoded one frame. It now takes the first line.
+
+### ProRes converts to its profile's format in the script (2026-11-14)
+
+Follow-up to the v210 entry above: every ProRes profile now gets its stored
+format (10-bit 4:2:2, or 4:4:4 for 4444/XQ) from the script's field-aware
+`resize`, not from ffmpeg's `-pix_fmt`; the Color Format selection is ignored,
+as for v210. Full evidence:
+[docs/reports/2026-11-prores-script-chroma/](reports/2026-11-prores-script-chroma/index.html).
+
+- **Interlaced 4:2:0**: an interlaced 4:2:2 clip subsampled per field and
+  brought back: chroma PSNR 38.5 → 49.5 dB (U), 41.9 → 52.7 dB (V), the same
+  after ProRes 422 HQ. Only when the clip is marked field-based: with no
+  detected field order the result equals the old one.
+- **Existing output changes** wherever the script now converts, and every
+  case measured equal or better: progressive 4:2:0 → 4:2:2 +0.5 dB (OLD vs
+  NEW 0.03 levels mean), 4:2:0/4:2:2 → 4:4:4 about +3 dB, 12/16-bit → 10-bit
+  RMS error 14-18% lower with zimg's error diffusion (so the dither stays). A
+  source already in the profile's format is bit-identical (the block is
+  guarded by the format id). An 8-bit selection no longer drops a deeper
+  source to 8 bits. No measurable speed cost.
+- The warnings judge loss/padding from the source (the selection never
+  reaches the encode); the bit-depth warning is silent for ProRes, or every
+  ProRes 4444 source (decoded as 12-bit) would warn on every job.
+
+### Sources whose video starts after their audio (2026-11-14)
+
+Report: [docs/reports/2026-11-video-start-offset](reports/2026-11-video-start-offset/index.html).
+
+- **The fault.** An input `-ss` counts from the container's start, which is
+  the earliest stream's. On a DVB-T capture the sound starts 1.2 s before the
+  first picture, so every seek landed ~30 frames early. On constructed
+  fixtures with a 1 s gap (TS, MKV, MP4; `generate_video_start_offset.sh`)
+  the preview, the before frame and a trim of 30..59 all showed frame N−25;
+  frames 0–25 all showed frame 0.
+- **Untrimmed decodes differed by container.** For TS, ffmpeg rebases the
+  video to its own first timestamp: no padding, but the sound came out
+  **1.01 s late** (the DVB-T clip: 1.2 s), for every job. For MKV/MP4 the
+  constant-rate decode led with 25 copies of the first picture; an MP4 (which
+  has `nb_frames`) then lost its last 25 pictures to `-frames:v`.
+- **The frame count.** Without `nb_frames` the app counted the container's
+  duration: 158 frames for the DVB-T clip's 128, 125 for a 100-frame MKV.
+  It now counts the video's own duration plus its leading pictures, else the
+  container's less the offset.
+- **The offset's definition took one correction.** First taken as the
+  smallest PTS among the first 64 video packets (the stream's `start_time` is
+  the first *packet*, an I picture 0.12 s after three leading B pictures on
+  the DVB-T clip). That made `hard_telecine_test.avi` (MPEG-2 in AVI, no
+  audio) read 0.067 s: its first two packets carry no PTS. The offset is now
+  the earlier of the stream's `start_time` and that smallest PTS, which
+  reads 0 there.
+- **Keeping sync: delay the picture, copy the sound.** Measured alternatives
+  (planning): a stream-copy `-ss` on the sound is off by 0.06–0.30 s and pads
+  the video; `-itsoffset` keeps the desync. Re-encoding the sound with an
+  exact cut works but loses the sound before the picture. Delaying the
+  picture in the encoder (`settb=1/120000`, `setpts`, `-enc_time_base`; at
+  the default 1/fps time base the delay rounded to 10 ms off) keeps the
+  sound-first layout, losslessly: sync ≤ 0.8 ms in MKV, MP4 and AVI output
+  (AVI writes null frames for the gap), copied or restored, trimmed or not.
+- **The step and the badge.** "Start the sound with the picture" (Audio
+  Restoration) drops the sound before the first picture; it is suggested at
+  a gap ≥ 0.25 s (fixtures: 0 or ≥ 1.0 s; ffmpeg's TS muxer leaves 10–21 ms).
+  The detected gap is never put into the sync offset, which moves sound
+  against picture.
+- **Unchanged:** every fixture whose streams start together encodes and
+  previews bit-identically (framemd5 of every stream, preview PNG bytes).
+- **Not fixed:** MPEG-TS seeks that land on a later keyframe, so the DVB-T
+  clip's preview and before frame are still off between keyframes (its trim
+  30..59 and untrimmed encode are now exact), and past its last keyframe
+  (frames 120–127 of 128) the preview is black and the before frame empty;
+  before the fix the same fault hit timeline slots 128–157, which held no
+  picture at all. An MKV without stream durations whose audio outlasts its
+  video still over-counts by the tail.
+- **The heavy test** (`integration_video_start_offset_test.dart`) fails 28
+  of its 40 cases against the worker from before the fix.
+
+### Unblend (SRestore): havsfunc's srestore only decimates on R78; a windowed port (2026-11-14)
+
+Full report with scripts:
+[docs/reports/2026-11-srestore/](reports/2026-11-srestore/index.html).
+
+- Requested on the videohelp forum: deblend footage frame-rate converted by
+  blending (film on PAL through a standards converter, PAL to NTSC).
+- **havsfunc r31's `srestore` is plain decimation on VapourSynth R78.** Its
+  detector's history only advances when `FrameEval` is called for the frame
+  after the last one (`jmp`); it relied on `std.Cache(make_linear=True)`,
+  which R78 ignores ("Critical: … passed through instead"), and its
+  `ChangeFPS` requests only the frames it keeps (0, 2, 4, …). `jmp` was true
+  0 times in 143 calls at 1 and 8 requests; its picks equal decimation's,
+  frame for frame. Never call it.
+- `worker/templates/srestore.py` ports upstream's arithmetic line for line
+  (300/300 decisions identical to havsfunc driven frame by frame) but makes
+  each decision a replay over a fixed window (`UNBLEND_WINDOW` = 48 frames),
+  so encode, preview and thread count agree by construction: vspipe `-r 1` vs
+  default byte-identical, preview = encode at 42 emulated and 5 real targets.
+  Pre-roll can't do this: the phase tracker still disagreed at 36% of frames
+  after 160 frames of pre-roll (plan-stage synthetic fixture).
+- Recovery on ground-truth fixtures (`generate_blended_test.sh`): film in 50i
+  143/143 frames clean (decimation 87), PAL in 59.94i 101/125 (73). The
+  window is never below the linear run's clean count at 48; 32 was (141).
+- **A preview radius must cover the window index, not just the pixels read**
+  (46 back): a radius of 46 mismatched 6 of 22 targets. `FrameMap` radius =
+  window + 8, converted to source frames.
+- **Pin a clip's cache when many shifted copies read it.** The 49 shifted
+  reads of the 1x1 measurement clip made VapourSynth's automatic cache evict
+  it, and QTGMC behind it ran 830-894 times for 300 frames (3x the time).
+  `std.SetVideoCache(mode=1, fixedsize=1, maxsize=4096)` brought it to 299
+  and the pass to within ~2% of QTGMC alone.
+- srestore's own `numr/denm` must be the exact target ratio or the job is
+  refused (89 of 150 swept pairs pass, including every conversion the pass is
+  for; 59.94 → 50 would be 835/1001). `unblend_parameters.rs` ports the
+  arithmetic and is tested against the sweep's table.
+- It is its own pass right after Deinterlace, not a Frame Rate method: the
+  Frame Rate pass runs after denoise, sharpen, grain and resize, which change
+  what the detector measures.
+- Not tested: a real blended capture (none available), non-macOS platforms
+  beyond the nightly run.
 
 ### ProRes in MOV: no `+faststart`, PCM for restored audio (2026-11-14)
 
@@ -3604,8 +3738,8 @@ Follow-up to the v210 entry above. Full evidence:
 
 - ProRes and v210 are both **editing intermediates**
   (`VideoCodec::is_editing_intermediate`), and both now skip `+faststart` and
-  get PCM for a restored track under Passthrough. The same predicate decides
-  `flags_field_order`.
+  get PCM for a restored track under Passthrough. Field-order flagging
+  is decided separately (`field_order_signal`).
 - `+faststart`'s second pass on 3 min of ProRes HQ 1080p (191 Mbit/s,
   4.3 GB) added 1.5–6.0 s on an M1 Pro's internal SSD (0.4–1.4 s/GB, median
   ~0.9), after the bar reached 100%. Slow disks were not measured (an

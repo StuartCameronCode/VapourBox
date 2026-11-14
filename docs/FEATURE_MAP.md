@@ -119,6 +119,7 @@ converter with some AI features.
 | GPU back-ends | Vulkan (ncnn), Core ML, DirectML | — | — | CUDA (NVIDIA effects) | TensorRT, CUDA, Vulkan | Vulkan |
 | **Frame rate** | | | | | | |
 | Non-AI conversion | ✅ motion-compensated, any rate | 🟡 drop/duplicate | 🟡 drop/duplicate | ✅ InterFrame, SVPFlow… | ✅ MVTools, InterFrame, SVP | ✅ minterpolate |
+| Undo a blended conversion (SRestore) | ✅ Unblend pass | ❓ | ❓ | ❓ | ❓ | ❓ |
 | **Audio** | | | | | | |
 | Passthrough / re-encode | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
 | Hum, clicks, hiss, clipping | ✅ + DeepFilterNet speech | 🟡 in development | ❓ | ❓ | ❓ | ❓ |

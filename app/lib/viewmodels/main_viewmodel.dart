@@ -528,6 +528,8 @@ class MainViewModel extends ChangeNotifier {
         return ParameterConverter.fromGrain(_processingPipeline.grain);
       case 'frame_rate':
         return ParameterConverter.fromFrameRate(_processingPipeline.frameRate);
+      case 'unblend':
+        return ParameterConverter.fromUnblend(_processingPipeline.unblend);
       case 'deflicker':
         return ParameterConverter.fromDeflicker(_processingPipeline.deflicker);
       case 'edge_repair':
@@ -667,6 +669,11 @@ class MainViewModel extends ChangeNotifier {
             sourceFpsNum: _processingPipeline.frameRate.sourceFpsNum,
             sourceFpsDen: _processingPipeline.frameRate.sourceFpsDen,
           ),
+        );
+        break;
+      case 'unblend':
+        _processingPipeline = _processingPipeline.copyWith(
+          unblend: ParameterConverter.toUnblend(params),
         );
         break;
       case 'color_correction':
@@ -1632,6 +1639,8 @@ class MainViewModel extends ChangeNotifier {
         return 'grain';
       case PassType.frameRate:
         return 'frame_rate';
+      case PassType.unblend:
+        return 'unblend';
       case PassType.deflicker:
         return 'deflicker';
       case PassType.edgeRepair:

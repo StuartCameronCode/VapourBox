@@ -86,6 +86,8 @@ fn test_preview_10bit_422_matches_source_frame() {
         input_color_range: None,
         burn_in_subtitle_path: None,
         pitch_factors_path: None,
+        video_start_offset: None,
+        source_has_audio: None,
     };
 
     let cfg_path = out_dir.join("preview_pal_job.json");
