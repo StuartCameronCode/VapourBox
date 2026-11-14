@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DVD import: the title, not the title set</title>
+<style>
+  :root { --fg: #1d1d1f; --bg: #fff; --muted: #666; --line: #ddd; --bad: #b3261e; --good: #1b6e2a; --code: #f4f4f6; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e8e8ea; --bg: #161618; --muted: #9a9aa0; --line: #333; --bad: #ff8a80; --good: #81c995; --code: #222226; } }
+  body { font: 16px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.7em; margin-bottom: 0.2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+  .meta { color: var(--muted); }
+  code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: 0.92em; }
+  pre { background: var(--code); padding: 10px 12px; overflow-x: auto; border-radius: 4px; font-size: 0.88em; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.93em; margin: 12px 0; }
+  th, td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--code); }
+  .bad { color: var(--bad); } .good { color: var(--good); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<h1>DVD import: the title, not the title set</h1>
+<p class="meta">Task #27 · 2026-11-15 · worker <code>dvd_reader.rs</code></p>
+
+<h2>Summary</h2>
+<p><code>extract_title</code> took the title it was given only to find its title set (VTS), then copied
+every sector of that VTS's title VOBs. A disc that keeps several titles in one VTS (a TV series'
+episodes, a film and its extras) gave every title on every import; a multi-angle title came out with
+all its angles interleaved; <code>--chapters</code> was parsed and ignored. Task #21's join made such
+a file decode end to end, but it was still the wrong content.</p>
+<p><strong>Fixed:</strong> the import now copies exactly the cells the title plays: chapter by
+chapter from the VTS's PTT table, each chapter's program cells from its PGC, one cell of each angle
+block (angle 1 by default, <code>--angle N</code>), the chapter range if one is asked for. Cells in an
+interleaved block (seamless angles, seamless branching), whose sector ranges span the other angles'
+units, are copied VOBU by VOBU by following each NAV pack's <code>next_vobu</code>, as libdvdread's
+own <code>play_title.c</code> does. The picker's chapter and title durations now come from the same
+cell list (they counted every angle's cell, and only the first chapter's PGC).</p>
+
+<h2>Measurement</h2>
+<p>Fixture: <code>Tests/TestResources/dvd_titles</code>, made by
+<code>Tests/TestResources/generate_dvd_titles_test.sh</code> with dvdauthor 0.7.2: one VTS, three
+titles, PAL 352x288 MPEG-2, every chapter a separate <code>&lt;vob&gt;</code> (so a separate VOB ID,
+whose clock restarts) with its own colour. Title 1: red, 50 frames. Title 2: three chapters, grey
+60 x25, grey 120 x50, grey 180 x25. Title 3: blue, 75 frames. 320 KB, committed.</p>
+<p>Rows from <code>scripts/before_after.sh</code>, run once with <code>main</code>'s worker (e3d6e7b)
+and once with this change, both with libdvdread 6.1.3 on macOS arm64. "Pictures" are runs of the
+decoded frames' mean colour (R red, B blue, gNN grey NN). Sizes are of the final file, after
+task #21's join where one ran.</p>
+<table>
+<tr><th>Case</th><th class="num">Before: frames</th><th>Before: pictures</th><th class="num">After: frames</th><th>After: pictures</th><th class="num">After: size (sectors)</th></tr>
+<tr><td><code>--title 1</code></td><td class="num bad">225</td><td class="bad">R x50 g60 x25 g120 x50 g180 x25 B x75</td><td class="num good">50</td><td class="good">R x50</td><td class="num">31</td></tr>
+<tr><td><code>--title 2</code></td><td class="num bad">225</td><td class="bad">(the same)</td><td class="num good">100</td><td class="good">g60 x25 g120 x50 g180 x25</td><td class="num">49</td></tr>
+<tr><td><code>--title 2 --chapters 2-3</code></td><td class="num bad">225</td><td class="bad">(the same)</td><td class="num good">75</td><td class="good">g120 x50 g180 x25</td><td class="num">36</td></tr>
+<tr><td><code>--title 2 --chapters 2</code></td><td class="num bad">225</td><td class="bad">(the same)</td><td class="num good">50</td><td class="good">g120 x50</td><td class="num">31</td></tr>
+<tr><td><code>--title 3</code></td><td class="num bad">225</td><td class="bad">(the same)</td><td class="num good">75</td><td class="good">B x75</td><td class="num">45</td></tr>
+<tr><td><code>--title 2 --chapters 2-5</code></td><td class="num bad">225</td><td class="bad">(the same; the range ignored)</td><td class="num">—</td><td>refused: "the title has 3 chapters; asked for 2-5"</td><td class="num">—</td></tr>
+</table>
+<p>Before the fix every case is the whole title set, 225 frames, in disc order. After it each output is
+exactly its title's or range's pictures, in order. Title 2 crosses two VOB IDs, and title 2 chapters
+2-3 one, so their clocks reset and #21's join ran: the decoded timestamps count straight through
+(<code>dvd_extract_integration_test</code> asserts it). Without libdvdread, the unit test
+<code>fixture_titles_are_copied_apart</code> reads the same VOBs directly and checks that the three
+titles' sectors add up to the title set exactly (nothing lost, nothing twice) and that each output's
+NAV packs name only its own VOB IDs.</p>
+<p><strong>Limit of the metric:</strong> solid-colour chapters show which content came out and in what
+order; they can't show a corrupted picture inside a chapter. Frame counts and the per-frame colour
+runs together pin the boundaries to the frame.</p>
+
+<h2>What was not tested</h2>
+<ul>
+<li><strong>Angles and interleaved cells on real media.</strong> dvdauthor cannot author a multi-angle or
+seamless-branching title (its XML has no angle element; <code>man dvdauthor</code> lists "angle" only as
+a menu entry and a register), and no such disc was at hand. The cell selection and the NAV walk are
+covered by synthetic unit tests: an angle block of three (angle 1 and 3 picked, angle 4 refused),
+interleaved cells flagged and planned as a walk, and an in-memory disc of two angles interleaved in
+units of two VOBUs whose walk returns exactly one angle's sectors. The DSI offsets were checked against
+libdvdread 6.1.3's <code>nav_types.h</code>; the tests are built on the same constants, so a wrong
+constant would pass them. Extracting both angles of a real multi-angle DVD and comparing them would
+close this.</li>
+<li><strong>Encrypted discs.</strong> Nothing in the read path changed but the offsets: reads still go through
+libdvdread's <code>DVDReadBlocks</code> on the title VOBs, which decrypts with libdvdcss when present.</li>
+<li>Windows and Linux: the integration test runs there in the push gate (every deps bundle carries
+libdvdread); it was run here on macOS arm64 only.</li>
+</ul>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>No fallback to the whole title set.</strong> A title whose IFO can't be mapped to cells now fails with
+the reason. Copying the VTS was the bug; doing it quietly on odd discs would keep it.</li>
+<li><strong>Cells chapter by chapter through the PTT table</strong>, not "the first PGC's cells": that also
+covers titles of one PGC per chapter and chapters listed out of program order (both unit-tested).</li>
+<li><strong>Range copy for ordinary cells, NAV walk only for interleaved ones.</strong> An ordinary cell's
+sector range is exactly its content; walking it would add a dependence on every NAV pack being
+intact for no gain.</li>
+<li><strong>Touching cells merge into one read; a cell played twice is copied twice</strong>, as a player
+shows it twice.</li>
+<li><strong>Bad-sector handling is unchanged</strong>: a read that fails after data was written stops the copy
+with a warning, as before.</li>
+<li><strong>IFOs read from the filesystem</strong>, as enumeration already did (they are never encrypted), so a
+bad chapter range or angle is refused before libdvdread is loaded.</li>
+<li>The app's picker still offers no chapter or angle choice; the worker and <code>DvdService</code>
+carry both.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre>Tests/TestResources/generate_dvd_titles_test.sh          # needs dvdauthor; rewrites the fixture
+cd worker &amp;&amp; cargo build
+docs/reports/2026-11-dvd-title-extraction/scripts/before_after.sh
+WORKER=&lt;main's worker&gt; docs/reports/2026-11-dvd-title-extraction/scripts/before_after.sh
+cd worker &amp;&amp; cargo test dvd_reader &amp;&amp; cargo test --test dvd_extract_integration_test</pre>
+</body>
+</html>

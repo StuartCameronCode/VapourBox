@@ -4023,7 +4023,8 @@ Report: [docs/reports/2026-11-timestamp-resets](reports/2026-11-timestamp-resets
   per GB); the copy needs free temp space equal to the source.
 - **Found on the way:** the DVD import copies the whole title set (every
   title, every angle, chapters ignored), so its output often has resets; it
-  now joins them, and extracting the title alone is a separate task. A PS
+  now joins them, and extracting the title alone is a separate task
+  (fixed in task #27, below). A PS
   whose last picture has no PTS counted one frame short with or without a
   reset (task #26, fixed 2026-11-15; see below).
 - **Not measured:** how often resets occur in real DVD/DVB material (none on
@@ -4165,3 +4166,31 @@ Full evidence:
 - Filed: Soft Telecine leaves `_FieldBased` on film frames (task #33); DeScratch's
   >8-bit round trip loses precision everywhere (task #34); Blur Radius
   > ~119 is refused on 480 lines (task #35).
+
+### DVD import copies the title, not the title set (task #27, 2026-11-15)
+
+Report: [docs/reports/2026-11-dvd-title-extraction](reports/2026-11-dvd-title-extraction/index.html).
+
+- **The fault:** `extract_title` used the title only to find its VTS and
+  copied every sector of `DVD_READ_TITLE_VOBS`: every title of the set, every
+  angle's units interleaved, `--chapters` ignored. On a dvdauthor fixture of
+  three titles in one VTS, every title and chapter range came out as the same
+  225 frames.
+- **Fix:** `title_cells` is the one decision of what a title plays: chapter by
+  chapter from the VTS PTT table (pgcn, pgn), each program's cells from its
+  PGC's program map (running on through programs no chapter starts at), one
+  cell per angle block (`--angle`, default 1). Cells
+  copy as sector ranges (touching ones merged); cells flagged interleaved
+  (seamless angles/branching: the range spans every angle's units) are walked
+  VOBU by VOBU through the NAV packs' `next_vobu`, as libdvdread's
+  `play_title.c` does. After: 50 / 100 / 75 frames per title, 75 for chapters
+  2-3, 50 for chapter 2, colours in order; out-of-range chapters refused.
+- **Picker durations from the same cells:** they summed every angle's cell
+  (an N-angle chapter showed N times its length) and took the title length
+  from the first chapter's PGC only.
+- **No fallback** to copying the whole VTS when a title can't be mapped: that
+  was the bug.
+- **Not tested on real media:** angles and interleaved cells (dvdauthor can't
+  author them; none at hand). Synthetic unit tests cover the selection and
+  the walk; the DSI offsets were checked against libdvdread 6.1.3's
+  `nav_types.h`.
