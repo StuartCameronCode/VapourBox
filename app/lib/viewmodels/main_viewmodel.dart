@@ -981,7 +981,7 @@ class MainViewModel extends ChangeNotifier {
             logMsg = 'Soft telecine detected \u2014 switched to Soft Telecine';
           } else {
             // Stored at its film rate: the frames already are the film, and
-            // removing one in five would drop real frames (issue #16).
+            // removing one in five would drop real frames (issue #174).
             targetEnabled = false;
             logMsg = 'Soft telecine flags at the film rate '
                 '(${videoInfo.frameRate.toStringAsFixed(3)} fps) \u2014 the frames '

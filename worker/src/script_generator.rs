@@ -712,7 +712,7 @@ impl ScriptGenerator {
             // place. Each arm used to remove the others by hand, and the Soft
             // Telecine arm missed Bwdif's — leaving its raw placeholders in the
             // script as a Python SyntaxError (issue #108).
-            // Soft Telecine at a film rate has nothing to remove (issue #16).
+            // Soft Telecine at a film rate has nothing to remove (issue #174).
             let keeps = |method: DeinterlaceMethod| {
                 method == params.method
                     && (method != DeinterlaceMethod::SoftTelecine || pipeline.soft_telecine_decimates())

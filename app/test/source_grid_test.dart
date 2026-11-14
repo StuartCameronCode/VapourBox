@@ -1,4 +1,4 @@
-// The source grid (issue #16): every decode of the source places its frames
+// The source grid (issue #174): every decode of the source places its frames
 // on one constant-rate grid, so a null frame or a pulldown repeat is a slot
 // showing the stored frame before it, the same picture everywhere. These pin
 // the app's half (the Original, the thumbnails, the frame count, the Soft

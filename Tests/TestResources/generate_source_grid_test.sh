@@ -1,5 +1,5 @@
 #!/bin/bash
-# Generate the source-grid fixtures (issue #16): sources whose stored frames
+# Generate the source-grid fixtures (issue #174): sources whose stored frames
 # do not map one-to-one onto the constant-rate frame numbers the app shows.
 #
 #   soft_telecine_dvd.vob  MPEG-2 program stream shaped like a DVD's film

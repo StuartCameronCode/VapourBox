@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue #174: source grid</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+
+</head>
+<body>
+<main>
+
+<h1>Issue #174 — leading repeat slots: frame N is a slot of the source's grid</h1>
+<p class="meta">2026-11-14 · issue <a href="https://github.com/StuartCameronCode/VapourBox/issues/174">#174</a>
+(found while fixing <a href="../issue-157-seek-alignment/index.html">#157</a>) · measured on an Apple M-series Mac
+(macOS arm64), deps 1.16.0 (FFmpeg 9.0), against the worker with #169 and #173 merged (“before”) and
+the same worker with this fix (“after”)</p>
+
+<div class="card">
+<strong>Outcome: fixed.</strong> The worker's decoders write <code>rawvideo</code>, and ffmpeg times that
+output at a constant rate by its own rules. Those rules do not always put a stored frame where its
+timestamp says, and a seek kept the stored frame <em>after</em> the point it was asked for. So on
+sources whose stored frames are not one per frame number, the app's frame numbers, the preview, the
+Original, trims and the untrimmed encode disagreed:
+<ul>
+<li><strong>Soft telecine stored at its film rate</strong> (<code>soft_telecine_test.mkv</code>): the first
+frame's repeat flag made it three slots long, so <span class="bad">every encoded frame was two frames
+late</span> (122 slots for 120 frames), the tail was cut, and a trim starting on a flagged frame tripled it.</li>
+<li><strong>AVI null frames</strong> (<code>interlaced_test.avi</code>, and a mid-stream dropped-frame run): slot 4
+showed the wrong picture and a trim or preview from inside a null run started on the frame after it.</li>
+<li><strong>DVD soft telecine at 29.97</strong>: a seek onto a pulldown repeat showed the next film frame.</li>
+<li><strong>The Soft Telecine method</strong> decimated whatever the rate: on a source the app sends as
+23.976 it <span class="bad">removed 24 of 120 real film frames</span> and stamped 19.18 fps.</li>
+</ul>
+Now <strong>frame N is slot N of the constant-rate grid</strong> at the job's rate (the stream's exact
+fraction), from the video's first picture, each slot showing the stored frame its timestamp puts there.
+Every constant-rate decoder places frames on that grid explicitly
+(<code>-copyts</code>, <code>setpts</code> to the first picture, <code>fps</code>, <code>trim=start_pts=N</code>), and
+a decoder that starts at N seeks 8 slots early. The Soft Telecine method decimates only at 29.97/30 fps.
+Every check below is exact after the fix; regular sources are unchanged frame for frame.
+</div>
+
+<h2>1. What the app sends for soft telecine</h2>
+<p>Script: <code>rate_probe.py</code>. A DVD's MPEG-2 header always says 29.97; the film cadence is in
+<code>repeat_first_field</code> flags. <code>soft_telecine_dvd.vob/.mkv</code> are built that way by
+<code>Tests/TestResources/generate_source_grid_test.sh</code>. The older fixture has a 23.976 header with frame-repeat flags
+(<code>progressive_sequence</code> 1), the shape of an ATSC-style film broadcast.</p>
+<div class="scroll"><table>
+<tr><th>Source</th><th>r_frame_rate</th><th>avg_frame_rate</th><th>App sends</th><th>repeat_pict, first 10</th><th>Soft Telecine decimates</th></tr>
+<tr><td><code>soft_telecine_test.mkv</code></td><td>24000/1001</td><td>24000/1001</td><td>23.976</td><td>4,0,4,0,0,4,0,4,0,0</td><td>no (already film)</td></tr>
+<tr><td><code>soft_telecine_dvd.vob</code> (MPEG-PS)</td><td>60000/1001</td><td>30000/1001</td><td>29.970</td><td>1,0,1,0,…</td><td>yes</td></tr>
+<tr><td><code>soft_telecine_dvd.mkv</code> (MakeMKV-like: one timestamp per film frame)</td><td>30000/1001</td><td>30000/1001</td><td>29.970</td><td>1,0,1,0,…</td><td>yes</td></tr>
+</table></div>
+<p>So the method's premise (a 29.97 decode holding 3:2 repeats) holds for DVD-shaped sources in both
+containers: <code>selectFrameRate</code> takes avg for the VOB's 2:1 rates, and Matroska reports the header's
+rate even when its timestamps are at film spacing. It fails only when the source's own rate is the film rate.
+<strong>Decision:</strong> decimate at 29.97 or 30 fps only (<code>soft_telecine_decimates_at</code>, app twin
+<code>VideoInfo.softTelecineDecimates</code>, both reading <code>soft_telecine_rates.json</code>). At any other rate
+the method passes frames through and says so; the app treats a 23.976 soft-telecine source as progressive film
+(deinterlacing off, Deinterlace not suggested, content rate = the rate). PAL's 24→25 pulldown would need a cycle of
+25 and is left alone, never decimated by 5.</p>
+
+<h2>2. Untrimmed decodes</h2>
+<p>Script: <code>slot_probe.py</code>. Pictures are named by the MD5 of their luma in an independent
+<code>-fps_mode passthrough</code> decode (every stored frame once). The <em>timeline</em> is the
+reference: each stored frame placed by its ffprobe timestamp, slot <i>i</i> showing the last frame whose
+<code>round((t − t₀) × rate)</code> ≤ <i>i</i>.</p>
+<div class="scroll"><table>
+<tr><th>Source</th><th class="num">Stored</th><th class="num">Old slots</th><th class="num">Grid slots</th><th>Old = timeline</th><th>Grid = timeline</th><th>Where old differs</th></tr>
+<tr><td><code>interlaced_test.avi</code> (4 leading null frames)</td><td class="num">75</td><td class="num">79</td><td class="num">79</td><td class="bad">no</td><td class="good">yes</td><td>slot 4: stored 1 (timestamp says 0)</td></tr>
+<tr><td><code>null_frames_mid.avi</code> (frames 100–104 null)</td><td class="num">195</td><td class="num">200</td><td class="num">200</td><td class="bad">no</td><td class="good">yes</td><td>slot 104: stored 100 (says 99)</td></tr>
+<tr><td><code>soft_telecine_test.mkv</code></td><td class="num">120</td><td class="num">122</td><td class="num">120</td><td class="bad">no</td><td class="good">yes</td><td>0,0,0,1,2…: every slot from 1 on, two late</td></tr>
+<tr><td><code>soft_telecine_dvd.vob</code></td><td class="num">120</td><td class="num">150</td><td class="num">149</td><td class="bad">no</td><td class="good">yes</td><td>a trailing extra slot</td></tr>
+<tr><td><code>soft_telecine_dvd.mkv</code></td><td class="num">120</td><td class="num">150</td><td class="num">150</td><td class="bad">no</td><td class="good">yes</td><td>the repeat one slot early in 1 cycle of 4 (slots 2, 7, 32, 37…)</td></tr>
+<tr><td><code>pal-dvbt-fieldcoded-25i.ts</code></td><td class="num">126</td><td class="num">128</td><td class="num">128</td><td class="bad">no</td><td class="good">yes</td><td>slots 124, 126 (the tail #169 noted)</td></tr>
+<tr><td>small_clip.mp4, seek_timebase_2997.mov, colorize_test.mp4, face_restore_test.mp4, late_video.mkv/.mp4, late_video_intra.ts, prores422_10bit_telecine.mov</td><td colspan="5" class="good">identical, old = grid = timeline, every slot</td><td></td></tr>
+<tr><td><code>hard_telecine_test.avi</code> (MPEG-2 in AVI, packets without PTS)</td><td class="num">90</td><td class="num">90</td><td colspan="4">no grid: decoded exactly as before (#173's rules)</td></tr>
+</table></div>
+<p>Why ffmpeg's own output disagreed: its constant-rate logic emits a frame as many times as its
+<em>duration</em> covers, and a <code>repeat_pict</code> flag lengthens the duration while the next timestamp
+does not move (the first frame of <code>soft_telecine_test.mkv</code> is three slots, and the backlog never
+clears); at a gap's edge it rounds differently from the timestamps. The <code>fps</code> filter places
+frames by timestamp alone.</p>
+
+<h2>3. Decoders that start at frame N</h2>
+<p>Script: <code>seek_probe.py</code>. Ten frames from each start, against the untrimmed grid decode's
+slots N…N+9. <em>old</em>: the decoder before this fix; <em>B</em>: the same seek with the grid added but
+still resetting to the first kept frame; <em>grid</em>: the fix. (TS/PS sources are left out here: their
+old seek also lands on the next keyframe, #169's fault; the heavy test covers the VOB.)</p>
+<div class="scroll"><table>
+<tr><th>Source</th><th class="num">Starts</th><th class="num">old</th><th class="num">B</th><th class="num">grid</th><th>Example</th></tr>
+<tr><td><code>interlaced_test.avi</code></td><td class="num">11</td><td class="num bad">7</td><td class="num bad">7</td><td class="num good">11</td><td>start 3: want 0,0,1,2,3 · old 1,2,3,4,5</td></tr>
+<tr><td><code>null_frames_mid.avi</code></td><td class="num">17</td><td class="num bad">13</td><td class="num bad">14</td><td class="num good">17</td><td>start 102: want 99,99,99,100,101 · old 100,101,102…</td></tr>
+<tr><td><code>soft_telecine_test.mkv</code></td><td class="num">17</td><td class="num bad">0</td><td class="num good">17</td><td class="num good">17</td><td>start 1: old 1,2,2,2,3 (a flagged frame tripled)</td></tr>
+<tr><td><code>soft_telecine_dvd.mkv</code></td><td class="num">17</td><td class="num bad">0</td><td class="num bad">2</td><td class="num good">17</td><td>start 3: want 2,3,4,5,6 · old 2,3,3,4,5</td></tr>
+<tr><td>small_clip.mp4, seek_timebase_2997.mov, colorize, face_restore, late_video.mkv/.mp4, prores telecine</td><td class="num">7–17</td><td colspan="3" class="good">all exact, all three</td><td></td></tr>
+</table></div>
+<p>B shows why the grid alone is not enough: <code>setpts=PTS-STARTPTS</code> (#157) makes the first frame the
+seek <em>kept</em> slot 0, and inside a null run or on a pulldown repeat that is the stored frame after the slot.
+The fix keeps the file's timestamps (<code>-copyts</code>), subtracts the same constant in every decoder (the first
+picture's PTS, so the <code>fps</code> filter's rounding is identical everywhere, pulldown half-slot ties included),
+and drops to slot N by its own timestamp. The 8-slot lookback covers a gap of up to 8 slots exactly; inside a longer
+null run the slot shows the first frame the seek kept (as before).</p>
+<p>Cost: an 11-frame preview decode at frame 1000 of <code>small_clip.mp4</code> took 35 ms against 32 ms (mean of 5).</p>
+
+<h2>4. The worker, before and after</h2>
+<p>Script: <code>worker_probe.py</code>, every pass off, lossless FFV1, each at the frame count that version of the
+app sends. “Exact” means every output frame is the timeline's slot.</p>
+<div class="scroll"><table>
+<tr><th>Source</th><th>App count before → after</th><th>Untrimmed before</th><th>after</th><th>Trims wrong before</th><th>after</th></tr>
+<tr><td><code>interlaced_test.avi</code></td><td>79 → 79</td><td class="bad">1 slot wrong</td><td class="good">exact</td><td class="bad">from 1, 3, 4: start 1,2,3…</td><td class="good">none (1, 3, 4, 5, 40)</td></tr>
+<tr><td><code>null_frames_mid.avi</code></td><td>200 → 200</td><td class="bad">1 slot wrong</td><td class="good">exact</td><td class="bad">from 98, 100, 102</td><td class="good">none</td></tr>
+<tr><td><code>soft_telecine_test.mkv</code></td><td>121 → 120</td><td class="bad">120 slots wrong</td><td class="good">exact</td><td class="bad">all (1, 10, 41)</td><td class="good">none</td></tr>
+<tr><td><code>soft_telecine_dvd.vob</code></td><td>149 → 149</td><td class="bad">1 slot wrong</td><td class="good">exact</td><td class="bad">from 3, 43</td><td class="good">none</td></tr>
+<tr><td><code>soft_telecine_dvd.mkv</code></td><td>150 → 150</td><td class="bad">9 slots wrong</td><td class="good">exact</td><td class="bad">from 3, 10, 43</td><td class="good">none</td></tr>
+<tr><td><code>seek_timebase_2997.mov</code>, <code>late_video.mkv</code></td><td>unchanged</td><td colspan="4" class="good">exact before and after</td></tr>
+<tr><td><code>small_clip.mp4</code></td><td>3154 → 3154</td><td colspan="4">exact but for the last 3 frames, before and after: <code>nb_frames</code> counts 3 frames an MP4 edit list drops, and the pipe repeats the last frame into them. Not changed here.</td></tr>
+</table></div>
+<figure><img src="img/frame41_source_before_after.png" alt="three frames side by side">
+<figcaption class="caption">1. <code>soft_telecine_test.mkv</code>, each picture's own counter: the source's stored frame 41 (left), the untrimmed
+encode's frame 41 before the fix (middle: “Frame 39”) and after (right: “Frame 41”).</figcaption></figure>
+
+<h2>5. The Soft Telecine method</h2>
+<div class="scroll"><table>
+<tr><th>Source (rate sent)</th><th>Before: out, rate, film frames missing</th><th>After</th></tr>
+<tr><td><code>soft_telecine_test.mkv</code> (23.976)</td><td class="bad">97 at 19200/1001; 24 missing (3, 8, 14, 21…)</td><td class="good">120 at 24000/1001; none missing, no repeats</td></tr>
+<tr><td><code>soft_telecine_dvd.vob</code> (29.97)</td><td class="bad">120; frame 119 missing, 1 repeat left</td><td class="good">120 at 24000/1001; none missing, no repeats</td></tr>
+<tr><td><code>soft_telecine_dvd.mkv</code> (29.97)</td><td class="good">120; none missing</td><td class="good">120; none missing</td></tr>
+</table></div>
+<p>The VOB's case is a partial cycle: 149 slots leave a last cycle of 4, and VDecimate removes one frame from
+every cycle, so from that one it can only take a real frame. The encode script now presents a whole number of
+cycles (<code>ProcessingPipeline::pipe_frames</code>, rounding up to a multiple of 5); <code>pipe_source</code>
+repeats the last frame into the extra slots and VDecimate removes those instead.</p>
+<figure><img src="img/soft_telecine_method_before.png" alt="ten frames, before">
+<figcaption class="caption">2. The Soft Telecine method's first 10 output frames on <code>soft_telecine_test.mkv</code>, before:
+Frame 0, 0, 1, 2, 4, 5, 6, 7, 9, 10. Frames 3 and 8 are gone (and 0 is twice).</figcaption></figure>
+<figure><img src="img/soft_telecine_method_after.png" alt="ten frames, after">
+<figcaption class="caption">3. After: Frame 0–9, every film frame once.</figcaption></figure>
+
+<h2>6. The app's side</h2>
+<ul>
+<li><strong>The Original and the thumbnails</strong> start on the same grid (<code>SourceGrid.startAt</code>, twin of
+<code>source_decode::decode_start</code>; <code>source_grid_vectors.json</code> pins the two). Probed with the same
+64-packet ffprobe call as the video start, now also asking for the rates.</li>
+<li><strong>Frame count:</strong> a Matroska source with neither <code>nb_frames</code> nor a stream duration is
+counted from its last picture's slot + 1 (one more ffprobe, of the last 3 s). The container duration counted the
+last frames' repeat flags (121 for 120).</li>
+<li><strong>No grid</strong> for a source whose probed packets lack PTS (MPEG-2, MPEG-4 ASP and H.264 in AVI): its
+picture times are decode-order guesses; #173's decoder delay handles those, unchanged.</li>
+</ul>
+
+<h2>7. Tests</h2>
+<ul>
+<li><code>app/test/integration_source_grid_test.dart</code> (heavy): 5 fixtures × (app count = slot count,
+untrimmed encode = every slot, and per start: preview, Original and a 12-frame trim against the timestamp
+reference), plus the Soft Telecine method at 23.976 and 29.97. 25 cases. The same checks fail on the “before” worker (§4, <code>worker_probe.py</code>); the heavy file itself was
+run against the fixed worker only.</li>
+<li><code>integration_frame_mapping_test.dart</code>'s “from an in-point” is back at in-point 3, inside
+<code>interlaced_test.avi</code>'s null run (#157 had moved it to 6).</li>
+<li>Re-run and passing: seek alignment, frame mapping, video start offset, reserved colour tags, VFR, clean aperture,
+crop detect, noise/halo (118 heavy cases with the new file).</li>
+<li>Unit: Rust <code>source_decode</code> (grid probe cases, decode start, shared vectors, no-grid = #157/#169/#173's
+arguments), <code>processing_pipeline</code> (rate table, whole cycles), <code>test_240</code>; Dart
+<code>source_grid_test.dart</code>, <code>pass_relevance_test.dart</code>.</li>
+</ul>
+
+<h2>8. Limits and what wasn't tested</h2>
+<ul>
+<li>A null run longer than 8 slots: a start inside it shows the first frame after the run, as before.</li>
+<li>Untrimmed decodes of regular sources gain <code>-copyts</code> and the grid filters in their arguments; their
+output was identical on every fixture measured (§2) but the argument lists are not byte-identical as before.</li>
+<li>Windows and Linux were not run; the behaviour is the ffmpeg CLI's and every platform runs FFmpeg 9.0. The heavy
+test runs nightly on all four.</li>
+<li>PAL soft pulldown (24→25) is not decimated; real ATSC/H.264 soft-telecine captures were not available, only the
+23.976-header fixture.</li>
+<li>The VFR path (<code>source_timing</code>) is unchanged and already placed frames by timestamp.</li>
+<li>MD5 identity says which stored picture came out, exactly, and nothing about colour.</li>
+</ul>
+
+<h2>9. Reproduce</h2>
+<pre>cd worker &amp;&amp; cargo build                 # the "after" worker
+Tests/TestResources/generate_source_grid_test.sh Tests/TestResources deps/&lt;platform&gt;/ffmpeg/ffmpeg
+BEFORE_WORKER=/path/to/before/vapourbox-worker docs/reports/issue-174-source-grid/scripts/run.sh</pre>
+<p><code>scripts/</code>: <code>gridlib.py</code> (shared helpers), <code>rate_probe.py</code> (§1), <code>slot_probe.py</code> (§2),
+<code>seek_probe.py</code> (§3), <code>worker_probe.py</code> (§4, §5), <code>images.py</code> (images 1–3), <code>run.sh</code>.</p>
+
+</main>
+</body>
+</html>

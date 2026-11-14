@@ -71,7 +71,7 @@ void main() {
       }
     });
 
-    test('soft telecine at its film rate is progressive film (issue #16)', () {
+    test('soft telecine at its film rate is progressive film (issue #174)', () {
       final result = relevanceFor(PassType.deinterlace,
           source(scanType: ScanType.softTelecine, frameRate: 23.976));
       expect(result.isNotApplicable, true);

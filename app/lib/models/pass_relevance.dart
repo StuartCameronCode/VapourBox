@@ -69,7 +69,7 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info,
   if (info == null) return PassRelevanceResult.neutral;
 
   // Soft telecine stored at its film rate already decodes to progressive
-  // film frames: nothing to deinterlace or decimate (issue #16).
+  // film frames: nothing to deinterlace or decimate (issue #174).
   final filmRateSoftTelecine =
       info.scanType == ScanType.softTelecine && !info.softTelecineDecimates;
   final isProgressive =

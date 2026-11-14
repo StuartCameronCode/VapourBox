@@ -3517,6 +3517,52 @@ GitHub incident; the API served the file) — re-uploading did not help, waiting
 did. A manifest's `url` is independent of its installed `name`, so a stuck
 asset could have been re-hosted under another name without touching code.
 
+### Source grid: frame N is a slot, placed by timestamp; Soft Telecine at a film rate (issue #174, 2026-11-14)
+
+Full report with scripts:
+[docs/reports/issue-174-source-grid/](reports/issue-174-source-grid/index.html).
+
+- The follow-up #157 left: on sources whose stored frames are not one per
+  frame number, the `rawvideo` decoders' constant-rate output disagreed with
+  the timestamps. ffmpeg emits a frame as often as its *duration* covers, and
+  a `repeat_pict` flag lengthens the duration while the next timestamp stays
+  put: `soft_telecine_test.mkv` (23.976 header, frame-repeat flags) decoded
+  to 122 slots for 120 frames, every encoded frame two late. At a gap's edge
+  it rounds differently (`interlaced_test.avi` slot 4; a MakeMKV-like MKV put
+  the pulldown repeat a slot early in one cycle of four). And #157's reset
+  rebased a seek to the first frame it *kept*, which inside a null run or on a
+  pulldown repeat is the frame after the slot.
+- **Decision: frame N is slot N of the grid at the job's rate (the stream's
+  exact fraction) from the first picture**, each slot showing the stored frame
+  its timestamp puts there: the rule the VFR path already uses, and what the
+  sound and the app's counts already assumed. Every constant-rate decoder runs
+  `-copyts`, `setpts=PTS-<first picture>/TB` (the same constant everywhere, so
+  `fps` rounds pulldown's half-slot ties identically in every decoder),
+  `fps=N/D`, `trim=start_pts=N`, `setpts=PTS-STARTPTS`, seeking 8 slots early
+  (plus #169's preroll). Measured exact against an independent timestamp
+  placement on 14 fixtures, untrimmed and from every start tried; regular
+  sources identical frame for frame. Rejected: the grid with #157's reset
+  (still wrong in null runs and on pulldown: 7/11, 2/17), and routing null-frame
+  AVIs through the VFR timeline (a whole-file packet scan on every preview of
+  a large capture).
+- **No grid without PTS.** MPEG-2/MPEG-4/H.264 in AVI store decode-order
+  timestamps; #173's decoder delay handles them and they keep its arguments.
+- **What the app sends for soft telecine:** a DVD's header always says 29.97,
+  and ffprobe reports 29.97 for it in a VOB (r 60000/1001, avg 30000/1001;
+  `selectFrameRate` takes avg) and in Matroska even with one timestamp per
+  film frame. So VDecimate was right there, and wrong only for a source whose
+  own rate is the film rate: 24 of 120 film frames removed, 19.18 fps stamped.
+  Soft Telecine now decimates at 29.97/30 only (`soft_telecine_decimates_at`,
+  app twin `VideoInfo.softTelecineDecimates`, shared `soft_telecine_rates.json`);
+  the app treats a 23.976 soft-telecine source as progressive film. And it
+  pipes whole 5-frame cycles (`pipe_frames`): the VOB's 149 slots left a
+  partial last cycle from which VDecimate took real frame 118/119.
+- Matroska with no `nb_frames` and no stream duration is counted from its last
+  picture (`frameCountFromLastPicture`): the container duration counted the
+  last frames' repeat flags (121 for 120).
+- Not fixed: a start inside a null run longer than the 8-slot lookback;
+  `small_clip.mp4`'s `nb_frames` still counts 3 frames its edit list drops.
+
 ### Seek alignment: the decoder repeated the first frame after a seek (issue #157, 2026-11-10)
 
 Full report with scripts:
@@ -3556,7 +3602,8 @@ Full report with scripts:
   in-point inside the run). Subtracting the seek's half frame
   instead (`PTS-0.5/fps/TB`, keeps gaps) fixes the same doubles but ties
   and rounds early in a 1/25 time base and broke starts 98-99 there. Leading
-  null frames are a follow-up (task 16). Script: the report's
+  null frames were a follow-up, fixed by the source grid (issue #174, entry
+  above). Script: the report's
   `scripts/gap_probe.py`.
   `integration_seek_alignment_test.dart` compares the preview, the app's
   Original (`PreviewGenerator.beforeFrameArgs`) and a trimmed FFV1 encode each

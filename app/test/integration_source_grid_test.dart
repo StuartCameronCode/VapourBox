@@ -1,4 +1,4 @@
-// The source grid (issue #16): frame N is slot N of the constant-rate grid at
+// The source grid (issue #174): frame N is slot N of the constant-rate grid at
 // the job's rate, from the video's first picture, each slot showing the
 // stored frame its timestamp puts there. A null frame (AVI) or a pulldown
 // repeat (soft telecine at 29.97) is a slot showing the stored frame before
@@ -14,7 +14,7 @@
 // Everything is checked against an INDEPENDENT reference built here: every
 // stored frame decoded once (`-fps_mode passthrough`) and placed on the grid
 // by its ffprobe timestamp. Never one pipeline path against another.
-// See docs/reports/issue-16-source-grid.
+// See docs/reports/issue-174-source-grid.
 @Tags(['heavy'])
 library;
 

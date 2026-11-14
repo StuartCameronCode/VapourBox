@@ -370,7 +370,7 @@ impl Default for ProcessingPipeline {
 
 #[allow(dead_code)]
 /// Whether a soft-telecine source decoded at `fps` carries 3:2 pulldown
-/// repeats for the Soft Telecine method to remove (issue #16): only at
+/// repeats for the Soft Telecine method to remove (issue #174): only at
 /// 29.97 or 30 fps. A DVD's MPEG-2 header says 29.97, and the decode then
 /// holds 5 slots for every 4 film frames. A stream stored at its film rate
 /// (23.976 or 24, its repeat flags only in the bitstream) decodes to the film
@@ -760,7 +760,7 @@ impl ProcessingPipeline {
                 FrameMap::Decimate { cycle, keep: cycle - 1 }
             }
             // Only a decode at a pulldown rate holds repeats to remove; at the
-            // film rate the stored frames already are the film (issue #16).
+            // film rate the stored frames already are the film (issue #174).
             DeinterlaceMethod::SoftTelecine if self.soft_telecine_decimates() => {
                 FrameMap::Decimate { cycle: 5, keep: 4 }
             }
@@ -774,7 +774,7 @@ impl ProcessingPipeline {
     /// can only take a real film frame: a DVD-shaped 120-frame film decodes to
     /// 149 slots, and frame 118 went missing. So the clip is rounded up to a
     /// whole cycle; `pipe_source` repeats the last frame into the extra slots,
-    /// and VDecimate removes those repeats instead (issue #16).
+    /// and VDecimate removes those repeats instead (issue #174).
     pub fn pipe_frames(&self, decoded: i32) -> i32 {
         if self.deinterlace.enabled
             && self.deinterlace.method == DeinterlaceMethod::SoftTelecine
@@ -1288,7 +1288,7 @@ mod tests {
         assert!(p.total_radius() >= MIN_PREVIEW_RADIUS);
     }
 
-    /// The Soft Telecine method decimates only at a pulldown rate (issue #16).
+    /// The Soft Telecine method decimates only at a pulldown rate (issue #174).
     /// `soft_telecine_rates.json` holds the table; the app's
     /// `VideoInfo.softTelecineDecimates` test reads the same file.
     #[test]
