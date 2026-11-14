@@ -828,6 +828,8 @@ impl ProcessingPipeline {
     /// IVTC change the count and the rate together, so the length stays the
     /// source's; a frame-rate conversion's count is floored, so it can be up
     /// to one output frame short. Audio restoration fits the sound to this.
+    /// The count is of what the script pipes ([`Self::pipe_frames`]): Soft
+    /// Telecine's whole last cycle keeps its last film frame.
     pub fn output_duration_secs(&self, source_frames: u64, source_fps: f64) -> Option<f64> {
         if !(source_fps > 0.0) {
             return None;
@@ -842,7 +844,8 @@ impl ProcessingPipeline {
             den /= g;
         }
         let out_rate = source_fps * num as f64 / den as f64;
-        Some(self.output_count(source_frames) as f64 / out_rate)
+        let piped = i32::try_from(source_frames).map_or(source_frames, |n| self.pipe_frames(n) as u64);
+        Some(self.output_count(piped) as f64 / out_rate)
     }
 
     /// Map a final output frame index back to the source frame span that
@@ -1320,6 +1323,10 @@ mod tests {
         p.frame_rate.source_fps_den = Some(1001);
         assert_eq!(p.pipe_frames(149), 150);
         assert_eq!(p.pipe_frames(150), 150);
+        // The picture's length counts the padded cycle's 120th film frame,
+        // so Audio Restoration fits the sound to all of it.
+        let secs = p.output_duration_secs(149, 30000.0 / 1001.0).unwrap();
+        assert!((secs - 120.0 * 1001.0 / 24000.0).abs() < 1e-9, "{secs}");
         p.frame_rate.source_fps_num = Some(24000);
         assert_eq!(p.pipe_frames(149), 149, "nothing removed at the film rate");
         p.deinterlace.method = DeinterlaceMethod::Ivtc;

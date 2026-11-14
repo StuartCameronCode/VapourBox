@@ -1082,7 +1082,13 @@ the **single** builder of both decoders' arguments (encode + preview):
   `SourceGrid.fromProbe` / `startAt` drives the Original and thumbnails, pinned
   by `Tests/TestResources/source_grid_vectors.json`. **No grid when a probed
   packet lacks PTS** (MPEG-2/MPEG-4/H.264 in AVI: decode-order timestamps);
-  those keep the seek rules here. The VFR decoder is separate and unchanged.
+  those keep the seek rules here. **Frame 0 of a TS/PS runs without
+  `-copyts`** (a `SeekPlan` source; `filters_from_first_picture`, the grid
+  anchored by `setpts=PTS-STARTPTS`): `-copyts` turns off ffmpeg's timestamp
+  discontinuity correction, and an untrimmed decode of a program stream whose
+  clock resets (the DVD import writes cells back to back) stopped at the
+  reset, the rest a frozen frame.
+  The VFR decoder is separate and unchanged.
   `integration_source_grid_test.dart` (heavy) checks preview, Original, trims,
   untrimmed encodes and counts against an independent timestamp placement
   (docs/reports/issue-174-source-grid).

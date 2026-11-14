@@ -1081,6 +1081,16 @@ class SourceGrid {
         plan.preroll.isFinite &&
         plan.preroll > 0 &&
         plan.containerStart.isFinite;
+    // Frame 0 of a TS/PS keeps ffmpeg's discontinuity correction (no
+    // -copyts; a clock reset stopped the decode there) and anchors the grid
+    // at its first picture with STARTPTS: the worker's
+    // `SourceGrid::filters_from_first_picture`.
+    if (f == 0 && usablePlan) {
+      return (
+        input: const <String>[],
+        filters: ['setpts=PTS-STARTPTS', ...filters(0).skip(1)],
+      );
+    }
     if (ss != null && usablePlan) ss -= plan.preroll;
     if (ss != null && ss <= 0) ss = null;
     return (

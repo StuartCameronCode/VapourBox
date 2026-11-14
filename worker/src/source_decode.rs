@@ -647,6 +647,16 @@ impl SourceGrid {
         self.rate_num as f64 / self.rate_den as f64
     }
 
+    /// [`Self::filters`] from slot 0 for a decode that does not keep the
+    /// file's timestamps (frame 0 of a TS/PS, see [`DecodeStart`]): the first
+    /// picture is the origin there too, so `STARTPTS` takes the constant's
+    /// place and the ticks after it are the same.
+    pub fn filters_from_first_picture(&self) -> Vec<String> {
+        let mut f = self.filters(0);
+        f[0] = RESET_PTS_FILTER.to_string();
+        f
+    }
+
     /// The filters that place the decoded frames on the grid and keep slots
     /// `first..`: timestamps relative to the first picture (the same constant
     /// in every decoder, so the `fps` filter rounds identically in all of
@@ -762,6 +772,16 @@ pub fn probe_source_grid(
 /// before the frame (and a [`SeekPlan`]'s preroll before that, on TS/PS),
 /// then [`SourceGrid::filters`] down to slot `frame`. Without one, exactly
 /// the arguments of rules 3, 5, 6 and 7 ([`source_seek`]).
+///
+/// Frame 0 of a source with a [`SeekPlan`] (MPEG-TS/PS) runs without
+/// `-copyts` ([`SourceGrid::filters_from_first_picture`]). `-copyts` switches
+/// off ffmpeg's timestamp discontinuity correction, and on a program stream
+/// whose clock resets (a DVD title's cells written back to back, a spliced
+/// broadcast capture) the grid's `fps` drops every picture after a backward
+/// reset: an untrimmed encode stopped there and `pipe_source` froze the last
+/// frame for the rest (review: 150 of 300 pictures). Measured identical to the
+/// `-copyts` grid on every TS/PS fixture. A decode that seeks there already
+/// runs `-copyts` (rule 6) and still stops at such a reset.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DecodeStart {
     pub ss: Option<f64>,
@@ -826,6 +846,12 @@ pub fn decode_start(
     let frame = frame.max(0);
     let plan = plan.filter(|p| p.is_valid());
     match grid.filter(|g| g.is_valid()) {
+        Some(g) if frame == 0 && plan.is_some() => DecodeStart {
+            ss: None,
+            copyts: false,
+            filters: g.filters_from_first_picture(),
+            seek: None,
+        },
         Some(g) => {
             let target = seek_time(frame - GRID_LOOKBACK_SLOTS, g.fps(), video_start);
             let ss = match (target, plan) {
@@ -1729,6 +1755,17 @@ mod tests {
     }
 
     #[test]
+    fn a_ts_decoded_from_its_start_keeps_discontinuity_correction() {
+        // -copyts would stop an untrimmed program stream at a clock reset.
+        let s = decode_start(0, 25.0, 1.2, 0, Some(&plan()), Some(&grid()));
+        assert!(!s.copyts);
+        assert_eq!(s.ss, None);
+        assert_eq!(s.filters, ["setpts=PTS-STARTPTS", "fps=25/1", "trim=start_pts=0", "setpts=PTS-STARTPTS"]);
+        // Any other format still starts frame 0 on its grid.
+        assert!(decode_start(0, 25.0, 1.2, 0, None, Some(&grid())).copyts);
+    }
+
+    #[test]
     fn without_a_grid_decode_start_is_the_old_seek() {
         let cases = [(0, 0.0, 0, None), (10, 0.0, 0, None), (0, 1.2, 0, None), (40, 1.2, 0, None),
                      (40, 1.2, 0, Some(plan())), (0, 1.2, 0, Some(plan())), (3, 0.0, 1, None), (41, 0.0, 2, None)];
@@ -1790,7 +1827,7 @@ mod tests {
                 assert_eq!(ss.as_deref(), start["ss"].as_str(), "{name} frame {}", start["frame"]);
                 let filters: Vec<String> = serde_json::from_value(start["filters"].clone()).unwrap();
                 assert_eq!(s.filters, filters, "{name}");
-                assert!(s.copyts);
+                assert_eq!(s.copyts, start["copyts"].as_bool().unwrap_or(true), "{name} frame {}", start["frame"]);
             }
         }
     }

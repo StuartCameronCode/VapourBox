@@ -58,7 +58,7 @@ void main() {
           final start = grid!.startAt(
               s['frame'] as int, (s['videoStart'] as num).toDouble(), plan);
           expect(start.input, [
-            '-copyts',
+            if (s['copyts'] as bool? ?? true) '-copyts',
             if (s['ss'] != null) ...['-ss', s['ss']],
           ], reason: 'frame ${s['frame']}');
           expect(start.filters, (s['filters'] as List).cast<String>());

@@ -1,5 +1,5 @@
 {
-  "_comment": "Issue #16: the source grid, probed and started at a frame. Read by worker source_decode.rs (grid_from_probe, decode_start) and app source_grid_test.dart (SourceGrid.fromProbe, startAt), so the Original and thumbnails start exactly as the worker's decoders do.",
+  "_comment": "Issue #16: the source grid, probed and started at a frame. Read by worker source_decode.rs (grid_from_probe, decode_start) and app source_grid_test.dart (SourceGrid.fromProbe, startAt), so the Original and thumbnails start exactly as the worker's decoders do. A start with \"copyts\": false (frame 0 of a TS/PS) keeps ffmpeg's discontinuity correction and anchors the grid with STARTPTS.",
   "cases": [
     {
       "name": "small_clip.mp4: the stream's exact 2997/100, an edit list's pre-roll before the start",
@@ -20,6 +20,7 @@
       "starts": [
         {"frame": 40, "videoStart": 1.202022, "plan": {"preroll": 1.82, "containerStart": 1.4}, "ss": "0.642022", "filters": ["setpts=PTS-2.602022/TB", "fps=25/1", "trim=start_pts=40", "setpts=PTS-STARTPTS"]},
         {"frame": 20, "videoStart": 1.202022, "plan": {"preroll": 1.82, "containerStart": 1.4}, "ss": null, "filters": ["setpts=PTS-2.602022/TB", "fps=25/1", "trim=start_pts=20", "setpts=PTS-STARTPTS"]},
+        {"frame": 0, "videoStart": 1.202022, "plan": {"preroll": 1.82, "containerStart": 1.4}, "copyts": false, "ss": null, "filters": ["setpts=PTS-STARTPTS", "fps=25/1", "trim=start_pts=0", "setpts=PTS-STARTPTS"]},
         {"frame": 40, "videoStart": 1.202022, "ss": "2.462022", "filters": ["setpts=PTS-2.602022/TB", "fps=25/1", "trim=start_pts=40", "setpts=PTS-STARTPTS"]}
       ]
     },

@@ -3562,6 +3562,22 @@ Full report with scripts:
   last frames' repeat flags (121 for 120).
 - Not fixed: a start inside a null run longer than the 8-slot lookback;
   `small_clip.mp4`'s `nb_frames` still counts 3 frames its edit list drops.
+- **Corrected at review: frame 0 of a TS/PS drops `-copyts`.** The grid's
+  `-copyts` turns off ffmpeg's timestamp discontinuity correction. Two
+  program streams joined so the clock resets at picture 150 (what the DVD
+  import writes for a title whose cells reset) gave 150 of 300 pictures
+  through the grid from frame 0 (`reset_probe.py`); in the worker
+  `pipe_source` would have frozen the last one for the rest. Frame 0 of a
+  `SeekPlan` source now decodes without `-copyts`, the grid anchored by
+  `setpts=PTS-STARTPTS` instead of the origin constant
+  (`SourceGrid::filters_from_first_picture`, app `startAt`): 300 of 300, and
+  slot for slot the `-copyts` grid on the VOB, the DVB-T clip and the
+  late-video TS. Dropping the grid there instead was tried first and lost the
+  VOB's last film frame under Soft Telecine again. Seeking TS/PS decodes
+  still run `-copyts` (#169) and still stop at such a reset (task #21).
+- Also at review: `output_duration_secs` counts `pipe_frames`, so Audio
+  Restoration fits the sound to Soft Telecine's padded last cycle (120 film
+  frames from 149 slots, not 119).
 
 ### Seek alignment: the decoder repeated the first frame after a seek (issue #157, 2026-11-10)
 

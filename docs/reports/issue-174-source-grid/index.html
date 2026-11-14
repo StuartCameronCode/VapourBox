@@ -205,6 +205,18 @@ arguments), <code>processing_pipeline</code> (rate table, whole cycles), <code>t
 
 <h2>8. Limits and what wasn't tested</h2>
 <ul>
+<li><em>Corrected at review:</em> the first version put frame 0 of every source on the grid with
+<code>-copyts</code>, MPEG-TS/PS included. <code>-copyts</code> switches off ffmpeg's timestamp discontinuity
+correction, so on a program stream whose clock resets (the DVD import writes a title's cells back to back) the
+untrimmed decode stopped at the reset. <code>reset_probe.py</code> joins two 150-picture program streams: from
+frame 0 the grid decoder returned 150 pictures; in the worker, <code>pipe_source</code> would have repeated picture
+149 for the other 150. Frame 0 of a source with a seek plan now decodes without <code>-copyts</code>, the grid
+anchored by <code>setpts=PTS-STARTPTS</code> (<code>SourceGrid::filters_from_first_picture</code>; the app's
+<code>startAt</code>): 300 pictures, and slot for slot the same as the <code>-copyts</code> grid on the VOB, the
+DVB-T clip and <code>late_video_intra.ts</code>, so §2 and §4 stand. Simply leaving TS/PS frame 0 off the grid was
+tried first and failed the heavy test: the VOB's last slot changed and Soft Telecine lost film frame 119 again.
+Seeking TS/PS decodes were already <code>-copyts</code> under #169 and still stop at such a reset, as that report
+records.</li>
 <li>A null run longer than 8 slots: a start inside it shows the first frame after the run, as before.</li>
 <li>Untrimmed decodes of regular sources gain <code>-copyts</code> and the grid filters in their arguments; their
 output was identical on every fixture measured (§2) but the argument lists are not byte-identical as before.</li>
