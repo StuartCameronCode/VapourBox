@@ -110,6 +110,19 @@ impl VideoJob {
         )
     }
 
+    /// The `setparams` every decode of the source puts first in its `-vf`, or
+    /// `None` when the source's tags are all usable. Read from the job's RAW
+    /// tags: the app forwards ffprobe's strings (`reserved` included) for
+    /// exactly this, since the decoder reads the tag from the stream itself.
+    /// See `color_metadata::decode_tag_neutraliser`.
+    pub fn decode_tag_neutraliser(&self) -> Option<String> {
+        super::color_metadata::decode_tag_neutraliser(
+            self.input_color_matrix.as_deref(),
+            self.input_color_primaries.as_deref(),
+            self.input_color_transfer.as_deref(),
+        )
+    }
+
     /// The frame size the pipeline delivers, as far as the worker can tell
     /// before the script runs: the source, turned by Rotate / Flip, then
     /// Crop & Resize (`CropResizeParameters::output_size`). `None` when the

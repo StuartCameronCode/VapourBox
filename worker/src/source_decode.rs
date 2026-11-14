@@ -37,8 +37,17 @@
 //!    to 0, on every decoder that seeks. Not `-fps_mode passthrough`: that
 //!    also drops a soft-telecine source's pulldown repeats, which IVTC expects.
 //!
+//! 4. **An invalid colour tag is cleared before anything converts.** FFmpeg 9's
+//!    scaler refuses a frame tagged `reserved` (ProRes writes code 0 for
+//!    "unknown", which FFmpeg reads as reserved), and the decoder converts
+//!    whenever the pipe format is not the source's own (ProRes 4444 with alpha,
+//!    `yuva444p12le`) or a detector asks for another format. Every builder
+//!    takes the job's `VideoJob::decode_tag_neutraliser` and puts it first in
+//!    its one `-vf` ([`decoder_filter`]); `None` leaves the args exactly as they
+//!    were.
+//!
 //! See docs/ENGINEERING_NOTES.md, "Clean aperture: decode the stored frame",
-//! and docs/reports/issue-157-seek-alignment.
+//! docs/reports/issue-157-seek-alignment and docs/reports/2026-11-reserved-colour-tags.
 
 /// Input option placed before `-i` on every ffmpeg that decodes the source's
 /// pictures for the pipeline (encode decoder, preview decoder). See the module
@@ -49,16 +58,6 @@ pub const APPLY_CROPPING: [&str; 2] = ["-apply_cropping", "codec"];
 /// constant-rate output timing has no gap to fill with a repeated frame. See
 /// rule 3 in the module docs.
 pub const RESET_PTS_FILTER: &str = "setpts=PTS-STARTPTS";
-
-/// The decoder's single `-vf` (ffmpeg honours only the last one): the PTS
-/// reset when the decoder seeks, then the size guard.
-fn decoder_filter(width: i32, height: i32, seeks: bool) -> String {
-    if seeks {
-        format!("{},{}", RESET_PTS_FILTER, size_guard_filter(width, height))
-    } else {
-        size_guard_filter(width, height)
-    }
-}
 
 /// The message ffmpeg's `crop` filter logs when [`size_guard_filter`] rejects a
 /// frame. Used to recognise a guard failure in the decoder's stderr and replace
@@ -78,6 +77,21 @@ pub fn size_guard_filter(width: i32, height: i32) -> String {
         w = width,
         h = height
     )
+}
+
+/// The decoder's single `-vf` (ffmpeg honours only the last one): the
+/// colour-tag neutraliser if the source needs one, the PTS reset when the
+/// decoder seeks, then the size guard.
+pub fn decoder_filter(width: i32, height: i32, seeks: bool, tag_fix: Option<&str>) -> String {
+    let mut chain: Vec<String> = Vec::new();
+    if let Some(fix) = tag_fix {
+        chain.push(fix.to_string());
+    }
+    if seeks {
+        chain.push(RESET_PTS_FILTER.to_string());
+    }
+    chain.push(size_guard_filter(width, height));
+    chain.join(",")
 }
 
 /// If a failed decoder's stderr shows the size guard tripped, the error to
@@ -111,6 +125,7 @@ pub fn encode_decoder_args(
     start_frame: Option<i32>,
     end_frame: Option<i32>,
     total_frames: Option<i32>,
+    tag_fix: Option<&str>,
 ) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
     let mut seeks = false;
@@ -135,7 +150,7 @@ pub fn encode_decoder_args(
     args.extend([
         "-i".to_string(), input_path.to_string(),
         "-map".to_string(), "0:v:0".to_string(), // only first video stream
-        "-vf".to_string(), decoder_filter(width, height, seeks),
+        "-vf".to_string(), decoder_filter(width, height, seeks, tag_fix),
         "-f".to_string(), "rawvideo".to_string(),
         "-pix_fmt".to_string(), pix_fmt.to_string(),
         "-v".to_string(), "error".to_string(),
@@ -177,6 +192,7 @@ pub fn preview_decoder_args(
     height: i32,
     pix_fmt: &str,
     output_path: &str,
+    tag_fix: Option<&str>,
 ) -> Vec<String> {
     let seeks = seek_time > 0.0;
     let mut args: Vec<String> = Vec::new();
@@ -189,7 +205,7 @@ pub fn preview_decoder_args(
         "-i".to_string(), input_path.to_string(),
         "-map".to_string(), "0:v:0".to_string(),
         "-frames:v".to_string(), num_frames.to_string(),
-        "-vf".to_string(), decoder_filter(width, height, seeks),
+        "-vf".to_string(), decoder_filter(width, height, seeks, tag_fix),
         "-f".to_string(), "rawvideo".to_string(),
         "-pix_fmt".to_string(), pix_fmt.to_string(),
         "-v".to_string(), "error".to_string(),
@@ -214,6 +230,7 @@ pub fn timeline_decoder_args(
     pix_fmt: &str,
     window: &crate::source_timing::TimelineWindow,
     output: &str,
+    tag_fix: Option<&str>,
 ) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
     if let Some(seek) = window.seek_time {
@@ -224,7 +241,7 @@ pub fn timeline_decoder_args(
     args.extend([
         "-i".to_string(), input_path.to_string(),
         "-map".to_string(), "0:v:0".to_string(),
-        "-vf".to_string(), size_guard_filter(width, height),
+        "-vf".to_string(), decoder_filter(width, height, false, tag_fix),
         "-fps_mode".to_string(), "passthrough".to_string(),
         "-frames:v".to_string(), window.src_count.to_string(),
         "-f".to_string(), "rawvideo".to_string(),
@@ -241,11 +258,11 @@ mod tests {
     use super::*;
 
     fn encode_args() -> Vec<String> {
-        encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), None, None, Some(100))
+        encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), None, None, Some(100), None)
     }
 
     fn preview_args() -> Vec<String> {
-        preview_decoder_args("in.mov", 0.38, 11, 720, 576, "yuv422p10le", "frames.raw")
+        preview_decoder_args("in.mov", 0.38, 11, 720, 576, "yuv422p10le", "frames.raw", None)
     }
 
     fn pos(args: &[String], flag: &str) -> Option<usize> {
@@ -261,7 +278,7 @@ mod tests {
     }
 
     fn timeline_args() -> Vec<String> {
-        timeline_decoder_args("in.mov", 720, 576, "yuv422p10le", &timeline_window(), "pipe:1")
+        timeline_decoder_args("in.mov", 720, 576, "yuv422p10le", &timeline_window(), "pipe:1", None)
     }
 
     /// Every decoder, so every assertion below covers every path.
@@ -317,7 +334,7 @@ mod tests {
         // Issue #157: after a seek, rawvideo's constant-rate timing repeated
         // the first frame. The reset must come first in the ONE -vf chain.
         let trimmed =
-            encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None);
+            encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, None);
         for (path, args) in [("trimmed encode", trimmed), ("preview", preview_args())] {
             assert!(pos(&args, "-ss").is_some(), "{path} seeks");
             assert_eq!(
@@ -338,9 +355,9 @@ mod tests {
         // arguments: no seek, so nothing to reset.
         let untrimmed = encode_args();
         let from_zero =
-            encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), Some(0), Some(19), None);
+            encode_decoder_args("in.mov", 720, 576, "yuv422p10le", Some(25.0), Some(0), Some(19), None, None);
         let preview_at_zero =
-            preview_decoder_args("in.mov", 0.0, 4, 720, 576, "yuv422p10le", "frames.raw");
+            preview_decoder_args("in.mov", 0.0, 4, 720, 576, "yuv422p10le", "frames.raw", None);
         for (path, args) in
             [("untrimmed", untrimmed), ("from zero", from_zero), ("preview at 0", preview_at_zero)]
         {
@@ -372,7 +389,7 @@ mod tests {
 
     #[test]
     fn encode_decoder_trims_and_limits_frames() {
-        let args = encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None);
+        let args = encode_decoder_args("in.mov", 720, 576, "yuv420p", Some(25.0), Some(10), Some(19), None, None);
         // Seek before -i, to the midpoint before the start frame.
         let ss = pos(&args, "-ss").unwrap();
         assert!(ss < pos(&args, "-i").unwrap());
@@ -408,8 +425,47 @@ mod tests {
         assert_eq!(args[ss + 1], "1.250000");
         let mut from_start = timeline_window();
         from_start.seek_time = None;
-        let args = timeline_decoder_args("in.mov", 720, 576, "yuv420p", &from_start, "pipe:1");
+        let args = timeline_decoder_args("in.mov", 720, 576, "yuv420p", &from_start, "pipe:1", None);
         assert!(pos(&args, "-ss").is_none());
+    }
+
+    /// Every builder with a tag fix: still one `-vf`, the fix ahead of the size
+    /// guard (the conversion happens after the chain, so the tags must already
+    /// be cleared), and an output option.
+    #[test]
+    fn decoders_clear_invalid_colour_tags_first() {
+        let fix = Some("setparams=color_primaries=unknown:color_trc=unknown");
+        let all = [
+            ("encode", encode_decoder_args("in.mov", 720, 576, "yuv444p12le", Some(25.0), Some(10), Some(19), None, fix)),
+            ("preview", preview_decoder_args("in.mov", 0.38, 11, 720, 576, "yuv444p12le", "frames.raw", fix)),
+            ("timeline", timeline_decoder_args("in.mov", 720, 576, "yuv444p12le", &timeline_window(), "pipe:1", fix)),
+        ];
+        for (path, args) in all {
+            assert_eq!(args.iter().filter(|a| *a == "-vf").count(), 1, "{path}");
+            let vf = pos(&args, "-vf").unwrap();
+            assert!(vf > pos(&args, "-i").unwrap(), "{path}");
+            // The encode and preview seek, so the PTS reset (issue #157) sits
+            // between the fix and the guard; the timeline decoder keeps
+            // passthrough timing and has none.
+            let reset = if path == "timeline" { String::new() } else { format!("{RESET_PTS_FILTER},") };
+            assert_eq!(
+                args[vf + 1],
+                format!(
+                    "setparams=color_primaries=unknown:color_trc=unknown,{reset}{}",
+                    size_guard_filter(720, 576)
+                ),
+                "{path}"
+            );
+        }
+    }
+
+    /// A source with usable tags decodes with exactly the args it always had.
+    #[test]
+    fn decoders_without_a_tag_fix_are_unchanged() {
+        assert_eq!(decoder_filter(720, 576, false, None), size_guard_filter(720, 576));
+        for (path, args) in both() {
+            assert!(!args.iter().any(|a| a.contains("setparams")), "{path}: {args:?}");
+        }
     }
 
     #[test]

@@ -73,6 +73,61 @@ fn clean(value: Option<&str>, allowed: &[&str]) -> Option<String> {
     allowed.contains(&v.as_str()).then_some(v)
 }
 
+/// Whether a raw ffprobe tag is present but not a value FFmpeg accepts.
+/// Untagged (`unknown`, `N/A`, empty, absent) is not invalid: there is
+/// nothing to neutralise.
+fn is_invalid(value: Option<&str>, allowed: &[&str], also_valid: &[&str]) -> bool {
+    let Some(v) = value.map(|v| v.trim().to_ascii_lowercase()) else {
+        return false;
+    };
+    if v.is_empty() || v == "unknown" || v == "n/a" {
+        return false;
+    }
+    !allowed.contains(&v.as_str()) && !also_valid.contains(&v.as_str())
+}
+
+/// The `setparams` that clears a source's INVALID colour tags before anything
+/// converts its pixel format, or `None` when every tag is usable.
+///
+/// FFmpeg 9's scaler refuses to convert a frame tagged with a value it has no
+/// meaning for — `[swscaler] Unsupported input … prim:reserved trc:reserved` —
+/// and fails the whole decode. ProRes is where this happens: Apple's ProRes
+/// spec writes code 0 for "unknown", which FFmpeg reads as ISO 23091's
+/// `reserved` (so FFmpeg's own `prores_metadata=color_primaries=unknown`
+/// produces such a file). Every decode of the source that may convert its
+/// pixel format puts this first in its one `-vf`: the app's "before" frame and
+/// thumbnails (`ColorTags.decodeNeutraliser`, byte-identical), the detectors,
+/// and the encode/preview decoders (a ProRes 4444 with alpha, `yuva444p12le`,
+/// is converted to the pipe format there).
+///
+/// **Only an invalid tag is touched, each on its own.** Clearing a VALID matrix
+/// changes pixels: `yuv → gray16le` on a bt709-tagged picture differs by up to
+/// ~28 8-bit levels from the same picture with `colorspace=unknown`. Clearing
+/// only the primaries when the transfer is also reserved still fails. The
+/// measurements are in docs/reports/2026-11-reserved-colour-tags.
+///
+/// `gbr` is ffprobe's name for the RGB identity matrix (`-colorspace` spells it
+/// `rgb`, hence `MATRICES`); swscale handles it, so it is left alone.
+/// `ipt-c2` (Dolby Vision profile 5) is cleared: swscale cannot convert it, and
+/// a DV5 picture is warned about, never blocked.
+pub fn decode_tag_neutraliser(
+    matrix: Option<&str>,
+    primaries: Option<&str>,
+    transfer: Option<&str>,
+) -> Option<String> {
+    let mut params = Vec::new();
+    if is_invalid(primaries, PRIMARIES, &[]) {
+        params.push("color_primaries=unknown");
+    }
+    if is_invalid(transfer, TRANSFERS, &[]) {
+        params.push("color_trc=unknown");
+    }
+    if is_invalid(matrix, MATRICES, &["gbr"]) {
+        params.push("colorspace=unknown");
+    }
+    (!params.is_empty()).then(|| format!("setparams={}", params.join(":")))
+}
+
 /// The four colour tags, as read from the source and re-declared on the output.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColorMetadata {
@@ -336,6 +391,58 @@ mod tests {
             assert!(c.to_ffmpeg_output_args().is_empty());
         }
         assert!(ColorMetadata::from_raw(None, None, None, None).is_empty());
+    }
+
+    /// The case table `color_tags_test.dart` repeats for `ColorTags.
+    /// decodeNeutraliser` — change both together.
+    #[test]
+    fn decode_tag_neutraliser_cases() {
+        let n = decode_tag_neutraliser;
+        assert_eq!(n(None, None, None), None);
+        assert_eq!(n(Some("bt709"), Some("bt709"), Some("bt709")), None);
+        assert_eq!(n(Some("unknown"), Some("unknown"), Some("unknown")), None);
+        assert_eq!(n(Some("N/A"), Some(""), Some("  ")), None);
+        // The reported ProRes capture's tags.
+        assert_eq!(
+            n(Some("unknown"), Some("reserved"), Some("reserved")).as_deref(),
+            Some("setparams=color_primaries=unknown:color_trc=unknown")
+        );
+        // Each tag on its own; a valid matrix is kept.
+        assert_eq!(
+            n(Some("bt709"), Some("reserved"), None).as_deref(),
+            Some("setparams=color_primaries=unknown")
+        );
+        assert_eq!(
+            n(None, Some("smpte170m"), Some("Reserved ")).as_deref(),
+            Some("setparams=color_trc=unknown")
+        );
+        for m in ["reserved", "ipt-c2", "ycgco-re"] {
+            assert_eq!(
+                n(Some(m), None, None).as_deref(),
+                Some("setparams=colorspace=unknown"),
+                "{m}"
+            );
+        }
+        assert_eq!(n(Some("gbr"), None, None), None);
+        assert_eq!(
+            n(Some("reserved"), Some("reserved"), Some("reserved")).as_deref(),
+            Some("setparams=color_primaries=unknown:color_trc=unknown:colorspace=unknown")
+        );
+    }
+
+    /// A tag `from_raw` keeps must never be cleared: a valid matrix changes
+    /// pixels when it is (see `decode_tag_neutraliser`).
+    #[test]
+    fn decode_tag_neutraliser_never_touches_an_accepted_value() {
+        for m in MATRICES {
+            assert_eq!(decode_tag_neutraliser(Some(m), None, None), None, "{m}");
+        }
+        for p in PRIMARIES {
+            assert_eq!(decode_tag_neutraliser(None, Some(p), None), None, "{p}");
+        }
+        for t in TRANSFERS {
+            assert_eq!(decode_tag_neutraliser(None, None, Some(t)), None, "{t}");
+        }
     }
 
     #[test]

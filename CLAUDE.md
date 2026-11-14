@@ -123,7 +123,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
-| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek (see "Source Frame Size") |
+| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared (see "Source Frame Size", "Colour metadata") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
@@ -166,6 +166,7 @@ VapourBox/
 | `app/lib/models/ai_runtime_status.dart` | The worker's `--probe-ai-runtime` result |
 | `app/lib/models/face_restore_parameters.dart` | Face Restoration's parameters and the add-ons each model needs (`faceRestoreAddonIds`) |
 | `app/lib/models/colorize_parameters.dart` | Colourisation's parameters and the add-on each model needs (`colorizeAddonSelectedBy`) |
+| `app/lib/models/color_tags.dart` | FFmpeg's accepted colour-tag lists (twin of `color_metadata.rs`) and `decodeNeutraliser`, the filter that clears invalid tags before the app's decodes |
 | `app/lib/models/hdr_display.dart` | The display tone-map for the app's own source decodes (twin of `ColorMetadata::display_tonemap_filter`) and Dolby Vision detection |
 | `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
@@ -927,6 +928,20 @@ The preview path needs the same source tags fed to swscale
 (`swscale_input_opts()`) or it guesses the matrix and shows a colour shift the
 real encode doesn't have.
 
+**A tag FFmpeg rejects (ProRes's `reserved`) is cleared before any decode
+converts, and only that tag.** FFmpeg 9's scaler fails a frame tagged
+`reserved` outright, so every decode of the source that may convert its pixel
+format puts `ColorMetadata::decode_tag_neutraliser` (worker, via
+`source_decode::decoder_filter`: encode, preview and every detector) or its
+byte-identical twin `ColorTags.decodeNeutraliser` (app: before frame and
+thumbnails, via `PreviewGenerator.beforeFrameArgs`/`thumbnailArgs`) **first**
+in its one `-vf`. Never clear a valid tag (a valid matrix moves yuv → gray16le
+by up to 28 levels), which is why the job carries ffprobe's **raw** tags
+(`colorTag` forwards `reserved`) and `from_raw` drops them only for the
+encoder's flags. A new decode of the source must use the same helper.
+`integration_reserved_colour_tags_test.dart` (heavy) checks each one against
+an untagged twin; see docs/reports/2026-11-reserved-colour-tags.
+
 **BT.601 → BT.709 on SD → HD (app 1.7.0) is the one place the script
 converts colour.** Crop & Resize's `convertToBt709` (`Bt709Conversion`:
 `auto` default, `on`, `off`) converts a BT.601 source (tagged
@@ -1028,8 +1043,9 @@ the **single** builder of both decoders' arguments (encode + preview):
   timing repeated the first kept frame on many time bases (MP4 1/2997, MOV
   1/11988, MKV 1/1000): the preview showed N-1, a trim of 41..52 came out
   `41, 41, 42 .. 51`, and the noise score read duplicated pairs as noiseless.
-  So `RESET_PTS_FILTER` (`setpts=PTS-STARTPTS`) goes **first in the one
-  `-vf`**, only when the decoder seeks; a decoder that doesn't seek passes no
+  So `RESET_PTS_FILTER` (`setpts=PTS-STARTPTS`) goes **in the one `-vf`**,
+  ahead of the size guard (after only the colour-tag neutraliser, see
+  "Colour metadata"), only when the decoder seeks; a decoder that doesn't seek passes no
   `-ss` (not even `-ss 0`) and no reset, so untrimmed encodes are untouched and
   preview frame 0 is the encode's frame 0. Never `-fps_mode passthrough` here:
   it drops the constant-rate slots a soft-telecine source decodes to (only the
