@@ -1648,8 +1648,7 @@ fi
 # skew would make the same job denoise differently per OS.
 #
 # Built by invoking the compiler directly rather than through its autotools
-# build: it is one C file, and autoconf/automake/libtool are not otherwise
-# required by any deps build.
+# build: it is one C file, so there is nothing for autotools to do.
 FLUXSMOOTH_TAG="v2"
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfluxsmooth.dylib" ]; then
     echo ""
@@ -1676,7 +1675,7 @@ fi
 # binary; see the fluxsmooth note above for why every platform tracks that.
 #
 # Its source is one C file, so it is compiled directly rather than through its
-# autotools build — no autoconf/automake/libtool needed in CI. It includes
+# autotools build. It includes
 # <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
 # directory called vapoursynth — which is what the symlink farm created next to
 # VS_INC_DIR above provides.
