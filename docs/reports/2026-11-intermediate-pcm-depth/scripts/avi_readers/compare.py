@@ -41,6 +41,22 @@ def floats(data):
     return list(struct.unpack("<%df" % (len(data) // 4), data[: len(data) // 4 * 4]))
 
 
+def alignment(o, r, channels=2, max_frames=4800):
+    """The shift (in frames; positive = the reader's output starts that many
+    frames into the stored audio) at which `o` equals `r` over their overlap,
+    or None. Checks a probe window first, then the whole overlap."""
+    win = 2000
+    for k in range(0, max_frames * channels + 1, channels):
+        for shift in ((k,) if k == 0 else (k, -k)):
+            a, b = (o, r[shift:]) if shift >= 0 else (o[-shift:], r)
+            n = min(len(a), len(b))
+            if n < win or a[:win] != b[:win]:
+                continue
+            if a[:n] == b[:n]:
+                return shift // channels
+    return None
+
+
 def compare(out, out_bits, ref, ref_bits, out_float=False):
     """Describe `out` (samples at out_bits) against the stored reference."""
     r = ints(ref, ref_bits)
@@ -73,6 +89,13 @@ def compare(out, out_bits, ref, ref_bits, out_float=False):
         rr = r if out_bits == ref_bits else [(x + 128) >> 8 for x in r]
         first = next((i for i in range(n) if o[i] != rr[i]), None)
         res["first_mismatch"] = first
+        if first is not None and out_bits == ref_bits:
+            shift = alignment(o, r)
+            if shift is not None:
+                res["verdict"] = "exact, shifted"
+                res["shift_frames"] = shift
+                res["note"] = ("starts %d frames into the stored audio" % shift if shift > 0
+                               else "%d frames prepended" % -shift)
         if first is None and len(o) != len(r):
             res["verdict"] = "exact, but %d samples %s" % (abs(len(o) - len(r)), "short" if len(o) < len(r) else "long")
     return res

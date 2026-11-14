@@ -88,6 +88,7 @@ jobs:
           name: avi-reader-probe
           path: |
             probe-work/results.jsonl
+            probe-work/avi/*.raw
             probe-work/vdub/*.status
             probe-work/vdub/*.log
             probe-work/vdub/*.png
