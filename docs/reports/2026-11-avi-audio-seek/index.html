@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVI audio seek</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+
+</head>
+<body>
+<main>
+<h1>A delayed AVI cannot seek its sound near its start</h1>
+<p class="meta">2026-11-14 · macOS arm64, deps 1.16.0 (FFmpeg 9.0) · follow-up to
+<a href="../issue-173-avi-seek/index.html">issue #173</a> (AVI seeks)</p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> A trim of an AVI whose video has a decoder delay (H.264 with B-frames,
+MPEG-4 ASP, MPEG-2) from an in-point under ~0.12 s lost about 1.3 s of sound. #173 fixed the
+<em>picture</em> there by decoding from the start and counting frames; every decode of the <em>sound</em>
+still put an input <code>-ss</code> on the same file and hit the same failed seek. A trim from frame 2 of
+<code>avi_h264_bframes.avi</code> to MKV came out with its sound starting 1.277 s after the picture.</p>
+<p>One decision, <code>source_decode::sound_seek</code> (rule 9): a delayed source's sound below
+<code>COUNT_SEEK_BELOW</code> (0.5 s, the picture's threshold) is never seeked with an input <code>-ss</code>.</p>
+<ul>
+<li><strong>Audio Restoration's render</strong> decodes from 0 and drops the head with
+<code>atrim=start_sample</code> + <code>asetpts</code> right after <code>aresample=first_pts=0</code>
+(sample-exact, table 2).</li>
+<li><strong>Its analysis and transcription</strong> move the <code>-ss</code> after <code>-i</code> (exact).</li>
+<li><strong>The stream-copy encode</strong> (which never filters audio) seeks a <strong>NUT copy</strong> of the
+source's sound instead of the AVI. NUT keeps each stream's own time base, so its seek is sample-exact
+for PCM and MP3. MKA was 9–13 samples off (millisecond timestamps), an audio-only AVI 5 ms off on MP3.</li>
+</ul>
+</div>
+
+<h2>The cause</h2>
+<p><code>fftools/ffmpeg_demux.c</code> starts an input seek <code>3*AV_TIME_BASE/23</code> (0.13 s) early whenever
+<em>any</em> stream of the file has a decoder delay and the format lacks <code>AVFMT_SEEK_TO_PTS</code>. An AVI
+cannot seek before its start, so a target below that fails ("could not seek to position") and decoding
+continues about 1.4 s in. Mapping only the sound (<code>-map 0:a</code>, <code>-vn</code>) does not help:
+the check looks at every stream. MOV and MP4 copies of the same streams seek exactly.</p>
+
+<h2>1. Input <code>-ss</code> against an exact trim</h2>
+<p>Sound only. + is sound skipped. The committed fixture's 440 Hz sine cannot be placed by its samples
+(1.3 s is 572 whole periods), so the chirp copy of its picture (stream-copied, keeping the decode-order
+timestamps) measures the same seek.</p>
+<div class="scroll"><table>
+<tr><th>source</th><th>0.0334 s</th><th>0.0667 s</th><th>0.1 s</th><th>0.12 s</th><th>0.2 s</th></tr>
+<tr><td>avi_h264_bframes.avi (H.264 B, PCM 32 k)</td><td class="bad">could not seek</td><td class="bad">could not seek</td><td class="bad">could not seek</td><td class="good">seeks</td><td class="good">seeks</td></tr>
+<tr><td>its picture + a chirp (AVI, PCM)</td><td class="bad">+1.3106 s (could not seek)</td><td class="bad">+1.2773 s (could not seek)</td><td class="bad">+1.2440 s (could not seek)</td><td class="good">exact</td><td class="good">exact</td></tr>
+<tr><td>MPEG-4 ASP B + MP3 in AVI</td><td class="bad">+1.3106 s (could not seek)</td><td class="bad">+1.2773 s (could not seek)</td><td class="bad">+1.2440 s (could not seek)</td><td class="good">exact</td><td>-0.0080 s</td></tr>
+<tr><td>the chirp AVI remuxed to MOV</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td></tr>
+<tr><td>the chirp AVI remuxed to MP4</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td></tr>
+</table></div>
+<p class="caption">The MP3 AVI's −8 ms at 0.2 s is the AVI demuxer's MP3 timestamps, not this fault.
+Script: <code>scripts/seek_vs_exact.py</code>.</p>
+
+<h2>2. Candidate fixes</h2>
+<p>The chirp AVI, in-point frame 2 (0.066733 s), a 2 s window, compared sample by sample with
+<code>atrim=start_sample=2135</code> of a decode from the start. + is sound late.</p>
+<div class="scroll"><table>
+<tr><th>method</th><th>samples</th><th>offset (+ = late)</th><th>max diff</th></tr>
+<tr><td>input -ss on the AVI (before the fix)</td><td>23127 of 64000</td><td>-40873 samples</td><td>0</td></tr>
+<tr><td>decode from 0, atrim=start_sample in the chain (the render)</td><td>64000 of 64000</td><td class="good">+0 samples</td><td>0</td></tr>
+<tr><td>decode from 0, output-side -ss/-t (analysis, transcription)</td><td>64000 of 64000</td><td class="good">+0 samples</td><td>0</td></tr>
+<tr><td>-c copy to MATROSKA, input -ss on that</td><td>64000 of 64000</td><td>-9 samples</td><td>0</td></tr>
+<tr><td>-c copy to AVI, input -ss on that</td><td>64000 of 64000</td><td class="good">+0 samples</td><td>0</td></tr>
+<tr><td>-c copy to NUT, input -ss on that</td><td>64000 of 64000</td><td class="good">+0 samples</td><td>0</td></tr>
+</table></div>
+<div class="scroll"><table>
+<tr><th>MP3 source, sound copy</th><th>offset (+ = late)</th></tr>
+<tr><td>NUT</td><td class="good">+0 samples (0.00 ms)</td></tr>
+<tr><td>AVI</td><td>-253 samples (-5.27 ms)</td></tr>
+<tr><td>MATROSKA</td><td>-13 samples (-0.27 ms)</td></tr>
+</table></div>
+<p class="caption">An output-side <code>-ss</code> is exact, but it cannot serve the render: ffmpeg trims an
+output after the whole <code>-af</code> chain, whose own trims and padding (afftdn's delay, the length fix)
+would move the cut. So the render trims inside its chain. The copy encode can't filter audio at all, so it
+needs a sound file that seeks correctly: NUT. Script: <code>scripts/remedies.py</code>.</p>
+
+<h2>3. The encode's shape</h2>
+<p>A lavfi picture standing in for vspipe's Y4M, the sound as input 1 with the trim's <code>-ss</code>,
+<code>-c:a copy -shortest</code>. "Sound vs picture" is where the in-point's sound plays against the in-point's
+picture (+ = late).</p>
+<div class="scroll"><table>
+<tr><th>in-point</th><th>sound from</th><th>container</th><th>video start</th><th>audio start</th><th>frames</th><th>sound vs picture</th></tr>
+<tr><td>2</td><td>the AVI (before)</td><td>mkv</td><td>0.000</td><td>1.277</td><td>60 of 60</td><td>-9 samples (-0.3 ms)</td></tr>
+<tr><td>2</td><td>the AVI (before)</td><td>avi</td><td>0.000</td><td>0.000</td><td>60 of 60</td><td>-40873 samples (-1277.3 ms)</td></tr>
+<tr><td>2</td><td>a NUT copy (after)</td><td>mkv</td><td>0.067</td><td>0.000</td><td>60 of 60</td><td>-9 samples (-0.3 ms)</td></tr>
+<tr><td>2</td><td>a NUT copy (after)</td><td>avi</td><td>0.000</td><td>0.000</td><td>60 of 60</td><td>+2135 samples (+66.7 ms)</td></tr>
+<tr><td>20</td><td>the AVI (before)</td><td>mkv</td><td>0.667</td><td>0.000</td><td>60 of 60</td><td>+11 samples (+0.3 ms)</td></tr>
+<tr><td>20</td><td>the AVI (before)</td><td>avi</td><td>0.000</td><td>0.000</td><td>60 of 60</td><td>+21355 samples (+667.3 ms)</td></tr>
+</table></div>
+<p class="caption">Before: the MKV's sound <em>stream</em> starts 1.277 s late (silent until then, then in step);
+the AVI, which has no per-stream start, shifts the whole track 1.28 s early. After: MKV is in sync.
+Script: <code>scripts/encode_shape.py</code>.</p>
+
+<h2>4. The worker, end to end</h2>
+<div class="scroll"><table>
+<tr><th>in-point</th><th>container</th><th>video start</th><th>audio start</th><th>frames</th><th>sound vs picture</th></tr>
+<tr><td>1</td><td>mkv</td><td>0.033</td><td>0.000</td><td>61 of 61</td><td>+12 samples (+0.4 ms)</td></tr>
+<tr><td>1</td><td>avi</td><td>0.000</td><td>0.000</td><td>61 of 61</td><td>+1068 samples (+33.4 ms)</td></tr>
+<tr><td>2</td><td>mkv</td><td>0.067</td><td>0.000</td><td>60 of 60</td><td>-9 samples (-0.3 ms)</td></tr>
+<tr><td>2</td><td>avi</td><td>0.000</td><td>0.000</td><td>60 of 60</td><td>+2135 samples (+66.7 ms)</td></tr>
+<tr><td>3</td><td>mkv</td><td>0.100</td><td>0.000</td><td>59 of 59</td><td>+3 samples (+0.1 ms)</td></tr>
+<tr><td>3</td><td>avi</td><td>0.000</td><td>0.000</td><td>59 of 59</td><td>+3203 samples (+100.1 ms)</td></tr>
+<tr><td>20</td><td>mkv</td><td>0.667</td><td>0.000</td><td>42 of 42</td><td>+11 samples (+0.3 ms)</td></tr>
+<tr><td>20</td><td>avi</td><td>0.000</td><td>0.000</td><td>42 of 42</td><td>+21355 samples (+667.3 ms)</td></tr>
+</table></div>
+<p class="caption">Frames 1–3 use the NUT copy; frame 20 (the control) is untouched by the fix.
+Script: <code>scripts/worker_copy_trim.py</code>.</p>
+
+<div class="card correction">
+<p><strong>Separate fault, not fixed here (task #24): Passthrough trims to AVI run their sound late.</strong>
+A stream copy keeps packets from where the demuxer's seek lands, before the in-point (here the file's start:
+the fixture has one keyframe). MKV and MP4 store that pre-roll as a later video start and stay in sync. AVI
+cannot, so the extra sound plays under the first picture: 33–100 ms late at frames 1–3 after the fix
+(1.28 s early before it), and 667 ms late at frame 20, with or without it. <code>small_clip.mp4</code>
+trimmed from frame 20 to AVI is 0.395 s late. Pre-trimming the NUT copy at the in-point was tried and
+is worse in MKV: ffmpeg rebases the copy's first packet (29 ms in) to 0, so the sound lands 29 ms late.</p>
+</div>
+
+<h2>Limits</h2>
+<ul>
+<li>One H.264 B-frame fixture (PCM) and one MPEG-4 ASP B-frame variant (MP3), at 29.97 fps, on macOS arm64
+with FFmpeg 9.0. MPEG-2 in AVI has the same delay (#173) and takes the same path, but its sound was not measured.</li>
+<li>Sample matching finds exact positions for PCM. For MP3 it skips the decoder's first 4096 samples and
+matches within 2e-3, so it reads the position, not the bits.</li>
+<li>MKV with B-frames (no <code>AVFMT_SEEK_TO_PTS</code> either) loses up to ~95 ms of sound below ~0.13 s
+without an error. The worker doesn't know an MKV's B-frame delay, so that's outside rule 9.</li>
+<li>Subtitle streams on input 1 of a delayed AVI trimmed under 0.5 s still see the failed seek
+(AVI's XSUB cannot be copied to MKV anyway).</li>
+</ul>
+
+<h2>Tests</h2>
+<ul>
+<li>Rust: <code>the_sound_skips_only_on_a_delayed_source_near_its_start</code>, the render's skip and the
+order sweep (<code>every_combination_keeps_the_order_and_one_af_per_run</code>, now with the skip), the analysis
+and transcription arguments, the sound copy's need, arguments and maps, and both encoder builders.</li>
+<li>Push gate: <code>integration_audio_plan_test.dart</code>, <code>--audio-plan</code> on the fixture from
+frames 2 and 20.</li>
+<li>Heavy: <code>integration_avi_audio_seek_test.dart</code>. 11 of its 12 tests fail with rule 9 switched off;
+the frame-20 control passes either way.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>sh docs/reports/2026-11-avi-audio-seek/scripts/run.sh</pre>
+<p>Needs the deps bundle (<code>VAPOURBOX_DEPS_DIR</code>, else <code>deps/&lt;platform&gt;</code>) and, for
+table 4, a built worker. Scratch files go to <code>AVI_AUDIO_WORK</code> or a fresh temporary directory.</p>
+</main>
+</body>
+</html>

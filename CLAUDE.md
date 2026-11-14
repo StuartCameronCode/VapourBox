@@ -1198,9 +1198,23 @@ the **single** builder of both decoders' arguments (encode + preview):
     pictures** (`trim=start_frame=N` before the PTS reset; `COUNT_SEEK_BELOW`).
     ffmpeg starts such a seek 3/23 s early and an AVI cannot seek before its
     start ("could not seek"): frame 1 decoded as frame 45. The first
-    thumbnail never seeks for the same reason. The same failure still hits
-    the **sound** of a trim whose in-point is under ~0.13 s (~1.3 s lost): a
-    known gap, not fixed here.
+    thumbnail never seeks for the same reason.
+  - **The sound seeks the same way (rule 9).** ffmpeg's early start applies
+    when *any* stream has a delay, so an input `-ss` on a delayed source's
+    sound below `COUNT_SEEK_BELOW` failed too and lost ~1.3 s. One decision,
+    `source_decode::sound_seek` (`VideoJob::sound_seek`; `None` / `Input` /
+    `Skip`): decodes of the sound skip after decoding (Audio Restoration's
+    render with `atrim=start_sample` right after `aresample=first_pts=0`,
+    never an output `-ss`, which ffmpeg applies after the whole chain; its
+    analysis and transcription with `-ss` after `-i`). The copy encode, which
+    never filters audio, seeks a **NUT copy** of the source's sound
+    (`audio_restoration::needs_sound_sidecar`, `SoundSidecar`, an extra
+    encoder input after the restored track, held to the end of the job,
+    tags still mapped from input 1). NUT, not MKA (ms timestamps, 9 samples
+    off) or audio-only AVI (5 ms off on MP3). A failed copy is a warning,
+    never a refusal. Every other source's arguments are unchanged
+    (`integration_avi_audio_seek_test.dart`, heavy;
+    docs/reports/2026-11-avi-audio-seek).
   `seek_arg_cases.json` holds the rules as a table both sides check;
   `integration_seek_alignment_test.dart` (heavy) covers three AVI fixtures
   (`generate_avi_seek_test.sh`, `hard_telecine_test.avi`)
@@ -2044,11 +2058,13 @@ Rules, from docs/reports/2026-11-audio-restoration:
   the scratch directory and is held to the end of the job (after the mux).
 - **One decision site, fixed order.** `AudioPlan::new` chooses every filter:
   `aresample=first_pts=0` (a stream that starts after the video keeps its gap —
-  a WAV has no timestamps) → `pan` → `adeclip` → `adeclick` → rumble `highpass`
+  a WAV has no timestamps) → [`atrim=start_sample` + `asetpts`: the read's
+  head, only where a delayed AVI cannot seek its sound, `source_decode` rule
+  9] → `pan` → `adeclip` → `adeclick` → rumble `highpass`
   → hum `bandreject` ×3 → `afftdn` + `atrim` of its delay → drift resample →
   lead `adelay` → [DeepFilterNet] → `loudnorm` + `aresample` → `alimiter` →
   `apad`+`atrim` to the picture's length. Each ffmpeg run gets one `-af`
-  (`every_combination_keeps_the_order_and_one_af_per_run`, 512 × 3 cases).
+  (`every_combination_keeps_the_order_and_one_af_per_run`, 512 × 5 cases).
 - **Measured traps, each now handled in the plan:** `afftdn` outputs 25 ms
   late at every rate (`atrim=start_sample=rate/40`); its default `nf=-50` took
   0.7 dB off −39 dB hiss — it gets the source's measured floor (quietest tenth

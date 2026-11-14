@@ -12,6 +12,7 @@ use crate::comment_metadata::{self, CommentFile};
 use crate::dependency_locator::DependencyLocator;
 use crate::models::{LogLevel, ProgressInfo, SubtitleOutput, SubtitleSettings};
 use crate::progress_reporter::ProgressReporter;
+use crate::source_decode::SoundSeek;
 
 /// Generates subtitles from video audio using whisper.cpp.
 pub struct SubtitleGenerator {
@@ -149,17 +150,16 @@ impl SubtitleGenerator {
         }
     }
 
-    /// Check if video has an audio track using ffprobe.
     /// Transcribe to an SRT and stop there — no muxing, no output-mode
     /// handling.
     ///
     /// This is what runs *before* the encode, so burn-in has something to draw.
-    /// `window` is the trim applied to the encode, in seconds.
+    /// `window` is the span of the source's sound the encode carries.
     pub fn transcribe<F>(
         &self,
         video_path: &str,
         settings: &SubtitleSettings,
-        window: Option<(f64, Option<f64>)>,
+        window: Option<AudioWindow>,
         srt_path: &Path,
         on_cancel: F,
     ) -> Result<Option<PathBuf>>
@@ -256,7 +256,7 @@ impl SubtitleGenerator {
     fn extract_audio_range<F>(
         &self,
         video_path: &str,
-        window: Option<(f64, Option<f64>)>,
+        window: Option<AudioWindow>,
         on_cancel: &F,
     ) -> Result<PathBuf>
     where
@@ -267,27 +267,7 @@ impl SubtitleGenerator {
 
         let video = Path::new(video_path);
         let temp_wav = video.with_extension("whisper.wav");
-
-        let mut args: Vec<String> = Vec::new();
-        // Seek before -i so ffmpeg does not decode the discarded head.
-        if let Some((start, _)) = window {
-            if start > 0.0 {
-                args.extend(["-ss".to_string(), format!("{start:.6}")]);
-            }
-        }
-        args.extend(["-i".to_string(), video_path.to_string()]);
-        if let Some((_, Some(duration))) = window {
-            if duration > 0.0 {
-                args.extend(["-t".to_string(), format!("{duration:.6}")]);
-            }
-        }
-        args.extend([
-            "-ar".to_string(), "16000".to_string(),
-            "-ac".to_string(), "1".to_string(),
-            "-vn".to_string(),
-            "-y".to_string(),
-            temp_wav.to_string_lossy().to_string(),
-        ]);
+        let args = extract_audio_args(video_path, window, &temp_wav);
 
         let mut child = Command::new(&ffmpeg_path)
             .args(&args)
@@ -539,5 +519,71 @@ impl SubtitleGenerator {
         self.reporter
             .send_log(LogLevel::Info, "Subtitles embedded into video");
         Ok(())
+    }
+}
+
+/// The span of the source's sound to transcribe: where it starts and how a
+/// decode reaches it (`VideoJob::sound_seek`), and how long it is (`None` to
+/// the end).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AudioWindow {
+    pub seek: SoundSeek,
+    pub duration: Option<f64>,
+}
+
+/// The ffmpeg arguments that write `window` of `video_path`'s sound to
+/// `wav` as 16 kHz mono. An input seek goes before `-i`, so the discarded
+/// head is not decoded; rule 9's skip (a delayed AVI near its start, where an
+/// input seek fails) goes after it, decoding under half a second more.
+fn extract_audio_args(video_path: &str, window: Option<AudioWindow>, wav: &Path) -> Vec<String> {
+    let mut args: Vec<String> = Vec::new();
+    let seek = window.map_or(SoundSeek::None, |w| w.seek);
+    if let SoundSeek::Input(start) = seek {
+        args.extend(["-ss".to_string(), format!("{start:.6}")]);
+    }
+    args.extend(["-i".to_string(), video_path.to_string()]);
+    if let SoundSeek::Skip(start) = seek {
+        args.extend(["-ss".to_string(), format!("{start:.6}")]);
+    }
+    if let Some(duration) = window.and_then(|w| w.duration).filter(|d| *d > 0.0) {
+        args.extend(["-t".to_string(), format!("{duration:.6}")]);
+    }
+    args.extend([
+        "-ar".to_string(),
+        "16000".to_string(),
+        "-ac".to_string(),
+        "1".to_string(),
+        "-vn".to_string(),
+        "-y".to_string(),
+        wav.to_string_lossy().to_string(),
+    ]);
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(window: Option<AudioWindow>) -> Vec<String> {
+        extract_audio_args("in.avi", window, Path::new("out.wav"))
+    }
+
+    #[test]
+    fn the_whole_track_has_no_seek() {
+        assert_eq!(args(None)[..2], ["-i", "in.avi"]);
+        assert!(!args(None).contains(&"-ss".to_string()));
+    }
+
+    #[test]
+    fn an_input_seek_goes_before_the_input() {
+        let a = args(Some(AudioWindow { seek: SoundSeek::Input(1.5), duration: Some(2.0) }));
+        assert_eq!(a[..6], ["-ss", "1.500000", "-i", "in.avi", "-t", "2.000000"]);
+    }
+
+    #[test]
+    fn a_skip_goes_after_the_input() {
+        // Rule 9: a delayed AVI trimmed at frame 2.
+        let a = args(Some(AudioWindow { seek: SoundSeek::Skip(0.066733), duration: Some(2.0) }));
+        assert_eq!(a[..6], ["-i", "in.avi", "-ss", "0.066733", "-t", "2.000000"]);
     }
 }

@@ -358,6 +358,8 @@ fn run_audio_plan(args: &Args) -> ExitCode {
             "finish": (!plan.single_pass()).then(|| plan.finish_args(&p(first), &p("restored.wav"), None)),
             "notes": plan.notes,
             "readStart": plan.read_start,
+            "readSkip": plan.read_skip,
+            "decoderDelay": job.decoder_delay(),
             "videoStartOffset": job.video_start(),
             "videoDelay": job.output_video_delay(),
         }))
@@ -996,6 +998,15 @@ fn run_worker(
         None
     };
 
+    // A delayed AVI trimmed near its start cannot seek its sound
+    // (source_decode rule 9): the encode then seeks a copy of it. Held to the
+    // end of the job, like the rendered track.
+    let sound_sidecar = {
+        let d = dependency_locator::DependencyLocator::new()?;
+        audio_restoration::AudioRestorer::new(reporter.clone(), d)
+            .sound_sidecar(&job, restored_audio.as_ref().map(|r| &r.track))
+    };
+
     // ------------------------------------------------------------------
     // Pre-encode transcription
     // ------------------------------------------------------------------
@@ -1015,7 +1026,11 @@ fn run_worker(
     let mut whisper_srt: Option<std::path::PathBuf> = None;
     if let Some(ref sub_settings) = job.subtitle_settings {
         if sub_settings.enabled && job.burn_in_subtitle_path.is_none() {
-            let source_window = job.source_audio_window();
+            // A delayed AVI near its start cannot seek its sound (rule 9):
+            // the window then skips after decoding.
+            let source_window = job.source_audio_window().map(|(start, duration)| {
+                subtitle_generator::AudioWindow { seek: job.sound_seek(start), duration }
+            });
             let (transcribe_from, window) = match &restored_audio {
                 Some(r) => (r.track.path.to_string_lossy().to_string(), None),
                 None => (job.input_path.clone(), source_window),
@@ -1061,7 +1076,8 @@ fn run_worker(
     loop {
         let mut executor = PipelineExecutor::new(reporter.clone())?
             .with_timeline(timeline.clone())
-            .with_restored_audio(restored_audio.as_ref().map(|r| r.track.clone()));
+            .with_restored_audio(restored_audio.as_ref().map(|r| r.track.clone()))
+            .with_sound_copy(sound_sidecar.as_ref().map(|s| s.copy.clone()));
         match executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst)) {
             Ok(()) => break,
             Err(e)

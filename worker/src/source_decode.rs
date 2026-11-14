@@ -105,9 +105,19 @@
 //!    reset. [`decode_start`] is the one decision. A source whose packets lack
 //!    PTS (rule 7's AVIs) has no grid and keeps rules 3-7.
 //!
+//! 9. **The sound of a delayed AVI cannot be seeked near its start either.**
+//!    ffmpeg's early start applies when any stream has a delay, so an input
+//!    `-ss` on the sound below [`COUNT_SEEK_BELOW`] fails the same way and
+//!    loses ~1.3 s of sound. [`sound_seek`] is the one decision: decodes of
+//!    the sound skip after decoding instead (Audio Restoration's render with
+//!    an `atrim`, its analysis and transcription with an output-side `-ss`),
+//!    and the stream-copy encode seeks a NUT copy of the sound
+//!    (`audio_restoration::needs_sound_sidecar`).
+//!
 //! See docs/ENGINEERING_NOTES.md, "Clean aperture: decode the stored frame",
 //! docs/reports/issue-157-seek-alignment, docs/reports/issue-169-mpeg-seek,
-//! docs/reports/issue-173-avi-seek, docs/reports/issue-174-source-grid and
+//! docs/reports/issue-173-avi-seek, docs/reports/issue-174-source-grid,
+//! docs/reports/2026-11-avi-audio-seek and
 //! docs/reports/2026-11-reserved-colour-tags.
 
 /// Input option placed before `-i` on every ffmpeg that decodes the source's
@@ -865,6 +875,43 @@ pub fn decode_start(
             source_seek(frame, fps, video_start, delay_frames, plan),
             video_start,
         ),
+    }
+}
+
+/// Rule 9: ffmpeg starts an input seek 3/23 s early when **any** stream of
+/// the file has a decoder delay (not only the one being decoded), and a
+/// delayed AVI cannot seek before its start, so a seek of its **sound** below
+/// that fails too ("could not seek to position") and decoding resumes ~1.4 s
+/// in: a trim from frame 2 lost 1.28 s of sound. A decode of a delayed
+/// source's sound that starts in `(0, COUNT_SEEK_BELOW)` must therefore not
+/// use an input `-ss`. The same threshold as the picture's count seek
+/// (rule 7), so both switch at the same point. See
+/// docs/reports/2026-11-avi-audio-seek.
+pub fn sound_seek_fails(start: f64, delay_frames: u32) -> bool {
+    delay_frames > 0 && start > 0.0 && start < COUNT_SEEK_BELOW
+}
+
+/// How a decode of the source's sound reaches `start` seconds on the
+/// container timeline.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SoundSeek {
+    /// From the beginning: no seek at all.
+    None,
+    /// An input `-ss` (before `-i`), as every source but rule 9's has.
+    Input(f64),
+    /// Decode from the beginning and drop this many seconds after decoding
+    /// (an output-side `-ss`, or an `atrim` in a filter chain).
+    Skip(f64),
+}
+
+/// The one decision for a decode of the source's sound (rule 9).
+pub fn sound_seek(start: f64, delay_frames: u32) -> SoundSeek {
+    if !(start.is_finite() && start > 0.0) {
+        SoundSeek::None
+    } else if sound_seek_fails(start, delay_frames) {
+        SoundSeek::Skip(start)
+    } else {
+        SoundSeek::Input(start)
     }
 }
 
@@ -1829,6 +1876,26 @@ mod tests {
                 assert_eq!(s.filters, filters, "{name}");
                 assert_eq!(s.copyts, start["copyts"].as_bool().unwrap_or(true), "{name} frame {}", start["frame"]);
             }
+        }
+    }
+
+    #[test]
+    fn the_sound_skips_only_on_a_delayed_source_near_its_start() {
+        // No delay: every start seeks as it always did.
+        assert_eq!(sound_seek(0.0667, 0), SoundSeek::Input(0.0667));
+        assert!(!sound_seek_fails(0.0667, 0));
+        // Delayed: inside (0, COUNT_SEEK_BELOW) the seek would fail.
+        for t in [0.0334, 0.0667, 0.1, 0.12, 0.49] {
+            assert!(sound_seek_fails(t, 2), "{t}");
+            assert_eq!(sound_seek(t, 1), SoundSeek::Skip(t));
+        }
+        // At or past the threshold an input seek works.
+        assert_eq!(sound_seek(COUNT_SEEK_BELOW, 2), SoundSeek::Input(COUNT_SEEK_BELOW));
+        assert_eq!(sound_seek(2.0, 2), SoundSeek::Input(2.0));
+        // Nothing to seek to.
+        for t in [0.0, -0.1, f64::NAN] {
+            assert!(!sound_seek_fails(t, 2) || t.is_nan());
+            assert_eq!(sound_seek(t, 2), SoundSeek::None);
         }
     }
 }
