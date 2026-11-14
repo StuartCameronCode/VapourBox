@@ -822,6 +822,23 @@ pub enum VideoCodec {
     V210,
 }
 
+/// How a codec declares a still-interlaced picture's field order
+/// (`VideoCodec::field_order_signal`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldOrderSignal {
+    /// Not declared: the file says progressive (or nothing).
+    None,
+    /// `-top 1|0` on the pipe input; the container (and FFV1's bitstream)
+    /// records it. Pixels unchanged.
+    Container,
+    /// `-top`, and ProRes codes the frame as fields (`-flags +ildct`), which
+    /// sets its own frame header's field flag.
+    ProResFields,
+    /// `-top`, `-flags +ildct` and `-x264-params tff=1|bff=1`: libx264 codes
+    /// the picture interlaced (MBAFF).
+    X264Interlaced,
+}
+
 /// Encoder family for grouping quality/preset logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncoderFamily {
@@ -944,12 +961,51 @@ impl VideoCodec {
         matches!(self.encoder_family(), EncoderFamily::Uncompressed)
     }
 
+    /// How this codec declares a still-interlaced picture's field order (see
+    /// `ScriptGenerator::output_field_order`, `pipeline_executor::field_order_args`).
+    /// Measured in docs/reports/2026-11-field-order-other-codecs.
+    ///
+    /// Deliberately exhaustive — no catch-all arm — so a new codec cannot be
+    /// added without deciding this.
+    pub fn field_order_signal(&self) -> FieldOrderSignal {
+        match self {
+            // Metadata only, and lossless either way: MKV's FieldOrder, MOV's
+            // `fiel`. FFV1 also writes it in its own bitstream, so it survives
+            // even in AVI. The decoded pixels are bit-identical.
+            VideoCodec::V210 | VideoCodec::FFV1 | VideoCodec::Huffyuv | VideoCodec::Ffvhuff => {
+                FieldOrderSignal::Container
+            }
+            VideoCodec::ProResProxy
+            | VideoCodec::ProResLT
+            | VideoCodec::ProRes422
+            | VideoCodec::ProResHQ
+            | VideoCodec::ProRes4444
+            | VideoCodec::ProRes4444Xq => FieldOrderSignal::ProResFields,
+            // Real interlaced coding (MBAFF). At equal bitrate it beat coding
+            // the woven frame as progressive on every fixture.
+            VideoCodec::H264 => FieldOrderSignal::X264Interlaced,
+            // x265 has no interlaced coding: its `interlace` mode declares
+            // every woven frame to be a single field (`field_seq_flag=1`), and
+            // a container-only flag is read by AVFoundation but not by
+            // FFmpeg-based players, so the two would disagree about one file.
+            // The hardware encoders can't code fields either (VideoToolbox
+            // ignores `+ildct`) or can't be verified (NVENC, QSV, AMF).
+            VideoCodec::H265
+            | VideoCodec::H264Nvenc
+            | VideoCodec::H265Nvenc
+            | VideoCodec::H264Qsv
+            | VideoCodec::H265Qsv
+            | VideoCodec::H264Videotoolbox
+            | VideoCodec::H265Videotoolbox
+            | VideoCodec::H264Amf
+            | VideoCodec::H265Amf => FieldOrderSignal::None,
+        }
+    }
+
     /// Whether the output is flagged with the picture's field order when it is
-    /// still interlaced (see `ScriptGenerator::output_field_order`). The
-    /// editing intermediates only: an NLE reads the flag to decide how to
-    /// treat the fields. Other codecs are unchanged.
+    /// still interlaced. See [`Self::field_order_signal`].
     pub fn flags_field_order(&self) -> bool {
-        self.is_prores() || self.is_uncompressed()
+        self.field_order_signal() != FieldOrderSignal::None
     }
 
     /// The one output format this codec stores, whatever Color Format is
@@ -1547,7 +1603,6 @@ mod tests {
         assert!(c.flags_field_order());
         for codec in VideoCodec::ALL.iter().copied() {
             assert_eq!(codec.is_uncompressed(), codec == VideoCodec::V210, "{codec:?}");
-            assert_eq!(codec.flags_field_order(), codec.is_prores() || codec == VideoCodec::V210);
         }
         for fmt in ["yuv420p", "yuv422p", "yuv420p10le", "yuv422p10le", "yuv444p10le", "yuv422p16le"] {
             assert_eq!(c.forced_pix_fmt(fmt), Some("yuv422p10le"), "{fmt}");
@@ -1594,6 +1649,28 @@ mod tests {
         let lost = !stores_444 && src_chroma == ChromaClass::C444;
         let padded = stores_444 && src_chroma != ChromaClass::C444;
         (ignored, lost, padded)
+    }
+
+    /// Which codecs declare a still-interlaced picture's field order, stated
+    /// from the families rather than the table itself
+    /// (docs/reports/2026-11-field-order-other-codecs).
+    #[test]
+    fn field_order_signal_per_codec() {
+        for codec in VideoCodec::ALL.iter().copied() {
+            let expected = if codec.is_prores() {
+                FieldOrderSignal::ProResFields
+            } else if codec.is_lossless() || codec.is_uncompressed() {
+                FieldOrderSignal::Container
+            } else if codec == VideoCodec::H264 {
+                FieldOrderSignal::X264Interlaced
+            } else {
+                // x265 and every hardware encoder.
+                assert!(codec.is_h265() || codec.is_hardware(), "{codec:?}");
+                FieldOrderSignal::None
+            };
+            assert_eq!(codec.field_order_signal(), expected, "{codec:?}");
+            assert_eq!(codec.flags_field_order(), expected != FieldOrderSignal::None, "{codec:?}");
+        }
     }
 
     /// The table `v210ChromaPinWarning` (app/lib/utils/pixel_format.dart) is
