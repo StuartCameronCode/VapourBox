@@ -71,6 +71,10 @@ for byte.</li>
 <code>AudioCodec::Pcm</code> is still <code>pcm_s16le</code>. That is the user's Convert → PCM choice and a value
 shared with the app. The restored track gets its own type, <code>RestoredTrackCodec</code>. The 16-bit
 intermediate track from the earlier report was never released.
+<p><strong>Added 2026-11-15 (<a href="#f6">F6</a>): AVI beside every codec is 24-bit too.</strong> The restored
+track in AVI beside FFV1, HuffYUV, FFVHuff or H.264 was the last 16-bit one. It is now <code>pcm_s24le</code>, after
+measuring what Windows' AVI readers and VirtualDub make of the <code>WAVE_FORMAT_EXTENSIBLE</code> header that
+24-bit PCM in AVI requires.</p>
 </div>
 
 <h2>Method</h2>
@@ -234,6 +238,96 @@ equal ffmpeg's byte for byte.</p>
 <p class="caption">48 kHz stereo PCM is 1.536 Mbit/s at 16-bit and 2.304 at 24-bit. ProRes rates depend on the
 picture: a cleaner source than this noisy pattern gives a lower Proxy rate, and a larger share for the audio.</p>
 
+<h2 id="f6">F6 · AVI beside a codec that isn't an intermediate (added 2026-11-15)</h2>
+<p>Until this section, a restored track in AVI beside FFV1, HuffYUV, FFVHuff or H.264 stayed 16-bit (see "Not
+changed" below). The depth argument is the same as for ProRes and v210 (F1, F2), and the same track in MKV was
+already 24-bit FLAC. The open question was whether AVI's readers accept it. ffmpeg writes PCM above 16 bits in AVI
+only as <code>WAVE_FORMAT_EXTENSIBLE</code>: <code>riffenc</code> forces it, and the AVI muxer has no option for a
+plain <code>WAVE_FORMAT_PCM</code> header. People often pick AVI for older Windows tools, and a track that an
+editor drops would be much worse than an inaudible rounding error.</p>
+
+<h3>Method</h3>
+<ul>
+<li><strong>Fixtures</strong> (<code>scripts/avi_readers/make_fixtures.py</code>, the deps bundle's FFmpeg 9.0.2):
+FFV1, HuffYUV and H.264 AVIs with <code>pcm_s24le</code>, plus FFV1 with <code>pcm_s16le</code> as the control.
+The audio is 2.5 s of 48 kHz stereo: a −60 dBFS tone (440 Hz left, 660 Hz right, so a channel swap shows), a 1 s
+fade to −120 dBFS, then silence. Below −96 dBFS the 24-bit file holds detail 16 bits cannot, so a reader that
+quietly drops to 16 bits fails the comparison.</li>
+<li><strong>Windows</strong>: GitHub's <code>windows-latest</code> runner (Windows Server 2025, build 26100),
+<a href="https://github.com/StuartCameronCode/VapourBox/actions/runs/43615865234">run 43615865234</a>.
+<code>scripts/avi_readers/avi_readers.cpp</code> (MSVC) reads each file through Video for Windows'
+<code>AVIStreamRead</code>, through ACM (converting to 16-bit, with the format as stored and again restated as plain
+0x0001), through DirectShow (File Source → AVI Splitter → Sample Grabber → Null Renderer) and through Media
+Foundation's Source Reader. <code>virtualdub.ps1</code> runs VirtualDub 1.10.4 and VirtualDub2 build 44282 (pinned
+by SHA-256), saving the audio with direct stream copy and with full processing. A warm-up run clicks through
+each one's first-run dialogs. <code>compare.py</code> compares every result with the stored samples.</li>
+<li><strong>macOS</strong>: VLC 3.0.23 transcoding to 32-bit WAV (<code>vlc_read.sh</code>).</li>
+</ul>
+
+<h3>The header</h3>
+<pre>wFormatTag 0xFFFE (WAVE_FORMAT_EXTENSIBLE), 2 ch, 48000 Hz, nBlockAlign 6, wBitsPerSample 24
+cbSize 22, wValidBitsPerSample 24, dwChannelMask 0x3, SubFormat 00000001-0000-0010-8000-00AA00389B71 (PCM)</pre>
+<p class="caption">The same for all three video codecs (<code>data/avi_fixture_headers.jsonl</code>). This is the form
+Microsoft's documentation asks for above 16 bits. The 16-bit control is a plain 16-byte 0x0001 header.</p>
+
+<h3>What each reader returned</h3>
+<div class="scroll"><table>
+<tr><th>Reader</th><th>FFV1 + 24-bit</th><th>HuffYUV + 24-bit</th><th>H.264 + 24-bit</th><th>FFV1 + 16-bit (control)</th></tr>
+<tr><td>Video for Windows (<code>AVIStreamRead</code>)</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td></tr>
+<tr><td>DirectShow, AVI Splitter</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td><td class="good">exact</td></tr>
+<tr><td>Media Foundation Source Reader</td><td class="good">exact¹</td><td class="good">exact¹</td><td class="good">exact¹</td><td class="good">exact¹</td></tr>
+<tr><td>ACM → 16-bit, format as stored</td><td class="bad">refused</td><td class="bad">refused</td><td class="bad">refused</td><td class="good">exact</td></tr>
+<tr><td>ACM → 16-bit, restated as plain 0x0001</td><td class="bad">refused</td><td class="bad">refused</td><td class="bad">refused</td><td class="good">exact</td></tr>
+<tr><td>VirtualDub 1.10.4, direct copy</td><td class="warn">no video codec²</td><td class="good">exact</td><td class="warn">no video codec²</td><td class="warn">no video codec²</td></tr>
+<tr><td>VirtualDub 1.10.4, full processing</td><td class="warn">no video codec²</td><td class="good">exact</td><td class="warn">no video codec²</td><td class="warn">no video codec²</td></tr>
+<tr><td>VirtualDub2 44282, direct copy</td><td class="good">exact³</td><td class="good">exact³</td><td class="good">exact³</td><td class="good">exact³</td></tr>
+<tr><td>VirtualDub2 44282, full processing</td><td class="good">exact³</td><td class="good">exact³</td><td class="good">exact³</td><td class="good">exact³</td></tr>
+<tr><td>VLC 3.0.23 (macOS)</td><td class="good">exact⁴</td><td class="good">exact⁴</td><td class="good">exact⁴</td><td class="good">exact⁴</td></tr>
+</table></div>
+<p class="caption">"Exact" means the reader returned the stored samples. A wider output (VirtualDub2's float WAV,
+VLC's 32-bit) counts as exact when every sample is the stored one in its top bits.
+Data: <code>data/avi_readers_windows.jsonl</code>, <code>data/avi_readers_vlc_macos.jsonl</code>.<br>
+¹ Media Foundation starts 96 frames (2 ms) into the stored audio, and the rest is exact. It does the same with the
+16-bit control, so it is how MF's AVI source handles this file, not the depth.<br>
+² VirtualDub 1.10.4 stops at "Couldn't locate decompressor for format 'FFV1'" (or 'H264') before it reaches the
+audio. It reads video only through Video for Windows codecs, and the runner has none for those formats. The 16-bit
+control fails the same way. With HuffYUV, which it decodes itself, the 24-bit track comes out exact in both modes,
+saved as a 24-bit extensible WAV.<br>
+³ VirtualDub2 saves 24-bit audio as 32-bit float WAV (extensible, subformat float), every sample exact, with 960
+frames (20 ms) of padding at the end. The 16-bit control gets the same padding.<br>
+⁴ VLC's transcode stops 192 frames short, with the 16-bit control too.</p>
+
+<h3>Reading it</h3>
+<ul>
+<li><strong>Every layer that hands audio to a Windows program reads it exactly.</strong> DirectShow's AVI Splitter
+offers the stream as <code>MEDIASUBTYPE_PCM</code> with the extensible format block, and Media Foundation reports
+24-bit PCM natively.</li>
+<li><strong>ACM refuses 24-bit PCM, and the header makes no difference.</strong> <code>acmStreamOpen</code> returns
+<code>ACMERR_NOTPOSSIBLE</code> for the extensible format and for the same data restated as plain 0x0001. It
+converts the 16-bit control. So a tool that converts audio through ACM can't take 24-bit PCM in any form. That
+argues against 24 bits at all for such tools, not against this header. VirtualDub 1.10.4's full processing
+doesn't go through ACM for this, and it kept all 24 bits.</li>
+<li><strong>VirtualDub, old and new, keeps all 24 bits</strong>, in both modes.</li>
+<li><strong>Resolve documents it.</strong> Blackmagic's own <em>Supported Formats and Codecs</em> lists, for 16.2
+(2020) and for 20 (July 2025), embedded audio in "mov, mxf, r3d, mp4, avi, etc." as decoding "all decodable audio
+formats listed above", among them uncompressed PCM at 16, 24 and 32 bits. Exports are listed as "Linear PCM
+16/24/32-bit". A 2017 forum report quoted Blackmagic support saying Resolve "does not (yet) support 24-bit audio"
+in uncompressed AVI. That predates these lists, and could not be read in full (the forum refuses automated
+fetches).</li>
+</ul>
+<p><strong>What this cannot tell you.</strong> A runner is Windows Server with no audio device, not a desktop
+Windows 10/11 with an audio driver, so playback through an audio renderer was not exercised. One synthetic signal
+was used. Premiere Pro and Vegas use their own AVI importers, and neither was run. Forum posts (snippets only,
+versions and headers unstated) describe a Vegas Pro 16 user getting no audio from a 24-bit AVI capture, and
+Premiere importing an AVI with unsupported audio as video only.</p>
+
+<h3>Decision</h3>
+<p><strong>AVI gets 24-bit PCM beside every codec.</strong> This follows the rule fixed in the plan before the run:
+switch if Video for Windows, DirectShow, Media Foundation and VirtualDub2 return the samples exactly, VirtualDub
+1.10.4 at least opens and copies the track, and nothing shows Premiere or Resolve dropping it. ACM refusing it is
+recorded as a limit, not a reason. For a reader that needs 16 bits, Output → Audio → Convert → PCM still writes
+<code>pcm_s16le</code>. <code>RestoredTrackCodec::Pcm16</code> no longer has a use and is removed.</p>
+
 <h2>Correction during the work</h2>
 <p class="correction" style="padding-left:10px">The first run of the probe (and the pilot in the plan) used
 <code>small_clip.mp4</code> from 20 s on, at 0.7× its level. That part of the clip is mostly music, which
@@ -252,6 +346,8 @@ MKV already carries (F3), editors read it (F4), and it costs 0.3–5.5% (F5).</l
 <li><strong>Its own type, <code>RestoredTrackCodec</code> {Aac, Flac, Pcm16, Pcm24}</strong>, not a new
 <code>AudioCodec</code> value. A new value would either reach the app's Convert menu or exist on one side of the
 JSON only. <code>AudioCodec::Pcm</code> stays <code>pcm_s16le</code>. Exhaustive matches, no catch-all.</li>
+<li><strong>AVI beside every codec: 24-bit PCM too</strong> (added 2026-11-15, <a href="#f6">F6</a>). With that,
+<code>RestoredTrackCodec</code> is {Aac, Flac, Pcm24}.</li>
 <li><strong>No dither:</strong> at 24 bits there is nothing to dither, and at 16 it measured worse (F2).</li>
 <li><strong>No <code>-sample_fmt</code>:</strong> <code>pcm_s24le</code> takes only <code>s32</code>, so
 swresample converts float to s32 (rounding, clipping at full scale) and the encoder keeps the top 24 bits. That
@@ -259,8 +355,9 @@ is the path FLAC takes, hence the identical samples.</li>
 <li><strong>Not changed:</strong>
 <ul>
 <li>Convert → PCM: the user's explicit choice, still 16-bit.</li>
-<li>The restored track in AVI beside a non-intermediate (FFV1, HuffYUV, H.264): still 16-bit, the last 16-bit
-restored track. That is a separate decision.</li>
+<li><s>The restored track in AVI beside a non-intermediate (FFV1, HuffYUV, H.264): still 16-bit, the last 16-bit
+restored track. That is a separate decision.</s> <em>2026-11-15: decided in <a href="#f6">F6</a>. It is now
+24-bit too.</em></li>
 <li>A track copied without restoration: untouched, as before.</li>
 </ul></li>
 </ul>
@@ -281,6 +378,11 @@ MOV/MKV/AVI give <code>-c:a:0 pcm_s24le</code> with no bitrate, and that Convert
 v210 in MOV, MKV and AVI. Each restored stream is checked to be <code>pcm_s24le</code>, 24 bits and
 <code>in24</code> in MOV. Each must decode to the same s32 samples as the same job's MKV, whose FLAC is checked
 to be 24-bit.</li>
+<li><strong>Added for F6:</strong> the sweep is now <code>restored_passthrough_keeps_24_bits_where_it_can</code>
+(<code>Pcm24</code> exactly when the codec is an intermediate or the container is AVI, FLAC/AAC otherwise).
+<code>passthrough_copies_the_others_and_encodes_the_restored_track</code> checks AVI beside FFV1, HuffYUV, FFVHuff
+and H.264, and that Convert → PCM in AVI stays 16-bit. The heavy test adds FFV1, HuffYUV and H.264 in AVI to its
+loop, each checked against the MKV reference.</li>
 </ul>
 
 <h2>Not tested</h2>
@@ -289,7 +391,9 @@ to be 24-bit.</li>
 <code>enda</code> atom is QuickTime's own form for little-endian 24-bit, and ffmpeg has written it this way for
 years, but no NLE other than Final Cut Pro's decoder (F4) was run on these files. Apple's own exporters write
 <code>lpcm</code> (SoundDescription v2), and ffmpeg has no option to choose that.</li>
-<li>Real tape captures (none in the repo), a listening test, Windows and Linux.</li>
+<li>Real tape captures (none in the repo), a listening test, Windows and Linux (for F1–F5).</li>
+<li>For AVI (F6): Premiere Pro and Vegas; Resolve itself (only its documentation was read); playback through an
+audio device; desktop Windows; DirectShow decoders other than the splitter's own output.</li>
 </ul>
 
 <h2>Reproduce</h2>
@@ -298,8 +402,15 @@ WORK=/path/to/scratch docs/reports/2026-11-intermediate-pcm-depth/scripts/run.sh
 <p>Needs Python 3 with NumPy, the deps bundle (<code>deps/&lt;platform&gt;</code>), and the DeepFilterNet add-on
 for its rows. <code>run.sh</code> runs <code>pcm_depth_probe.py</code> (F1–F3, writing
 <code>$WORK/pcm_depth.json</code>), <code>data_rates.sh</code> (F5) and <code>chart.py</code> (Figure 1). On
-macOS it also runs <code>avf_read.swift</code> (F4). The run took about 2 minutes on the M1 Pro and needs about 1.6 GB of
+macOS it also runs <code>avf_read.swift</code> (F4) and, when VLC is installed, the AVI fixtures and VLC's read for
+F6 (<code>scripts/avi_readers/make_fixtures.py</code>, <code>vlc_read.sh</code>, <code>compare.py</code>). The run took about 2 minutes on the M1 Pro and needs about 1.6 GB of
 scratch space.</p>
+<p><strong>F6's Windows half</strong> ran on a GitHub-hosted runner, through a one-off workflow
+(<code>.github/workflows/probe-avi-readers.yml</code>) that was deleted once its run was recorded. To run it again,
+restore that file from this report's commit history (<code>git log --all -- .github/workflows/probe-avi-readers.yml</code>)
+and push it on a branch. It downloads the deps bundle, writes the fixtures, builds <code>avi_readers.cpp</code>
+with MSVC, fetches both VirtualDubs by pinned hash, runs <code>virtualdub.ps1</code> and <code>compare.py</code>,
+and uploads <code>results.jsonl</code> with VirtualDub's logs and screenshots.</p>
 </main>
 </body>
 </html>
