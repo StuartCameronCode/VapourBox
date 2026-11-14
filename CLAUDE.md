@@ -123,7 +123,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
-| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset and the one `seek_time` (see "Source Frame Size", "Colour metadata") |
+| `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg` (see "Source Frame Size", "Colour metadata") |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
@@ -1060,9 +1060,9 @@ the **single** builder of both decoders' arguments (encode + preview):
   it drops the constant-rate slots a soft-telecine source decodes to (only the
   VFR decoder uses it). **Test seek alignment against an independent decode**
   (`select=eq(n,N)` of the source), never preview against encode, which shift
-  together — `integration_seek_alignment_test.dart` (heavy). MPEG-PS/TS, MPEG-2
-  in AVI and leading null frames still seek to the wrong picture for other
-  reasons (docs/reports/issue-157-seek-alignment).
+  together — `integration_seek_alignment_test.dart` (heavy). MPEG-PS/TS (issue
+  #169) and AVI (issue #173, below) seek with rules of their own; leading null
+  frames still seek to the wrong picture (docs/reports/issue-157-seek-alignment).
 
 - **Frame N counts from the video's first picture, and every seek says so.**
   An input `-ss` counts from the *container's* start, the earliest stream's;
@@ -1100,6 +1100,39 @@ the **single** builder of both decoders' arguments (encode + preview):
   on late-video TS/MKV/MP4 fixtures (docs/reports/2026-11-video-start-offset).
   MPEG-TS seeks that land on a later keyframe are a separate fault (the DVB-T
   clip's preview is still off for that reason).
+
+- **An AVI lands on frame N too (issue #173).** `source_decode::source_seek`
+  is the one decision for a decoder that starts at frame N (encode, preview,
+  every detector; `VideoJob::source_seek`); the app's twin is
+  `SeekPlan.frameSeekArgs`. Three rules, each fixing a measured fault:
+  - **Every seek value is rounded *up* to the microsecond**
+    (`source_decode::seek_arg`, Dart `SeekPlan.formatSeek`, 1 ns allowance).
+    An AVI's tick is one frame, so `(N - 0.5)/fps` sits exactly on half a
+    tick; `%.6f` often printed it just below and ffmpeg rounded to N - 1, on
+    1 start in 3 of **every NTSC-rate AVI** (HuffYUV, DV, B-frames or not).
+    Never format a seek with `{:.6}` / `toStringAsFixed` directly.
+  - **A source that stores decode-order timestamps adds its decoder delay.**
+    AVI with MPEG-2, MPEG-4 ASP or H.264 B-frames stamps display picture k as
+    k + D (1, or 2 for H.264). Probed only when a first packet has no PTS
+    (`stores_decode_order`), by decoding a few packets
+    (`decoder_delay_from_probe`, whole frames, 1..4); `VideoJob.decoder_delay_frames`
+    (worker, in `fill_video_start`), `PreviewGenerator._decoderDelayFrames`
+    (app, only when `has_b_frames` > 0). **It moves seeks only**, never
+    `video_start_offset` or the output's sound/picture layout. A delayed
+    source also **rebases PTS when it doesn't seek** (`DecoderSeek::rebase`):
+    H.264 in AVI's two-frame gap made the untrimmed decode repeat frame 0
+    twice and lose the last two frames. A `SeekPlan` source never takes a delay.
+  - **Below 0.5 s a delayed source decodes from the start and drops N
+    pictures** (`trim=start_frame=N` before the PTS reset; `COUNT_SEEK_BELOW`).
+    ffmpeg starts such a seek 3/23 s early and an AVI cannot seek before its
+    start ("could not seek"): frame 1 decoded as frame 45. The first
+    thumbnail never seeks for the same reason. The same failure still hits
+    the **sound** of a trim whose in-point is under ~0.13 s (~1.3 s lost): a
+    known gap, not fixed here.
+  `seek_arg_cases.json` holds the rules as a table both sides check;
+  `integration_seek_alignment_test.dart` (heavy) covers three AVI fixtures
+  (`generate_avi_seek_test.sh`, `hard_telecine_test.avi`)
+  (docs/reports/issue-173-avi-seek).
 
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
