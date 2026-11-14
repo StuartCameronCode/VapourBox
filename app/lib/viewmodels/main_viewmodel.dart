@@ -999,6 +999,7 @@ class MainViewModel extends ChangeNotifier {
       },
     );
     item.continuityChecked = r.checked;
+    item.extractionProgress = 0.0;
     if (r.proxy != null) {
       if (!_queue.contains(item)) {
         r.proxy!.delete();
@@ -1027,10 +1028,13 @@ class MainViewModel extends ChangeNotifier {
     // A TS/PS whose clock resets mid-file is decoded from a joined copy, so
     // every count, seek and trim below sees one continuous timeline.
     await _prepareContinuity(item);
+    // The join can take minutes, so the queue may have changed: work on the
+    // item itself from here, not on the index found before it.
+    if (!_queue.contains(item)) return;
 
     // Analyze video
     try {
-      _queue[index].videoInfo = await _fieldOrderDetector.getVideoInfo(item.decodePath);
+      item.videoInfo = await _fieldOrderDetector.getVideoInfo(item.decodePath);
     } catch (e) {
       _logMessages.add(LogMessage(
         level: LogLevel.warning,
@@ -1042,7 +1046,7 @@ class MainViewModel extends ChangeNotifier {
     // ONCE (for the first analyzed file) so that dropping additional files does
     // not silently overwrite the pipeline the user has already configured for
     // the queue (issue #12).
-    final videoInfo = _queue[index].videoInfo;
+    final videoInfo = item.videoInfo;
     if (videoInfo != null && !_scanTypeAutoApplied) {
       DeinterlaceMethod? targetMethod;
       bool? targetEnabled;
@@ -1111,10 +1115,10 @@ class MainViewModel extends ChangeNotifier {
     // Load thumbnails if this is the selected item
     if (_selectedItemId == item.id) {
       try {
-        _queue[index].thumbnails = await _previewGenerator.loadVideo(item.decodePath);
-        _queue[index].thumbnailRangeStart = 0.0;
-        _queue[index].thumbnailRangeEnd = 1.0;
-        _queue[index].currentFrame = await _previewGenerator.getFrameAtIndex(0);
+        item.thumbnails = await _previewGenerator.loadVideo(item.decodePath);
+        item.thumbnailRangeStart = 0.0;
+        item.thumbnailRangeEnd = 1.0;
+        item.currentFrame = await _previewGenerator.getFrameAtIndex(0);
       } catch (e) {
         _logMessages.add(LogMessage(
           level: LogLevel.warning,
@@ -1123,7 +1127,7 @@ class MainViewModel extends ChangeNotifier {
       }
     }
 
-    _queue[index].status = QueueItemStatus.ready;
+    item.status = QueueItemStatus.ready;
     notifyListeners();
 
     // Generate initial processed preview if selected
@@ -1131,7 +1135,7 @@ class MainViewModel extends ChangeNotifier {
       _requestPreviewUpdate();
     }
 
-    _measureNoiseHalo(_queue[index]);
+    _measureNoiseHalo(item);
   }
 
   /// The selected source's noise / halo measurement, or null until it is in
