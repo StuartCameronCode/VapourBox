@@ -22,6 +22,8 @@
 #   late_video_intra.ts  H.264 all-intra + MP2 (all-intra so a TS seek lands
 #                        on the frame asked for: the keyframe overshoot of
 #                        MPEG-PS/TS seeks is a separate problem)
+#   late_video_gop.ts    H.264, GOP 25 with B-frames + MP2: a TS that has to
+#                        seek a GOP early and trim to the frame (issue #169)
 #   late_video.mkv       H.264, GOP 25 with B-frames + FLAC
 #   late_video.mp4       H.264, GOP 25 with B-frames + AAC (an edit list holds
 #                        the gap)
@@ -57,5 +59,6 @@ make() {
 }
 
 make late_video_intra.ts -c:v libx264 -preset veryfast -crf 30 -g 1 -c:a mp2 -b:a 64k
+make late_video_gop.ts -c:v libx264 -preset veryfast -crf 26 -g 25 -bf 2 -c:a mp2 -b:a 64k
 make late_video.mkv -c:v libx264 -preset veryfast -crf 26 -g 25 -bf 2 -c:a flac
 make late_video.mp4 -c:v libx264 -preset veryfast -crf 26 -g 25 -bf 2 -c:a aac -b:a 64k
