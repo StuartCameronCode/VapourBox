@@ -47,7 +47,7 @@ Map<String, dynamic> _job({
   ChromaSubsampling chroma = ChromaSubsampling.original,
   FieldOrder? fieldOrder,
   AudioMode audioMode = AudioMode.none,
-  int quality = 28,
+  int quality = 24,
   int? endFrame,
 }) {
   return VideoJob(

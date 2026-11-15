@@ -77,9 +77,9 @@ void main() {
       expect(VideoCodec.h264.presetLabel('medium'), 'medium');
     });
 
-    test('quality scale is CRF 0-63, default 28', () {
+    test('quality scale is CRF 0-63, default 24', () {
       expect(VideoCodec.av1.maxQuality, 63);
-      expect(VideoCodec.av1.defaultQuality, 28);
+      expect(VideoCodec.av1.defaultQuality, 24);
       expect(VideoCodec.h264.maxQuality, 51);
       expect(_workerSource('models/video_job.rs'), contains('(0, 63)'));
       final s = EncodingSettings(codec: VideoCodec.av1, quality: 28);
@@ -96,7 +96,7 @@ void main() {
       final av1 = x264.withCodec(VideoCodec.av1);
       expect(av1.codec, VideoCodec.av1);
       expect(av1.encoderPreset, '6');
-      expect(av1.quality, 28);
+      expect(av1.quality, 24);
       // And back.
       final back = av1.copyWith(quality: 35).withCodec(VideoCodec.h265);
       expect(back.encoderPreset, 'medium');

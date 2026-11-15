@@ -1,0 +1,257 @@
+{
+  "machine": "arm64 macOS-27.2-arm64-arm-64bit-Mach-O",
+  "F1_encoders": {
+    "bundle": {
+      "version": "ffmpeg version 9.0.2-https://www.martin-riedl.de Copyright (c) 2000-2026 the FFmpeg developers",
+      "av1_encoders": [
+        "libaom-av1",
+        "librav1e",
+        "libsvtav1"
+      ],
+      "libsvtav1": true
+    },
+    "x64": {
+      "version": "ffmpeg version 9.0.1-tessus  https://evermeet.cx/ffmpeg/  Copyright (c) 2000-2026 the FFmpeg developers",
+      "av1_encoders": [
+        "libaom-av1"
+      ],
+      "libsvtav1": false
+    }
+  },
+  "F1_svt_pixel_formats": [
+    "yuv420p",
+    "yuv420p10le"
+  ],
+  "F1_svt_version": "v4.2.0",
+  "F2_containers": {
+    "mp4": {
+      "ok": true,
+      "error": null,
+      "stream": {
+        "codec_name": "av1",
+        "codec_tag_string": "av01",
+        "pix_fmt": "yuv420p"
+      }
+    },
+    "mkv": {
+      "ok": true,
+      "error": null,
+      "stream": {
+        "codec_name": "av1",
+        "codec_tag_string": "[0][0][0][0]",
+        "pix_fmt": "yuv420p"
+      }
+    },
+    "mov": {
+      "ok": false,
+      "error": "[mov @ 0x13b805ec0] av1 only supported in MP4 and AVIF.",
+      "stream": null
+    },
+    "avi": {
+      "ok": true,
+      "error": null,
+      "stream": {
+        "codec_name": "av1",
+        "codec_tag_string": "AV01",
+        "pix_fmt": "yuv420p"
+      }
+    }
+  },
+  "F3_negotiation": {
+    "yuv420p": "yuv420p",
+    "yuv420p10le": "yuv420p10le",
+    "yuv422p": "yuv420p",
+    "yuv422p10le": "yuv420p10le",
+    "yuv444p": "yuv420p",
+    "yuv420p12le": "yuv420p10le"
+  },
+  "F4_field_chroma": {
+    "swscale_pix_fmt": {
+      "field0_cr": 175.0,
+      "field1_cr": 175.0
+    },
+    "field_aware": {
+      "field0_cr": 240.0,
+      "field1_cr": 110.0
+    }
+  },
+  "F5_hdr": {
+    "params": "mastering-display=G(0.265,0.69)B(0.15,0.06)R(0.68,0.32)WP(0.3127,0.329)L(1000,0.0001):content-light=1000,400",
+    "side_data": [
+      {
+        "side_data_type": "Mastering display metadata",
+        "red_x": "44564/65536",
+        "red_y": "20972/65536",
+        "green_x": "17367/65536",
+        "green_y": "45220/65536",
+        "blue_x": "9830/65536",
+        "blue_y": "3932/65536",
+        "white_point_x": "20493/65536",
+        "white_point_y": "21561/65536",
+        "min_luminance": "2/16384",
+        "max_luminance": "256000/256"
+      },
+      {
+        "side_data_type": "Content light level metadata",
+        "max_content": 1000,
+        "max_average": 400
+      }
+    ]
+  },
+  "frames": 316,
+  "F6_presets": {
+    "sd": {
+      "2": {
+        "fps": 26.8,
+        "kbps": 1347.6,
+        "vmaf": 99.214425
+      },
+      "4": {
+        "fps": 114.7,
+        "kbps": 1425.6,
+        "vmaf": 99.1455
+      },
+      "6": {
+        "fps": 178.9,
+        "kbps": 1637.6,
+        "vmaf": 99.207951
+      },
+      "8": {
+        "fps": 253.2,
+        "kbps": 1732.3,
+        "vmaf": 99.210634
+      },
+      "10": {
+        "fps": 601.8,
+        "kbps": 2065.3,
+        "vmaf": 99.277229
+      },
+      "x264 medium crf18": {
+        "fps": 187.6,
+        "kbps": 3817.9,
+        "vmaf": 99.464
+      },
+      "x265 medium crf18": {
+        "fps": 60.4,
+        "kbps": 3127.0,
+        "vmaf": 99.374909
+      }
+    },
+    "1080p": {
+      "2": {
+        "fps": 7.0,
+        "kbps": 3829.1
+      },
+      "4": {
+        "fps": 32.1,
+        "kbps": 3978.2
+      },
+      "6": {
+        "fps": 54.4,
+        "kbps": 4623.4
+      },
+      "8": {
+        "fps": 102.7,
+        "kbps": 5178.1
+      },
+      "10": {
+        "fps": 192.8,
+        "kbps": 5360.6
+      },
+      "x264 medium crf18": {
+        "fps": 39.5,
+        "kbps": 15846.3
+      },
+      "x265 medium crf18": {
+        "fps": 13.6,
+        "kbps": 9358.0
+      }
+    }
+  },
+  "F7_crf": {
+    "vhs_sd": {
+      "16": {
+        "fps": 183.9,
+        "kbps": 3711.3,
+        "vmaf": 99.690576
+      },
+      "20": {
+        "fps": 179.6,
+        "kbps": 2875.8,
+        "vmaf": 99.628263
+      },
+      "24": {
+        "fps": 178.9,
+        "kbps": 2278.4,
+        "vmaf": 99.525912
+      },
+      "28": {
+        "fps": 185.0,
+        "kbps": 1637.6,
+        "vmaf": 99.207951
+      },
+      "32": {
+        "fps": 180.9,
+        "kbps": 1187.4,
+        "vmaf": 98.540625
+      },
+      "36": {
+        "fps": 161.0,
+        "kbps": 871.2,
+        "vmaf": 97.249851
+      },
+      "40": {
+        "fps": 174.9,
+        "kbps": 637.7,
+        "vmaf": 95.219049
+      },
+      "x264 medium crf18": {
+        "fps": 188.7,
+        "kbps": 3817.9,
+        "vmaf": 99.464
+      }
+    },
+    "camera_320x240": {
+      "16": {
+        "fps": 660.5,
+        "kbps": 505.3,
+        "vmaf": 96.773929
+      },
+      "20": {
+        "fps": 605.6,
+        "kbps": 395.2,
+        "vmaf": 96.194328
+      },
+      "24": {
+        "fps": 596.7,
+        "kbps": 318.9,
+        "vmaf": 95.473111
+      },
+      "28": {
+        "fps": 607.9,
+        "kbps": 239.4,
+        "vmaf": 94.248803
+      },
+      "32": {
+        "fps": 597.4,
+        "kbps": 182.6,
+        "vmaf": 92.711854
+      },
+      "36": {
+        "fps": 624.6,
+        "kbps": 142.8,
+        "vmaf": 90.70783
+      },
+      "40": {
+        "fps": 566.0,
+        "kbps": 113.1,
+        "vmaf": 88.303074
+      },
+      "x264 medium crf18": {
+        "fps": 1173.9,
+        "kbps": 403.1,
+        "vmaf": 96.098177
+      }
+    }
+  }
+}

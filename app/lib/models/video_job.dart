@@ -350,9 +350,10 @@ enum VideoCodec {
   int get maxQuality => isAv1 ? 63 : 51;
 
   /// The quality a codec starts at when the user switches to it from another
-  /// family. AV1's CRF numbers mean less than x264's: 28 is roughly x264's 18
-  /// (docs/reports/task-40-av1-svtav1).
-  int get defaultQuality => isAv1 ? 28 : 18;
+  /// family. AV1's CRF numbers mean less than x264's: SVT-AV1 CRF 24 at
+  /// preset 6 is about x264 CRF 18 by VMAF, at 21-40% less bitrate
+  /// (docs/reports/task-40-av1-svtav1, F7).
+  int get defaultQuality => isAv1 ? 24 : 18;
 
   /// Whether this codec produces H.264 output (software or hardware).
   bool get isH264 => this == h264 || this == h264Nvenc || this == h264Qsv ||
