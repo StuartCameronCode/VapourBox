@@ -30,6 +30,7 @@ mod cpu;
 mod dependency_locator;
 mod dvd_reader;
 mod pipeline_executor;
+mod vspipe_failure;
 mod pixel_format;
 mod source_continuity;
 mod source_decode;

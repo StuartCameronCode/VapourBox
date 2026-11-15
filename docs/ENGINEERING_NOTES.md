@@ -757,7 +757,8 @@ ffmpeg exited with exit code -22
 
 and the preview as a bare `Preview generation failed (exit code 1)` whose log
 ends after the routine API3 plugin warnings. **Nothing anywhere names CTMF**, and
-"Header too large" reads like a muxer or template bug.
+"Header too large" reads like a muxer or template bug. (Since task #28, 2026-11-15, the job error is vspipe's
+exit status with its NTSTATUS meaning instead; see that entry.)
 
 Scope, measured against the bundle rather than assumed:
 
@@ -2846,7 +2847,8 @@ Full report with scripts:
   (Mac 0.301), and 1.620 at 4:2:0 against a fixtures-only baseline of 1.885
   (Mac 1.394 / 1.717). One thing to know when reading these runs: the 10-bit
   encode failure shows up in ffmpeg as "Header too large", not the KNLMeans
-  message. Only the preview path surfaces the Python error.
+  message. Only the preview path surfaces the Python error. (Since task #28,
+  2026-11-15, the encode reports the Python error too.)
 - Not yet run on macOS x64, Linux, or an NVIDIA GPU.
 
 ### FlowFPS's frame count depends on the MVTools version (issue #129, 2026-11-03)
@@ -4278,3 +4280,38 @@ Full evidence:
 - Under Output Colour Format `original` a 9-bit source comes out 10-bit;
   only FFV1/FFVHuff stored 9 bits (+1.2% FFV1). x264/x265/SVT-AV1 already
   encoded 9-bit input as 10-bit.
+
+### A vspipe failure is reported as vspipe's, not as "Header too large" (task #28, 2026-11-15)
+
+The encode checks the encoder ffmpeg first, so that a failed hardware encoder
+is not masked by vspipe's SIGPIPE. Nothing handled the reverse: a vspipe that
+fails *before writing the Y4M header* leaves the encoder an empty pipe, and the
+job error was the encoder's banner plus `Header too large`. vspipe's stderr went
+to debug logs only. Recorded against deps 1.16.0 on macOS arm64:
+
+| vspipe failure | vspipe | encoder | job error before |
+|---|---|---|---|
+| Python exception at script evaluation (havsfunc `bitdepth`, custom `raise`, SyntaxError) | exit 1, `Script evaluation failed:` + `Python exception: …` + traceback | exit 234, `Header too large.` | `Header too large` |
+| no `set_output()` / RGB output | exit 1, `Failed to retrieve output node…` / `Error: can only apply y4m headers…` | same | same |
+| exception on frame 50 of 100 | exit 1, `Error: Failed to retrieve frame 50 with error:` + traceback | **exit 0**, 50 frames | bare `vspipe exited with exit code 1` |
+| native crash before the header (CTMF, above) | `0xC0000005` / SIGSEGV, no text | -22 / 234, `Header too large.` | `Header too large` |
+
+The templates' own refusals (Custom VapourSynth's frame-count check, Descale's
+height check, Borders' canvas check) all arrived this way in an encode; only
+the preview showed them.
+
+- `vspipe_failure::blame` reports vspipe only when it failed for real (not
+  SIGPIPE, 130 or 141), the encoder failed, **and** the encoder says it got no
+  header. The third condition is what keeps the encoder first otherwise: on
+  Windows a vspipe whose encoder died first exits 1 with an `fwrite()` error,
+  not by SIGPIPE, and an encoder failing by itself never says "Header too
+  large".
+- `vspipe_failure_message` leads with the Python exception (or the frame and
+  its exception), then up to 30 lines of the last traceback, then the exit
+  status. With no text it is `format_exit_status` plus "a native crash … no
+  Python error was printed".
+- The recorded stderr is the unit tests' fixtures;
+  `integration_script_errors_test.dart` (heavy) checks a script-time raise, the
+  frame-count refusal, a frame-time raise, and that an unknown encoder is still
+  reported as ffmpeg's error. Only macOS was recorded; the text is vspipe's and
+  FFmpeg 9.0's own on every platform.

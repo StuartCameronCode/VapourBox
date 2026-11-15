@@ -72,7 +72,9 @@ pub(crate) fn format_exit_status(status: &std::process::ExitStatus) -> String {
             let name = match sig {
                 1 => "SIGHUP",
                 2 => "SIGINT",
+                4 => "SIGILL",
                 6 => "SIGABRT",
+                8 => "SIGFPE",
                 9 => "SIGKILL",
                 11 => "SIGSEGV",
                 13 => "SIGPIPE",
@@ -88,8 +90,9 @@ pub(crate) fn format_exit_status(status: &std::process::ExitStatus) -> String {
 /// Plain-language meaning of a Windows NTSTATUS exit code, if it is one.
 ///
 /// A native crash inside a plugin kills vspipe before it writes the Y4M header,
-/// so the *encoder* ffmpeg is what reports a failure ("Header too large") and
-/// the only trace of the real cause is this number. Reported as a bare
+/// so the *encoder* ffmpeg sees an empty pipe ("Header too large") and the only
+/// trace of the real cause is this number, which the job error carries since
+/// task #28 (`vspipe_failure::blame`). Reported as a bare
 /// `exit code -1073741795`, it names nothing at all: issue #82 took a round trip
 /// with the reporter to establish that it meant a plugin needing AVX2 on a CPU
 /// without it, and issue #83's CTMF crash reads almost identically.
@@ -110,6 +113,21 @@ fn windows_crash_explanation(code: i32) -> Option<&'static str> {
         0xC000_0409 => Some("fail-fast: a plugin detected memory corruption and aborted"),
         0xC000_0094 => Some("integer divide by zero inside vspipe or a plugin"),
         _ => None,
+    }
+}
+
+/// Whether a vspipe exit status is a genuine failure: not success, an
+/// interrupt, or a closed pipe (SIGPIPE, or its 141 shell form).
+fn vspipe_genuinely_failed(status: &std::process::ExitStatus) -> bool {
+    !matches!(status.code(), Some(0) | Some(130) | Some(141)) && !is_sigpipe(status)
+}
+
+/// Whether an exit status is a native crash: a signal on Unix, an NTSTATUS
+/// crash code on Windows. Such a process prints no Python error.
+fn is_native_crash(status: &std::process::ExitStatus) -> bool {
+    match status.code() {
+        Some(code) => windows_crash_explanation(code).is_some(),
+        None => true,
     }
 }
 
@@ -192,6 +210,7 @@ use crate::dependency_locator::DependencyLocator;
 use crate::models::{AspectDeclaration, ContainerFormat, DeinterlaceMethod, EncoderFamily, FieldOrderSignal, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
 use crate::source_decode;
+use crate::vspipe_failure::{self, Blame};
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
 use crate::source_timing::SourceTimeline;
@@ -624,9 +643,12 @@ impl PipelineExecutor {
         let vspipe_thread = thread::spawn(move || {
             let reader = BufReader::new(vspipe_stderr);
             let mut autoload_failed = false;
+            // vspipe's last lines, for the job error if it fails (task #28).
+            let mut tail = std::collections::VecDeque::new();
             for line in reader.lines().map_while(Result::ok) {
                 // Log all stderr for debugging
                 reporter_clone.send_log(LogLevel::Debug, &format!("vspipe stderr: {}", line));
+                vspipe_failure::push_tail(&mut tail, &line, vspipe_failure::VSPIPE_TAIL_LINES);
 
                 // Detect the plugin-autoload-skip signature so the worker can
                 // retry the encode (intermittent under heavy parallel load).
@@ -645,7 +667,7 @@ impl PipelineExecutor {
                     }
                 }
             }
-            autoload_failed
+            (autoload_failed, tail.into_iter().collect::<Vec<_>>().join("\n"))
         });
 
         // How the pipeline remaps the frame count (double-rate QTGMC ×2, IVTC
@@ -826,7 +848,8 @@ impl PipelineExecutor {
 
         // Now safe to join threads (pipes are closed, readers will hit EOF)
         let decoder_stderr_tail = decoder_stderr_thread.join().unwrap_or_default();
-        let vspipe_autoload_failed = vspipe_thread.join().unwrap_or(false);
+        let (vspipe_autoload_failed, vspipe_stderr_tail) =
+            vspipe_thread.join().unwrap_or_default();
         let ffmpeg_stderr_tail = ffmpeg_stderr_thread.join().unwrap_or_default();
 
         // Clean up progress file
@@ -864,30 +887,40 @@ impl PipelineExecutor {
         // *symptom* of the closed pipe. Reporting ffmpeg's error — with its
         // stderr tail — surfaces the real cause instead of the misleading
         // "vspipe exited with signal 13 (SIGPIPE)".
-        let ffmpeg_ok = if let Some(status) = ffmpeg_status {
-            let code = status.code().unwrap_or(-1);
-            if code != 0 && code != 130 && code != 141 {
+        //
+        // The one exception (task #28): vspipe failed and the encoder only
+        // says it got no Y4M header. Then vspipe died before writing anything
+        // (a Python exception while the script was evaluated, a native crash),
+        // and its error is the cause. A vspipe SIGPIPE or closed-pipe code is
+        // never a failure here; if ffmpeg was fine (e.g. IVTC VDecimate
+        // finishing early) it's harmless.
+        let encoder_failed = ffmpeg_status
+            .map(|s| !matches!(s.code(), Some(0) | Some(130) | Some(141)))
+            .unwrap_or(false);
+        let vspipe_failed = vspipe_status.map(|s| vspipe_genuinely_failed(&s)).unwrap_or(false);
+        match vspipe_failure::blame(encoder_failed, &ffmpeg_stderr_tail, vspipe_failed) {
+            Blame::Vspipe => {
+                let status = vspipe_status.expect("vspipe failed, so it has a status");
+                bail!(
+                    "{}",
+                    vspipe_failure::vspipe_failure_message(
+                        &format_exit_status(&status),
+                        is_native_crash(&status),
+                        &vspipe_stderr_tail,
+                    )
+                );
+            }
+            Blame::Encoder => {
+                let status = ffmpeg_status.expect("the encoder failed, so it has a status");
                 let tail = ffmpeg_stderr_tail.trim();
                 if tail.is_empty() {
                     bail!("ffmpeg exited with {}", format_exit_status(&status));
                 }
                 bail!("ffmpeg exited with {}:\n{}", format_exit_status(&status), tail);
             }
-            true
-        } else {
-            false
-        };
-
-        // vspipe: a SIGPIPE here means ffmpeg closed the pipe early. If ffmpeg
-        // failed we've already reported the real cause above; if ffmpeg was fine
-        // (e.g. IVTC VDecimate finishing early) it's harmless. Only surface a
-        // genuine vspipe failure — a real exit code, or a non-SIGPIPE signal.
-        if let Some(status) = vspipe_status {
-            let ok = matches!(status.code(), Some(0) | Some(130) | Some(141));
-            if !ok && !is_sigpipe(&status) {
-                bail!("vspipe exited with {}", format_exit_status(&status));
-            }
+            Blame::Neither => {}
         }
+        let ffmpeg_ok = ffmpeg_status.is_some();
 
         // The decoder may fail writing to a pipe vspipe has finished reading
         // (e.g. IVTC VDecimate reads fewer frames than available). Harmless:
@@ -1934,6 +1967,24 @@ mod tests {
              and must end the loop — otherwise the job never finishes"
         );
         assert!(progress_end_is_ours(150_000));
+    }
+
+    /// SIGILL is what a plugin needing a CPU feature the machine lacks dies
+    /// of (issue #92); it must be named, not reported as "unknown".
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_names_cover_native_crashes() {
+        use std::os::unix::process::ExitStatusExt;
+        let status = |sig: i32| std::process::ExitStatus::from_raw(sig);
+        assert_eq!(format_exit_status(&status(4)), "signal 4 (SIGILL)");
+        assert_eq!(format_exit_status(&status(8)), "signal 8 (SIGFPE)");
+        assert_eq!(format_exit_status(&status(11)), "signal 11 (SIGSEGV)");
+        assert!(is_native_crash(&status(11)));
+        assert!(!vspipe_genuinely_failed(&status(13)), "SIGPIPE is a symptom, not a failure");
+        assert!(vspipe_genuinely_failed(&status(11)));
+        // Exit code 1 (wait status 1 << 8): a failure, not a crash.
+        assert!(vspipe_genuinely_failed(&status(1 << 8)));
+        assert!(!is_native_crash(&status(1 << 8)));
     }
 
     /// The decoder's write into a pipe vspipe has closed, as each platform
