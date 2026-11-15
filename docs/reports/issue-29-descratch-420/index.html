@@ -166,8 +166,8 @@ All six new tests fail with error 1027 on the previous templates.</li>
 <h2>Not tested / follow-ups</h2>
 <ul>
 <li>Real scratched film. There is no such fixture in the repo; the quality ranking rests on synthetic scratches.</li>
-<li>Soft Telecine leaves <code>_FieldBased</code> set on film frames, so every later zimg resize treats them as fields (task #33).
-Filed separately.</li>
+<li>Soft Telecine leaves <code>_FieldBased</code> set on film frames, so every later zimg resize treats them as fields.
+Filed as task #33.</li>
 <li>DeScratch on a source deeper than 8-bit up-converts the whole 8-bit frame, so untouched pixels lose
 precision. Filed as task #34.</li>
 <li>Blur Radius allows 200, but the plugin refuses <code>height // (1 + blurlen) &lt; 2</code> (above 119 on 480 lines).
