@@ -737,6 +737,91 @@ impl AudioCodec {
     pub fn is_lossless(&self) -> bool {
         matches!(self, AudioCodec::Flac | AudioCodec::Pcm)
     }
+
+    /// Every codec, in the app's dropdown order. Kept complete by
+    /// `every_audio_codec_is_listed`.
+    pub const ALL: &'static [AudioCodec] = &[
+        AudioCodec::Aac,
+        AudioCodec::Mp3,
+        AudioCodec::Ac3,
+        AudioCodec::Flac,
+        AudioCodec::Opus,
+        AudioCodec::Pcm,
+    ];
+
+    /// The codec's short name, as messages print it. Twin of Dart's
+    /// `AudioCodec.shortName`.
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            AudioCodec::Aac => "AAC",
+            AudioCodec::Mp3 => "MP3",
+            AudioCodec::Ac3 => "AC-3",
+            AudioCodec::Flac => "FLAC",
+            AudioCodec::Opus => "Opus",
+            AudioCodec::Pcm => "PCM",
+        }
+    }
+
+    /// Whether the bundled FFmpeg can mux this codec into the container
+    /// (task #39). MOV takes neither FLAC nor Opus ("only supported in MP4")
+    /// and AVI has no Opus tag; no option changes that, so Convert refuses
+    /// those pairs. Twin of Dart's `AudioCodec.supportsContainer`, both pinned
+    /// by `Tests/TestResources/audio_codec_containers.json` and checked
+    /// against the real muxers by `audio_compatibility_test.dart`.
+    pub fn supports_container(&self, container: ContainerFormat) -> bool {
+        match (self, container) {
+            (AudioCodec::Flac, ContainerFormat::Mov) => false,
+            (AudioCodec::Opus, ContainerFormat::Mov | ContainerFormat::Avi) => false,
+            (
+                AudioCodec::Aac
+                | AudioCodec::Mp3
+                | AudioCodec::Ac3
+                | AudioCodec::Flac
+                | AudioCodec::Opus
+                | AudioCodec::Pcm,
+                ContainerFormat::Mp4
+                | ContainerFormat::Mov
+                | ContainerFormat::Mkv
+                | ContainerFormat::Avi,
+            ) => true,
+        }
+    }
+
+    /// Why this codec can't go into the container, in the user's words, or
+    /// `None` when it can. Names the codecs the container does hold and the
+    /// containers that hold this codec, both from the table. Twin of Dart's
+    /// `AudioCodec.containerProblem`; the wording is pinned by the vector file.
+    pub fn container_problem(&self, container: ContainerFormat) -> Option<String> {
+        if self.supports_container(container) {
+            return None;
+        }
+        let codecs: Vec<&str> = AudioCodec::ALL
+            .iter()
+            .filter(|c| c.supports_container(container))
+            .map(|c| c.short_name())
+            .collect();
+        let containers: Vec<&str> = ContainerFormat::ALL
+            .iter()
+            .filter(|&&k| k != container && self.supports_container(k))
+            .map(|k| k.short_name())
+            .collect();
+        Some(format!(
+            "{} audio can't be stored in {} files. Choose {} in Settings \u{2192} Audio, or save as {}.",
+            self.short_name(),
+            container.short_name(),
+            join_or(&codecs),
+            join_or(&containers),
+        ))
+    }
+}
+
+/// "A", "A or B", "A, B or C".
+fn join_or(items: &[&str]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => (*one).to_string(),
+        [rest @ .., last] => format!("{} or {}", rest.join(", "), last),
+    }
 }
 
 /// Audio quality presets (bitrate in kbps).
@@ -904,6 +989,20 @@ impl ChromaSubsampling {
 }
 
 impl EncodingSettings {
+    /// Why this job's audio can't be written, or `None` (task #39). Only
+    /// Convert can ask for a pair the container can't hold: Passthrough's
+    /// restored track is `restored_passthrough_codec`, chosen per container,
+    /// and its copies are checked by the app before the job starts. Under
+    /// Convert the chosen codec encodes every audio stream, the restored
+    /// track included, so one check covers them all. Refused whether or not
+    /// the source has sound: the settings describe an output that can't exist.
+    pub fn audio_container_problem(&self) -> Option<String> {
+        match self.audio_mode {
+            AudioMode::Convert => self.audio_codec.container_problem(self.container),
+            AudioMode::Passthrough | AudioMode::None => None,
+        }
+    }
+
     /// The cache override to write into the script, if any. Zero is not a
     /// usable limit — VapourSynth would flush on every frame — so it means
     /// "no override", the same as leaving it unset.
@@ -1495,6 +1594,25 @@ pub enum ContainerFormat {
 
 #[allow(dead_code)]
 impl ContainerFormat {
+    /// Every container, in the app's order. Kept complete by
+    /// `every_container_is_listed`.
+    pub const ALL: &'static [ContainerFormat] = &[
+        ContainerFormat::Mp4,
+        ContainerFormat::Mov,
+        ContainerFormat::Mkv,
+        ContainerFormat::Avi,
+    ];
+
+    /// The upper-case extension, as messages print it.
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            ContainerFormat::Mp4 => "MP4",
+            ContainerFormat::Mov => "MOV",
+            ContainerFormat::Mkv => "MKV",
+            ContainerFormat::Avi => "AVI",
+        }
+    }
+
     /// File extension for this container.
     pub fn extension(&self) -> &'static str {
         match self {
@@ -1637,6 +1755,72 @@ mod frame_rate_progress_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Convert's codec x container table and its wording (task #39), from the
+    /// vector file the app's `audio_codec_container_test.dart` also reads.
+    #[test]
+    fn audio_codec_containers_match_the_vector_file() {
+        let table: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../Tests/TestResources/audio_codec_containers.json"
+        ))
+        .unwrap();
+        let rows = table["pairs"].as_array().unwrap();
+        assert_eq!(rows.len(), AudioCodec::ALL.len() * ContainerFormat::ALL.len());
+        for row in rows {
+            let codec: AudioCodec = serde_json::from_value(row["codec"].clone()).unwrap();
+            let container: ContainerFormat =
+                serde_json::from_value(row["container"].clone()).unwrap();
+            let supported = row["supported"].as_bool().unwrap();
+            let message = row["message"].as_str();
+            assert_eq!(codec.supports_container(container), supported, "{codec:?} in {container:?}");
+            assert_eq!(message.is_none(), supported, "{codec:?} in {container:?}: message iff unsupported");
+            assert_eq!(codec.container_problem(container).as_deref(), message);
+
+            let mut settings = EncodingSettings::default();
+            settings.audio_codec = codec;
+            settings.container = container;
+            settings.audio_mode = AudioMode::Convert;
+            assert_eq!(settings.audio_container_problem().as_deref(), message);
+            for mode in [AudioMode::Passthrough, AudioMode::None] {
+                settings.audio_mode = mode;
+                assert_eq!(settings.audio_container_problem(), None, "{mode:?}");
+            }
+        }
+    }
+
+    /// The app's fallback (AAC for lossy, PCM for lossless) needs both to fit
+    /// every container.
+    #[test]
+    fn every_container_holds_aac_and_pcm() {
+        for &k in ContainerFormat::ALL {
+            assert!(AudioCodec::Aac.supports_container(k), "{k:?}");
+            assert!(AudioCodec::Pcm.supports_container(k), "{k:?}");
+        }
+    }
+
+    #[test]
+    fn every_audio_codec_and_container_is_listed() {
+        for c in AudioCodec::ALL {
+            match c {
+                AudioCodec::Aac
+                | AudioCodec::Mp3
+                | AudioCodec::Ac3
+                | AudioCodec::Flac
+                | AudioCodec::Opus
+                | AudioCodec::Pcm => {}
+            }
+        }
+        assert_eq!(AudioCodec::ALL.len(), 6, "an AudioCodec was added without listing it in ALL");
+        for k in ContainerFormat::ALL {
+            match k {
+                ContainerFormat::Mp4
+                | ContainerFormat::Mov
+                | ContainerFormat::Mkv
+                | ContainerFormat::Avi => {}
+            }
+        }
+        assert_eq!(ContainerFormat::ALL.len(), 4, "a ContainerFormat was added without listing it in ALL");
+    }
 
     #[test]
     fn test_video_codec_serialization() {

@@ -1242,6 +1242,35 @@ class MainWindow extends StatelessWidget {
       }
     }
 
+    // A Convert codec the container can't hold (task #39) — only a preset can
+    // still pair them, since the Settings list is filtered. Offer the
+    // fallback rather than let the worker refuse every queued item in turn.
+    final audioProblem = viewModel.encodingSettings.audioContainerProblem;
+    if (audioProblem != null) {
+      if (!context.mounted) return;
+      final settings = viewModel.encodingSettings;
+      final fallback = settings.audioCodec.fallbackFor(settings.container);
+      final useFallback = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Audio codec not supported'),
+          content: Text(audioProblem),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text('Use ${fallback.shortName}'),
+            ),
+          ],
+        ),
+      );
+      if (useFallback != true) return;
+      viewModel.updateEncodingSettings(settings.copyWith(audioCodec: fallback));
+    }
+
     // Only check audio compatibility if audio passthrough is enabled
     if (viewModel.encodingSettings.audioMode != AudioMode.passthrough) {
       viewModel.startProcessing();

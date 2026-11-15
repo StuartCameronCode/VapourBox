@@ -14,6 +14,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/video_job.dart';
 import 'package:vapourbox/services/audio_compatibility_service.dart';
 
@@ -83,6 +84,31 @@ void main() {
           }
         }
         expect(mismatches, isEmpty, reason: '$codec: ${mismatches.join('; ')}');
+      });
+    }
+
+    // Convert (task #39): each AudioCodec's own encoder into each container,
+    // as the job does, against `AudioCodec.supportsContainer`, both ways.
+    for (final codec in AudioCodec.values) {
+      test('Convert ${codec.value}', () async {
+        final mismatches = <String>[];
+        for (final container in ContainerFormat.values) {
+          final out = p.join(tmp.path, 'convert_${codec.name}.${container.extension}');
+          final muxed = await ffmpeg([
+            '-f', 'lavfi', '-i', 'testsrc=s=64x64:d=0.2',
+            '-f', 'lavfi',
+            '-i', 'sine=d=0.2,aformat=channel_layouts=stereo:sample_rates=48000',
+            '-c:v', 'mpeg4', '-c:a', codec.value,
+            out,
+          ]);
+          final ffmpegAccepts = muxed.exitCode == 0;
+          if (ffmpegAccepts != codec.supportsContainer(container)) {
+            mismatches.add('${container.displayName}: FFmpeg '
+                '${ffmpegAccepts ? 'accepts' : 'rejects'} it, the table '
+                '${ffmpegAccepts ? 'refuses' : 'allows'} it ${muxed.stderr}');
+          }
+        }
+        expect(mismatches, isEmpty, reason: '${codec.value}: ${mismatches.join('; ')}');
       });
     }
   });

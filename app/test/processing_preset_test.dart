@@ -25,6 +25,19 @@ void main() {
   ProcessingPreset byId(String id) => presets.firstWhere((p) => p.id == id);
 
   group('the built-in set', () {
+    test('every preset\'s audio codec fits its container (task #39)', () {
+      // The worker refuses a Convert codec the container can't hold; a
+      // built-in preset must never ship one.
+      for (final p in presets) {
+        expect(p.encodingSettings.audioCodec
+            .supportsContainer(p.encodingSettings.container), isTrue,
+            reason: p.id);
+        expect(p.encodingSettings.codec
+            .supportsContainer(p.encodingSettings.container), isTrue,
+            reason: p.id);
+      }
+    });
+
     test('every preset is registered', () {
       // A factory that never reaches builtInPresets() is invisible — nothing
       // else picks it up. See the "Adding a New Built-in Preset" checklist.

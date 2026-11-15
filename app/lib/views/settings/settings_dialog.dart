@@ -302,6 +302,17 @@ Future<void> showColourPipelineHelp(BuildContext context) {
   );
 }
 
+/// The Convert codecs the Codec dropdown lists (task #39): those the
+/// container can hold, plus the current codec if it can't (a preset saved
+/// before the list was filtered), so the dropdown never loses its selected
+/// value. That one is shown with [EncodingSettings.audioContainerProblem]
+/// as the field's error, and the job is stopped before it starts.
+List<AudioCodec> audioCodecChoices(EncodingSettings settings) =>
+    AudioCodec.values
+        .where((c) =>
+            c.supportsContainer(settings.container) || c == settings.audioCodec)
+        .toList();
+
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key});
 
@@ -949,14 +960,8 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                 }).toList(),
                 selected: {settings.container},
                 onSelectionChanged: (value) {
-                  final newContainer = value.first;
-                  // If current codec isn't supported by new container, switch to first supported codec
-                  var newCodec = settings.codec;
-                  if (!newCodec.supportsContainer(newContainer)) {
-                    newCodec = newContainer.supportedCodecs.first;
-                  }
                   viewModel.updateEncodingSettings(
-                      settings.copyWith(container: newContainer, codec: newCodec));
+                      settings.withContainer(value.first));
                 },
               ),
             ),
@@ -1117,11 +1122,13 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                     // Audio Codec Dropdown
                     DropdownButtonFormField<AudioCodec>(
                       value: settings.audioCodec,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Codec',
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
+                        errorText: settings.audioContainerProblem,
+                        errorMaxLines: 3,
                       ),
-                      items: AudioCodec.values.map((codec) {
+                      items: audioCodecChoices(settings).map((codec) {
                         return DropdownMenuItem(
                           value: codec,
                           child: Text(codec.displayName),

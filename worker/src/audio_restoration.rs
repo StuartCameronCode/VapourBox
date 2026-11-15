@@ -1820,6 +1820,26 @@ mod tests {
     use super::*;
     use crate::models::{AudioCodec, AudioQuality, ProcessingPipeline, QTGMCParameters, DeinterlaceMethod, FrameRateParameters, FrameRateTarget};
 
+    /// A restored track under Passthrough is always a codec its container can
+    /// hold (task #39): Convert's pairs are refused, so this function must
+    /// never pick one of them. Pcm24 muxes wherever pcm_s16le does.
+    #[test]
+    fn restored_passthrough_codec_always_fits_its_container() {
+        for &video in VideoCodec::ALL {
+            for &container in ContainerFormat::ALL {
+                let codec = match restored_passthrough_codec(container, video) {
+                    RestoredTrackCodec::Aac => AudioCodec::Aac,
+                    RestoredTrackCodec::Flac => AudioCodec::Flac,
+                    RestoredTrackCodec::Pcm24 => AudioCodec::Pcm,
+                };
+                assert!(
+                    codec.supports_container(container),
+                    "{video:?} in {container:?} restores as {codec:?}"
+                );
+            }
+        }
+    }
+
     fn stereo48() -> SourceAudio {
         SourceAudio { streams: 1, channels: 2, sample_rate: 48_000, duration: Some(60.0) }
     }

@@ -1073,6 +1073,14 @@ fn run_worker(
         return run_subtitle_only(&job, reporter, cancelled);
     }
 
+    // A Convert codec the container can't hold (a preset saved before the app
+    // filtered the list, an imported job) fails ffmpeg's header write only
+    // after the script and the audio render. Refuse it before any work, in
+    // our words (task #39).
+    if let Some(problem) = job.encoding_settings.audio_container_problem() {
+        anyhow::bail!(problem);
+    }
+
     reporter.send_log(
         models::LogLevel::Debug,
         &format!("QTGMC params: opencl={:?}, tff={:?}, preset={}",

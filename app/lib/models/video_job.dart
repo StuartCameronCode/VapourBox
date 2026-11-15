@@ -436,6 +436,15 @@ enum ContainerFormat {
 
   String get extension => value;
 
+  /// The upper-case extension, as messages print it.
+  String get shortName => value.toUpperCase();
+
+  /// The Convert audio codecs this container can hold (task #39), in the
+  /// dropdown's order. Twin of [supportedCodecs].
+  List<AudioCodec> get supportedAudioCodecs => AudioCodec.values
+      .where((codec) => codec.supportsContainer(this))
+      .toList();
+
   /// Whether the container records where each stream starts (MP4/MOV with an
   /// edit list, Matroska). AVI does not: a picture that starts after its
   /// sound cannot be stored there, so the output starts both with the

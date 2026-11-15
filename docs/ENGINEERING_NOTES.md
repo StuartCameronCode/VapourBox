@@ -4440,3 +4440,35 @@ Report: [docs/reports/2026-11-avi-convert-priming](reports/2026-11-avi-convert-p
   size (ffmpeg's avidec) counts it twice and the sound runs 21 ms late from
   there. 160 kbps and below never did in 20 encodes. Sample-counting
   measurements cannot see it; the heavy test's pts-based check did.
+
+### Convert's audio codec must fit the container (task #39, 2026-11-15)
+
+- Settings → Audio → Convert offered every `AudioCodec` in every container.
+  The bundled FFmpeg (9.0.2, macOS arm64; video codec irrelevant) cannot mux
+  three pairs, and failed the encode after the script and the audio render
+  with `Could not write header (incorrect codec parameters ?): Operation not
+  permitted`:
+
+  | container | aac | libmp3lame | ac3 | flac | libopus | pcm_s16le |
+  |---|---|---|---|---|---|---|
+  | avi | ok | ok | ok | ok | **FAIL** | ok |
+  | mov | ok | ok | ok | **FAIL** | **FAIL** | ok |
+  | mp4 | ok | ok | ok | ok | ok | ok |
+  | mkv | ok | ok | ok | ok | ok | ok |
+
+  The muxers say `[mov] opus only supported in MP4.` / `[mov] flac only
+  supported in MP4.`; AVI has no Opus tag. `-strict -2` changes nothing, so
+  the pairs are refused, not worked around.
+- One table, two sides: `AudioCodec::supports_container` (Rust) and
+  `AudioCodec.supportsContainer` (Dart), with the refusal's wording, pinned by
+  `Tests/TestResources/audio_codec_containers.json`. The push-gate
+  `audio_compatibility_test.dart` encodes each codec into each container with
+  the real binary (both ways), and `audio_codec_container_test.dart` checks
+  the Convert table agrees with the Passthrough table for those six codecs.
+- The Settings list holds only what the container can hold; the container
+  switch applies `fallbackFor` (lossless → PCM, lossy → AAC). A preset that
+  still pairs them gets a dialog before the queue runs, and the worker refuses
+  such a job right after parsing it (`audio_container_problem`), before any
+  probe. Under Convert the restored track uses the chosen codec too, so the
+  one check covers it; under Passthrough it is `restored_passthrough_codec`,
+  asserted to fit every container.
