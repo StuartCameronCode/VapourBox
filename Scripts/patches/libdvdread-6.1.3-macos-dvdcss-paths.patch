@@ -1,0 +1,38 @@
+libdvdread 6.1.3: on macOS, look for libdvdcss where Homebrew and MacPorts
+install it (VapourBox task #36).
+
+VapourBox builds libdvdread without --with-libdvdcss, so libdvdcss is never
+linked or bundled: it is opened at run time, only if the user installed it.
+Stock 6.1.3 does that with dlopen("libdvdcss.2.dylib"), and dyld's default
+fallback path for a bare name is /usr/local/lib:/usr/lib, which misses
+Homebrew on Apple Silicon (/opt/homebrew/lib) and MacPorts (/opt/local/lib).
+When the bare name fails, try those prefixes by absolute path. These are
+dlopen strings, not load commands, so the library still depends on nothing
+outside the bundle.
+
+Applied by Scripts/download-deps-macos.sh with `patch -p1 --forward`, which
+fails the build if it stops applying. Distributed under libdvdread's licence,
+GPL-2.0-or-later.
+
+--- a/src/dvd_input.c
++++ b/src/dvd_input.c
+@@ -352,6 +352,19 @@
+   #define CSS_LIB "libdvdcss.so.2"
+ #endif
+   dvdcss_library = dlopen(CSS_LIB, RTLD_LAZY);
++#ifdef __APPLE__
++  /* dyld's default fallback path is /usr/local/lib:/usr/lib, which misses
++   * Homebrew on Apple Silicon and MacPorts. Try them by absolute path. */
++  if(dvdcss_library == NULL) {
++    static const char *const css_paths[] = {
++      "/opt/homebrew/lib/" CSS_LIB,
++      "/usr/local/lib/" CSS_LIB,
++      "/opt/local/lib/" CSS_LIB,
++    };
++    for(size_t i = 0; dvdcss_library == NULL && i < sizeof(css_paths) / sizeof(css_paths[0]); i++)
++      dvdcss_library = dlopen(css_paths[i], RTLD_LAZY);
++  }
++#endif
+ 
+   if(dvdcss_library != NULL) {
+ #ifdef __OS2__

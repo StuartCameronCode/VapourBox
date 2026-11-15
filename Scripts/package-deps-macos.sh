@@ -191,6 +191,17 @@ PY
         return 1
     fi
 
+    # Nothing in the bundle may load from outside it (task #36: deps 1.16.0's
+    # arm64 libdvdread linked Homebrew's libdvdcss by absolute path, so DVD
+    # import failed on every Mac without it). Every Mach-O file, every
+    # dependency and rpath; see the script's header.
+    echo "    Checking no Mach-O file depends on anything outside the bundle..."
+    if ! python3 "$PROJECT_ROOT/Scripts/check-macho-refs.py" "$PACKAGE_DIR"; then
+        echo "ERROR: the $PLATFORM_KEY bundle depends on files outside itself" >&2
+        PACKAGE_INCOMPLETE="$PACKAGE_INCOMPLETE $PLATFORM_KEY"
+        return 1
+    fi
+
     # The v2 bundle's whole promise is that it loads on a CPU without AVX, and
     # macOS has no Intel SDE to prove that by running it. So prove statically
     # that no plugin can execute a VEX instruction while it loads — the fault

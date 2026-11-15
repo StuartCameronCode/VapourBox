@@ -222,8 +222,9 @@ BREW_DEPS=(
     # Support libraries bundled into deps/.../lib (copied, not linked from homebrew):
     #   fftw       -> libfftw3f.3 + libfftw3f_threads.3 (dfttest)
     #   boost      -> libboost_filesystem + libboost_atomic (nnedi3cl)
-    #   libdvdread -> libdvdread (DVD title extraction in the worker)
-    fftw boost libdvdread
+    # libdvdread is NOT taken from Homebrew: its bottle links libdvdcss by
+    # absolute path (task #36). It is built from source below.
+    fftw boost
     # FFmpeg (build-time convenience only; at runtime both arches ship static
     # ffmpeg downloaded from evermeet.cx (x64) / martin-riedl.de (arm64))
     ffmpeg
@@ -254,8 +255,9 @@ done
 # On the only available Intel runner (macos-15-intel) `brew install` pours
 # minos 14/15 bottles that won't load on macOS 12. Build the few libraries we
 # *bundle* from source so they inherit MACOSX_DEPLOYMENT_TARGET (12.0):
-#   zimg/fftw/libdvdread     - stable C ABIs; dropped in over the Homebrew
+#   zimg/fftw                - stable C ABIs; dropped in over the Homebrew
 #                              copies just before the repoint pass.
+# (libdvdread is built from source on both arches, see "libdvdread" below.)
 #   boost (filesystem,atomic) - ABI-sensitive, so the OpenCL plugins
 #                              (nnedi3cl/knlmeanscl) are ALSO compiled against
 #                              this build via BOOST_ROOT="$SRCLIB" below.
@@ -287,14 +289,6 @@ if [ "$ARCH" = "x86_64" ]; then
     make -j"$NPROC" >/dev/null && make install >/dev/null
     cd "$SRC_TMP"
 
-    # libdvdread 6.1.3 -> libdvdread.dylib (worker dlopens it, resolves by name)
-    echo "  Building libdvdread (6.1.3)..."
-    curl -fsSL "https://download.videolan.org/pub/videolan/libdvdread/6.1.3/libdvdread-6.1.3.tar.bz2" -o dvdread.tar.bz2
-    tar xjf dvdread.tar.bz2 && cd libdvdread-6.1.3
-    ./configure --prefix="$SRCLIB" --enable-shared --disable-static -q
-    make -j"$NPROC" >/dev/null && make install >/dev/null
-    cd "$SRC_TMP"
-
     # boost 1.85.0, just filesystem + atomic -> libboost_filesystem/_atomic.dylib
     echo "  Building boost (1.85.0: filesystem, atomic)..."
     curl -fsSL "https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2" -o boost.tar.bz2
@@ -308,7 +302,7 @@ if [ "$ARCH" = "x86_64" ]; then
 
     # boost is linked by the OpenCL plugins built later; give it an @rpath id so
     # those plugins record a *repointable* reference (the repoint pass skips refs
-    # that are already @loader_path/...). zimg/fftw/dvdread get their ids
+    # that are already @loader_path/...). zimg/fftw get their ids
     # normalized when they're dropped into the bundle.
     for b in libboost_filesystem libboost_atomic; do
         [ -f "$SRCLIB/lib/$b.dylib" ] && install_name_tool -id "@rpath/$b.dylib" "$SRCLIB/lib/$b.dylib"
@@ -811,13 +805,77 @@ else
     echo "  Sourced x86_64 support libraries"
 fi
 
-# libdvdread (DVD title extraction in the worker) - sourced from Homebrew for
-# both architectures. The worker dynamically loads it from deps/.../lib.
-if [ ! -f "$LIB_DIR/libdvdread.dylib" ] && [ -f "$BREW_PREFIX/lib/libdvdread.dylib" ]; then
-    echo "  Copying libdvdread..."
-    cp "$BREW_PREFIX/lib/libdvdread.dylib" "$LIB_DIR/libdvdread.dylib"
-    install_name_tool -id "@loader_path/libdvdread.dylib" "$LIB_DIR/libdvdread.dylib" 2>/dev/null || true
+# libdvdread (DVD title extraction in the worker; the worker dlopens it from
+# deps/.../lib) - built from source on BOTH arches, never the Homebrew bottle
+# (task #36). The bottle is built --with-libdvdcss, so it carried a hard
+# LC_LOAD_DYLIB on /opt/homebrew/opt/libdvdcss/...: on a Mac without Homebrew
+# libdvdcss the library would not load at all and DVD import failed. Built
+# --without-libdvdcss, libdvdread opens libdvdcss at run time if the user has
+# installed it (it is deliberately never bundled), and
+# patches/libdvdread-6.1.3-macos-dvdcss-paths.patch makes that lookup try
+# /opt/homebrew/lib, /usr/local/lib and /opt/local/lib: dyld's fallback path
+# for a bare name misses the first and last. 6.1.3 matches Windows (SMP).
+DVDREAD_VERSION="6.1.3"
+if [ "$ARCH" = "x86_64" ]; then
+    DVDREAD_MINOS="$MACOS_MIN_VERSION"
+else
+    DVDREAD_MINOS="15.0"   # matches the arm64 bundle's prebuilt plugins
+fi
+# The symbols worker/src/dvd_reader.rs resolves.
+DVDREAD_SYMBOLS=(DVDOpen DVDClose DVDOpenFile DVDCloseFile DVDFileSize DVDReadBlocks)
+dvdread_problem() {
+    local lib="$1"
+    [ -f "$lib" ] || { echo "missing"; return; }
+    if otool -L "$lib" | tail -n +2 | grep -q dvdcss; then
+        echo "links libdvdcss (must dlopen it at run time)"; return
+    fi
+    if ! strings "$lib" | grep -q "/opt/homebrew/lib/libdvdcss.2.dylib"; then
+        echo "lacks the dvdcss-paths patch"; return
+    fi
+    local exported sym
+    exported=$(nm -gU "$lib" 2>/dev/null | awk '{print $NF}')
+    for sym in "${DVDREAD_SYMBOLS[@]}"; do
+        grep -qx "_$sym" <<<"$exported" || { echo "does not export $sym"; return; }
+    done
+}
+echo ""
+echo "=== Building libdvdread ($DVDREAD_VERSION, patched, target $DVDREAD_MINOS) ==="
+# A tree from deps <= 1.16.0 holds the Homebrew copy; rebuild unless the
+# existing file passes the same check as a fresh build.
+if [ "$FORCE" = true ] || [ -n "$(dvdread_problem "$LIB_DIR/libdvdread.dylib")" ]; then
+    DVDREAD_SRC="$BUILD_DIR/libdvdread-src"
+    rm -rf "$DVDREAD_SRC" && mkdir -p "$DVDREAD_SRC"
+    # Chained with && throughout: errexit does not apply inside a subshell
+    # whose status is tested by ||.
+    (
+        cd "$DVDREAD_SRC" &&
+        curl -fsSL "https://download.videolan.org/pub/videolan/libdvdread/$DVDREAD_VERSION/libdvdread-$DVDREAD_VERSION.tar.bz2" -o dvdread.tar.bz2 &&
+        tar xjf dvdread.tar.bz2 &&
+        cd "libdvdread-$DVDREAD_VERSION" &&
+        { patch -p1 --forward < "$SCRIPT_DIR/patches/libdvdread-6.1.3-macos-dvdcss-paths.patch" || {
+            echo "  ERROR: patches/libdvdread-6.1.3-macos-dvdcss-paths.patch did not apply." >&2
+            false
+        }; } &&
+        ./configure --prefix="$DVDREAD_SRC/inst" --enable-shared --disable-static \
+            --without-libdvdcss -q \
+            CFLAGS="-O2 -mmacosx-version-min=$DVDREAD_MINOS" \
+            LDFLAGS="-mmacosx-version-min=$DVDREAD_MINOS" &&
+        make -j"$(sysctl -n hw.ncpu)" >/dev/null &&
+        make install >/dev/null
+    ) || { echo "  ERROR: building libdvdread failed" >&2; exit 1; }
+    # cp follows the libdvdread.dylib -> libdvdread.8.dylib symlink.
+    cp -f "$DVDREAD_SRC/inst/lib/libdvdread.dylib" "$LIB_DIR/libdvdread.dylib"
+    install_name_tool -id "@loader_path/libdvdread.dylib" "$LIB_DIR/libdvdread.dylib"
     codesign -s - -f "$LIB_DIR/libdvdread.dylib" 2>/dev/null
+    rm -rf "$DVDREAD_SRC"
+    echo "  Built libdvdread"
+else
+    echo "  libdvdread already built"
+fi
+DVDREAD_PROBLEM=$(dvdread_problem "$LIB_DIR/libdvdread.dylib")
+if [ -n "$DVDREAD_PROBLEM" ]; then
+    echo "  ERROR: lib/libdvdread.dylib $DVDREAD_PROBLEM" >&2
+    exit 1
 fi
 
 # ============================================================================
@@ -2841,7 +2899,7 @@ if [ "$ARCH" = "x86_64" ] && [ -d "$SRCLIB/lib" ]; then
     fi
     # The remaining libs live in lib/; the repoint passes below normalize their
     # ids and inter-references. cp -f follows the versioned symlinks.
-    for libname in libfftw3f.3.dylib libfftw3f_threads.3.dylib libdvdread.dylib \
+    for libname in libfftw3f.3.dylib libfftw3f_threads.3.dylib \
                    libboost_filesystem.dylib libboost_atomic.dylib; do
         if [ -f "$SRCLIB/lib/$libname" ]; then
             cp -f "$SRCLIB/lib/$libname" "$LIB_DIR/$libname"
@@ -3006,7 +3064,7 @@ for plugin in "$PLUGINS_DIR"/*.dylib; do
 done
 
 echo ""
-echo "Plugin + support-lib external dylib references (must resolve on users' machines):"
+echo "Plugin + support-lib references to bundled support libs:"
 UNBUNDLED_REFS=0
 # Check both the plugins AND the support libs they depend on. Issue #28 recurred
 # because the guard only inspected plugins: libfft3dfilter pointed correctly at
@@ -3019,42 +3077,40 @@ for dylib in "$PLUGINS_DIR"/*.dylib "$LIB_DIR"/*.dylib; do
     while IFS= read -r ref; do
         ref_base=$(basename "$ref")
         case "$ref_base" in "$dylib_base") continue ;; esac
-        # libdvdcss is the one *intentional* external reference: it is
-        # deliberately NOT bundled (legal -- the user installs it themselves,
-        # e.g. via Homebrew), and libdvdread weak-links it for optional CSS
-        # decryption. Skip it so the guard stays strict for the issue #28 class
-        # without flagging this by-design dependency.
-        case "$ref_base" in libdvdcss*) continue ;; esac
         # A bundled support lib MUST be referenced via @loader_path (i.e. it was
-        # repointed at deps/macos-*/lib by the repoint passes above). If it's
-        # still @rpath or an absolute Homebrew path it won't resolve on a user
-        # machine without Homebrew -- this is exactly the FFT3DFilter ->
-        # libfftw3f_threads -> libfftw3f.3.dylib chain from issue #28, which
-        # @rpath / absolute Cellar refs would otherwise slip past.
+        # repointed at deps/macos-*/lib by the repoint passes above). An @rpath
+        # reference would pass the whole-bundle check below yet not resolve:
+        # nothing in the bundle carries a matching rpath.
         for sl in "${SUPPORT_LIBS[@]}"; do
             if [ "$ref_base" = "$sl" ] && [[ "$ref" != @loader_path/* ]]; then
                 echo "  ✗ $dylib_base: bundled support lib not repointed to @loader_path: $ref"
                 UNBUNDLED_REFS=1
             fi
         done
-        # Any other absolute, non-system dependency is also unbundled.
-        case "$ref" in
-            /usr/lib/*|/System/*|@loader_path/*|@rpath/*|@executable_path/*) ;;
-            /*)
-                echo "  ✗ $dylib_base references unbundled lib: $ref"
-                UNBUNDLED_REFS=1
-                ;;
-        esac
     done < <(otool -L "$dylib" 2>/dev/null | tail -n +2 | awk '{print $1}')
 done
 if [ "$UNBUNDLED_REFS" = 0 ]; then
-    echo "  ✓ all plugins reference only bundled (@loader_path) or system libraries"
+    echo "  ✓ every bundled support lib is referenced via @loader_path"
 else
     echo ""
-    echo "ERROR: plugin(s) above reference libraries that won't exist on users'"
-    echo "machines. Repoint them to @loader_path/../../lib (see the 'Repointing"
-    echo "plugin support-lib references' pass) or bundle the lib into deps/macos-*/lib."
-    echo "Failing the build to prevent shipping a broken bundle (see issue #28)."
+    echo "ERROR: repoint the references above to @loader_path/../../lib (see the"
+    echo "'Repointing plugin support-lib references' pass). Failing the build to"
+    echo "prevent shipping a broken bundle (see issue #28)."
+    exit 1
+fi
+
+# Nothing in the bundle may depend on anything outside it: every Mach-O file
+# (not just plugins/ and lib/), every dependency, weak ones included, and
+# every rpath. Task #36: libdvdread's LC_LOAD_DYLIB on Homebrew's libdvdcss
+# was whitelisted here as a "weak link" (it was not) and shipped in deps
+# 1.16.0. Absolute rpaths into the build machine (Homebrew Cellar, gcc, Nix)
+# are inert while nothing has an @rpath/ dependency, so strip them rather
+# than let one start resolving there. package-deps-macos.sh runs the same
+# check before zipping.
+echo ""
+echo "Whole-bundle dependency check (task #36):"
+if ! python3 "$SCRIPT_DIR/check-macho-refs.py" --strip-absolute-rpaths "$DEPS_DIR"; then
+    echo "Failing the build to prevent shipping a bundle that loads from outside itself."
     exit 1
 fi
 
@@ -3111,7 +3167,7 @@ else
     echo "The MACOSX_DEPLOYMENT_TARGET export fixes everything built from source here."
     echo "Anything still flagged is a *prebuilt* artifact this script only copies, so"
     echo "it needs its own fix:"
-    echo "  - Homebrew bottles (zimg/fftw/boost/libdvdread): the macos-15 runner"
+    echo "  - Homebrew bottles (zimg/fftw/boost): the macos-15 runner"
     echo "    installs Sequoia bottles. Build these from source with the target set,"
     echo "    or fetch older-OS bottles."
     echo "  - ffmpeg (evermeet.cx / martin-riedl.de) and Python (python-build-standalone):"

@@ -128,11 +128,12 @@ jobs:
             --base "dist/$STEM.zip" --v2 "v2-build/$STEM-v2.zip" \
             --out dist --composed composed
 
-      - name: Gate the composed v2 tree (no AVX at load time)
+      - name: Gate the composed v2 tree (no AVX at load time, nothing loaded from outside)
         run: |
           mkdir composed-tree
           unzip -q "composed/$STEM-v2.zip" -d composed-tree
           python3 Scripts/check-load-time-simd.py composed-tree/vapoursynth/plugins/*.dylib
+          python3 Scripts/check-macho-refs.py composed-tree
 
       - uses: actions/upload-artifact@v5
         with:
