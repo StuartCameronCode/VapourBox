@@ -6,10 +6,11 @@
 //! mastering display's primaries and luminance and the content's light levels
 //! (MaxCLL/MaxFALL), which a TV uses to tone-map it. Those travel as side data,
 //! not tags: the Y4M pipe drops them along with everything else, and ffmpeg has
-//! no command-line flag to attach them to frames. libx265 is the one encoder we
-//! offer that takes them as options, so the worker reads them from the source
-//! and hands them over in `-x265-params`. Any other encoder writes the tags
-//! only, which is still a valid HDR file, just without the hints.
+//! no command-line flag to attach them to frames. libx265 and SVT-AV1 are the
+//! encoders we offer that take them as options, so the worker reads them from
+//! the source and hands them over in `-x265-params` / `-svtav1-params`. Any
+//! other encoder writes the tags only, which is still a valid HDR file, just
+//! without the hints.
 //!
 //! Dolby Vision is read for one decision only. Its dynamic metadata (the RPU)
 //! is not carried: every filter changes the picture it describes, and
@@ -232,16 +233,48 @@ impl HdrMetadata {
         (!params.is_empty()).then(|| params.join(":"))
     }
 
+    /// SVT-AV1's spelling of the static metadata (`-svtav1-params`), or `None`
+    /// when there is none. SVT takes chromaticities and luminance as decimals
+    /// (task #40, docs/reports/task-40-av1-svtav1), where this struct holds
+    /// x265's integer units: chromaticity in 0.00002, luminance in 0.0001 cd/m².
+    pub fn svtav1_params(&self) -> Option<String> {
+        let xy = |v: u32| trim_decimal(format!("{:.5}", v as f64 / 50_000.0));
+        let lum = |v: u32| trim_decimal(format!("{:.4}", v as f64 / 10_000.0));
+        let mut params = Vec::new();
+        if let Some(md) = self.mastering_display {
+            params.push(format!(
+                "mastering-display=G({},{})B({},{})R({},{})WP({},{})L({},{})",
+                xy(md.green.0), xy(md.green.1),
+                xy(md.blue.0), xy(md.blue.1),
+                xy(md.red.0), xy(md.red.1),
+                xy(md.white_point.0), xy(md.white_point.1),
+                lum(md.max_luminance), lum(md.min_luminance),
+            ));
+        }
+        if let Some(cl) = self.content_light {
+            params.push(format!("content-light={},{}", cl.max_cll, cl.max_fall));
+        }
+        (!params.is_empty()).then(|| params.join(":"))
+    }
+
     /// Encoder options that carry the static metadata, for `codec`. Only
-    /// libx265 takes them on the command line; every other encoder gets
+    /// libx265 (`-x265-params`) and SVT-AV1 (`-svtav1-params`) take them on
+    /// the command line; every other encoder gets
     /// nothing (and `log_lines` says so). Nothing either for a source whose
     /// tags aren't PQ/HLG: mastering SEI on an SDR file is a wrong statement.
     pub fn encoder_args(&self, codec: VideoCodec, hdr_transfer: bool) -> Vec<String> {
         if !hdr_transfer {
             return Vec::new();
         }
-        match (codec, self.x265_params()) {
-            (VideoCodec::H265, Some(params)) => vec!["-x265-params".to_string(), params],
+        match codec {
+            VideoCodec::H265 => self
+                .x265_params()
+                .map(|p| vec!["-x265-params".to_string(), p])
+                .unwrap_or_default(),
+            VideoCodec::Av1 => self
+                .svtav1_params()
+                .map(|p| vec!["-svtav1-params".to_string(), p])
+                .unwrap_or_default(),
             _ => Vec::new(),
         }
     }
@@ -267,7 +300,7 @@ impl HdrMetadata {
             }
         }
         if hdr_transfer && self.x265_params().is_some() {
-            if codec == VideoCodec::H265 {
+            if matches!(codec, VideoCodec::H265 | VideoCodec::Av1) {
                 lines.push((
                     LogLevel::Info,
                     "HDR10 mastering display / light level metadata carried to the output.".to_string(),
@@ -275,12 +308,21 @@ impl HdrMetadata {
             } else {
                 lines.push((LogLevel::Info, format!(
                     "HDR10 mastering display / light level metadata is only written by \
-                     H.265 (x265); {} keeps the HDR colour tags without it.",
+                     H.265 (x265) and AV1 (SVT-AV1); {} keeps the HDR colour tags without it.",
                     codec.ffmpeg_codec()
                 )));
             }
         }
         lines
+    }
+}
+
+/// `0.26500` -> `0.265`, `1000.0000` -> `1000`.
+fn trim_decimal(s: String) -> String {
+    if s.contains('.') {
+        s.trim_end_matches('0').trim_end_matches('.').to_string()
+    } else {
+        s
     }
 }
 
@@ -401,19 +443,51 @@ mod tests {
         }
     }
 
-    /// Only libx265 takes the metadata on the command line; any other encoder
-    /// handed `-x265-params` would fail to open.
+    /// Only libx265 and SVT-AV1 take the metadata on the command line, each in
+    /// its own option; any other encoder handed either would fail to open.
     #[test]
-    fn only_x265_gets_the_metadata() {
+    fn only_x265_and_svtav1_get_the_metadata() {
         let hdr = HdrMetadata::from_ffprobe_json(&profile_8_1());
         for codec in VideoCodec::ALL {
             assert!(hdr.encoder_args(*codec, false).is_empty(), "SDR tags: nothing");
             let args = hdr.encoder_args(*codec, true);
-            if *codec == VideoCodec::H265 {
-                assert_eq!(args[0], "-x265-params");
-            } else {
-                assert!(args.is_empty(), "{codec:?} must not get x265 options");
+            match codec {
+                VideoCodec::H265 => assert_eq!(args[0], "-x265-params"),
+                VideoCodec::Av1 => assert_eq!(args[0], "-svtav1-params"),
+                _ => assert!(args.is_empty(), "{codec:?} must not get encoder options"),
             }
         }
+    }
+
+    /// SVT-AV1 takes decimals: x265's 0.00002 chromaticity and 0.0001 cd/m²
+    /// units divided out (checked against ffprobe's read-back in
+    /// docs/reports/task-40-av1-svtav1).
+    #[test]
+    fn svtav1_params_are_decimal() {
+        let hdr = HdrMetadata {
+            mastering_display: Some(MasteringDisplay {
+                red: (34000, 16000),
+                green: (13250, 34500),
+                blue: (7500, 3000),
+                white_point: (15635, 16450),
+                max_luminance: 10_000_000,
+                min_luminance: 1,
+            }),
+            content_light: Some(ContentLight { max_cll: 1000, max_fall: 400 }),
+            dolby_vision: None,
+        };
+        assert_eq!(
+            hdr.svtav1_params().as_deref(),
+            Some(
+                "mastering-display=G(0.265,0.69)B(0.15,0.06)R(0.68,0.32)WP(0.3127,0.329)\
+                 L(1000,0.0001):content-light=1000,400"
+            )
+        );
+        let only_cll = HdrMetadata {
+            content_light: Some(ContentLight { max_cll: 600, max_fall: 120 }),
+            ..Default::default()
+        };
+        assert_eq!(only_cll.svtav1_params().as_deref(), Some("content-light=600,120"));
+        assert_eq!(HdrMetadata::default().svtav1_params(), None);
     }
 }

@@ -2741,7 +2741,8 @@ impl ScriptGenerator {
         // vapoursynth_format), so adding an output format is one line there
         // rather than another arm here. `None` means "keep the source format",
         // bit depth included.
-        match job.encoding_settings.effective_chroma_subsampling().vapoursynth_format() {
+        // `output_chroma_subsampling` also limits AV1 to 4:2:0 at 8/10 bits.
+        match job.output_chroma_subsampling().vapoursynth_format() {
             None => {
                 script = remove_block("{{#CHROMA_CONVERT}}", "{{/CHROMA_CONVERT}}", script);
             }

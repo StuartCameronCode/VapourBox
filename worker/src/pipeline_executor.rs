@@ -318,6 +318,68 @@ pub fn field_order_note(job: &VideoJob) -> Option<String> {
     }
 }
 
+/// The job error for a codec the chosen container cannot hold, or `None`.
+/// The app only offers allowed pairs (`supportsContainer`); this catches a
+/// hand-written or imported job config before ffmpeg fails with "Could not
+/// write header".
+pub fn container_problem(job: &VideoJob) -> Option<String> {
+    let s = &job.encoding_settings;
+    (!s.codec.allows_container(s.container)).then(|| {
+        format!(
+            "{} cannot be written to {}. Choose MP4 or MKV.",
+            s.codec.display_name(),
+            s.container.display_name()
+        )
+    })
+}
+
+/// The job error when the bundled FFmpeg lacks the codec's encoder, or `None`.
+/// Only checked for AV1: `libsvtav1` is missing from the macOS x64 FFmpeg
+/// (evermeet), and every other software codec is in every build. A failed
+/// check says nothing, so ffmpeg's own error still reaches the user.
+fn missing_encoder_problem(
+    job: &VideoJob,
+    ffmpeg: &Path,
+    env: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    let codec = job.encoding_settings.codec;
+    if !codec.is_av1() {
+        return None;
+    }
+    let out = Command::new(ffmpeg).args(["-hide_banner", "-encoders"]).envs(env).output().ok()?;
+    let listing = String::from_utf8_lossy(&out.stdout);
+    (out.status.success() && !encoder_listed(&listing, codec.ffmpeg_codec()))
+        .then(|| missing_encoder_message(codec))
+}
+
+/// Whether `ffmpeg -encoders` output names `encoder`.
+pub fn encoder_listed(listing: &str, encoder: &str) -> bool {
+    listing
+        .lines()
+        .any(|line| line.split_whitespace().nth(1) == Some(encoder))
+}
+
+/// What the user is told when `codec`'s encoder isn't in this FFmpeg.
+pub fn missing_encoder_message(codec: VideoCodec) -> String {
+    format!(
+        "{} isn't available: this platform's FFmpeg has no {} encoder (Intel Macs don't \
+         have it yet). Choose H.265 or H.264 instead.",
+        codec.display_name(),
+        codec.ffmpeg_codec()
+    )
+}
+
+/// Extra environment for the encoder ffmpeg. SVT-AV1 prints a ~20-line
+/// `Svt[info]` banner to stderr on every encode, which would fill the stderr
+/// tail a failure is reported from; `SVT_LOG=2` keeps its warnings and errors.
+pub fn encoder_env(codec: VideoCodec) -> Vec<(&'static str, &'static str)> {
+    if codec.is_av1() {
+        vec![("SVT_LOG", "2")]
+    } else {
+        Vec::new()
+    }
+}
+
 /// Whether an MP4/MOV output gets `-movflags +faststart`. Not for the editing
 /// intermediates (ProRes, v210): faststart moves the index to the front by
 /// reading and rewriting the whole file after the last frame (in place, so no
@@ -465,6 +527,14 @@ impl PipelineExecutor {
         let vspipe_path = self.deps.vspipe_path()?;
         let ffmpeg_path = self.deps.ffmpeg_path()?;
         let env = self.deps.build_environment();
+
+        // Refuse what the encoder can't write before anything starts.
+        if let Some(problem) = container_problem(job) {
+            bail!("{}", problem);
+        }
+        if let Some(problem) = missing_encoder_problem(job, &ffmpeg_path, &env) {
+            bail!("{}", problem);
+        }
 
         self.reporter.send_log(
             LogLevel::Debug,
@@ -626,6 +696,7 @@ impl PipelineExecutor {
         let mut ffmpeg = Command::new(&ffmpeg_path)
             .args(&ffmpeg_args)
             .envs(&env)
+            .envs(encoder_env(job.encoding_settings.codec))
             .stdin(vspipe_stdout)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -1486,6 +1557,15 @@ impl PipelineExecutor {
                     // B-frame support, so setting it is safe either way.
                     args.extend(["-qp_b".to_string(), settings.quality.to_string()]);
                     args.extend(["-quality".to_string(), preset.clone()]);
+                }
+                EncoderFamily::SvtAv1 => {
+                    // SVT-AV1's CRF runs 0-63. A saved preset or imported job
+                    // can carry anything, so clamp rather than let the encoder
+                    // refuse to open. No `-svtav1-params` here: the HDR10
+                    // metadata is its only user today (`HdrMetadata::encoder_args`).
+                    let (lo, hi) = settings.codec.crf_range();
+                    args.extend(["-crf".to_string(), settings.quality.clamp(lo, hi).to_string()]);
+                    args.extend(["-preset".to_string(), preset.clone()]);
                 }
                 EncoderFamily::Lossless | EncoderFamily::ProRes | EncoderFamily::Uncompressed => {
                     // No quality/preset args needed
@@ -2552,6 +2632,110 @@ mod tests {
         job.encoding_settings.codec = VideoCodec::H265;
         job.input_color_transfer = Some("bt709".to_string());
         assert!(!build_ffmpeg_args_with_hdr(&job, hdr).iter().any(|a| a == "-x265-params"));
+    }
+
+    /// Task #40: AV1 gets SVT-AV1's CRF (clamped to 0-63) and a numeric preset,
+    /// `+faststart` in MP4, no `-tag:v`, and `yuv420p`/`yuv420p10le` pinned to
+    /// what the script delivers.
+    #[test]
+    fn test_av1_encoder_args() {
+        let mut job = create_test_job("out.mp4");
+        job.encoding_settings.codec = VideoCodec::Av1;
+        job.encoding_settings.container = ContainerFormat::Mp4;
+        job.encoding_settings.quality = 28;
+        job.encoding_settings.encoder_preset = "medium".to_string();
+        job.input_pixel_format = Some("yuv422p10le".to_string());
+        let args = build_ffmpeg_args_for_test(&job);
+        let after = |flag: &str| {
+            args.iter().position(|a| a == flag).map(|i| args[i + 1].clone())
+        };
+        assert_eq!(after("-c:v").as_deref(), Some("libsvtav1"));
+        assert_eq!(after("-crf").as_deref(), Some("28"));
+        assert_eq!(after("-preset").as_deref(), Some("6"), "x264's preset normalised");
+        assert_eq!(after("-pix_fmt").as_deref(), Some("yuv420p10le"));
+        assert_eq!(after("-movflags").as_deref(), Some("+faststart"));
+        assert_eq!(after("-tag:v"), None);
+        assert_eq!(after("-svtav1-params"), None, "SDR: no HDR parameters");
+
+        job.encoding_settings.quality = 99;
+        job.encoding_settings.encoder_preset = "4".to_string();
+        job.input_pixel_format = Some("yuv420p".to_string());
+        let args = build_ffmpeg_args_for_test(&job);
+        let after = |flag: &str| {
+            args.iter().position(|a| a == flag).map(|i| args[i + 1].clone())
+        };
+        assert_eq!(after("-crf").as_deref(), Some("63"));
+        assert_eq!(after("-preset").as_deref(), Some("4"));
+        assert_eq!(after("-pix_fmt").as_deref(), Some("yuv420p"));
+
+        // MKV: no MP4 fixups.
+        job.encoding_settings.container = ContainerFormat::Mkv;
+        assert!(!build_ffmpeg_args_for_test(&job).iter().any(|a| a == "-movflags"));
+    }
+
+    /// An HDR10 source to AV1 carries its metadata in `-svtav1-params`, never
+    /// in x265's option.
+    #[test]
+    fn test_hdr10_metadata_reaches_svtav1() {
+        use crate::hdr_metadata::{ContentLight, MasteringDisplay};
+        let hdr = HdrMetadata {
+            mastering_display: Some(MasteringDisplay {
+                red: (34000, 16000),
+                green: (13250, 34500),
+                blue: (7500, 3000),
+                white_point: (15635, 16450),
+                max_luminance: 10_000_000,
+                min_luminance: 1,
+            }),
+            content_light: Some(ContentLight { max_cll: 1000, max_fall: 400 }),
+            dolby_vision: None,
+        };
+        let mut job = create_test_job("out.mkv");
+        job.input_color_matrix = Some("bt2020nc".to_string());
+        job.input_color_primaries = Some("bt2020".to_string());
+        job.input_color_transfer = Some("smpte2084".to_string());
+        job.encoding_settings.codec = VideoCodec::Av1;
+        job.encoding_settings.container = ContainerFormat::Mkv;
+        let args = build_ffmpeg_args_with_hdr(&job, hdr.clone());
+        let i = args.iter().position(|a| a == "-svtav1-params").expect("-svtav1-params");
+        assert!(args[i + 1].starts_with("mastering-display=G(0.265,0.69)"));
+        assert!(args[i + 1].ends_with(":content-light=1000,400"));
+        assert!(i < args.iter().position(|a| a == "-y").unwrap());
+        assert!(!args.iter().any(|a| a == "-x265-params"));
+
+        job.input_color_transfer = Some("bt709".to_string());
+        assert!(!build_ffmpeg_args_with_hdr(&job, hdr).iter().any(|a| a == "-svtav1-params"));
+    }
+
+    #[test]
+    fn test_av1_container_and_encoder_checks() {
+        let mut job = create_test_job("out.mov");
+        job.encoding_settings.codec = VideoCodec::Av1;
+        for (container, ok) in [
+            (ContainerFormat::Mp4, true),
+            (ContainerFormat::Mkv, true),
+            (ContainerFormat::Mov, false),
+            (ContainerFormat::Avi, false),
+        ] {
+            job.encoding_settings.container = container;
+            assert_eq!(container_problem(&job).is_none(), ok, "{container:?}");
+        }
+        job.encoding_settings.codec = VideoCodec::ProResHQ;
+        job.encoding_settings.container = ContainerFormat::Mov;
+        assert_eq!(container_problem(&job), None);
+
+        let listing = " V....D libaom-av1           libaom AV1 (codec av1)\n \
+                       V....D libx265              libx265 H.265 / HEVC (codec hevc)\n";
+        assert!(!encoder_listed(listing, "libsvtav1"));
+        assert!(encoder_listed(listing, "libx265"));
+        assert!(encoder_listed(
+            " V..... libsvtav1            SVT-AV1(Scalable Video Technology for AV1) encoder (codec av1)",
+            "libsvtav1"
+        ));
+        assert!(missing_encoder_message(VideoCodec::Av1).contains("libsvtav1"));
+
+        assert_eq!(encoder_env(VideoCodec::Av1), vec![("SVT_LOG", "2")]);
+        assert!(encoder_env(VideoCodec::H265).is_empty());
     }
 
     /// Issue #138: the source's comment is unbounded, so the real builder
@@ -3698,7 +3882,9 @@ mod tests {
             | VideoCodec::ProRes4444
             | VideoCodec::ProRes4444Xq => ProResFields,
             VideoCodec::H264 => X264Mbaff,
+            // AV1 has no interlaced coding tools.
             VideoCodec::H265
+            | VideoCodec::Av1
             | VideoCodec::H264Nvenc
             | VideoCodec::H265Nvenc
             | VideoCodec::H264Qsv
