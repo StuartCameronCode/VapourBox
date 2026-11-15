@@ -295,8 +295,11 @@ Future<String> _shakenFixture(String pixFmt) async {
 }
 
 /// The fixture [pass] runs on, at [pixFmt].
-Future<String> _fixtureFor(_Pass pass, String pixFmt) =>
-    pass.shaken ? _shakenFixture(pixFmt) : _fixture(pixFmt);
+Future<String> _fixtureFor(_Pass pass, String pixFmt) => pass.shaken
+    ? _shakenFixture(pixFmt)
+    : pass.scratched
+        ? _scratchedFixture(pixFmt)
+        : _fixture(pixFmt);
 
 /// Every frame of [path] decoded as raw [pixFmt] (no conversion when it is the
 /// file's own format), so planes can be compared byte for byte.
@@ -416,7 +419,8 @@ class _Pass {
       {this.tolerance = 2.0,
       this.changesPicture = true,
       this.needsKnlmDevice = false,
-      this.shaken = false});
+      this.shaken = false,
+      this.scratched = false});
 
   final String name;
   final ProcessingPipeline pipeline;
@@ -424,6 +428,10 @@ class _Pass {
   /// Run on [_shakenFixture] rather than the plain master: a stabiliser has
   /// nothing to do on a picture with no global motion.
   final bool shaken;
+
+  /// Run on [_scratchedFixture]: the master has no scratches, so DeScratch
+  /// changes nothing on it (task #34).
+  final bool scratched;
 
   /// Whether the pass needs a working KNLMeansCL OpenCL device. Without one the
   /// worker refuses the job by design, so the pass is skipped (with a printed
@@ -557,8 +565,11 @@ List<_Pass> _passes() => [
 
       // DeScratch is 8-bit only: the pass analyses an 8-bit copy and applies
       // only its change at full depth (task #34), so the >8-bit result is
-      // expected to match the 8-bit one closely.
-      _Pass('descratch', _only(descratch: const DeScratchParameters(enabled: true))),
+      // expected to match the 8-bit one closely. The master has no scratches,
+      // and this case "changed" the picture only through the old guard's
+      // quantisation, so it runs on the scratched fixture.
+      _Pass('descratch', _only(descratch: const DeScratchParameters(enabled: true)),
+          scratched: true),
 
       _Pass('spotless', _only(spotless: const SpotLessParameters(enabled: true))),
 
@@ -1017,14 +1028,18 @@ ProcessingPipeline _stackedPipeline() => _only(
 
 /// The unfiltered 10-bit frame, rendered once per fixture and reused as the
 /// reference every pass is checked against for "did this actually do
-/// anything". Keyed by [_Pass.shaken].
-final _passthroughCache = <bool, Uint8List>{};
+/// anything". Keyed by the fixture ([_Pass.shaken], [_Pass.scratched]).
+final _passthroughCache = <String, Uint8List>{};
 
-Future<Uint8List> _passthroughRgb10({bool shaken = false}) async {
-  final cached = _passthroughCache[shaken];
+Future<Uint8List> _passthroughRgb10(_Pass pass) async {
+  final key = pass.shaken
+      ? 'shaken'
+      : pass.scratched
+          ? 'scratched'
+          : 'master';
+  final cached = _passthroughCache[key];
   if (cached != null) return cached;
-  final fixture =
-      await (shaken ? _shakenFixture('yuv422p10le') : _fixture('yuv422p10le'));
+  final fixture = await _fixtureFor(pass, 'yuv422p10le');
   final result = await WorkerHarness.runPreview(
     _job(fixture: fixture, pixFmt: 'yuv422p10le', pipeline: _only()).toJson(),
     frame: _previewFrame,
@@ -1032,7 +1047,7 @@ Future<Uint8List> _passthroughRgb10({bool shaken = false}) async {
   );
   expect(result.success, isTrue,
       reason: 'the passthrough reference frame must render: $result');
-  return _passthroughCache[shaken] =
+  return _passthroughCache[key] =
       await WorkerHarness.imageToRgb24(result.png!, label: 'ref10');
 }
 
@@ -1160,7 +1175,7 @@ void main() {
         // A pass that changes nothing would sail through the comparison below
         // while testing nothing, so prove it is doing work first.
         if (pass.changesPicture) {
-          final reference = await _passthroughRgb10(shaken: pass.shaken);
+          final reference = await _passthroughRgb10(pass);
           final changed = rgb10.length != reference.length ||
               WorkerHarness.meanAbsDiff(rgb10, reference) > 0.05;
           expect(changed, isTrue,
