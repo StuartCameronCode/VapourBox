@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AAC AVI block size</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>AAC in AVI: a packet over the declared block size was timed as two</h1>
+<p class="meta">2026-11-15 · macOS arm64, deps 1.16.0 (FFmpeg 9.0.2), VLC 3.0.23 · Windows readers on a GitHub
+<code>windows-latest</code> runner (Windows NT 10.0.26100, the bundle's FFmpeg 9.0) · task #41, found during
+<a href="../2026-11-avi-convert-priming/index.html">the Convert-into-AVI priming fix</a> (task #38)</p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> ffmpeg's AVI muxer declares an AAC stream's block size
+(<code>WAVEFORMATEX.nBlockAlign</code>) as <strong>768 bytes per channel</strong> (riffenc: "maximum bytes per
+frame", the spec's 6144 bits) and stores AAC as VBR audio, one packet per chunk (<code>strh.dwSampleSize</code> 0).
+Readers time such a chunk as <code>ceil(size / nBlockAlign)</code> packets. ffmpeg's native AAC encoder writes
+packets <strong>over</strong> 768 bytes per channel at 192 kbps per channel and more: in the app, <strong>mono at
+High (the default) and Very High</strong>. Every such packet was timed as two, so the rest of the sound played one
+packet (21.3 ms at 48 kHz) later: <strong>+320 ms by the end of 12 s</strong> at 256 kbps. ffmpeg, VLC and
+DirectShow all did this; Media Foundation split the chunk and decoded 15 extra frames. Copying such AAC into AVI
+(Passthrough) did the same.</p>
+<p>The worker now raises each AAC stream's <code>nBlockAlign</code> to its largest chunk after the encode
+(<code>worker/src/avi_header.rs</code>). avienc's trailer already records that size in the same header as
+<code>strh.dwSuggestedBufferSize</code>, so the fix reads the header and writes 2 bytes. Every file with no oversized
+packet is left byte for byte as it was. After the fix, every reader tested times every packet once, and the decoded
+samples are unchanged.</p>
+</div>
+
+<h2>1. Which settings overshoot</h2>
+<p><code>scripts/sweep.py</code> encodes each source with ffmpeg's AAC encoder into AVI and counts packets over
+768 × channels. The app offers 96, 128, 192 and 256 kbps in total.</p>
+<div class="scroll"><table>
+<tr><th>Source</th><th class="num">ch</th><th class="num">kbps (per ch)</th><th class="num">Encodes with one over</th><th class="num">Packets over</th><th class="num">Largest / limit</th></tr>
+<tr><td>late_video.mkv, 30 seeks 0.9–1.5 s</td><td class="num">1</td><td class="num">96 / 128 / 160</td><td class="num">0 / 0 / 0</td><td class="num">0</td><td class="num">764 / 768 / 768 of 768</td></tr>
+<tr><td>same</td><td class="num">1</td><td class="num">192</td><td class="num bad">18 of 30</td><td class="num">18</td><td class="num">779 / 768</td></tr>
+<tr><td>same</td><td class="num">1</td><td class="num">256</td><td class="num bad">24 of 30</td><td class="num">24</td><td class="num">804 / 768</td></tr>
+<tr><td>same, upmixed (L = R, coded M/S)</td><td class="num">2</td><td class="num">192–512 (96–256)</td><td class="num">0 of 10 each</td><td class="num">0</td><td class="num">≤ 889 / 1536</td></tr>
+<tr><td>small_clip.mp4 (music, speech), 5 starts</td><td class="num">1</td><td class="num">96–256</td><td class="num">0</td><td class="num">0</td><td class="num">765 / 768</td></tr>
+<tr><td>same</td><td class="num">2</td><td class="num">128–320 (64–160)</td><td class="num">0</td><td class="num">0</td><td class="num">1203 / 1536</td></tr>
+<tr><td>synthetic: beeps + noise bursts (<code>harsh_audio.py</code>), 5 starts</td><td class="num">1</td><td class="num">96 / 128 / 160</td><td class="num">0</td><td class="num">0</td><td class="num">768 / 768 (at the limit)</td></tr>
+<tr><td>same</td><td class="num">1</td><td class="num">192</td><td class="num bad">5 of 5</td><td class="num">29</td><td class="num">781 / 768</td></tr>
+<tr><td>same</td><td class="num">1</td><td class="num">256</td><td class="num bad">5 of 5</td><td class="num">110</td><td class="num">866 / 768</td></tr>
+<tr><td>synthetic, uncorrelated stereo</td><td class="num">2</td><td class="num">128–320 (64–160)</td><td class="num">0</td><td class="num">0</td><td class="num">1535 / 1536</td></tr>
+<tr><td>same</td><td class="num">2</td><td class="num">384 / 512 (192 / 256)</td><td class="num bad">5 of 5</td><td class="num">18 / 41</td><td class="num">1561 / 1682 of 1536</td></tr>
+<tr><td>synthetic: loud noise + sweeps, 48 / 44.1 / 32 kHz</td><td class="num">1</td><td class="num">96 / 128</td><td class="num">0</td><td class="num">0</td><td class="num">≤ 742 / 768</td></tr>
+<tr><td>same</td><td class="num">1</td><td class="num">160 / 192</td><td class="num warn">32 kHz only</td><td class="num">1 each</td><td class="num">772 / 768</td></tr>
+</table></div>
+<p class="caption">Data: <code>data/sweep.jsonl</code>. The overshoot follows bits per channel per frame: it starts
+at 192 kbps per channel at 48 kHz and lower at 32 kHz, where each frame gets more bits. 128 and 160 kbps per channel
+reach exactly 768 bytes on harsh content but were never seen to pass it at 48 kHz. That is an observation, not a
+bound. The app's stereo and 5.1 settings stay at or below 128 kbps per channel, so in practice the fault is mono at
+High or Very High.</p>
+
+<h3>No encoder setting avoids it</h3>
+<table>
+<tr><th>Option (synthetic mono)</th><th class="num">192 kbps: over / largest</th><th class="num">256 kbps: over / largest</th></tr>
+<tr><td><code>-aac_coder fast</code></td><td class="num">1 / 772</td><td class="num">1 / 772</td></tr>
+<tr><td><code>-aac_coder twoloop</code> (default)</td><td class="num">2 / 777</td><td class="num">15 / 833</td></tr>
+<tr><td><code>-aac_pns 0</code></td><td class="num">2 / 777</td><td class="num">15 / 840</td></tr>
+<tr><td><code>-maxrate 192k -bufsize 6144</code></td><td class="num">2 / 777</td><td class="num">15 / 833</td></tr>
+</table>
+<p class="caption">aacenc aims below <code>6144 × channels − 3</code> bits, but its rate control gives up after a
+bounded number of retries, so this is a target, not a cap. A bitrate cap in the app would not be a guarantee
+(160 kbps mono at 32 kHz overshoots) and would do nothing for a copied stream.</p>
+
+<h2>2. How readers time it</h2>
+<p>Fixtures: <code>scripts/windows/make_fixtures.py</code> encodes <code>harsh_audio.py</code>'s mono sound to AAC at
+256 and 192 kbps (15 and 2 oversized packets of 564), copies each, applies the worker's rule in Python
+(<code>riff_block_align.py patch</code>: <code>nBlockAlign</code> 768 → 833 and 768 → 777 on Windows), and adds a stereo
+192 kbps control (largest 1434 of 1536, untouched).</p>
+<div class="scroll"><table>
+<tr><th>Reader</th><th>mono 256, as written</th><th>mono 256, fixed</th><th>mono 192, as written</th><th>mono 192, fixed</th><th>stereo 192</th></tr>
+<tr><td>ffmpeg avidec (ffprobe packet pts)</td><td class="bad">15 gaps, last pts 578 of 563</td><td class="good">0 gaps</td><td class="bad">2 gaps</td><td class="good">0 gaps</td><td class="good">0 gaps</td></tr>
+<tr><td>VLC 3.0.23 (its timestamps, remuxed by <code>--sout</code>)</td><td class="bad">15 late steps, ends 12.331 s</td><td class="good">0, ends 12.011 s</td><td class="bad">2, ends 12.053 s</td><td class="good">0, 12.011 s</td><td class="good">0, 12.010 s</td></tr>
+<tr><td>DirectShow: AVI Splitter, sample times</td><td class="bad">15 late steps, +320.0 ms</td><td class="good">0, 0.0 ms</td><td class="bad">2, +42.7 ms</td><td class="good">0, 0.0 ms</td><td class="good">0, 0.0 ms</td></tr>
+<tr><td>Media Foundation Source Reader, compressed</td><td class="bad">579 samples for 564 packets</td><td class="good">564, sizes = packets</td><td class="bad">566 for 564</td><td class="good">564</td><td class="good">564</td></tr>
+<tr><td>Media Foundation, decoded to PCM</td><td class="bad">592 896 samples (+15 frames)</td><td class="good">577 536 (= 564 × 1024)</td><td class="bad">579 584 (+2)</td><td class="good">577 536</td><td class="good">577 536</td></tr>
+<tr><td>Video for Windows (avifil32)</td><td colspan="5">Opens every file and reports <code>dwSampleSize</code> = <code>nBlockAlign</code>, but <code>AVIStreamRead</code> returns no AAC data from any of them, fixed or not (stereo: <code>0x8004406D</code>). The fix changes nothing for it.</td></tr>
+<tr><td>Decoded samples (ffmpeg), fixed vs as written</td><td colspan="5" class="good">identical in every case</td></tr>
+</table></div>
+<p class="caption">Data: <code>data/readers_local.jsonl</code> (ffmpeg, VLC) and <code>data/windows_results.jsonl</code>
+(<code>scripts/windows/avi_timing.cpp</code>, <code>analyze.py</code>, run by
+<code>probe-avi-aac-timing.workflow.yml</code>). Media Foundation's timestamps follow on with no gap, but it splits an
+oversized chunk at <code>nBlockAlign</code> into two samples, so every later sound plays after an extra frame of
+decoded audio: in time by its timestamps, late by its content. Every byte reached every reader except VfW.
+VirtualDub was not tested.</p>
+
+<h2>3. The fix</h2>
+<ul>
+<li><strong>Where the size comes from.</strong> avienc keeps each stream's largest packet and writes it into
+<code>strh.dwSuggestedBufferSize</code> when it finishes the file. In every file measured, that value was the largest
+audio packet (audio-only, FFV1 + AAC, rawvideo + AAC). On a 1.2 GB OpenDML file whose 16 oversized packets all lie in
+the second RIFF (<code>AVIX</code>), it was still 835, the true maximum, and the fix took the ffprobe gaps from 16 to 0
+(<code>scripts/odml_check.sh</code>, <code>data/odml.txt</code>). No index or data is read.</li>
+<li><strong>What is changed.</strong> One rule, <code>avi_header::aac_block_align_fixes</code>, applied to a stream
+whose <code>strh</code> is <code>auds</code> with <code>dwSampleSize</code> 0 and whose <code>strf</code> says
+<code>wFormatTag</code> 0x00FF (AAC), when <code>dwSuggestedBufferSize</code> is above <code>nBlockAlign</code> (and
+fits in 16 bits). It walks the RIFF lists rather than searching bytes, and any malformed header yields no change. MP3 is
+left alone: its <code>nBlockAlign</code> of 1152 is a convention VBR-MP3 readers rely on, and like AC-3 (3840) it
+stays within that at every app setting.</li>
+<li><strong>When.</strong> After a successful encode into AVI with sound, Convert or Passthrough
+(<code>checks_block_align</code>), before the subtitle step. The subtitle mux never rewrites an AVI, since it falls
+back to an SRT beside it. Anything added later that rewrites an AVI must run the fix again. A failure is logged as a
+warning and never fails the job. The job log says when the block size was raised.</li>
+</ul>
+
+<h2>4. Tests</h2>
+<ul>
+<li>Rust: <code>avi_header.rs</code> unit tests on synthetic headers. They check the right offset and value; no change
+when packets fit; stereo; MP3, AC-3, PCM and CBR AAC left alone; only the stream that overshoots; truncated or garbage
+input without a panic; exactly 2 bytes written, and the file untouched (bytes and mtime) when there is nothing to fix;
+and the container × audio-mode gate.</li>
+<li>Heavy: <code>integration_video_start_offset_test.dart</code>, group <em>mono AAC over 768 bytes a packet into AVI
+(task #41)</em>, on <code>Tests/TestResources/avi_aac_overshoot.mkv</code> (<code>generate_avi_aac_overshoot.sh</code>).
+The fixture has noise bursts that overshoot at any level, kept 0.1 s clear of the beeps, decoding to ≤ 0.23 so they
+never read as beeps. It covers Convert at High and Very High, untrimmed and trimmed, plus a copied 256 kbps mono AAC
+source. Each case first requires that oversized packets were written (otherwise it proves nothing). It then checks:
+<code>nBlockAlign</code> equals the largest packet, the packet timestamps are gap-free, the beeps keep their 2 s
+spacing within 1 ms, and each beep falls within 1 ms of its white frame (not for the copy; see section 5). With the fix
+turned off, both tests fail. The other Convert-into-AVI tests are back at the default quality and check the header the
+same way.</li>
+</ul>
+
+<h2>5. Limits</h2>
+<ul>
+<li>One FFmpeg series (9.0: the martin-riedl macOS build, and the bundle's Windows build for the Windows fixtures,
+which gave the same largest packets, 833 and 777). The planning run used Homebrew's 9.0.2, whose sizes differed
+slightly (780 for 777). The heavy test therefore asserts that an overshoot happened, not how many.</li>
+<li>Sources: two fixtures, one capture of music and speech, and synthetic noise. How often real captures overshoot
+was not measured. The fix does not depend on it.</li>
+<li>Windows readers were run on one runner image, with the readers' default AVI components. LAV Splitter (ffmpeg's
+avidec, already measured), VirtualDub, Premiere and Vegas were not tested.</li>
+<li>Found on the way, not fixed here (task #43): an untrimmed Passthrough of an AAC source that carries priming writes
+a null frame at the head of an AVI (task #38's fault on the copy path), so the copy case checks drift only.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul>
+<li><code>scripts/run.sh &lt;ffmpeg dir&gt; &lt;VLC&gt; &lt;work dir&gt;</code> re-runs sections 1 and 3 and the ffmpeg/VLC rows
+of section 2: <code>sweep.py</code>, <code>windows/make_fixtures.py</code>, <code>readers_local.sh</code>,
+<code>odml_check.sh</code>.</li>
+<li><code>harsh_audio.py</code>: the synthetic sound. <code>riff_block_align.py show|patch</code>: an AVI's audio
+headers, and the worker's rule in Python.</li>
+<li><code>windows/</code>: <code>avi_timing.cpp</code> (DirectShow, Media Foundation, VfW), <code>analyze.py</code> and the
+workflow. To re-run, copy <code>probe-avi-aac-timing.workflow.yml</code> to <code>.github/workflows/</code> on a branch
+and push.</li>
+</ul>
+</main>
+</body>
+</html>

@@ -1,0 +1,5 @@
+largest packet 835 at byte 1204471300 (first RIFF ends at 1074321674); packets over 768: 16 of which in the first RIFF: 0
+{"file": "big.avi", "stream": 1, "wFormatTag": "0x00FF", "channels": 1, "rate": 48000, "nBlockAlign": 768, "dwSampleSize": 0, "dwSuggestedBufferSize": 835, "blockAlignOffset": 9632}
+timestamp gaps before: 16
+{"file": "big.avi", "fixes": [{"stream": 1, "from": 768, "to": 835}]}
+timestamp gaps after: 0

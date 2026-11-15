@@ -236,6 +236,85 @@ Future<void> _expectInSync(String what, String path,
   }
 }
 
+/// Each audio stream's header in an AVI, as written: `wFormatTag`, channels,
+/// `nBlockAlign`, and `dwSuggestedBufferSize` (avienc's trailer puts the
+/// stream's largest chunk there). Walks the RIFF lists, as the worker does.
+Future<List<({int tag, int channels, int blockAlign, int largest})>> _aviAudioHeaders(
+    String path) async {
+  final raf = await File(path).open();
+  final data = await raf.read(1 << 16);
+  await raf.close();
+  final b = ByteData.sublistView(data);
+  String fourcc(int at) => String.fromCharCodes(data.sublist(at, at + 4));
+  Iterable<(String, int, int)> chunks(int start, int end) sync* {
+    var i = start;
+    while (i + 8 <= end) {
+      final size = b.getUint32(i + 4, Endian.little);
+      yield (fourcc(i), i + 8, size);
+      i += 8 + size + (size & 1);
+    }
+  }
+
+  final out = <({int tag, int channels, int blockAlign, int largest})>[];
+  for (final (c, o, s) in chunks(12, data.length)) {
+    if (c != 'LIST' || fourcc(o) != 'hdrl') continue;
+    for (final (c2, o2, s2) in chunks(o + 4, o + s)) {
+      if (c2 != 'LIST' || fourcc(o2) != 'strl') continue;
+      int? strh, strf;
+      for (final (c3, o3, _) in chunks(o2 + 4, o2 + s2)) {
+        if (c3 == 'strh') strh = o3;
+        if (c3 == 'strf') strf = o3;
+      }
+      if (strh == null || strf == null || fourcc(strh) != 'auds') continue;
+      out.add((
+        tag: b.getUint16(strf, Endian.little),
+        channels: b.getUint16(strf + 2, Endian.little),
+        blockAlign: b.getUint16(strf + 12, Endian.little),
+        largest: b.getUint32(strh + 36, Endian.little),
+      ));
+    }
+  }
+  return out;
+}
+
+/// The first audio stream's packets as ffmpeg's AVI demuxer reads them: their
+/// sizes and timestamps (in the stream's time base, one AAC packet per tick).
+Future<({List<int> sizes, List<int> pts})> _audioPackets(String path) async {
+  final a = await WorkerHarness.ffprobeJson([
+    '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'packet=pts,size',
+    '-of', 'json', path,
+  ]);
+  final packets = a['packets'] as List;
+  return (
+    sizes: [for (final pk in packets) int.parse('${pk['size']}')],
+    pts: [for (final pk in packets) int.parse('${pk['pts']}')],
+  );
+}
+
+/// Task #41: an AAC stream in AVI declares a block size no packet exceeds,
+/// so a reader times every packet as one: the header's `nBlockAlign` is
+/// avienc's 768 per channel, or the largest packet when one is bigger, and
+/// the packets' timestamps follow on with no gap. Returns how many packets
+/// were over 768 per channel.
+Future<int> _expectAacTimedOnce(String what, String path) async {
+  final headers = await _aviAudioHeaders(path);
+  expect(headers, isNotEmpty, reason: '$what: no audio stream header');
+  final h = headers.first;
+  expect(h.tag, 0x00FF, reason: '$what: AAC');
+  final packets = await _audioPackets(path);
+  final largest = packets.sizes.reduce((a, b) => a > b ? a : b);
+  expect(h.largest, largest, reason: '$what: dwSuggestedBufferSize is the largest packet');
+  final declared = 768 * h.channels;
+  expect(h.blockAlign, largest > declared ? largest : declared,
+      reason: '$what: nBlockAlign (largest packet $largest)');
+  final gaps = [
+    for (var i = 1; i < packets.pts.length; i++)
+      if (packets.pts[i] != packets.pts[i - 1] + 1) i,
+  ];
+  expect(gaps, isEmpty, reason: '$what: audio packets timed as more than one');
+  return packets.sizes.where((s) => s > declared).length;
+}
+
 Future<String> _encode(VideoJob job, String label) async {
   final r = await WorkerHarness.runJob(job.toJson(), label: label);
   expect(r.success, isTrue, reason: r.error);
@@ -431,9 +510,8 @@ void main() {
       // 18.6 ms early, MP3 16.9 ms early, AC-3 5.4 ms late. The encode now
       // reads the sound later by the measured priming and keeps every
       // stream's timestamps (docs/reports/2026-11-avi-convert-priming).
-      // At Medium: mono AAC at 192 kbps sometimes writes a packet over the
-      // 768 bytes avienc declares as its block size, which a reader then
-      // times as two packets (a separate fault, task #41).
+      // At the default quality (High): a mono AAC packet over the 768 bytes
+      // avienc declares is covered by the task #41 group below.
       test('untrimmed to AVI with Convert (aac, libmp3lame, ac3): every picture once, in sync',
           () async {
         for (final ac in [AudioCodec.aac, AudioCodec.mp3, AudioCodec.ac3]) {
@@ -441,13 +519,13 @@ void main() {
               _job(video, 'avi_convert_${ac.name}_$stem',
                   audio: AudioMode.convert,
                   audioCodec: ac,
-                  audioQuality: AudioQuality.medium,
                   container: ContainerFormat.avi),
               'vstart_avi_convert_${ac.name}');
           final v = await _aviVideo(out);
           expect(v.stored, _frames, reason: '${ac.value}: stored frames, null frames included');
           expect(v.pts.take(2).toList(), [0.0, 0.04], reason: ac.value);
           await _expectInSync('AVI, Convert ${ac.value}', out, flashes: 2, tolerance: 0.001);
+          if (ac == AudioCodec.aac) await _expectAacTimedOnce('AVI, Convert aac', out);
           final e = await _events(out);
           expect(e.flashes.first, closeTo(1.0, 0.001), reason: '${ac.value}: frame 25 at 1 s');
         }
@@ -457,14 +535,12 @@ void main() {
         for (final (label, job) in [
           ('restored', _job(video, 'avi_convert_restored_$stem',
               audio: AudioMode.convert,
-              audioQuality: AudioQuality.medium,
               container: ContainerFormat.avi,
               audioPass: const AudioRestorationParameters(enabled: true, limiter: true))),
           ('trimmed', _job(video, 'avi_convert_trim_$stem',
               start: _trimStart,
               end: 89,
               audio: AudioMode.convert,
-              audioQuality: AudioQuality.medium,
               container: ContainerFormat.avi)),
         ]) {
           final out = await _encode(job, 'vstart_avi_convert_$label');
@@ -474,6 +550,7 @@ void main() {
           expect(v.pts.take(2).toList(), [0.0, 0.04], reason: label);
           await _expectInSync('AVI, Convert AAC, $label', out,
               flashes: label == 'trimmed' ? 1 : 2, tolerance: 0.001);
+          await _expectAacTimedOnce('AVI, Convert AAC, $label', out);
         }
       });
 
@@ -535,7 +612,10 @@ void main() {
       endFrame: 49,
       totalFrames: 50,
     );
-    final v = await _aviVideo(await _encode(job, 'vstart_small_clip_convert'));
+    final out = await _encode(job, 'vstart_small_clip_convert');
+    final v = await _aviVideo(out);
+    // Stereo at High: 96 kbps a channel, no packet over 1536, header untouched.
+    expect(await _expectAacTimedOnce('small_clip, Convert AAC', out), 0);
     expect(v.stored, 50, reason: 'stored frames, null frames included');
     expect(v.pts.first, 0.0);
   });
@@ -559,5 +639,102 @@ void main() {
     final out = await _encode(job, 'vstart_control');
     final e = await _events(out);
     expect(e.videoStart, 0);
+  });
+
+  // Task #41: avienc declares an AAC stream's block size as 768 bytes per
+  // channel, and ffmpeg's AAC encoder writes bigger packets at 192 kbps per
+  // channel and more (mono at High and Very High). A reader times a chunk as
+  // ceil(size / block size) packets (ffmpeg, VLC, DirectShow; Media
+  // Foundation split it in two), so the sound ran a packet later after each
+  // one. The worker now raises the block size to the largest packet
+  // (docs/reports/issue-41-aac-avi-block-align). Each case first checks that
+  // oversized packets were written, or it would prove nothing.
+  group('mono AAC over 768 bytes a packet into AVI (task #41)', () {
+    final video = _resource('avi_aac_overshoot.mkv');
+    const frames = 200;
+    const trimStart = 30;
+
+    VideoJob job(String name, AudioMode audio, AudioQuality quality, {bool trim = false}) =>
+        VideoJob(
+          id: const Uuid().v4(),
+          inputPath: video,
+          outputPath: '$_outDir/$name.avi',
+          qtgmcParameters: _off,
+          processingPipeline: const ProcessingPipeline(deinterlace: _off),
+          encodingSettings: EncodingSettings(
+            codec: VideoCodec.ffv1,
+            container: ContainerFormat.avi,
+            audioMode: audio,
+            audioCodec: AudioCodec.aac,
+            audioQuality: quality,
+          ),
+          inputWidth: 320,
+          inputHeight: 240,
+          inputPixelFormat: 'yuv420p',
+          inputFrameRate: _fps,
+          startFrame: trim ? trimStart : null,
+          endFrame: trim ? frames - 1 : null,
+          totalFrames: trim ? frames - trimStart : frames,
+        );
+
+    /// Encodes [j], checks the header and packet timing, and that the beeps
+    /// stay 2 s apart: a packet timed as two moves every later beep 21.3 ms.
+    /// With [inSync], each beep also lands on its white frame within 1 ms.
+    Future<void> check(String what, VideoJob j,
+        {required bool mustOvershoot, bool inSync = true}) async {
+      final r = await WorkerHarness.runJob(j.toJson(), label: 'aac_overshoot');
+      expect(r.success, isTrue, reason: r.error);
+      final out = r.outputPath!;
+      final over = await _expectAacTimedOnce(what, out);
+      if (mustOvershoot) {
+        expect(over, greaterThan(0),
+            reason: '$what: no packet over 768 bytes was written, so this case tests nothing');
+        expect(r.logs.any((l) => l.contains("larger than AVI's declared block size")), isTrue,
+            reason: '$what: the job log says the block size was raised');
+      }
+      final trimmed = j.startFrame != null;
+      // The first beep is 0.8 s in or later; a noise burst at the very start
+      // can pass the detector's level once it has been through the encoder.
+      final beeps = (await _events(out)).beeps.where((b) => b > 0.5).toList();
+      expect(beeps, hasLength(trimmed ? 3 : 4), reason: '$what: beeps at $beeps');
+      for (var i = 1; i < beeps.length; i++) {
+        expect(beeps[i] - beeps[0], closeTo(2.0 * i, 0.001),
+            reason: '$what: beep $i drifted (beeps at $beeps)');
+      }
+      if (inSync) await _expectInSync(what, out, flashes: trimmed ? 3 : 4, tolerance: 0.001);
+    }
+
+    test('converted at High and Very High, untrimmed and trimmed: every beep on its flash',
+        () async {
+      for (final (quality, trim, must) in [
+        (AudioQuality.high, false, false), // overshoots little or not at all
+        (AudioQuality.high, true, true),
+        (AudioQuality.veryHigh, false, true),
+        (AudioQuality.veryHigh, true, true),
+      ]) {
+        final name = 'aac_overshoot_${quality.name}${trim ? '_trim' : ''}';
+        await check('Convert AAC ${quality.name}${trim ? ', trimmed' : ''}',
+            job(name, AudioMode.convert, quality, trim: trim), mustOvershoot: must);
+      }
+    });
+
+    test('a 256 kbps mono AAC source copied into AVI: the beeps keep their spacing', () async {
+      await Directory(_outDir).create(recursive: true);
+      final source = '$_outDir/aac_overshoot_source.mkv';
+      final r = await Process.run(
+        WorkerHarness.ffmpegPath,
+        ['-v', 'error', '-y', '-i', video, '-map', '0', '-c:v', 'copy', '-c:a', 'aac',
+         '-b:a', '256k', source],
+        environment: WorkerHarness.ffmpegEnv,
+      );
+      expect(r.exitCode, 0, reason: '${r.stderr}');
+      final copied = job('aac_overshoot_copy', AudioMode.passthrough, AudioQuality.high);
+      // Drift only: copied untrimmed into AVI, a primed AAC source's picture
+      // starts a frame late (a null frame at the head, task #38's fault on
+      // the Passthrough path, task #43), which is not this fault.
+      await check('Passthrough of 256 kbps mono AAC',
+          VideoJob.fromJson({...copied.toJson(), 'inputPath': source}),
+          mustOvershoot: true, inSync: false);
+    });
   });
 }

@@ -38,6 +38,7 @@ mod source_timing;
 mod progress_reporter;
 mod addons;
 mod audio_restoration;
+mod avi_header;
 mod ai_runtime;
 mod animejanai;
 mod upscale_addons;
@@ -1348,6 +1349,23 @@ fn run_worker(
     }
 
     reporter.send_log(models::LogLevel::Info, "Encoding complete!");
+
+    // AAC in AVI: a packet over avienc's declared block size is timed as two
+    // by every reader that times VBR chunks (task #41). Must follow anything
+    // that writes the AVI; the subtitle mux below never rewrites one.
+    if avi_header::checks_block_align(&job) {
+        match avi_header::fix_aac_block_align(std::path::Path::new(&job.output_path)) {
+            Ok(fixes) => {
+                for fix in fixes {
+                    reporter.send_log(models::LogLevel::Info, &fix.note());
+                }
+            }
+            Err(e) => reporter.send_log(
+                models::LogLevel::Warning,
+                &format!("Could not check the AVI's AAC block size (players may time its sound late): {e:#}"),
+            ),
+        }
+    }
 
     // ------------------------------------------------------------------
     // Post-encode subtitle handling (warnings only — the video is already made)
