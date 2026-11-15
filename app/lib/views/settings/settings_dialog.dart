@@ -1043,7 +1043,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                   items: settings.codec.availablePresets!.map((preset) {
                     return DropdownMenuItem(
                       value: preset,
-                      child: Text(preset),
+                      child: Text(settings.codec.presetLabel(preset)),
                     );
                   }).toList(),
                   onChanged: (value) {
@@ -1451,10 +1451,16 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     EncodingSettings settings,
   ) {
     final message = hardwareEncoderChromaWarning(
-      codec: settings.codec,
-      chromaSubsampling: settings.chromaSubsampling,
-      pixelFormat: viewModel.videoInfo?.pixelFormat,
-    );
+          codec: settings.codec,
+          chromaSubsampling: settings.chromaSubsampling,
+          pixelFormat: viewModel.videoInfo?.pixelFormat,
+        ) ??
+        // Task #40: AV1 stores 4:2:0 at 8 or 10 bits only.
+        av1ChromaWarning(
+          codec: settings.codec,
+          chromaSubsampling: settings.chromaSubsampling,
+          pixelFormat: viewModel.videoInfo?.pixelFormat,
+        );
     if (message == null) return const [];
     return [const SizedBox(height: 12), WarningBanner(message: message)];
   }
@@ -1521,7 +1527,9 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
 
   Widget _buildCodecList(BuildContext context, MainViewModel viewModel, EncodingSettings settings) {
     // Group codecs by family
-    final softwareCodecs = <VideoCodec>[VideoCodec.h264, VideoCodec.h265];
+    // Listed even where the container can't take them, shown disabled with
+    // the reason (AV1 in MOV/AVI), as H.264/H.265 always were.
+    final softwareCodecs = <VideoCodec>[VideoCodec.h264, VideoCodec.h265, VideoCodec.av1];
     final hardwareCodecs = <VideoCodec>[
       VideoCodec.h264Nvenc, VideoCodec.h265Nvenc,
       VideoCodec.h264Qsv, VideoCodec.h265Qsv,
@@ -1761,10 +1769,13 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Slider(
-          value: settings.quality.toDouble(),
+          // AV1's CRF runs 0-63, the others 0-51 (VideoCodec.maxQuality).
+          value: settings.quality
+              .clamp(0, settings.codec.maxQuality)
+              .toDouble(),
           min: 0,
-          max: 51,
-          divisions: 51,
+          max: settings.codec.maxQuality.toDouble(),
+          divisions: settings.codec.maxQuality,
           label: settings.qualityDescription,
           onChanged: (value) {
             viewModel.updateEncodingSettings(
@@ -1858,15 +1869,17 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     final detector = HardwareEncoderDetector.instance;
     final isSupported = codec.supportsContainer(settings.container);
     final isHw = codec.isHardwareEncoder;
+    // Hardware encoders, and AV1 (missing from the macOS x64 FFmpeg).
+    final checked = codec.needsAvailabilityCheck;
     final compiledIn = detector.isCompiledIn(codec);
     // Still querying whether this (compiled-in) hardware encoder works here.
-    final probing = isSupported && isHw && compiledIn && detector.isProbing(codec);
+    final probing = isSupported && checked && compiledIn && detector.isProbing(codec);
     // The functional probe failed, but ffmpeg DID return the encoder. We keep it
     // selectable and surface the captured error as a warning rather than blocking
     // it — the synthetic probe can fail for encoders that still work in practice
     // (see issue #28-adjacent reports of h264_videotoolbox being hidden).
     final probeFailed = isSupported &&
-        isHw &&
+        checked &&
         compiledIn &&
         !probing &&
         !detector.isAvailable(codec);
@@ -1876,8 +1889,10 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     // selectable. Only a missing build or an incompatible container blocks it.
     final String? blockedReason = !isSupported
         ? 'Not supported in ${settings.container.name.toUpperCase()}'
-        : (isHw && !compiledIn)
-            ? 'Not available in this build'
+        : (checked && !compiledIn)
+            ? (isHw
+                ? 'Not available in this build'
+                : "Not in this platform's FFmpeg (Intel Macs don't have it yet)")
             : null;
     final clickable = blockedReason == null;
 
@@ -1917,7 +1932,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
           ),
         ],
       );
-    } else if (!clickable && isHw) {
+    } else if (!clickable && checked) {
       indicator = Tooltip(
         message: blockedReason,
         child: Icon(Icons.block, size: 16, color: Colors.orange[700]),
@@ -1965,21 +1980,13 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                         settings.videoBitrateKbps == null)
                     ? _kDefaultVtBitrateKbps
                     : settings.videoBitrateKbps;
-                // When switching encoder families, reset the preset to the new family's default
-                final oldFamily = settings.codec.encoderFamily;
-                final newFamily = value.encoderFamily;
-                if (oldFamily != newFamily) {
-                  viewModel.updateEncodingSettings(
-                    settings.copyWith(
-                        codec: value,
-                        encoderPreset: value.defaultPreset,
-                        videoBitrateKbps: vtBitrate),
-                  );
-                } else {
-                  viewModel.updateEncodingSettings(
-                    settings.copyWith(codec: value, videoBitrateKbps: vtBitrate),
-                  );
-                }
+                // Switching family resets the preset, and switching quality
+                // scale (AV1) the quality (EncodingSettings.withCodec).
+                viewModel.updateEncodingSettings(
+                  settings
+                      .withCodec(value)
+                      .copyWith(videoBitrateKbps: vtBitrate),
+                );
               }
             }
           : null,

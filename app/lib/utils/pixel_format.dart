@@ -76,6 +76,9 @@ String? chromaConversionBitDepthWarning({
   VideoCodec? codec,
 }) {
   if (codec != null && codec.isProRes) return null;
+  // AV1's depth is limited by the encoder, not chosen; av1ChromaWarning says
+  // what happens, and "Match source" would not keep a 12-bit source either.
+  if (codec != null && codec.isAv1) return null;
   if (targetBitDepth == null || pixelFormat == null) return null;
   final depth = pixelFormatBitDepth(pixelFormat);
   if (depth <= targetBitDepth) return null;
@@ -363,4 +366,56 @@ String? v210ChromaPinWarning({
     selection: chromaSubsampling,
     pixelFormat: pixelFormat,
   );
+}
+
+/// The format a codec limited to 4:2:0 at 8 or 10 bits (AV1) stores, given
+/// the [selected] colour format and the source's [pixelFormat] (null before a
+/// file is analysed): what the selection delivers (the source's format under
+/// Original) when it is already 4:2:0 at 10 bits or less, else 4:2:0 at 8
+/// bits for 8-bit content and 10 bits for anything deeper. Mirrors
+/// `VideoJob::output_chroma_subsampling`; under Original with no source it
+/// returns Original.
+ChromaSubsampling limitTo420Up10(ChromaSubsampling selected, String? pixelFormat) {
+  final isOriginal = selected == ChromaSubsampling.original;
+  final delivered = isOriginal ? pixelFormat : selected.value;
+  if (delivered == null) return selected;
+  final layout = pixelFormatChromaLayout(delivered);
+  final depth =
+      isOriginal ? pixelFormatBitDepth(delivered) : (selected.outputBitDepth ?? 8);
+  if (layout == ChromaLayout.c420 && depth <= 10) return selected;
+  return depth > 8 ? ChromaSubsampling.yuv420p10 : ChromaSubsampling.yuv420;
+}
+
+/// Warning when AV1 changes the chosen output colour format, or the source's
+/// own, to fit what it stores (4:2:0 at 8 or 10 bits), or null when nothing
+/// changes. The worker converts in the script, field-aware and dithered
+/// (`VideoJob::output_chroma_subsampling`); this says so before the job runs.
+/// Pinned case for case to `av1_stores_420_up_to_10_bits` in
+/// `worker/src/models/video_job.rs` by `app/test/av1_test.dart`.
+String? av1ChromaWarning({
+  required VideoCodec codec,
+  required ChromaSubsampling chromaSubsampling,
+  String? pixelFormat,
+}) {
+  if (!codec.limitsTo420Up10) return null;
+  final stored = limitTo420Up10(chromaSubsampling, pixelFormat);
+  if (stored == chromaSubsampling) return null;
+
+  final isOriginal = chromaSubsampling == ChromaSubsampling.original;
+  final from = isOriginal ? pixelFormat! : chromaSubsampling.value;
+  final layout = pixelFormatChromaLayout(from);
+  final depth =
+      isOriginal ? pixelFormatBitDepth(from) : (chromaSubsampling.outputBitDepth ?? 8);
+  final describedAs = isOriginal
+      ? 'Your source is $pixelFormat'
+      : '${chromaSubsampling.label} is selected';
+  final loss = layout != ChromaLayout.c420
+      ? 'the colour detail beyond 4:2:0 is lost'
+      : 'its $depth-bit precision is reduced';
+  final keep = layout != ChromaLayout.c420
+      ? 'H.265 or ProRes'
+      : 'H.265';
+  return '$describedAs, but AV1 stores only 4:2:0 at 8 or 10 bits, so the '
+      'output will be converted to ${stored.label} and $loss. Choose $keep to '
+      'keep it.';
 }

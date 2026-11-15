@@ -197,6 +197,7 @@ enum VideoCodec {
   // Software encoders
   h264('libx264', 'H.264'),
   h265('libx265', 'H.265 (HEVC)'),
+  av1('libsvtav1', 'AV1 (SVT-AV1)'),
 
   // NVIDIA NVENC
   h264Nvenc('h264_nvenc', 'H.264 (NVENC)'),
@@ -239,6 +240,9 @@ enum VideoCodec {
         return 'Widely compatible, good compression';
       case VideoCodec.h265:
         return 'Better compression, less compatible';
+      case VideoCodec.av1:
+        return 'Best compression, 8/10-bit 4:2:0 in MP4 or MKV. Slower to '
+            'encode; plays on recent devices and browsers';
       case VideoCodec.h264Nvenc:
         return 'NVIDIA GPU accelerated H.264';
       case VideoCodec.h265Nvenc:
@@ -328,6 +332,28 @@ enum VideoCodec {
     return profile >= 4 ? ChromaSubsampling.yuv444p10 : ChromaSubsampling.yuv422p10;
   }
 
+  /// Whether this codec produces AV1 output (SVT-AV1).
+  bool get isAv1 => this == VideoCodec.av1;
+
+  /// Whether this codec stores 4:2:0 at 8 or 10 bits only, so the worker
+  /// converts anything else in the script (AV1). Mirrors
+  /// `VideoCodec::limits_to_420_10`.
+  bool get limitsTo420Up10 => isAv1;
+
+  /// Whether the app must check that the bundled FFmpeg has this encoder (and
+  /// that it runs) before offering it: the hardware encoders, and AV1, whose
+  /// `libsvtav1` is missing from the macOS x64 FFmpeg.
+  bool get needsAvailabilityCheck => isHardwareEncoder || isAv1;
+
+  /// The quality slider's range (`-crf`). SVT-AV1's CRF runs 0-63; the
+  /// others 0-51. Mirrors `VideoCodec::crf_range`.
+  int get maxQuality => isAv1 ? 63 : 51;
+
+  /// The quality a codec starts at when the user switches to it from another
+  /// family. AV1's CRF numbers mean less than x264's: 28 is roughly x264's 18
+  /// (docs/reports/task-40-av1-svtav1).
+  int get defaultQuality => isAv1 ? 28 : 18;
+
   /// Whether this codec produces H.264 output (software or hardware).
   bool get isH264 => this == h264 || this == h264Nvenc || this == h264Qsv ||
       this == h264Videotoolbox || this == h264Amf;
@@ -354,6 +380,9 @@ enum VideoCodec {
     if (isProRes) return 'ProRes';
     if (isLossless) return 'Lossless';
     if (isUncompressed) return 'Uncompressed';
+    // Not 'Software': the settings dialog resets the preset only when this
+    // string changes, and x264's "medium" means nothing to SVT-AV1.
+    if (isAv1) return 'SVT-AV1';
     return 'Software';
   }
 
@@ -365,6 +394,11 @@ enum VideoCodec {
 
   /// Check if this codec is supported by the given container.
   bool supportsContainer(ContainerFormat container) {
+    // AV1: FFmpeg refuses it in MOV ("av1 only supported in MP4 and AVIF"),
+    // and AVI has no standard AV1 tag. Mirrors `VideoCodec::allows_container`.
+    if (isAv1) {
+      return container == ContainerFormat.mp4 || container == ContainerFormat.mkv;
+    }
     switch (container) {
       case ContainerFormat.mp4:
         // MP4 supports H.264, H.265 (software and hardware)
@@ -397,8 +431,33 @@ enum VideoCodec {
     if (this == h264Amf || this == h265Amf) {
       return ['speed', 'balanced', 'quality'];
     }
+    if (isAv1) {
+      // SVT-AV1: 0 and below take hours a minute; 11 and up are for
+      // automation only. Mirrors `available_presets` in the worker.
+      return ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'];
+    }
     // VideoToolbox, ProRes, the lossless codecs and v210 don't have presets
     return null;
+  }
+
+  /// How a preset reads in the dropdown. SVT-AV1's are bare numbers, so they
+  /// get a hint of which end is which; every other family's are words.
+  String presetLabel(String preset) {
+    if (!isAv1) return preset;
+    switch (preset) {
+      case '1':
+        return '1 (slowest, smallest file)';
+      case '4':
+        return '4 (slow)';
+      case '6':
+        return '6 (balanced)';
+      case '8':
+        return '8 (fast)';
+      case '10':
+        return '10 (fastest)';
+      default:
+        return preset;
+    }
   }
 
   /// Default encoder preset for this codec family.
@@ -407,6 +466,7 @@ enum VideoCodec {
     if (this == h264Nvenc || this == h265Nvenc) return 'p4';
     if (this == h264Qsv || this == h265Qsv) return 'medium';
     if (this == h264Amf || this == h265Amf) return 'balanced';
+    if (isAv1) return '6';
     return 'medium';
   }
 }

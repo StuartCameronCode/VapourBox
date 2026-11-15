@@ -19,7 +19,9 @@ enum EncoderProbeState {
   unavailable,
 }
 
-/// Detects which video encoders are actually usable on this machine.
+/// Detects which video encoders are actually usable on this machine: the
+/// hardware encoders, and AV1 (SVT-AV1), whose `libsvtav1` is missing from
+/// the macOS x64 FFmpeg (`VideoCodec.needsAvailabilityCheck`).
 ///
 /// Two stages:
 ///  1. `ffmpeg -encoders` — cheap; tells us which encoders are *compiled into*
@@ -45,14 +47,14 @@ class HardwareEncoderDetector extends ChangeNotifier {
   bool _initialized = false;
 
   /// Whether the encoder is compiled into the bundled ffmpeg. Always true for
-  /// non-hardware codecs (software, ProRes, lossless).
+  /// codecs every build has (x264/x265, ProRes, lossless, v210).
   bool isCompiledIn(VideoCodec codec) =>
-      !codec.isHardwareEncoder || _compiledIn.contains(codec.value);
+      !codec.needsAvailabilityCheck || _compiledIn.contains(codec.value);
 
   /// Current probe state for a codec. Non-hardware codecs are always available.
   /// Hardware codecs default to [EncoderProbeState.probing] until resolved.
   EncoderProbeState probeState(VideoCodec codec) {
-    if (!codec.isHardwareEncoder) return EncoderProbeState.available;
+    if (!codec.needsAvailabilityCheck) return EncoderProbeState.available;
     return _state[codec] ?? EncoderProbeState.probing;
   }
 
@@ -74,7 +76,7 @@ class HardwareEncoderDetector extends ChangeNotifier {
     _initialized = true;
 
     final hwCodecs =
-        VideoCodec.values.where((c) => c.isHardwareEncoder).toList();
+        VideoCodec.values.where((c) => c.needsAvailabilityCheck).toList();
 
     final ffmpegPath = ToolLocator.instance.ffmpegPath;
     if (ffmpegPath == null) {
@@ -94,14 +96,7 @@ class HardwareEncoderDetector extends ChangeNotifier {
         stderrEncoding: const SystemEncoding(),
       );
       if (result.exitCode == 0) {
-        for (final line in (result.stdout as String).split('\n')) {
-          final trimmed = line.trim();
-          // Encoder lines start with a flags field like "V....D" then the name.
-          if (trimmed.startsWith('V')) {
-            final parts = trimmed.split(RegExp(r'\s+'));
-            if (parts.length >= 2) _compiledIn.add(parts[1]);
-          }
-        }
+        _compiledIn.addAll(parseEncoderListing(result.stdout as String));
       }
     } catch (_) {
       // ffmpeg missing/failed — _compiledIn stays empty, everything hw is out.
@@ -123,6 +118,36 @@ class HardwareEncoderDetector extends ChangeNotifier {
     for (final codec in toProbe) {
       unawaited(_probe(ffmpegPath, codec));
     }
+  }
+
+  /// The video encoder names in `ffmpeg -encoders` output.
+  static Set<String> parseEncoderListing(String listing) {
+    final names = <String>{};
+    for (final line in listing.split('\n')) {
+      final trimmed = line.trim();
+      // Encoder lines start with a flags field like "V....D" then the name.
+      if (trimmed.startsWith('V')) {
+        final parts = trimmed.split(RegExp(r'\s+'));
+        if (parts.length >= 2) names.add(parts[1]);
+      }
+    }
+    return names;
+  }
+
+  /// Test hook: treat [listing] as the bundled ffmpeg's `-encoders` output,
+  /// with every compiled-in checked encoder's probe passing.
+  @visibleForTesting
+  void debugSetEncoderListing(String listing) {
+    _initialized = true;
+    _compiledIn
+      ..clear()
+      ..addAll(parseEncoderListing(listing));
+    for (final c in VideoCodec.values.where((c) => c.needsAvailabilityCheck)) {
+      _state[c] = _compiledIn.contains(c.value)
+          ? EncoderProbeState.available
+          : EncoderProbeState.unavailable;
+    }
+    notifyListeners();
   }
 
   /// Frame size for the functional probe.

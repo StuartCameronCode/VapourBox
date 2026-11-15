@@ -152,6 +152,44 @@ void main() {
     expect(cll['max_average'], 400);
   }, timeout: const Timeout(Duration(minutes: 5)));
 
+  test('AV1 (SVT-AV1) keeps the mastering display and light levels', () async {
+    if (!await WorkerHarness.hasEncoder('libsvtav1')) {
+      markTestSkipped('this FFmpeg has no libsvtav1 (macOS x64)');
+      return;
+    }
+    final j = job('hdr10_av1.mkv', VideoCodec.av1);
+    final result = await WorkerHarness.runJob(j.toJson(), label: 'hdr10 av1');
+    expect(result.success, isTrue, reason: '${result.error}\n${result.logs.join('\n')}');
+
+    final tags = await WorkerHarness.firstStream(j.outputPath, selector: 'v:0', entries: [
+      'codec_name', 'pix_fmt', 'color_primaries', 'color_transfer',
+    ]);
+    expect(tags!['codec_name'], 'av1');
+    expect(tags['color_transfer'], 'smpte2084');
+    expect(tags['color_primaries'], 'bt2020');
+    expect(tags['pix_fmt'], 'yuv420p10le');
+
+    // SVT-AV1 stores chromaticities in 1/65536 and luminance in 1/256 and
+    // 1/16384, so compare values, not ffprobe's fractions.
+    double frac(Object? v) {
+      final parts = '$v'.split('/');
+      return double.parse(parts[0]) / double.parse(parts[1]);
+    }
+
+    final side = await _sideData(j.outputPath);
+    final md = side.firstWhere((d) => d['side_data_type'] == 'Mastering display metadata',
+        orElse: () => fail('no mastering display metadata in the output: $side'));
+    expect(frac(md['max_luminance']), closeTo(1000, 0.01));
+    expect(frac(md['min_luminance']), closeTo(0.0001, 0.0001));
+    expect(frac(md['red_x']), closeTo(0.68, 0.0001));
+    expect(frac(md['green_y']), closeTo(0.69, 0.0001));
+    expect(frac(md['white_point_x']), closeTo(0.3127, 0.0001));
+    final cll = side.firstWhere((d) => d['side_data_type'] == 'Content light level metadata',
+        orElse: () => fail('no content light level in the output: $side'));
+    expect(cll['max_content'], 1000);
+    expect(cll['max_average'], 400);
+  }, timeout: const Timeout(Duration(minutes: 5)));
+
   test('other encoders still encode an HDR source, tags intact', () async {
     // libx264 must not be handed -x265-params, which would fail the encode.
     final j = job('hdr10_x264.mkv', VideoCodec.h264);
