@@ -11,8 +11,8 @@
 //   mf       Media Foundation's Source Reader on the native (compressed) type:
 //            each sample's timestamp.
 //   mf_pcm   The same, decoded to PCM by Media Foundation's AAC decoder.
-//   vfw      Video for Windows (avifil32): one AVIStreamRead per stream sample,
-//            its AVIStreamSampleToTime.
+//   vfw      Video for Windows (avifil32): AVIStreamRead (convenient), each
+//            read's AVIStreamSampleToTime and bytes.
 //
 // Prints one JSON line: whether the stream was read, the format offered, and
 // "times": [[start in 100 ns units, bytes], ...] in delivery order. Built on
@@ -117,10 +117,13 @@ static int run_vfw(const wchar_t *in) {
     AVIStreamInfoW(ps, &info, sizeof info);
     g_note = "length " + std::to_string(len) + ", dwSampleSize " + std::to_string(info.dwSampleSize) + ", scale/rate " +
              std::to_string(info.dwScale) + "/" + std::to_string(info.dwRate);
-    std::vector<BYTE> buf(1 << 16);
+    // AVISTREAMREAD_CONVENIENT, as VirtualDub 1.x and task #25's probe read:
+    // each read's start time and the bytes it returned, as many stream
+    // "samples" as VfW chooses to give at once.
+    std::vector<BYTE> buf(1 << 20);
     for (LONG pos = start; pos < start + len;) {
         LONG bytes = 0, samples = 0;
-        hr = AVIStreamRead(ps, pos, 1, buf.data(), (LONG)buf.size(), &bytes, &samples);
+        hr = AVIStreamRead(ps, pos, AVISTREAMREAD_CONVENIENT, buf.data(), (LONG)buf.size(), &bytes, &samples);
         if (FAILED(hr)) { g_note += "; AVIStreamRead " + hex(hr) + " at " + std::to_string(pos); break; }
         if (samples <= 0) break;
         LONG ms = AVIStreamSampleToTime(ps, pos);

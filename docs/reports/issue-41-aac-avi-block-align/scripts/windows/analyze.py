@@ -12,6 +12,10 @@ One JSON line per reader x file:
                  x 1024/48000 for a compressed reader; the samples decoded
                  before it for mf_pcm). 0 = in time; +21.3 per packet timed
                  as two
+- bytes_delivered / bytes_in_file  for the compressed readers: whether the
+                 reader handed over every byte of the stream
+- vfw: VfW reads by its own "samples", so only its reads and the bytes it
+                 returned are listed
 - ok / note / format as the reader reported
 """
 import json
@@ -39,7 +43,14 @@ for name in FILES:
         row = {'reader': reader, 'file': name, 'ok': r['ok'], 'note': r['note'], 'format': r['format'],
                'packets': len(packets), 'delivered': len(times),
                'largest_packet': max(packets), 'over_768_per_channel': sum(p > 768 * channels for p in packets)}
-        if times and reader != 'mf_pcm':
+        if reader in ('vfw', 'mf', 'dshow'):
+            row['bytes_delivered'] = sum(n for _, n in times)
+            row['bytes_in_file'] = sum(packets)
+        if reader == 'vfw':
+            row['reads'] = len(times)
+            row['vfw_reads'] = [[round(t, 4), n] for t, n in times[:6]]
+            row['end_s'] = round(times[-1][0], 4) if times else None
+        elif times and reader != 'mf_pcm':
             row['late_steps'] = sum(1 for (a, _), (b, _) in zip(times, times[1:]) if b - a > FRAME + 0.001)
             row['early_steps'] = sum(1 for (a, _), (b, _) in zip(times, times[1:]) if b - a < FRAME - 0.001)
             row['first_s'] = round(times[0][0], 6)
