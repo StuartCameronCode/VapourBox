@@ -11,9 +11,13 @@
 //!
 //! Before the fix every case extracted the whole title set: 225 frames.
 //!
-//! Needs libdvdread and ffmpeg/ffprobe (the deps bundle in a debug build;
-//! every platform's bundle carries libdvdread). Skips, saying why, when the
-//! worker can't find or load libdvdread.
+//! Needs the deps bundle (libdvdread, ffmpeg and ffprobe, found by
+//! `DependencyLocator` as a debug build does). Every platform's bundle must
+//! carry a libdvdread that loads on a machine with nothing else installed, so
+//! a missing or unloadable one FAILS, with the worker's reason: deps 1.16.0's
+//! macOS arm64 copy linked Homebrew's libdvdcss by absolute path and loaded
+//! only where Homebrew had it (task #36). A local tree from 1.16.0 or older
+//! fails here; re-run Scripts/download-deps-macos.sh.
 //!
 //! Run with: cargo test --test dvd_extract_integration_test -- --nocapture
 
@@ -97,8 +101,6 @@ fn frame_times(ffprobe: &Path, file: &Path) -> Vec<f64> {
 enum Outcome {
     Extracted(PathBuf),
     Failed(String),
-    /// libdvdread is missing or will not load, with the worker's reason.
-    NoLibDvdRead(String),
 }
 
 fn extract(dir: &Path, name: &str, args: &[&str]) -> Outcome {
@@ -112,12 +114,12 @@ fn extract(dir: &Path, name: &str, args: &[&str]) -> Outcome {
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&r.stdout).to_string();
-    // Missing, or present but unloadable: the published macOS arm64 bundle's
-    // libdvdread links Homebrew's libdvdcss by absolute path, so it loads
-    // only where Homebrew has libdvdcss (a bundle bug, filed separately).
-    if stdout.contains("libdvdread not found") || stdout.contains("Failed to load libdvdread") {
-        return Outcome::NoLibDvdRead(stdout);
-    }
+    // Missing, or present but unloadable, is a bundle bug, never a skip
+    // (task #36).
+    assert!(
+        !stdout.contains("libdvdread not found") && !stdout.contains("Failed to load libdvdread"),
+        "the deps bundle's libdvdread is missing or will not load: {stdout}"
+    );
     if r.status.success() {
         assert!(out.exists(), "{stdout}");
         assert!(!dir.join(format!("{name}.mpg.part")).exists(), "the .part is cleaned up");
@@ -133,6 +135,11 @@ fn each_title_and_chapter_range_is_extracted_alone() {
     let deps = DependencyLocator::new().expect("locate dependencies");
     let ffmpeg = deps.ffmpeg_path().expect("locate ffmpeg");
     let ffprobe = deps.ffprobe_path().expect("locate ffprobe");
+    // The bundle's own copy: the worker falls back to a system libdvdread
+    // when the bundle has none, which would hide a bundle without it on any
+    // machine that happens to have one.
+    let dvdread = deps.dvdread_library_path();
+    assert!(dvdread.is_file(), "the deps bundle has no libdvdread at {dvdread:?} (task #36)");
 
     let dir = std::env::temp_dir().join(format!("vb_dvd_extract_it_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -149,11 +156,6 @@ fn each_title_and_chapter_range_is_extracted_alone() {
     for (name, args, expected) in cases {
         let file = match extract(&dir, name, args) {
             Outcome::Extracted(f) => f,
-            Outcome::NoLibDvdRead(log) => {
-                eprintln!("SKIP: the worker cannot load libdvdread: {log}");
-                let _ = std::fs::remove_dir_all(&dir);
-                return;
-            }
             Outcome::Failed(log) => panic!("{name}: extraction failed: {log}"),
         };
 
