@@ -122,12 +122,20 @@ fn vspipe_genuinely_failed(status: &std::process::ExitStatus) -> bool {
     !matches!(status.code(), Some(0) | Some(130) | Some(141)) && !is_sigpipe(status)
 }
 
-/// Whether an exit status is a native crash: a signal on Unix, an NTSTATUS
-/// crash code on Windows. Such a process prints no Python error.
+/// Whether an exit status is a native crash: a crash signal on Unix (not a
+/// SIGKILL/SIGTERM from outside, e.g. the OOM killer), an NTSTATUS crash code
+/// on Windows. Such a process prints no Python error.
 fn is_native_crash(status: &std::process::ExitStatus) -> bool {
+    #[cfg(unix)]
+    if let Some(sig) = status.signal() {
+        use nix::sys::signal::Signal;
+        return [Signal::SIGILL, Signal::SIGABRT, Signal::SIGBUS, Signal::SIGFPE, Signal::SIGSEGV]
+            .iter()
+            .any(|s| *s as i32 == sig);
+    }
     match status.code() {
         Some(code) => windows_crash_explanation(code).is_some(),
-        None => true,
+        None => false,
     }
 }
 
@@ -1980,6 +1988,9 @@ mod tests {
         assert_eq!(format_exit_status(&status(8)), "signal 8 (SIGFPE)");
         assert_eq!(format_exit_status(&status(11)), "signal 11 (SIGSEGV)");
         assert!(is_native_crash(&status(11)));
+        assert!(is_native_crash(&status(4)));
+        assert!(!is_native_crash(&status(9)), "SIGKILL comes from outside (OOM killer)");
+        assert!(!is_native_crash(&status(15)));
         assert!(!vspipe_genuinely_failed(&status(13)), "SIGPIPE is a symptom, not a failure");
         assert!(vspipe_genuinely_failed(&status(11)));
         // Exit code 1 (wait status 1 << 8): a failure, not a crash.
