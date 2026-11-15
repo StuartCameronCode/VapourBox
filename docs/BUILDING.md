@@ -418,7 +418,7 @@ VapourBox bundles all runtime dependencies. No external installations are requir
 | DeScratch / tmedian | Latest | Scratch and spot removal |
 | VIVTC | Latest | Inverse telecine (VFM + VDecimate) |
 | whisper.cpp | Latest | Speech-to-text for subtitles |
-| libdvdread | Latest | DVD reading and navigation |
+| libdvdread | 6.1.3 (macOS: from source, patched; Windows: ShiftMediaProject; Linux: the distribution's) | DVD reading and navigation |
 
 The full per-platform plugin contract is `Scripts/deps-expected-plugins.json`.
 fmtconv is **pinned to r31 on every platform** (both macOS arches and Linux

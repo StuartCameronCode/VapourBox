@@ -2168,9 +2168,13 @@ for libdir in /usr/lib/$ARCH-linux-gnu /usr/lib64 /usr/lib /usr/local/lib; do
     fi
 done
 
+# Required: DVD import is a shipped feature, and the worker dlopens
+# lib/libdvdread.so from the bundle (task #36). package-deps-linux.sh also
+# fails on a bundle without it (_extraFiles in deps-expected-plugins.json).
 if [ "$DVDREAD_FOUND" = false ]; then
-    echo "  WARNING: libdvdread not found (optional — needed for DVD extraction)"
-    echo "  Install with: sudo apt install libdvdread-dev"
+    echo "  ERROR: libdvdread not found (needed for DVD import)" >&2
+    echo "  Install with: sudo apt install libdvdread-dev" >&2
+    exit 1
 fi
 
 for lib in "$LIB_DIR"/libdvdread*.so*; do

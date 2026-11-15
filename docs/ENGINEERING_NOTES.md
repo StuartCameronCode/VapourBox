@@ -4502,3 +4502,37 @@ Full evidence:
 - Not built: hardware AV1 (NVENC/QSV/AMF; unverifiable here, AMF's QP is
   0–255), WebM/VP9, film-grain synthesis, an x64 macOS FFmpeg with SVT-AV1
   (needs a deps release).
+
+### macOS arm64 libdvdread linked Homebrew's libdvdcss (task #36, 2026-11-15)
+
+Report: [docs/reports/2026-11-libdvdread-dvdcss](reports/2026-11-libdvdread-dvdcss/index.html).
+
+- **The fault:** deps 1.16.0's macos-arm64 `lib/libdvdread.dylib` was
+  Homebrew's bottle (built `--with-libdvdcss`): `LC_LOAD_DYLIB
+  /opt/homebrew/opt/libdvdcss/lib/libdvdcss.2.dylib`. Without Homebrew
+  libdvdcss dyld refuses the library, so DVD import failed. macOS x64 (built
+  from source since issue #39), Linux and Windows were clean: each opens
+  libdvdcss at run time. The end-of-build guard whitelisted `libdvdcss*`,
+  calling it a weak link (it was not), and scanned only `plugins/` and `lib/`.
+- **Fix:** libdvdread 6.1.3 from source on both arches, `--without-libdvdcss`,
+  arm64 at minos 15.0, with `patches/libdvdread-6.1.3-macos-dvdcss-paths.patch`.
+  A bare `dlopen("libdvdcss.2.dylib")` searches dyld's fallback path,
+  `/usr/local/lib:/usr/lib`, so it misses Apple Silicon Homebrew and MacPorts;
+  the patch then tries `/opt/homebrew/lib`, `/usr/local/lib`, `/opt/local/lib`
+  by absolute path. Probe: stock build, libdvdcss not loaded; patched, loaded
+  from the Cellar.
+- **Rejected:** preloading libdvdcss in the worker (`dlopen` of the bare name
+  with `RTLD_NOLOAD` returned NULL with it loaded: dyld does not match a leaf
+  name against loaded images); `DYLD_FALLBACK_LIBRARY_PATH` (launch-time only,
+  every spawner would need it); bundling libdvdcss (deliberately not shipped).
+- **Guard:** `Scripts/check-macho-refs.py` fails on any dependency (weak
+  included) with an absolute path outside `/usr/lib/` and `/System/`, and on
+  any absolute `LC_RPATH`, in every Mach-O file of the bundle. Load commands
+  only: the patched libdvdread names `/opt/homebrew/lib/…` as a string. It
+  found 13 inert absolute rpaths into build machines (zimg/fftw Cellar, gcc,
+  Nix), which `download-deps-macos.sh` now strips. `check-elf-refs.py` is the
+  Linux twin (`NEEDED` paths, `RPATH`/`RUNPATH` outside `$ORIGIN`). libdvdread
+  is now in `_extraFiles` on every platform, Linux's build fails without it,
+  and `dvd_extract_integration_test` fails instead of skipping.
+- **Not tested:** a Mac with no libdvdcss at all (the CI arm64 runner is that
+  test) and a real CSS disc.

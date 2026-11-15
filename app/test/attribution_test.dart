@@ -164,7 +164,8 @@ void main() {
       // The ncnn plugins live outside the autoload directory (RIFE in
       // vapoursynth/rife/, VSNCNN in vapoursynth/ncnn/, MoltenVK in
       // vapoursynth/moltenvk/), so they are listed under _extraFiles rather
-      // than in the per-platform lists. Their models are add-ons.
+      // than in the per-platform lists. Their models are add-ons. So is
+      // libdvdread, in lib/.
       final manifest = jsonDecode(
         File(p.join(root, 'Scripts', 'deps-expected-plugins.json')).readAsStringSync(),
       ) as Map<String, dynamic>;
@@ -175,6 +176,9 @@ void main() {
         'libmoltenvk': 'MoltenVK',
         'libvsncnn': 'VSNCNN (vs-mlrt)',
         'vsncnn': 'VSNCNN (vs-mlrt)',
+        // DVD import's reader, in lib/ (required on every platform, task #36).
+        'libdvdread': 'libdvdread',
+        'dvdread': 'libdvdread',
       };
       for (final entry in extra.entries) {
         for (final path in (entry.value as List).cast<String>()) {

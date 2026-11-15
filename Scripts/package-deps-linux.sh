@@ -184,6 +184,16 @@ PY
         return 1
     fi
 
+    # Nothing in the bundle may load from outside it: no NEEDED path and no
+    # RPATH/RUNPATH entry outside $ORIGIN (task #36; the macOS twin is
+    # check-macho-refs.py in package-deps-macos.sh).
+    echo "    Checking no ELF file depends on anything outside the bundle..."
+    if ! python3 "$PROJECT_ROOT/Scripts/check-elf-refs.py" "$PACKAGE_DIR"; then
+        echo "ERROR: the $PLATFORM_KEY bundle depends on files outside itself" >&2
+        PACKAGE_INCOMPLETE="$PACKAGE_INCOMPLETE $PLATFORM_KEY"
+        return 1
+    fi
+
     echo "[4/4] Creating zip archive for $ARCH_NAME..."
     local ZIP_FILE="$DIST_DIR/$PACKAGE_NAME.zip"
     rm -f "$ZIP_FILE"

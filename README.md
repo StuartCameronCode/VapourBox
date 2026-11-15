@@ -153,7 +153,7 @@ Every filter explains in place what it does and when to use it. Where two filter
 
 **Encrypted discs.** Most commercial DVDs use CSS encryption. VapourBox doesn't include **libdvdcss** to decrypt them, but uses it if you install it:
 
-- **macOS:** `brew install libdvdcss`
+- **macOS:** `brew install libdvdcss` (or MacPorts: `sudo port install libdvdcss`)
 - **Windows:** put `libdvdcss-2.dll` from [VideoLAN](https://www.videolan.org/developers/libdvdcss.html) next to `vapourbox.exe`
 - **Linux:** `sudo apt install libdvdcss2` · `sudo dnf install libdvdcss` (RPM Fusion) · `sudo pacman -S libdvdcss`
 
