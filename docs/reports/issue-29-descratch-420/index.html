@@ -82,7 +82,10 @@ never fail.</p>
 <li><strong>Deinterlacing off with a detected field order.</strong> The heavy test's case, and a film-on-tape capture's.</li>
 <li><strong>Soft Telecine.</strong> A bare <code>VDecimate</code> leaves <code>_FieldBased=2</code>, so an NTSC film DVD with Soft Telecine
 and DeScratch failed too. QTGMC, Bwdif and IVTC (VFM ± VDecimate) reset it to 0, which is why the existing encode
-test (QTGMC first) never caught this.</li>
+test (QTGMC first) never caught this.
+<span class="correction"> <em>Update (task #33, 2026-11-15):</em> Soft Telecine jobs are no longer marked field-based,
+so DeScratch now sees their film frames as progressive; see
+<a href="../issue-33-soft-telecine-field-based/index.html">issue-33-soft-telecine-field-based</a>.</span></li>
 </ul>
 <div class="card correction"><p><strong>Correction to the plan.</strong> The plan said DeScratch also fails on NTSC DV (4:1:1), because the plugin
 refuses <code>YUV411P8</code> ("Video must be YV12, YV16 or YV24!"). That is true of the plugin, but no job reaches it with 4:1:1.
@@ -167,7 +170,8 @@ All six new tests fail with error 1027 on the previous templates.</li>
 <ul>
 <li>Real scratched film. There is no such fixture in the repo; the quality ranking rests on synthetic scratches.</li>
 <li>Soft Telecine leaves <code>_FieldBased</code> set on film frames, so every later zimg resize treats them as fields.
-Filed as task #33.</li>
+Filed as task #33. <em>Fixed by task #33 (2026-11-15):
+<a href="../issue-33-soft-telecine-field-based/index.html">report</a>.</em></li>
 <li>DeScratch on a source deeper than 8-bit up-converts the whole 8-bit frame, so untouched pixels lose
 precision. Filed as task #34.</li>
 <li>Blur Radius allows 200, but the plugin refuses <code>height // (1 + blurlen) &lt; 2</code> (above 119 on 480 lines).

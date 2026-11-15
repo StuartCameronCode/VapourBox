@@ -481,8 +481,16 @@ impl ScriptGenerator {
     /// `TFF=` parameter — decides the field order that is actually used. Two
     /// derivations that can disagree means the user's field-order choice can be
     /// silently overridden, and preview can disagree with the encode (issue #49).
+    ///
+    /// Soft Telecine is never marked (task #33): its stored frames are
+    /// progressive film, `vivtc.VDecimate` copies the property through without
+    /// reading it, and a marked film frame had its 4:2:0 chroma resampled as
+    /// two fields by every later zimg resize (docs/reports/issue-33-soft-telecine-field-based).
     pub fn field_based_for(job: &VideoJob, pipeline: &ProcessingPipeline) -> Option<i32> {
         if pipeline.deinterlace.enabled {
+            if pipeline.deinterlace.method == DeinterlaceMethod::SoftTelecine {
+                return None;
+            }
             // Deinterlacing: the pass's own field order is authoritative.
             Some(if pipeline.deinterlace.tff.unwrap_or(true) { 2 } else { 1 })
         } else {
@@ -1771,7 +1779,8 @@ impl ScriptGenerator {
                     script = script.replace("{{/DEBLOCK_MPEG2STINX}}", "");
                     // The field order the frames were ENCODED with: the
                     // deinterlace pass's (IVTC) when it runs, else what was
-                    // detected, else top field first (DVD's usual order).
+                    // detected, else top field first (DVD's usual order;
+                    // also Soft Telecine, which is never marked).
                     let tff = Self::field_based_for(job, pipeline).map_or(true, |fb| fb == 2);
                     script = script.replace("{{DEBLOCK_STINX_TFF}}", if tff { "True" } else { "False" });
                 }

@@ -8869,3 +8869,77 @@ fn test_243_descratch_keeps_high_bit_depth_outside_scratches() {
         );
     }
 }
+/// Task #33: Soft Telecine's frames are progressive film, so neither script
+/// marks them field-based. A bare VDecimate copied the `_FieldBased=2` the
+/// source marking stamped, and every later zimg resize (Color Format, ProRes,
+/// Crop & Resize, BT.709) resampled each film frame's 4:2:0 chroma as two
+/// fields; at the film rate there was no VDecimate and the marking stayed
+/// too. The encoder is told the picture is progressive for every codec
+/// (docs/reports/issue-33-soft-telecine-field-based).
+#[test]
+fn test_244_soft_telecine_frames_are_progressive() {
+    create_output_dir();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_addons(std::env::temp_dir().join("vb-no-addons-here"), "macos-arm64");
+    for rate in [29.97, 23.976] {
+        for tff in [Some(true), Some(false), None] {
+            for (codec, container, cs) in [
+                (VideoCodec::FFV1, ContainerFormat::Mkv, ChromaSubsampling::Yuv422),
+                (VideoCodec::ProResHQ, ContainerFormat::Mov, ChromaSubsampling::Original),
+            ] {
+                let ctx = format!("{rate} {tff:?} {codec:?}");
+                let mut job = create_base_job("test_244_soft_telecine");
+                job.input_frame_rate = Some(rate);
+                job.input_pixel_format = Some("yuv420p".to_string());
+                job.encoding_settings.codec = codec;
+                job.encoding_settings.container = container;
+                job.encoding_settings.chroma_subsampling = cs;
+                let mut pipeline = ProcessingPipeline::default();
+                pipeline.deinterlace.enabled = true;
+                pipeline.deinterlace.method = DeinterlaceMethod::SoftTelecine;
+                pipeline.deinterlace.tff = tff;
+                job.processing_pipeline = Some(pipeline.clone());
+
+                assert_eq!(ScriptGenerator::field_based_for(&job, &pipeline), None, "{ctx}");
+                assert_eq!(ScriptGenerator::output_field_order(&job, &pipeline), None, "{ctx}");
+
+                let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+                for (label, script) in [("encode", &encode), ("preview", &preview)] {
+                    for marked in ["SetFieldBased(clip, 1)", "SetFieldBased(clip, 2)"] {
+                        assert!(!script.contains(marked), "{ctx} {label}: {marked}");
+                    }
+                    assert!(script.contains("target_format = "), "{ctx} {label}: the conversion runs");
+                }
+                assert_eq!(encode.contains("core.vivtc.VDecimate(clip)"), rate > 25.0, "{ctx}");
+            }
+        }
+    }
+
+    // Field-order flags: none for any codec, and no "still interlaced" note.
+    for codec in VideoCodec::ALL.iter().copied() {
+        let mut job = create_base_job("test_244_soft_telecine_flags");
+        job.input_frame_rate = Some(29.97);
+        job.encoding_settings.codec = codec;
+        job.encoding_settings.container = ContainerFormat::Mov;
+        let mut pipeline = ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = true;
+        pipeline.deinterlace.method = DeinterlaceMethod::SoftTelecine;
+        job.processing_pipeline = Some(pipeline);
+        let args = vapourbox_worker::pipeline_executor::field_order_args(&job);
+        assert!(args.input.is_empty() && args.encoder.is_empty(), "{codec:?}: {args:?}");
+        assert_eq!(vapourbox_worker::pipeline_executor::field_order_note(&job), None, "{codec:?}");
+    }
+
+    // Every other deinterlace method keeps its own field order.
+    for method in [DeinterlaceMethod::Qtgmc, DeinterlaceMethod::Ivtc, DeinterlaceMethod::Bwdif] {
+        for (tff, fb) in [(Some(true), 2), (Some(false), 1), (None, 2)] {
+            let job = create_base_job("test_244_other_methods");
+            let mut pipeline = ProcessingPipeline::default();
+            pipeline.deinterlace.enabled = true;
+            pipeline.deinterlace.method = method;
+            pipeline.deinterlace.tff = tff;
+            assert_eq!(ScriptGenerator::field_based_for(&job, &pipeline), Some(fb), "{method:?} {tff:?}");
+        }
+    }
+}

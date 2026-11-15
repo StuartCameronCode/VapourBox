@@ -2576,7 +2576,11 @@ frame property is set** — the property wins, so QTGMC's `TFF=` parameter is
 inert on a marked clip. `ScriptGenerator::field_based_for` is the single
 derivation both the encode and preview paths must use.
 
-- Deinterlacing enabled → `_FieldBased` comes from `pipeline.deinterlace.tff`.
+- Deinterlacing enabled → `_FieldBased` comes from `pipeline.deinterlace.tff`,
+  **except Soft Telecine, which is never marked** (task #33): its frames are
+  progressive film, and `VDecimate` copies the property through without
+  reading it, so a marked film frame had its 4:2:0 chroma resampled per field
+  by every later zimg resize (docs/reports/issue-33-soft-telecine-field-based).
 - Deinterlacing disabled → falls back to `job.detected_field_order` (zimg
   honours `_FieldBased` for chroma resampling too).
 - **A filter that works vertically must not run on a woven interlaced frame**:
