@@ -1,5 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import 'video_job.dart' show ContainerFormat;
+
 part 'audio_restoration_parameters.g.dart';
 
 /// The add-on speech enhancement runs (`assets/addons/deepfilternet.json`).
@@ -26,9 +28,19 @@ const double videoStartSuggestThreshold = 0.25;
 /// before its picture, or null when they start together. Informational
 /// only: it never ticks the step, and it never suggests the sync offset,
 /// which would move the sound against the picture.
-String? videoStartNotice(double videoStartOffset) {
+///
+/// For a [container] that cannot store a later video start (AVI) it says that
+/// the output starts both with the picture and leaves the gap's sound out,
+/// as the worker does (`VideoJob::lead_sound_left_out`, task #30).
+String? videoStartNotice(double videoStartOffset, {ContainerFormat? container}) {
   if (videoStartOffset <= 0) return null;
   final secs = videoStartOffset.toStringAsFixed(2);
+  if (container != null && !container.storesStreamStart) {
+    return "This video's sound starts $secs s before its picture. "
+        "${container.displayName} can't store a picture that starts after its "
+        'sound, so the output starts both with the picture and leaves those '
+        '$secs s out. MKV, MP4 or MOV keep them, in sync.';
+  }
   return "This video's sound starts $secs s before its picture. The output "
       'keeps that, in sync: sound first, the picture joining when it does in '
       'the recording. "Start the sound with the picture" drops those $secs s '

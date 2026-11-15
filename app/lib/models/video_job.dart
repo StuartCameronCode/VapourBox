@@ -436,6 +436,21 @@ enum ContainerFormat {
 
   String get extension => value;
 
+  /// Whether the container records where each stream starts (MP4/MOV with an
+  /// edit list, Matroska). AVI does not: a picture that starts after its
+  /// sound cannot be stored there, so the output starts both with the
+  /// picture. Twin of the worker's `ContainerFormat::stores_stream_start`.
+  bool get storesStreamStart {
+    switch (this) {
+      case ContainerFormat.mp4:
+      case ContainerFormat.mov:
+      case ContainerFormat.mkv:
+        return true;
+      case ContainerFormat.avi:
+        return false;
+    }
+  }
+
   /// Get the list of codecs supported by this container.
   List<VideoCodec> get supportedCodecs {
     return VideoCodec.values

@@ -2282,6 +2282,49 @@ mod tests {
         assert!(joined.contains("-ss 0.667333 -i input.mp4 -ss 0.667334 -i input.mp4 -progress"), "{joined}");
     }
 
+    /// Task 30: AVI cannot store a picture that starts after its sound
+    /// (avienc wrote null frames at 1/600, the first picture held from 0), so
+    /// an untrimmed late video starts both with the picture there: no delay,
+    /// the sound seeked to the first picture and cut as a trim's is. MKV, MP4
+    /// and MOV keep the delay and copy from the start, unchanged.
+    #[test]
+    fn an_untrimmed_late_video_into_avi_starts_both_with_the_picture() {
+        let ac3 = SoundCut { streams: vec![audio_restoration::CutStream::Packet], half_packet: 0.016, half_any_packet: 0.016 };
+        for container in [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
+            for mode in [AudioMode::Passthrough, AudioMode::Convert] {
+                let mut job = avi_trim_job(container);
+                job.input_frame_rate = Some(25.0);
+                job.start_frame = None;
+                job.end_frame = None;
+                job.encoding_settings.audio_mode = mode;
+                job.video_start_offset = Some(1.010022);
+                let joined = build_ffmpeg_args_with_sound_cut(&job, Some(ac3.clone())).join(" ");
+                if container.stores_stream_start() {
+                    assert!(joined.contains("-vf settb=1/120000,setpts=PTS+121203"), "{container:?} {joined}");
+                    assert!(joined.contains("-enc_time_base:v 1/120000"), "{container:?} {joined}");
+                    assert!(!joined.contains("-ss "), "{container:?}: copied from the start: {joined}");
+                    assert_eq!(job.lead_sound_left_out(), None);
+                } else {
+                    assert!(!joined.contains("settb") && !joined.contains("setpts") && !joined.contains("enc_time_base"), "{joined}");
+                    assert!(joined.contains("-ss 1.010022 -i input.mp4"), "{mode:?}: {joined}");
+                    assert_eq!(audio_restoration::needs_sound_cut(&job, None), mode == AudioMode::Passthrough);
+                    if mode == AudioMode::Passthrough {
+                        assert!(joined.contains("-ss 1.010022 -i input.mp4 -ss 0.994022 -i input.mp4"), "{joined}");
+                        assert!(joined.contains("-copypriorss:a 0"), "{joined}");
+                    }
+                    assert_eq!(job.lead_sound_left_out(), Some(1.010022));
+                }
+
+                // No gap: AVI and every other container are as before, with no
+                // delay, no seek and no cut.
+                job.video_start_offset = None;
+                let joined = build_ffmpeg_args_with_sound_cut(&job, Some(ac3.clone())).join(" ");
+                assert!(!joined.contains("settb") && !joined.contains("-ss ") && !joined.contains("copypriorss"), "{joined}");
+                assert_eq!(build_ffmpeg_args_with_sound_cut(&job, None), build_ffmpeg_args_for_test(&job));
+            }
+        }
+    }
+
     /// Every job a cut does not apply to keeps its arguments byte for byte:
     /// MKV/MP4/MOV, Convert, None, untrimmed.
     #[test]
