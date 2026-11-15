@@ -411,7 +411,7 @@ pub struct PipelineExecutor {
     /// rule 9, `audio_restoration::needs_sound_sidecar`). `None` otherwise.
     sound_copy: Option<SoundCopy>,
     /// How the copied sound is cut when it goes into AVI, which cannot store
-    /// a stream's start (`audio_restoration::needs_sound_cut`). `None`
+    /// a stream's start (`audio_restoration::sound_cut_applies`). `None`
     /// otherwise.
     sound_cut: Option<SoundCut>,
     /// The audio encoder's start-up, which AVI cannot mark: every encoded
@@ -1991,11 +1991,17 @@ pub fn sound_cut_input<'a>(cut: Option<&'a SoundCut>, copy: Option<&SoundCopy>, 
 }
 
 /// The packet input of a [`SoundCut`]: the file the sound is read from (the
-/// sound copy, else the source), seeked half a packet before the sound's
-/// start, so `-copypriorss:a 0` keeps the packet nearest the in-point. No
-/// seek when that falls at or before 0. Nothing when no stream is copied by
-/// packet. From the NUT copy, whose audio time base is the sample rate, every
-/// compressed stream needs the early seek (`SoundCut::half_any_packet`).
+/// sound copy, else the source), with `-copypriorss:a 0`'s threshold moved
+/// half a packet before the sound's start, so it keeps the packet nearest the
+/// in-point. Seeked there when that is inside the file; when it falls before
+/// the file's start, the input's timestamps are offset later by the
+/// remainder instead (`-itsoffset`, never beside an `-ss`, where #38 found it
+/// inert). An untrimmed copy whose compressed sound starts with its
+/// encoder's priming before 0 (task #43) is the case: every packet kept is
+/// then at or after 0, so the muxer never shifts a stream. Nothing when no
+/// stream is copied by packet. From the NUT copy, whose audio time base is the
+/// sample rate, every compressed stream needs the early threshold
+/// (`SoundCut::half_any_packet`); there is none at start 0.
 pub fn sound_cut_input_args(job: &VideoJob, copy: Option<&SoundCopy>, cut: Option<&SoundCut>) -> Vec<String> {
     let Some(c) = cut.filter(|c| c.has_packet_streams()) else { return Vec::new() };
     let mut args = Vec::new();
@@ -2003,6 +2009,8 @@ pub fn sound_cut_input_args(job: &VideoJob, copy: Option<&SoundCopy>, cut: Optio
     let at = job.source_audio_start() - half;
     if at > 0.0 {
         args.extend(["-ss".to_string(), crate::source_decode::seek_arg(at)]);
+    } else if at < 0.0 {
+        args.extend(["-itsoffset".to_string(), crate::source_decode::seek_arg(-at)]);
     }
     let path = copy.map_or_else(|| job.input_path.clone(), |c| c.path.to_string_lossy().to_string());
     args.extend(["-i".to_string(), path]);
@@ -2335,7 +2343,7 @@ mod tests {
 
     /// Build args as the job would run them, with the sound cut `cut`.
     fn build_ffmpeg_args_with_sound_cut(job: &VideoJob, cut: Option<SoundCut>) -> Vec<String> {
-        let use_cut = cut.filter(|_| audio_restoration::needs_sound_cut(job, None));
+        let use_cut = cut.filter(|c| audio_restoration::sound_cut_applies(job, None, c));
         TEST_SOUND_CUT.with(|c| *c.borrow_mut() = use_cut);
         let args = build_ffmpeg_args_with_sound_copy(job);
         TEST_SOUND_CUT.with(|c| *c.borrow_mut() = None);
@@ -2360,7 +2368,7 @@ mod tests {
     #[test]
     fn a_passthrough_trim_into_avi_cuts_its_sound() {
         let job = avi_trim_job(ContainerFormat::Avi);
-        let pcm = SoundCut { streams: vec![audio_restoration::CutStream::Exact("pcm_s16le")], half_packet: 0.0, half_any_packet: 0.0 };
+        let pcm = SoundCut { streams: vec![audio_restoration::CutStream::Exact("pcm_s16le")], half_packet: 0.0, half_any_packet: 0.0, head_before_start: vec![] };
         let joined = build_ffmpeg_args_with_sound_cut(&job, Some(pcm)).join(" ");
         assert!(joined.contains("-ss 0.667333 -i input.mp4 -progress"), "{joined}");
         assert!(joined.contains("-map 1:a:0 -map_metadata:s:a:0 1:s:a:0"), "{joined}");
@@ -2368,7 +2376,7 @@ mod tests {
         assert!(!joined.contains("copypriorss"), "{joined}");
         assert_eq!(joined.matches(" -i input.mp4").count(), 1);
 
-        let ac3 = SoundCut { streams: vec![audio_restoration::CutStream::Packet], half_packet: 0.016, half_any_packet: 0.016 };
+        let ac3 = SoundCut { streams: vec![audio_restoration::CutStream::Packet], half_packet: 0.016, half_any_packet: 0.016, head_before_start: vec![] };
         let joined = build_ffmpeg_args_with_sound_cut(&job, Some(ac3.clone())).join(" ");
         // 20 * 1001 / 30000 - 0.016 = 0.651333.., rounded up.
         assert!(joined.contains("-ss 0.667333 -i input.mp4 -ss 0.651334 -i input.mp4 -progress"), "{joined}");
@@ -2376,12 +2384,15 @@ mod tests {
         assert!(joined.contains("-c:a copy -copypriorss:a 0"), "{joined}");
         assert_eq!(joined.matches("\"-af\"").count() + joined.matches(" -af ").count(), 0);
 
-        // An in-point within half a packet of 0: no seek on the packet input.
+        // An in-point within half a packet of 0: no seek on the packet input;
+        // its timestamps are offset by the remainder instead, so the
+        // threshold is still half a packet before the in-point (task #43).
         let mut early = job.clone();
         early.start_frame = Some(1);
         let early_cut = SoundCut { half_packet: 0.04, ..ac3.clone() };
         let joined = build_ffmpeg_args_with_sound_cut(&early, Some(early_cut)).join(" ");
-        assert!(joined.contains("-ss 0.033367 -i input.mp4 -i input.mp4 -progress"), "{joined}");
+        assert!(joined.contains("-ss 0.033367 -i input.mp4 -itsoffset 0.006634 -i input.mp4 -progress"), "{joined}");
+        assert!(!joined.contains("-ss 0.033367 -i input.mp4 -ss"), "never -itsoffset beside an -ss: {joined}");
 
         // A delayed AVI near its start: both from the NUT copy (input 2 here,
         // the packet input 3).
@@ -2394,7 +2405,7 @@ mod tests {
         assert!(joined.contains("-map 3:a:0 -map_metadata:s:a:0 1:s:a:0"), "{joined}");
         // An AVI's MP3 is counted in packets (half_packet 0), but its NUT copy
         // is counted in samples, so from the copy it still seeks early.
-        let mp3_avi = SoundCut { streams: vec![audio_restoration::CutStream::Packet], half_packet: 0.0, half_any_packet: 0.013 };
+        let mp3_avi = SoundCut { streams: vec![audio_restoration::CutStream::Packet], half_packet: 0.0, half_any_packet: 0.013, head_before_start: vec![] };
         let joined = build_ffmpeg_args_with_sound_cut(&delayed, Some(mp3_avi.clone())).join(" ");
         assert!(joined.contains("-i /tmp/sound.nut -ss 0.053734 -i /tmp/sound.nut -progress"), "{joined}");
         let joined = build_ffmpeg_args_with_sound_cut(&job, Some(mp3_avi)).join(" ");
@@ -2408,7 +2419,7 @@ mod tests {
     /// and MOV keep the delay and copy from the start, unchanged.
     #[test]
     fn an_untrimmed_late_video_into_avi_starts_both_with_the_picture() {
-        let ac3 = SoundCut { streams: vec![audio_restoration::CutStream::Packet], half_packet: 0.016, half_any_packet: 0.016 };
+        let ac3 = SoundCut { streams: vec![audio_restoration::CutStream::Packet], half_packet: 0.016, half_any_packet: 0.016, head_before_start: vec![] };
         for container in [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
             for mode in [AudioMode::Passthrough, AudioMode::Convert] {
                 let mut job = avi_trim_job(container);
@@ -2452,6 +2463,7 @@ mod tests {
             streams: vec![audio_restoration::CutStream::Exact("pcm_s16le"), audio_restoration::CutStream::Packet],
             half_packet: 0.016,
             half_any_packet: 0.016,
+            head_before_start: vec![],
         };
         for container in [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
             for mode in [AudioMode::Passthrough, AudioMode::Convert, AudioMode::None] {
@@ -2470,9 +2482,67 @@ mod tests {
                             "{container:?} {mode:?} {start:?}"
                         );
                     }
+                    // A primed head (task #43) changes only an untrimmed
+                    // Passthrough into AVI; everything else is byte for byte.
+                    let primed = SoundCut { head_before_start: vec![0.0, 0.021333], ..cut.clone() };
+                    let head = container == ContainerFormat::Avi && mode == AudioMode::Passthrough && start != Some(20);
+                    assert_eq!(audio_restoration::sound_cut_applies(&job, None, &primed), applies || head, "{container:?} {mode:?} {start:?}");
+                    if !applies && !head {
+                        assert_eq!(
+                            build_ffmpeg_args_with_sound_cut(&job, Some(primed)),
+                            build_ffmpeg_args_with_sound_copy(&job),
+                            "{container:?} {mode:?} {start:?}"
+                        );
+                    }
                 }
             }
         }
+    }
+
+    /// Task #43: an untrimmed Passthrough into AVI whose copied compressed
+    /// sound starts with its encoder's priming before 0 (AAC/MP3 encoded by
+    /// ffmpeg into MKV/MP4) copies it from the packet input, offset half a
+    /// packet so `-copypriorss:a 0` keeps the packet nearest 0. No output
+    /// option: every packet kept is at or after 0, so nothing is shifted and
+    /// an IVTC job keeps its `make_zero`.
+    #[test]
+    fn an_untrimmed_copy_into_avi_cuts_a_primed_head() {
+        let mut job = avi_trim_job(ContainerFormat::Avi);
+        job.start_frame = None;
+        job.end_frame = None;
+        let aac = SoundCut {
+            streams: vec![audio_restoration::CutStream::Packet],
+            half_packet: 0.010667,
+            half_any_packet: 0.010667,
+            head_before_start: vec![0.021333],
+        };
+        let joined = build_ffmpeg_args_with_sound_cut(&job, Some(aac.clone())).join(" ");
+        assert!(joined.contains("-i - -i input.mp4 -itsoffset 0.010667 -i input.mp4 -progress"), "{joined}");
+        assert!(joined.contains("-map 2:a:0 -map_metadata:s:a:0 1:s:a:0"), "{joined}");
+        assert!(joined.contains("-c:a copy -copypriorss:a 0"), "{joined}");
+        assert!(!joined.contains("-avoid_negative_ts") && !joined.contains("-ss "), "{joined}");
+
+        // Every copied stream starts with the container: unchanged.
+        let flac = SoundCut { head_before_start: vec![0.0], ..aac.clone() };
+        assert!(!audio_restoration::sound_cut_applies(&job, None, &flac));
+        assert_eq!(build_ffmpeg_args_with_sound_cut(&job, Some(flac)), build_ffmpeg_args_with_sound_copy(&job));
+        // Under a microsecond is timestamp rounding, not a priming.
+        let tiny = SoundCut { head_before_start: vec![5e-7], ..aac.clone() };
+        assert!(!audio_restoration::sound_cut_applies(&job, None, &tiny));
+        // PCM never has a priming: an early PCM stream alone does not cut.
+        let pcm = SoundCut { streams: vec![audio_restoration::CutStream::Exact("pcm_s16le")], ..aac.clone() };
+        assert!(!audio_restoration::sound_cut_applies(&job, None, &pcm));
+
+        // A trimmed copy is the seeked cut, as before.
+        let mut trimmed = job.clone();
+        trimmed.start_frame = Some(20);
+        trimmed.end_frame = Some(61);
+        let joined = build_ffmpeg_args_with_sound_cut(&trimmed, Some(aac)).join(" ");
+        assert!(joined.contains("-ss 0.667333 -i input.mp4 -ss 0.656667 -i input.mp4 -progress"), "{joined}");
+
+        // IVTC's make_zero is untouched: the cut adds no output option, and
+        // the test builder does not mirror make_zero (see
+        // test_real_ffmpeg_builder_applies_the_encoder_priming, which pins it).
     }
 
     /// Build args as the job would run them with the encoder's priming `p`
@@ -2583,13 +2653,13 @@ mod tests {
     #[test]
     fn the_packet_input_follows_the_sound_copy() {
         let c = SoundCopy { path: "/tmp/s.nut".into(), streams: 1 };
-        let cut = SoundCut { streams: vec![audio_restoration::CutStream::Packet], half_packet: 0.01, half_any_packet: 0.01 };
+        let cut = SoundCut { streams: vec![audio_restoration::CutStream::Packet], half_packet: 0.01, half_any_packet: 0.01, head_before_start: vec![] };
         assert_eq!(sound_cut_input(Some(&cut), None, false).map(|x| x.1), Some(3));
         assert_eq!(sound_cut_input(Some(&cut), Some(&c), false).map(|x| x.1), Some(4));
         assert_eq!(sound_cut_input(Some(&cut), Some(&c), true).map(|x| x.1), Some(5));
         assert!(sound_cut_input(None, Some(&c), true).is_none());
         let job = avi_trim_job(ContainerFormat::Avi);
-        let pcm = SoundCut { streams: vec![audio_restoration::CutStream::Exact("pcm_s16le")], half_packet: 0.0, half_any_packet: 0.0 };
+        let pcm = SoundCut { streams: vec![audio_restoration::CutStream::Exact("pcm_s16le")], half_packet: 0.0, half_any_packet: 0.0, head_before_start: vec![] };
         assert!(sound_cut_input_args(&job, None, Some(&pcm)).is_empty(), "PCM needs no packet input");
         assert!(sound_cut_input_args(&job, None, None).is_empty());
     }
