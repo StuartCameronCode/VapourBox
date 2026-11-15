@@ -1697,7 +1697,8 @@ void main() {
       expect(actual['cthresh'], '12');
       expect(actual['ythresh'], '14');
       // Same 8-10 bit limit as LUTDeCrawl, verified by probing the bundle.
-      expect(script, contains('_derainbow_orig_format'));
+      // Above it, only the filter's change is applied at full depth (task #37).
+      expect(script, contains('_low_depth_change(clip, 10, _derainbow)'));
       expect(script, contains('bits_per_sample > 10'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
@@ -2075,8 +2076,36 @@ void main() {
       expect(actual['variation'], '3');
       expect(actual['interlaced'], 'False');
       // 8-bit only, verified against the bundle at 10/12/16-bit and 4:2:2.
-      expect(script, contains('_bifrost_src_format'));
+      // A deeper source gets only its change applied at full depth (task #37).
+      expect(script, contains('_low_depth_change(clip, 8, _bifrost)'));
       expect(script, contains('bits_per_sample != 8'));
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('chroma_fixes: DeDot with its 8-bit guard', () async {
+      loadSchema('chroma_fixes');
+      final job = buildJob(
+        testName: 'chroma_dedot',
+        chromaFixes: const ChromaFixParameters(
+          enabled: true,
+          applyDedot: true,
+          dedotLuma2d: 31,
+          dedotLumaT: 22,
+          dedotChromaT1: 17,
+          dedotChromaT2: 7,
+        ),
+      );
+      print('  Generating DeDot script...');
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('core.dedot.Dedot('));
+      final actual = parseFilterParams(script, 'core.dedot.Dedot(');
+      expect(actual['luma_2d'], '31');
+      expect(actual['luma_t'], '22');
+      expect(actual['chroma_t1'], '17');
+      expect(actual['chroma_t2'], '7');
+      // 8-bit only; a deeper source gets only its change applied at full depth
+      // (task #37).
+      expect(script, contains('_low_depth_change(clip, 8, _dedot)'));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

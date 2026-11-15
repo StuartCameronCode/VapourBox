@@ -295,11 +295,8 @@ Future<String> _shakenFixture(String pixFmt) async {
 }
 
 /// The fixture [pass] runs on, at [pixFmt].
-Future<String> _fixtureFor(_Pass pass, String pixFmt) => pass.shaken
-    ? _shakenFixture(pixFmt)
-    : pass.scratched
-        ? _scratchedFixture(pixFmt)
-        : _fixture(pixFmt);
+Future<String> _fixtureFor(_Pass pass, String pixFmt) =>
+    (pass.fixture ?? _fixture)(pixFmt);
 
 /// Every frame of [path] decoded as raw [pixFmt] (no conversion when it is the
 /// file's own format), so planes can be compared byte for byte.
@@ -367,6 +364,76 @@ Future<String> _deepScratchedFixture(String pixFmt8) async {
   return path;
 }
 
+/// The 8-bit layout of a pixel format name: `yuv422p10le` -> `yuv422p`.
+String _eightBitLayout(String pixFmt) =>
+    RegExp(r'^(yuv4\d\dp)').firstMatch(pixFmt)!.group(1)!;
+
+/// A static picture (the master's first frame, held) with dot crawl and
+/// rainbow injected at 8-bit, then converted to [pixFmt]: a luma checker of +-4
+/// levels and a chroma pattern of +-8 alternating per column, both flipping
+/// every frame. The master moves and carries neither, so the temporal chroma
+/// filters (DeDot, Bifrost, LUTDeCrawl, LUTDeRainbow) have little to do on it;
+/// on this each changes 12-83% of the plane it works on (task #37). The
+/// pattern is drawn in the target layout's own chroma columns, so 4:2:2 and
+/// 4:2:0 subsampling don't average it away.
+Future<String> _crawlFixture(String pixFmt) async {
+  final path = '$_outDir/crawl_$pixFmt.mkv';
+  if (File(path).existsSync()) return path;
+  final layout = _eightBitLayout(pixFmt);
+  final result = await Process.run(
+    WorkerHarness.ffmpegPath,
+    [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', await _master(),
+      '-vf', 'trim=end_frame=1,loop=loop=${_frames - 1}:size=1:start=0,'
+          'setpts=N/${_fps.toInt()}/TB,format=$layout,'
+          "geq=lum='clip(lum(X,Y)+4*(2*mod(X+Y+N,2)-1),0,255)'"
+          ":cb='clip(cb(X,Y)+8*(2*mod(X+N,2)-1),0,255)'"
+          ":cr='clip(cr(X,Y)-8*(2*mod(X+N,2)-1),0,255)',"
+          'format=$pixFmt,setfield=tff',
+      '-c:v', 'ffv1', '-pix_fmt', pixFmt,
+      path,
+    ],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(result.exitCode, 0,
+      reason: 'crawl fixture generation failed for $pixFmt: ${result.stderr}');
+  return path;
+}
+
+/// [_crawlFixture] in [pixFmt8]'s layout at [bits] (10 or 12) with genuine
+/// content below the next-shallower depth: the 10-bit file is four times the
+/// 8-bit one plus 0 or 1, the 12-bit file four times the 10-bit one plus 0 or 1
+/// in another pattern. Each rounds back down to the shallower file exactly, so
+/// a filter's low-depth copy is the shallower fixture (task #37).
+Future<String> _deepCrawlFixture(String pixFmt8, int bits) async {
+  final pixFmt = '$pixFmt8${bits}le';
+  final path = '$_outDir/crawl_deep_$pixFmt.mkv';
+  if (File(path).existsSync()) return path;
+  final source = bits == 10
+      ? await _crawlFixture(pixFmt8)
+      : await _deepCrawlFixture(pixFmt8, bits - 2);
+  final pattern = bits == 10
+      ? "geq=lum='lum(X,Y)+mod(X+Y,2)':cb='cb(X,Y)+mod(X,2)':cr='cr(X,Y)+mod(Y,2)'"
+      : "geq=lum='lum(X,Y)+mod(X*(Y+1),2)':cb='cb(X,Y)+mod(X+Y+1,2)'"
+          ":cr='cr(X,Y)+mod(X+1,2)'";
+  final result = await Process.run(
+    WorkerHarness.ffmpegPath,
+    [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', source,
+      '-vf', 'format=$pixFmt,$pattern,setfield=tff',
+      '-c:v', 'ffv1', '-pix_fmt', pixFmt,
+      path,
+    ],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(result.exitCode, 0,
+      reason: 'deep crawl fixture generation failed for $pixFmt: '
+          '${result.stderr}');
+  return path;
+}
+
 int _differing(Uint8List a, Uint8List b) {
   expect(a.length, b.length, reason: 'plane sizes differ');
   var n = 0;
@@ -419,19 +486,18 @@ class _Pass {
       {this.tolerance = 2.0,
       this.changesPicture = true,
       this.needsKnlmDevice = false,
-      this.shaken = false,
-      this.scratched = false});
+      this.fixture});
 
   final String name;
   final ProcessingPipeline pipeline;
 
-  /// Run on [_shakenFixture] rather than the plain master: a stabiliser has
-  /// nothing to do on a picture with no global motion.
-  final bool shaken;
-
-  /// Run on [_scratchedFixture]: the master has no scratches, so DeScratch
-  /// changes nothing on it (task #34).
-  final bool scratched;
+  /// The parity fixture for a pixel format, when the pass needs a defect the
+  /// master lacks (null: [_fixture]): [_shakenFixture] for a stabiliser, which
+  /// has nothing to do on a picture with no global motion; [_scratchedFixture]
+  /// for DeScratch (task #34); [_crawlFixture] for the dot-crawl and rainbow
+  /// filters (task #37). The passthrough reference is rendered from the same
+  /// fixture.
+  final Future<String> Function(String pixFmt)? fixture;
 
   /// Whether the pass needs a working KNLMeansCL OpenCL device. Without one the
   /// worker refuses the job by design, so the pass is skipped (with a printed
@@ -569,7 +635,7 @@ List<_Pass> _passes() => [
       // and this case "changed" the picture only through the old guard's
       // quantisation, so it runs on the scratched fixture.
       _Pass('descratch', _only(descratch: const DeScratchParameters(enabled: true)),
-          scratched: true),
+          fixture: _scratchedFixture),
 
       _Pass('spotless', _only(spotless: const SpotLessParameters(enabled: true))),
 
@@ -581,7 +647,7 @@ List<_Pass> _passes() => [
         _only(
           stabilize: const StabilizeParameters(enabled: true, pitchMode: PitchMode.auto),
         ),
-        shaken: true,
+        fixture: _shakenFixture,
       ),
       _Pass(
         'stabilize_black_edges',
@@ -589,7 +655,7 @@ List<_Pass> _passes() => [
           stabilize: const StabilizeParameters(
               enabled: true, pitchMode: PitchMode.auto, pitchEdgeFill: EdgeFill.black),
         ),
-        shaken: true,
+        fixture: _shakenFixture,
       ),
 
       _Pass(
@@ -871,13 +937,39 @@ List<_Pass> _passes() => [
         ),
         tolerance: 4.0,
       ),
-      // LUTDeCrawl scales its own thresholds but refuses >10-bit input; the pass
-      // runs it at 10-bit and restores the source format.
+      // LUTDeCrawl scales its own thresholds but refuses >10-bit input; above
+      // that the pass runs it on a 10-bit copy and applies only its change
+      // (task #37).
       _Pass(
         'chroma_decrawl',
         _only(
           chromaFixes: const ChromaFixParameters(enabled: true, applyDeCrawl: true),
         ),
+      ),
+      // DeDot and Bifrost are 8-bit only, LUTDeRainbow 8-10 bit; deeper
+      // sources get only their change applied at full depth (task #37). The
+      // master holds no crawl or rainbow, so they run on one that does.
+      _Pass(
+        'chroma_dedot',
+        _only(
+          chromaFixes: const ChromaFixParameters(enabled: true, applyDedot: true),
+        ),
+        fixture: _crawlFixture,
+      ),
+      _Pass(
+        'chroma_derainbow',
+        _only(
+          chromaFixes:
+              const ChromaFixParameters(enabled: true, applyDeRainbow: true),
+        ),
+        fixture: _crawlFixture,
+      ),
+      _Pass(
+        'chroma_bifrost',
+        _only(
+          chromaFixes: const ChromaFixParameters(enabled: true, applyBifrost: true),
+        ),
+        fixture: _crawlFixture,
       ),
       _Pass(
         'chroma_vinverse',
@@ -1028,18 +1120,15 @@ ProcessingPipeline _stackedPipeline() => _only(
 
 /// The unfiltered 10-bit frame, rendered once per fixture and reused as the
 /// reference every pass is checked against for "did this actually do
-/// anything". Keyed by the fixture ([_Pass.shaken], [_Pass.scratched]).
-final _passthroughCache = <String, Uint8List>{};
+/// anything". Keyed by the fixture function ([_Pass.fixture], else [_fixture]).
+final _passthroughCache = <Future<String> Function(String), Uint8List>{};
 
-Future<Uint8List> _passthroughRgb10(_Pass pass) async {
-  final key = pass.shaken
-      ? 'shaken'
-      : pass.scratched
-          ? 'scratched'
-          : 'master';
-  final cached = _passthroughCache[key];
+Future<Uint8List> _passthroughRgb10(
+    [Future<String> Function(String pixFmt)? customFixture]) async {
+  final make = customFixture ?? _fixture;
+  final cached = _passthroughCache[make];
   if (cached != null) return cached;
-  final fixture = await _fixtureFor(pass, 'yuv422p10le');
+  final fixture = await make('yuv422p10le');
   final result = await WorkerHarness.runPreview(
     _job(fixture: fixture, pixFmt: 'yuv422p10le', pipeline: _only()).toJson(),
     frame: _previewFrame,
@@ -1047,7 +1136,7 @@ Future<Uint8List> _passthroughRgb10(_Pass pass) async {
   );
   expect(result.success, isTrue,
       reason: 'the passthrough reference frame must render: $result');
-  return _passthroughCache[key] =
+  return _passthroughCache[make] =
       await WorkerHarness.imageToRgb24(result.png!, label: 'ref10');
 }
 
@@ -1175,7 +1264,7 @@ void main() {
         // A pass that changes nothing would sail through the comparison below
         // while testing nothing, so prove it is doing work first.
         if (pass.changesPicture) {
-          final reference = await _passthroughRgb10(pass);
+          final reference = await _passthroughRgb10(pass.fixture);
           final changed = rgb10.length != reference.length ||
               WorkerHarness.meanAbsDiff(rgb10, reference) > 0.05;
           expect(changed, isTrue,
@@ -1762,6 +1851,185 @@ void main() {
           selector: 'v:0', entries: ['height']);
       expect('${out!['height']}', '240');
     }, timeout: const Timeout(Duration(minutes: 4)));
+  });
+
+  // ===========================================================================
+  // 3f. Chroma Fixes keep >8-bit precision (task #37). DeDot and Bifrost are
+  //     8-bit only, LUTDeCrawl and LUTDeRainbow 8-10 bit. Their guards used to
+  //     up-convert the filter's whole low-depth result, quantising every sample
+  //     of a deeper source. Each now adds only the filter's change to the
+  //     source, so the output must be the source wherever the low-depth run
+  //     left a sample alone, within half a low-depth level of its result where
+  //     it changed one, and keep the source's low bits everywhere.
+  //     docs/reports/issue-37-chroma-fixes-high-bit-depth
+  // ===========================================================================
+  group('Chroma Fixes keep >8-bit precision (task #37)', () {
+    // [lowBits] is the depth the filter works at; [changes] the planes it must
+    // visibly change on the crawl fixture (proof the test tests something).
+    final cases = [
+      (
+        name: 'dedot',
+        lowBits: 8,
+        chroma: const ChromaFixParameters(enabled: true, applyDedot: true),
+        changes: [0, 1, 2],
+        layouts: ['yuv422p', 'yuv420p'],
+      ),
+      (
+        name: 'bifrost',
+        lowBits: 8,
+        chroma: const ChromaFixParameters(enabled: true, applyBifrost: true),
+        changes: [1, 2],
+        layouts: ['yuv422p', 'yuv420p'],
+      ),
+      (
+        name: 'decrawl',
+        lowBits: 10,
+        chroma: const ChromaFixParameters(enabled: true, applyDeCrawl: true),
+        changes: [0],
+        layouts: ['yuv422p'],
+      ),
+      (
+        name: 'derainbow',
+        lowBits: 10,
+        chroma: const ChromaFixParameters(enabled: true, applyDeRainbow: true),
+        changes: [1, 2],
+        layouts: ['yuv422p'],
+      ),
+    ];
+
+    Future<Uint8List> encode(String fixture, String pixFmt,
+        ProcessingPipeline pipeline, String name) async {
+      final result = await WorkerHarness.runJob(
+          _losslessJob(
+                  fixture: fixture,
+                  pixFmt: pixFmt,
+                  pipeline: pipeline,
+                  outputName: name)
+              .toJson(),
+          label: name);
+      expect(result.success, isTrue, reason: result.error);
+      return _rawFrames(result.outputPath!, pixFmt);
+    }
+
+    List<int> samples(Uint8List raw, int plane, int cw, int ch, int bits) =>
+        bits == 8 ? _planes(raw, plane, cw, ch) : _planes16(raw, plane, cw, ch);
+
+    for (final c in cases) {
+      for (final layout in c.layouts) {
+        final deepBits = c.lowBits + 2;
+        final lowFmt = c.lowBits == 8 ? layout : '$layout${c.lowBits}le';
+        final deepFmt = '$layout${deepBits}le';
+        test('${c.name} on $deepFmt: untouched samples bit-exact, changes '
+            'match the ${c.lowBits}-bit run', () async {
+          const cw = _width ~/ 2;
+          final ch = layout == 'yuv420p' ? _height ~/ 2 : _height;
+          final pipeline = _only(chromaFixes: c.chroma);
+          final srcLow = c.lowBits == 8
+              ? await _crawlFixture(layout)
+              : await _deepCrawlFixture(layout, c.lowBits);
+          final srcDeep = await _deepCrawlFixture(layout, deepBits);
+          final inLow = await _rawFrames(srcLow, lowFmt);
+          final inDeep = await _rawFrames(srcDeep, deepFmt);
+
+          // The filter must see the same low-depth picture in both runs, or
+          // the comparison with the low-depth run means nothing.
+          var lowBitsSet = 0, notFourTimes = 0;
+          for (final plane in [0, 1, 2]) {
+            final a = samples(inLow, plane, cw, ch, c.lowBits);
+            final b = _planes16(inDeep, plane, cw, ch);
+            expect(b.length, a.length);
+            for (var i = 0; i < a.length; i++) {
+              if (b[i] >> 2 != a[i] || b[i] & 3 > 1) notFourTimes++;
+              if (b[i] & 3 != 0) lowBitsSet++;
+            }
+          }
+          expect(notFourTimes, 0,
+              reason: 'the $deepFmt fixture must be the $lowFmt one times four '
+                  'plus 0 or 1 (ffmpeg\'s depth conversion changed?)');
+          expect(lowBitsSet, greaterThan(0),
+              reason: 'the $deepFmt fixture has no content below '
+                  '${c.lowBits} bits');
+
+          final outLow = await encode(
+              srcLow, lowFmt, pipeline, 'cf_deep_ref_${c.name}_$lowFmt');
+          final outDeep = await encode(
+              srcDeep, deepFmt, pipeline, 'cf_deep_${c.name}_$deepFmt');
+
+          for (final plane in [0, 1, 2]) {
+            final iL = samples(inLow, plane, cw, ch, c.lowBits);
+            final oL = samples(outLow, plane, cw, ch, c.lowBits);
+            final iD = _planes16(inDeep, plane, cw, ch);
+            final oD = _planes16(outDeep, plane, cw, ch);
+            expect(oD.length, iD.length);
+            var changed = 0, untouchedWrong = 0, setMismatch = 0;
+            var farFromLow = 0, lowBitsLost = 0;
+            for (var i = 0; i < iD.length; i++) {
+              final changedLow = oL[i] != iL[i];
+              final changedDeep = oD[i] != iD[i];
+              if (changedDeep) changed++;
+              if (changedLow != changedDeep) setMismatch++;
+              if (!changedLow && changedDeep) untouchedWrong++;
+              if ((oD[i] - 4 * oL[i]).abs() > 2) farFromLow++;
+              if (oD[i] & 3 != iD[i] & 3) lowBitsLost++;
+            }
+            print('  ${c.name} $deepFmt plane $plane: changed $changed of '
+                '${iD.length}');
+            if (c.changes.contains(plane)) {
+              expect(changed, greaterThan(0),
+                  reason: '${c.name} changed nothing in plane $plane, so the '
+                      'test proves nothing');
+            }
+            expect(untouchedWrong, 0,
+                reason: 'plane $plane: samples the ${c.lowBits}-bit run left '
+                    'alone must be bit-exact');
+            expect(setMismatch, 0,
+                reason: 'plane $plane: the $deepBits-bit run must change '
+                    'exactly the samples the ${c.lowBits}-bit run changes');
+            expect(farFromLow, 0,
+                reason: 'plane $plane: every sample must be within half a '
+                    '${c.lowBits}-bit level of the ${c.lowBits}-bit result');
+            expect(lowBitsLost, 0,
+                reason: 'plane $plane: the source\'s low bits must survive '
+                    'everywhere, changed samples included');
+          }
+        }, timeout: const Timeout(Duration(minutes: 6)));
+      }
+
+      test('${c.name}: preview matches the encode on ${c.layouts.first}'
+          '${c.lowBits + 2}le', () async {
+        final layout = c.layouts.first;
+        final deepFmt = '$layout${c.lowBits + 2}le';
+        final src = await _deepCrawlFixture(layout, c.lowBits + 2);
+        final pipeline = _only(chromaFixes: c.chroma);
+        final preview = await WorkerHarness.runPreview(
+          _losslessJob(
+                  fixture: src,
+                  pixFmt: deepFmt,
+                  pipeline: pipeline,
+                  outputName: 'cf_deep_pv_${c.name}')
+              .toJson(),
+          frame: _previewFrame,
+          label: 'cf_deep_pv_${c.name}',
+        );
+        expect(preview.success, isTrue, reason: '$preview');
+        final result = await WorkerHarness.runJob(
+            _losslessJob(
+                    fixture: src,
+                    pixFmt: deepFmt,
+                    pipeline: pipeline,
+                    outputName: 'cf_deep_pv_encode_${c.name}')
+                .toJson(),
+            label: 'cf_deep_pv_encode_${c.name}');
+        expect(result.success, isTrue, reason: result.error);
+        final diff = WorkerHarness.meanAbsDiff(
+            await WorkerHarness.imageToRgb24(preview.png!, label: 'cfp'),
+            await WorkerHarness.frameRgb24(result.outputPath!, _previewFrame,
+                label: 'cfe'));
+        print('  ${c.name} preview vs encode: mean abs diff '
+            '${diff.toStringAsFixed(3)}');
+        expect(diff, lessThan(0.5));
+      }, timeout: const Timeout(Duration(minutes: 6)));
+    }
   });
 
   // ===========================================================================

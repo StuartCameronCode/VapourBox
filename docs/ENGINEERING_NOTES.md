@@ -4368,7 +4368,9 @@ Full evidence:
 - Measurement trap: R78's `_Range` is H.273's flag, so 0 means limited and 1
   means full, the opposite of the old `_ColorRange`.
 - Same pattern, not fixed here: Bifrost and DeDot (8-bit; Bifrost dithers on
-  the way back), LUTDeCrawl and DeRainbow (12/16-bit). Filed as task #37.
+  the way back), LUTDeCrawl and DeRainbow (12/16-bit). Filed as task #37, and
+  fixed there ("Chroma Fixes' depth guards apply only the filter's change",
+  below).
 
 ### Soft Telecine film frames are no longer marked as fields (task #33, 2026-11-15)
 
@@ -4643,3 +4645,33 @@ sweeping an axis. This change is the first step: the duplicated template.
   target through the decimation, so the preview picks window frame
   `local * 4 / 5` of an undecimated clip: about `radius / 5` frames before
   the target (at least one, `MIN_PREVIEW_RADIUS` 5). Filed as task #46.
+
+### Chroma Fixes' depth guards apply only the filter's change (task #37, 2026-11-15)
+
+Full evidence:
+[docs/reports/issue-37-chroma-fixes-high-bit-depth/](reports/issue-37-chroma-fixes-high-bit-depth/index.html).
+
+- DeDot and Bifrost (8-bit only) and LUTDeCrawl / LUTDeRainbow (8–10-bit) had
+  #34's bug: the whole low-depth result was up-converted, with error
+  diffusion. On a real capture with synthetic low bits that left 78% of
+  samples different from the source at 10-bit, 94% at 12-bit, 99.6% at
+  16-bit, including planes the filter never changes (Bifrost and LUTDeRainbow
+  never touch luma, LUTDeCrawl never chroma); a luma ramp came back with 17
+  distinct values on a row instead of 65 (Bifrost, 10-bit).
+- Pre-check before applying #34's formula: each filter leaves the samples it
+  doesn't change bit-exact at its own depth. The fix's changed set equals the
+  low-depth run's in every plane, at 4:2:0/4:2:2/4:4:4, 10/12/16-bit, both
+  ranges. (havsfunc's two are `MaskedMerge` plus the input's other planes.)
+- Now one helper in the template, `_low_depth_change(clip, bits, filt)`,
+  used only above each plugin's limit; the 8-bit and 8–10-bit paths run the
+  plugin exactly as before. Removal is unchanged (equal to the low-depth run's
+  per plane; the old guard was up to 0.2 levels worse).
+- The LUT filters change far more than DeScratch: 36% of luma (DeCrawl) and
+  40% of chroma (DeRainbow) on a moving capture, so the gain there is the
+  other ~60% plus the untouched planes, not ~99% of the frame.
+- Test trap: the heavy test's crawl fixture first used a ±6 luma checker, and
+  Bifrost changed nothing — it only acts where luma is static, and ±6
+  flipping each frame is a 12-level swing, above its `luma_thresh` of 10.
+  ±4 works for all four.
+- Frame properties now come from the source; the one lost is LUTDeCrawl's
+  `_SceneChangePrev/Next` on scene-change frames, which nothing reads.

@@ -3202,7 +3202,8 @@ fn test_85_tweak_brightness_is_scaled_to_the_working_bit_depth() {
 fn test_86_decrawl_is_guarded_above_ten_bits() {
     // havsfunc's LUTDeCrawl raises "This is not an 8-10 bit YUV clip" for
     // anything deeper, which failed the entire job on a 12-bit source such as
-    // ProRes 4444 XQ. The pass runs at 10-bit and restores the source format.
+    // ProRes 4444 XQ. Above 10 bits the pass runs on a 10-bit copy and applies
+    // only its change at full depth (task #37).
     create_output_dir();
 
     let mut job = create_10bit_job("test_86_decrawl_guard");
@@ -3219,18 +3220,13 @@ fn test_86_decrawl_is_guarded_above_ten_bits() {
     let (encode, preview) = generate_both_scripts(&job);
     for (label, script) in [("encode", &encode), ("preview", &preview)] {
         assert!(
-            script.contains("_decrawl_orig_format = clip.format"),
-            "{}: de-crawl must remember the source format, script was:\n{}",
+            script.contains("if clip.format.bits_per_sample > 10:\n    clip = _low_depth_change(clip, 10, _decrawl)"),
+            "{}: de-crawl must run on a 10-bit copy only above 10 bits, script was:\n{}",
             label, script
         );
         assert!(
-            script.contains("if clip.format.bits_per_sample > 10:"),
-            "{}: de-crawl must convert down only above 10 bits",
-            label
-        );
-        assert!(
-            script.contains("if _decrawl_orig_format.bits_per_sample > 10:"),
-            "{}: de-crawl must restore the source format afterwards",
+            script.contains("else:\n    clip = _decrawl(clip)"),
+            "{}: de-crawl must run natively at 8-10 bits",
             label
         );
     }
@@ -4158,7 +4154,7 @@ fn test_109_lut_derainbow_with_ten_bit_guard() {
             "ythresh=14",
             // Same 8-10 bit limit as LUTDeCrawl, verified against the bundle.
             "bits_per_sample > 10",
-            "_derainbow_orig_format",
+            "_low_depth_change(clip, 10, _derainbow)",
         ],
     )
     .unwrap();
@@ -5012,7 +5008,7 @@ fn test_135_bifrost_with_its_eight_bit_guard() {
             "luma_thresh=12",
             "variation=3",
             "interlaced=False",
-            "_bifrost_src_format",
+            "_low_depth_change(clip, 8, _bifrost)",
             "bits_per_sample != 8",
         ],
     )
@@ -9116,4 +9112,72 @@ fn test_248_one_template_with_well_formed_side_blocks() {
     let encode = select_side(&raw, ScriptKind::Encode);
     assert!(preview.contains("{{PREVIEW_OUTPUT_INDEX}}") && !encode.contains("{{PREVIEW_OUTPUT_INDEX}}"));
     assert!(encode.contains("core.vivtc.VDecimate(") && !preview.contains("core.vivtc.VDecimate("));
+}
+
+#[test]
+fn test_249_chroma_fixes_keep_high_bit_depth() {
+    // DeDot and Bifrost are 8-bit only, LUTDeCrawl and LUTDeRainbow 8-10 bit.
+    // Their guards used to up-convert the filter's whole low-depth result,
+    // quantising every sample of a deeper source (78% at 10-bit, 99.6% at
+    // 16-bit, in planes the filter never touches). Each now applies only the
+    // filter's change at full depth through _low_depth_change, so untouched
+    // samples stay bit-exact (task #37,
+    // docs/reports/issue-37-chroma-fixes-high-bit-depth). DeDot had no script
+    // test at all, so its parameters are pinned here too.
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_249_chroma_fixes_high_bit_depth");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        chroma_fixes: ChromaFixParameters {
+            enabled: true,
+            apply_dedot: true,
+            dedot_luma_2d: 31,
+            dedot_luma_t: 22,
+            dedot_chroma_t1: 17,
+            dedot_chroma_t2: 7,
+            apply_de_crawl: true,
+            apply_de_rainbow: true,
+            apply_bifrost: true,
+            ..ChromaFixParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("def _low_depth_change(clip, bits, filt):")
+                && script.contains("up = lambda c: core.resize.Point(c, format=clip.format.id)")
+                && script.contains("return _expr([clip, up(filt(low)), up(low)], \"x y + z -\")"),
+            "{}: the helper must add only the filter's change, script was:\n{}",
+            label, script
+        );
+        for (depth, name) in [(8, "_dedot"), (10, "_decrawl"), (10, "_derainbow"), (8, "_bifrost")] {
+            let call = format!("clip = _low_depth_change(clip, {}, {})", depth, name);
+            assert!(script.contains(&call), "{}: missing `{}`", label, call);
+            let native = format!("    clip = {}(clip)", name);
+            assert!(script.contains(&native), "{}: missing native path `{}`", label, native);
+        }
+        assert!(
+            script.contains("luma_2d=31")
+                && script.contains("luma_t=22")
+                && script.contains("chroma_t1=17")
+                && script.contains("chroma_t2=7"),
+            "{}: DeDot parameters must reach the call",
+            label
+        );
+
+        let start = script.find("# PASS 8: CHROMA FIXES").expect("chroma fixes section");
+        let end = start + script[start..].find("# PASS 9").expect("next pass");
+        let section = &script[start..end];
+        assert!(
+            !section.contains("dither_type"),
+            "{}: no guard may up-convert (and dither) a filter's whole result:\n{}",
+            label, section
+        );
+        for old in ["_dedot_src_format", "_decrawl_orig_format", "_derainbow_orig_format", "_bifrost_src_format"] {
+            assert!(!section.contains(old), "{}: old guard `{}` is back", label, old);
+        }
+    }
 }

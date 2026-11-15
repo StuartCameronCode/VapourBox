@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chroma Fixes at depth</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>DeDot, Bifrost, LUTDeCrawl and LUTDeRainbow quantised every sample of a deeper source</h1>
+<p class="meta">2026-11-15 · task #37 (found in task #34) · deps 1.16.0 · measured on an Apple Silicon Mac (macOS arm64 bundle).
+The fix is integer arithmetic in zimg and Expr, so it doesn't depend on the platform; the nightly heavy run covers the
+other platforms.</p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> Four filters in the Chroma Fixes pass have a depth limit: DeDot and Bifrost take
+8-bit only, and havsfunc's LUTDeCrawl and LUTDeRainbow refuse anything above 10-bit. Each guard converted the whole
+clip down, ran the filter, then up-converted the <em>whole result</em> to the source format, with error-diffusion
+dither. On a real capture with genuine low bits that left 78% of samples different from the source at 10-bit, 94% at
+12-bit and 99.6% at 16-bit. Most of those were in samples, and whole planes, the filter never touches: Bifrost and
+LUTDeRainbow never change luma, and LUTDeCrawl never changes chroma. A smooth luma ramp came back banded.</p>
+<p>Each guard now applies only the filter's change at full depth, through one helper in both templates (one template since task #42):</p>
+<pre>def _low_depth_change(clip, bits, filt):
+    low = core.resize.Bilinear(clip, format=...bits...)       # as before: rounding, no dither
+    up = lambda c: core.resize.Point(c, format=clip.format.id)
+    return _expr([clip, up(filt(low)), up(low)], "x y + z -")</pre>
+<p>It is task #34's DeScratch fix, unchanged. Every sample the filter left alone is bit-exact. A changed sample is the
+filter's change plus the source's own residual, within half a low-depth level of the low-depth result. The filters
+still see exactly the picture they saw before, so what they remove is unchanged. 8-bit sources (DeDot, Bifrost) and
+8–10-bit sources (LUTDeCrawl, LUTDeRainbow) don't go through the helper and run exactly as before.</p>
+</div>
+
+<h2>1. The pre-check: do the filters leave untouched samples exact?</h2>
+<p>#34's formula is only right if a filter leaves the samples it doesn't change bit-exact at its working depth.
+If a filter rounded or nudged every sample, "only its change" would be the whole frame. So each filter was run on its
+working-depth copy first, and the set of samples the fix changes at full depth was compared with the set the filter
+changed at low depth. They are identical in every plane, format and range below (the <em>set</em> column). That agrees
+with the code: both havsfunc functions are <code>MaskedMerge(input, fixed, mask)</code> plus the input's other planes,
+and LUTDeCrawl's scene-change path returns the input.</p>
+
+<h3>Fixtures</h3>
+<p>A deep file converted from an 8-bit master has zero low bits, so every old guard was already bit-exact on it. The
+fixtures here carry <strong>synthetic</strong> low bits instead:</p>
+<ul>
+<li><strong>capture</strong>: 12 frames of <code>Tests/TestResources/interlaced_test.avi</code> (real 720x576 PAL
+interlaced VHS), promoted to 16-bit with a smooth ripple of ±1.5 10-bit levels on luma and chroma (#34's fixture).</li>
+<li><strong>artefacts</strong>: the capture's first frame held still, with dot crawl and rainbow injected at 8-bit: a
+luma checker of ±4 levels and a chroma pattern of ±8 alternating per column, both flipping every frame. The same
+ripple is added. On the moving capture the filters find little to do; here each works on most of a plane.</li>
+<li><strong>ramp</strong>: a horizontal luma ramp from 64 to 80 in 8-bit levels with flat chroma, for banding.</li>
+</ul>
+<p>Each is converted to the format under test and flagged field-based TFF, as the templates mark an interlaced
+source. The LUT filters' runs clear <code>_FieldBased</code>, because havsfunc treats them as frame-based. Each filter
+runs at the templates' defaults.</p>
+<p class="caption">Trap (from #34): R78's <code>_Range</code> follows H.273, so 0 is limited and 1 is full, the opposite
+of the old <code>_ColorRange</code>. Full range scales by (2<sup>n</sup>−1)/(2<sup>m</sup>−1), not a power of two, so
+the low-bits column is limited range only.</p>
+
+<h2>2. What each guard does to a deeper source</h2>
+<p>Columns, all over 12 frames:</p>
+<ul>
+<li><em>changed at low depth</em>: the share of samples the filter changes on its 8- or 10-bit copy, Y / U / V.</li>
+<li><em>old</em> / <em>new non-exact</em>: the share of samples the old guard and the fix leave different from the
+source.</li>
+<li><em>set</em>: whether the fix's changed samples are exactly the low-depth run's.</li>
+<li><em>max from low</em>: the fix's largest distance from the up-converted low-depth result, in low-depth levels.</li>
+<li><em>low bits lost</em>: samples whose bits below the working depth differ from the source's, old / new (limited
+range only).</li>
+</ul>
+<div class="scroll"><table>
+<tr><th>fixture</th><th>filter</th><th>format</th><th class="num">changed at low depth Y / U / V %</th><th class="num">old non-exact %</th><th class="num">new non-exact %</th><th>set</th><th class="num">max from low</th><th class="num">low bits lost old / new</th></tr>
+<tr><td>capture</td><td>DeDot</td><td>10-bit 4:2:2</td><td class="num">0.26 / 2.96 / 1.08</td><td class="num bad">78.0 / 78.7 / 78.2</td><td class="num good">0.26 / 2.96 / 1.08</td><td class="good">yes</td><td class="num">0.50</td><td class="num">7 761 768 / <span class="good">0</span></td></tr>
+<tr><td></td><td></td><td>10-bit 4:2:2 full</td><td class="num">0.26 / 2.92 / 1.06</td><td class="num bad">74.4 / 77.7 / 77.5</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">0.50</td><td class="num">n/a</td></tr>
+<tr><td></td><td></td><td>10-bit 4:2:0</td><td class="num">0.26 / 3.04 / 0.96</td><td class="num bad">78.0 / 78.7 / 78.2</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">0.50</td><td class="num">5 820 696 / <span class="good">0</span></td></tr>
+<tr><td></td><td></td><td>12-bit 4:2:2</td><td class="num">0.26 / 2.93 / 1.06</td><td class="num bad">94.3 / 94.5 / 94.4</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">0.38</td><td class="num">9 387 538 / <span class="good">0</span></td></tr>
+<tr><td></td><td></td><td>16-bit 4:4:4</td><td class="num">0.26 / 2.93 / 1.06</td><td class="num bad">99.6 / 99.7 / 99.7</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">0.38</td><td class="num">14 876 126 / <span class="good">0</span></td></tr>
+<tr><td>capture</td><td>Bifrost</td><td>10-bit 4:2:2</td><td class="num">0 / 3.25 / 2.65</td><td class="num bad">78.0 / 78.7 / 78.6</td><td class="num good">0 / 3.25 / 2.65</td><td class="good">yes</td><td class="num">0.50</td><td class="num">7 761 768 / <span class="good">0</span></td></tr>
+<tr><td></td><td></td><td>10-bit 4:2:2 full</td><td class="num">0 / 3.22 / 2.63</td><td class="num bad">74.3 / 77.8 / 77.9</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">0.50</td><td class="num">n/a</td></tr>
+<tr><td></td><td></td><td>10-bit 4:2:0 / 12-bit 4:2:2 / 16-bit 4:4:4</td><td class="num">0 / 2.5–3.5</td><td class="num bad">78.0 / 94.3 / 99.6 (Y)</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">≤ 0.50</td><td class="num">5.8 M / 9.4 M / 14.9 M / <span class="good">0</span></td></tr>
+<tr><td>capture</td><td>LUTDeCrawl</td><td>12-bit 4:2:2</td><td class="num">36.3 / 0 / 0</td><td class="num bad">86.6 / 79.1 / 79.1</td><td class="num good">36.3 / 0 / 0</td><td class="good">yes</td><td class="num">0.50</td><td class="num">7 870 426 / <span class="good">0</span></td></tr>
+<tr><td></td><td></td><td>12-bit 4:2:2 full</td><td class="num">36.3 / 0 / 0</td><td class="num bad">83.5 / 79.2 / 79.2</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">0.50</td><td class="num">n/a</td></tr>
+<tr><td></td><td></td><td>12-bit 4:2:0 / 16-bit 4:4:4</td><td class="num">36.2–36.3 / 0 / 0</td><td class="num bad">86.6 / 99.1 (Y)</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">0.50</td><td class="num">5.9 M / 14.7 M / <span class="good">0</span></td></tr>
+<tr><td>capture</td><td>LUTDeRainbow</td><td>12-bit 4:2:2</td><td class="num">0 / 40.1 / 33.1</td><td class="num bad">79.0 / 87.5 / 86.0</td><td class="num good">0 / 40.1 / 33.1</td><td class="good">yes</td><td class="num">0.50</td><td class="num">7 870 426 / <span class="good">0</span></td></tr>
+<tr><td></td><td></td><td>12-bit 4:2:2 full</td><td class="num">0 / 39.9 / 32.5</td><td class="num bad">74.7 / 87.5 / 86.1</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">0.50</td><td class="num">n/a</td></tr>
+<tr><td></td><td></td><td>12-bit 4:2:0 / 16-bit 4:4:4</td><td class="num">0 / 31–44</td><td class="num bad">79.0 / 98.7 (Y)</td><td class="num good">= low depth</td><td class="good">yes</td><td class="num">0.50</td><td class="num">5.9 M / 14.7 M / <span class="good">0</span></td></tr>
+<tr><td>artefacts</td><td>DeDot</td><td>10-bit 4:2:2</td><td class="num">13.4 / 66.7 / 66.7</td><td class="num bad">80.9 / 92.7 / 92.7</td><td class="num good">13.4 / 66.7 / 66.7</td><td class="good">yes</td><td class="num">0.50</td><td class="num">7 763 118 / <span class="good">0</span></td></tr>
+<tr><td>artefacts</td><td>Bifrost</td><td>10-bit 4:2:2</td><td class="num">0 / 84.5 / 84.5</td><td class="num bad">78.0 / 96.6 / 96.6</td><td class="num good">0 / 84.5 / 84.5</td><td class="good">yes</td><td class="num">0.50</td><td class="num">7 763 118 / <span class="good">0</span></td></tr>
+<tr><td>artefacts</td><td>LUTDeCrawl</td><td>12-bit 4:2:2</td><td class="num">83.3 / 0 / 0</td><td class="num bad">96.5 / 79.1 / 79.1</td><td class="num good">83.3 / 0 / 0</td><td class="good">yes</td><td class="num">0.50</td><td class="num">7 871 724 / <span class="good">0</span></td></tr>
+<tr><td>artefacts</td><td>LUTDeRainbow</td><td>12-bit 4:2:2</td><td class="num">0 / 83.3 / 83.3</td><td class="num bad">79.1 / 96.5 / 96.5</td><td class="num good">0 / 83.3 / 83.3</td><td class="good">yes</td><td class="num">0.50</td><td class="num">7 871 724 / <span class="good">0</span></td></tr>
+</table></div>
+<p class="caption">The artefacts fixture's other formats and ranges (4:2:0, 12/16-bit, full range) are in the script
+output and show the same pattern: the set always matches, nothing below the working depth is lost. "Max from low" is
+0.38 rather than 0.50 for the 8-bit filters at 12/16-bit because there the residual is just the ripple, ±1.5 10-bit
+levels (0.375 of an 8-bit level), which never reaches half a level.</p>
+<p><strong>The LUT filters change far more of the picture than DeScratch.</strong> On the moving capture LUTDeCrawl
+changes 36% of luma and LUTDeRainbow 40% of chroma: they average across frames wherever the neighbours agree. So the
+fix protects the other ~60% of those planes, and every plane they don't touch, rather than ~99% of the frame. In the
+changed samples it keeps the source's 12/16-bit residual on top of the 10-bit change, within half a 10-bit level of
+the 10-bit result. Bifrost and DeDot change a few percent on the capture, like DeScratch.</p>
+
+<h2>3. What they remove is unchanged</h2>
+<p>Mean |output − clean picture| per plane on the artefacts fixture, in 8-bit levels, over the frames that have both
+neighbours. The clean picture is the held frame before injection. The low-depth run is measured against the clean
+picture at its own depth.</p>
+<div class="scroll"><table>
+<tr><th>filter</th><th>format</th><th class="num">injected (no filter)</th><th class="num">low-depth run</th><th class="num">old guard</th><th class="num">fix</th></tr>
+<tr><td>DeDot</td><td>10-bit 4:2:2</td><td class="num">3.801 / 7.977 / 7.977</td><td class="num">3.176 / 1.600 / 1.600</td><td class="num">3.199 / 1.764 / 1.764</td><td class="num good">3.169 / 1.595 / 1.595</td></tr>
+<tr><td>Bifrost</td><td>10-bit 4:2:2</td><td class="num">3.801 / 7.977 / 7.977</td><td class="num">3.810 / 0.000 / 0.000</td><td class="num">3.799 / 0.211 / 0.211</td><td class="num good">3.801 / 0.000 / 0.000</td></tr>
+<tr><td>LUTDeCrawl</td><td>12-bit 4:2:2</td><td class="num">3.798 / 7.971 / 7.971</td><td class="num">0.189 / 7.977 / 7.977</td><td class="num">0.253 / 7.971 / 7.971</td><td class="num good">0.189 / 7.971 / 7.971</td></tr>
+<tr><td>LUTDeRainbow</td><td>12-bit 4:2:2</td><td class="num">3.798 / 7.971 / 7.971</td><td class="num">3.801 / 0.000 / 0.000</td><td class="num">3.798 / 0.074 / 0.074</td><td class="num good">3.798 / 0.000 / 0.000</td></tr>
+</table></div>
+<p class="caption">Each filter removes what it is built for and leaves the rest: Bifrost and LUTDeRainbow clear the
+injected chroma and leave the luma checker, LUTDeCrawl clears the luma checker and leaves chroma. The fix matches the
+low-depth run in every plane. The old guard was worse by up to 0.2 levels: its dither and the quantised source added
+back error that the filter had removed.</p>
+
+<h2>4. Banding</h2>
+<p>Distinct luma values along row 288 of the ramp. Neither filter changes luma at all, so the source's count is the
+right answer:</p>
+<table>
+<tr><th>filter</th><th>format</th><th class="num">source</th><th class="num">old guard</th><th class="num">fix</th></tr>
+<tr><td>Bifrost</td><td>10-bit 4:2:2</td><td class="num">65</td><td class="num bad">17</td><td class="num good">65</td></tr>
+<tr><td>Bifrost</td><td>16-bit 4:2:2</td><td class="num">720</td><td class="num bad">17</td><td class="num good">720</td></tr>
+<tr><td>LUTDeRainbow</td><td>12-bit 4:2:2</td><td class="num">257</td><td class="num bad">65</td><td class="num good">257</td></tr>
+<tr><td>LUTDeRainbow</td><td>16-bit 4:2:2</td><td class="num">720</td><td class="num bad">65</td><td class="num good">720</td></tr>
+</table>
+<p><a href="img/ramp_bifrost_1_source.png"><img src="img/ramp_bifrost_1_source.png" width="240" alt="ramp source"></a>
+<a href="img/ramp_bifrost_2_old.png"><img src="img/ramp_bifrost_2_old.png" width="240" alt="ramp old guard"></a>
+<a href="img/ramp_bifrost_3_new.png"><img src="img/ramp_bifrost_3_new.png" width="240" alt="ramp fix"></a></p>
+<p class="caption">The 10-bit ramp through Bifrost, a 160x120 crop at 3x, luma contrast-stretched 16x. Left: source.
+Centre: the old guard; the ramp is in 8-bit bands, softened by the restore's error-diffusion dither. Right: the fix,
+identical to the source (Bifrost changes no luma).</p>
+<p><a href="img/capture_dedot_diff_4_old.png"><img src="img/capture_dedot_diff_4_old.png" width="240" alt="DeDot old diff"></a>
+<a href="img/capture_dedot_diff_5_new.png"><img src="img/capture_dedot_diff_5_new.png" width="240" alt="DeDot fix diff"></a></p>
+<p class="caption">|output − source| luma through DeDot on the 10-bit capture, x64, frame 6. Left: the old guard
+changes the whole frame (the diagonal pattern is the ripple's low bits rounded away). Right: the fix changes only the
+0.26% of luma DeDot acts on.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>One helper, <code>_low_depth_change(clip, bits, filt)</code></strong>, next to <code>_expr</code> in both
+templates. Each block wraps its plugin call in a local function with the call text unchanged, and calls the helper only
+above the plugin's limit. New depth guards should use it.</li>
+<li><strong>#34's choices carry over</strong>: zimg both ways rather than a shift in the expression (it is right in
+full range too), and the delta rather than a mask (it keeps the source's low bits in changed samples).</li>
+<li><strong>The down-conversion is unchanged</strong>: zimg rounding, no dither. DeDot's Bicubic became Bilinear; at
+equal size and subsampling no resampling happens, so its input is the same.</li>
+<li><strong>Frame properties now come from the source.</strong> The one property lost is LUTDeCrawl's
+<code>_SceneChangePrev/Next</code>, which it left on scene-change frames, only at ≤10-bit, and nothing downstream
+reads.</li>
+<li>DeScratch keeps #34's inline version: its 8-bit body is several statements (4:2:2 carrier, chroma modes), and
+moving it onto the helper is a tidy-up, not a fix.</li>
+<li>Not porting LUTDeCrawl/LUTDeRainbow to run natively above 10-bit: havsfunc's <code>std.Lut2</code> masks are what
+cap them (two 10-bit inputs is the table's limit), and the 10-bit decision is ample for an analog artefact. The fix
+already keeps every sample they don't change.</li>
+</ul>
+
+<h2>Limits of these measurements</h2>
+<ul>
+<li>The low bits are synthetic: a ripple and a ramp, not a real 10/12-bit capture. Bit-exactness and low-bit
+preservation are exact integer statements that don't depend on what the low bits hold.</li>
+<li>The injected crawl and rainbow are a regular pattern, not real composite artefacts. They are there to make each
+filter work on most of a plane; the removal comparison says the fix removes the same as the filter does at its own
+depth, not how good the filters are.</li>
+<li>Measured on macOS arm64 only. The arithmetic is integer zimg and Expr, with no CPU-dispatched code of our own.</li>
+</ul>
+
+<h2>Tests</h2>
+<ul>
+<li>Rust: <code>test_249_chroma_fixes_keep_high_bit_depth</code> pins the helper and each block's call in both scripts,
+and that nothing in the Chroma Fixes section dithers or keeps an old guard variable. It also pins DeDot's parameters,
+which no test covered. <code>test_86</code> and the LUTDeRainbow and Bifrost tests follow the new names.</li>
+<li>Flutter script tests: the LUTDeRainbow and Bifrost expectations, and a new DeDot test.</li>
+<li>Flutter (heavy), <code>integration_high_bit_depth_filters_test.dart</code>, group "Chroma Fixes keep &gt;8-bit
+precision (task #37)": DeDot and Bifrost at 10-bit on 4:2:2 and 4:2:0, LUTDeCrawl and LUTDeRainbow at 12-bit on 4:2:2,
+on a crawl fixture whose deep samples are four times the shallower fixture's plus 0 or 1. For every plane: untouched
+samples bit-exact, the changed set equal to the low-depth run's, every sample within half a low-depth level of its
+result, the low bits kept everywhere, and preview = encode for each filter. On the old templates all six precision
+cases fail ("samples the N-bit run left alone must be bit-exact"). DeDot, Bifrost and LUTDeRainbow also joined the
+pass matrix, so they now run at 12/14/16-bit and in the 8 vs 10-bit parity check (0.17–0.19 mean abs diff).</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre>SCRATCH=/some/scratch/dir DEPS=deps/macos-arm64 docs/reports/issue-37-chroma-fixes-high-bit-depth/scripts/reproduce.sh</pre>
+<p>Needs akarin (the fixtures use its X/Y/N operands), so not the macOS x64 bundle. The scripts print every table above
+and write the images.</p>
+</main>
+</body>
+</html>
