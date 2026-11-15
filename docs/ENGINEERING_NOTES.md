@@ -4339,3 +4339,32 @@ Report: [docs/reports/2026-11-avi-late-video](reports/2026-11-avi-late-video/ind
   keeping the 600 fps file with a warning.
 - **Found, not fixed:** Convert into AVI (AAC) puts a null frame at the head
   and the sound ~18.6 ms early on every source, gap or not (task #38).
+
+### DeScratch keeps >8-bit precision: only its change is applied (task #34, 2026-11-15)
+
+Full evidence:
+[docs/reports/issue-34-descratch-high-bit-depth/](reports/issue-34-descratch-high-bit-depth/index.html).
+
+- The depth guard up-converted the plugin's whole 8-bit result. The plugin
+  changes ~1.5% of luma samples. Measured on a real capture with synthetic
+  low bits, the output lost the low bits of 78% of luma and chroma samples at
+  10-bit and 99.6% at 16-bit, and a 10-bit gradient came back in 8-bit bands
+  (18 distinct values on a row instead of 68).
+- Now `_expr([src, up(result8), up(src8)], "x y + z -")`, with `up` a zimg
+  `resize.Point` to the source format. The changed samples are exactly the
+  8-bit run's, each within half an 8-bit level of it. No low bits are lost, at
+  10/12/16-bit, 4:2:0/4:2:2/4:4:4, and in both ranges. Removal is unchanged
+  (strip MAE 4.601 vs 4.615 at 8-bit).
+- Why zimg both ways rather than scaling the difference by 4 in the
+  expression: the down-conversion depends on the range (full range is
+  ×1023/255), and the same path back keeps the delta right in both.
+- Why not a mask (take the 8-bit repair where changed): same changed set and
+  removal, but it drops the source's low bits inside each repair.
+- Test trap: a 10-bit fixture converted from an 8-bit master has zero low
+  bits, and the old code was already bit-exact on it. The existing parity
+  test could never have seen this. The new heavy test uses
+  `4 × 8-bit + {0, 1}`, which rounds back to the same 8-bit picture.
+- Measurement trap: R78's `_Range` is H.273's flag, so 0 means limited and 1
+  means full, the opposite of the old `_ColorRange`.
+- Same pattern, not fixed here: Bifrost and DeDot (8-bit; Bifrost dithers on
+  the way back), LUTDeCrawl and DeRainbow (12/16-bit). Filed as task #37.
