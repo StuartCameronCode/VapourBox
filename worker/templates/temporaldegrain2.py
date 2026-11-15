@@ -83,6 +83,7 @@ from typing import Optional
 
 import vapoursynth as vs
 
+from gauss_blur import gaussian_blur
 from hybrid_mv import (
     MV,
     ContraSharpening,
@@ -297,11 +298,9 @@ def TemporalDegrain2(
             .std.Convolution(matrix=mat, planes=CMplanes) \
             .resize.Bilinear(w, h)
     elif SrchClipPP > 1:
-        if hasattr(core, 'tcanny'):
-            spatialBlur = core.tcanny.TCanny(clip, sigma=2, mode=-1, planes=CMplanes)
-        else:
-            spatialBlur = core.std.BoxBlur(clip, planes=CMplanes, hradius=2, hpasses=3,
-                                           vradius=2, vpasses=3)
+        # TCanny's Gaussian without TCanny, whose per-thread buffers race
+        # (see gauss_blur.py).
+        spatialBlur = gaussian_blur(clip, 2, CMplanes)
         spatialBlur = core.std.Merge(spatialBlur, clip,
                                      [0.1] if (ChromaMotion or isGRAY) else [0.1, 0])
     else:

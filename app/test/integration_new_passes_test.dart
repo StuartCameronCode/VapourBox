@@ -1161,7 +1161,7 @@ void main() {
   });
 
   // Issue #50: MCDegrainSharp as a noise-reduction method. It composes mvtools
-  // Super/Analyse/Degrain with two tcanny reference clips by hand, so the encode
+  // Super/Analyse/Degrain with two Gaussian-blurred reference clips by hand, so the encode
   // is the only thing that proves the graph actually builds and runs.
   group('MCDegrainSharp (full encode)', () {
     for (final frames in [1, 2, 3]) {

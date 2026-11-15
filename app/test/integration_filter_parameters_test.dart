@@ -624,7 +624,7 @@ void main() {
 
 
     // Issue #50: MCDegrainSharp. The plane selector is a numeric enum, so it
-    // arrives from the dropdown as a string and must be coerced — and TCanny's
+    // arrives from the dropdown as a string and must be coerced — and the blur's
     // plane list has to agree with mvtools' plane selector.
     test('noise_reduction: MCDegrainSharp params', () async {
       final schema = loadSchema('noise_reduction');
