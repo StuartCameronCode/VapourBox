@@ -143,7 +143,7 @@ VapourBox/
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
 | `worker/src/crop_detect.rs` | `--detect-crop`: black borders, blanking, letterbox bars and the head-switching band, for Crop & Resize's Detect (see "Crop Detection"); also the detectors' shared sampling and decode (`decode_samples`) |
 | `worker/src/noise_halo.rs` | `--detect-noise-halo`: a source's noise sigma and halo score, for the pass list's suggestions (see "Noise and Halo Scores") |
-| `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args (see "Audio Restoration") |
+| `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args, including the NUT sound copy and the AVI copy cut (`SoundCut`) (see "Audio Restoration", "Source Frame Size") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -1252,6 +1252,28 @@ the **single** builder of both decoders' arguments (encode + preview):
     filtered, `-ss` can't target a segment) and never an MKV copy (leaves
     the TS/PS rules). `integration_seek_alignment_test.dart` checks the
     `seek_reset_*` fixtures through the copy (docs/reports/2026-11-timestamp-resets).
+- **A copied sound trimmed into AVI is cut, not pre-rolled (task #24).** A
+  stream copy keeps packets from where the seek lands (the keyframe before
+  the in-point); MKV/MP4/MOV store that as a later video start, but AVI
+  cannot store where a stream starts, so the sound ran late by up to a GOP.
+  One decision, `audio_restoration::needs_sound_cut` (Passthrough,
+  `!ContainerFormat::stores_stream_start()`, `source_audio_start() > 0`),
+  and one probe, `sound_cut_from_probe` (`SoundCut`):
+  - **Linear PCM** (`EXACT_PCM_CODECS`) is re-written in its own codec
+    (`-c:a:N`): seeked and decoded, it is the source sample for sample.
+  - **Compressed sound stays a copy**, from a second input of the same file
+    (or the NUT copy) with `-copypriorss:a 0`, seeked half a packet early
+    **only where the stream's time base is finer than a quarter packet**:
+    ffmpeg drops by timestamp in the stream's own time base, so an AVI's
+    MP3/AC-3 (counted in packets) is already cut at the nearest packet, and
+    an early seek kept the one before. **The NUT copy always seeks early**
+    (`half_any_packet`): NUT counts that same sound in samples.
+  - Both builders (`build_ffmpeg_args`, `build_ffmpeg_args_for_test`) take
+    it through `sound_cut_input` / `sound_cut_input_args`; a failed probe is
+    a warning, never a refusal; everything else keeps its arguments byte for
+    byte (`a_sound_cut_changes_nothing_outside_a_seeked_copy_into_avi`).
+    `integration_avi_copy_trim_test.dart` (heavy;
+    docs/reports/2026-11-avi-copy-trim).
 
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
@@ -2132,7 +2154,7 @@ Rules, from docs/reports/2026-11-audio-restoration:
   panel describes any gap; neither ticks anything. See "Source Frame Size".
 - **One stream is restored** (`streamIndex`, default the first). The encoder
   maps the rendered track first, then the source's other audio streams
-  untouched, each with its own tags (`encode_map_args`; naming one stream's
+  untouched (trimmed into AVI, cut like any copy: `SoundCut`), each with its own tags (`encode_map_args`; naming one stream's
   `-map_metadata` switches off ffmpeg's copying for the rest). Passthrough
   copies the others but must encode the restored one: FLAC in MKV, AAC at the
   chosen quality in MP4/MOV, 16-bit PCM in AVI, and 24-bit PCM (`pcm_s24le`)

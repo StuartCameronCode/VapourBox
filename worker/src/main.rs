@@ -1195,6 +1195,14 @@ fn run_worker(
             .sound_sidecar(&job, restored_audio.as_ref().map(|r| &r.track))
     };
 
+    // AVI cannot store where a stream starts, so a copied sound that the
+    // encoder seeks is cut there instead (audio_restoration::SoundCut).
+    let sound_cut = {
+        let d = dependency_locator::DependencyLocator::new()?;
+        audio_restoration::AudioRestorer::new(reporter.clone(), d)
+            .sound_cut(&job, restored_audio.as_ref().map(|r| &r.track))
+    };
+
     // ------------------------------------------------------------------
     // Pre-encode transcription
     // ------------------------------------------------------------------
@@ -1265,7 +1273,8 @@ fn run_worker(
         let mut executor = PipelineExecutor::new(reporter.clone())?
             .with_timeline(timeline.clone())
             .with_restored_audio(restored_audio.as_ref().map(|r| r.track.clone()))
-            .with_sound_copy(sound_sidecar.as_ref().map(|s| s.copy.clone()));
+            .with_sound_copy(sound_sidecar.as_ref().map(|s| s.copy.clone()))
+            .with_sound_cut(sound_cut.clone());
         match executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst)) {
             Ok(()) => break,
             Err(e)
