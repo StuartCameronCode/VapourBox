@@ -3138,6 +3138,28 @@ bundle at 1.16.0 or older, the known skew.
   the arch at runtime via `uname`.
 - Fully self-contained deps (no Homebrew at runtime): Python 3.12
   (python-build-standalone), VapourSynth built from source.
+- **Nothing in the bundle may load from outside it, and it is asserted.**
+  `Scripts/check-macho-refs.py` fails on any dependency (weak ones included)
+  with an absolute path outside `/usr/lib/` and `/System/`, and on any
+  absolute `LC_RPATH`, in every Mach-O file of the bundle; it runs at the end
+  of `download-deps-macos.sh` (with `--strip-absolute-rpaths`, which deletes
+  build-machine rpaths left by Homebrew/Nix builds and re-signs),
+  in `package-deps-macos.sh` and on the composed v2 tree. Never whitelist a
+  reference to get a build through: libdvdcss was, as a "weak link" that
+  wasn't, and deps 1.16.0's arm64 DVD import failed on every Mac without
+  Homebrew libdvdcss (task #36). Linux's twin is `check-elf-refs.py`
+  (`package-deps-linux.sh`).
+- **libdvdread is built from source on both arches** (6.1.3,
+  `--without-libdvdcss`, arm64 at minos 15.0), never Homebrew's bottle, which
+  links libdvdcss. libdvdcss is never linked or bundled; libdvdread opens it
+  at run time if the user installed it, and
+  `patches/libdvdread-6.1.3-macos-dvdcss-paths.patch` (hard-fails if it stops
+  applying) makes that look in `/opt/homebrew/lib`, `/usr/local/lib` and
+  `/opt/local/lib`: dyld's fallback for a bare name misses Apple Silicon
+  Homebrew and MacPorts, and preloading it in the worker doesn't help. Every
+  platform's bundle must carry libdvdread (`_extraFiles`), and
+  `dvd_extract_integration_test` fails, not skips, without a loadable one
+  (docs/reports/2026-11-libdvdread-dvdcss).
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
 - `vspipe` is a wrapper script that generates config dynamically.
 - **FFmpeg** is a pre-built static binary linking only system frameworks: x64
@@ -3474,4 +3496,5 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.13.0 | 2026-10 | One new plugin; every other binary is built from the same sources as 1.12.0. Adds **vszip** 22.1.0 (MIT) for `vszip.CLAHE`, Color Correction's local contrast (issue #90). Baseline build only, flat in the plugin directory on every platform (the wheels' AVX2/AVX-512 variants are left out); macOS x64 builds the sdist with Zig 0.16.0 for the 12.0 floor, with header padding so it can be signed. The v2 CPU tier is no longer a second full bundle: each x64 platform publishes its v3 bundle plus `…-x64-v2-delta.zip`, the files in `_tierFiles` (zsmooth; on macOS also MVTools), extracted over it (`"tierFormat": "delta"`). Every x64 machine downloads the same bundle; only an older CPU fetches the few MB more. This is also what lets the Linux AppImage carry its deps for both tiers without doubling in size |
 | 1.14.0 | 2026-10-25 | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass. (AnimeJaNai's models, used by the same VSNCNN, are an app add-on, not in the bundle). Published as the tested `deps-v1.14.0-rc1` bundles with only the version changed; every other file is byte-identical |
 | 1.16.0 | 2026-11-09 | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Published as the tested `deps-v1.16.0-rc2` bundles with only the version changed (`Scripts/promote-deps-rc.py`) |
+| 1.17.0 | (pending) | **Task #36**: macOS arm64 libdvdread built from 6.1.3 source (patched to find a user's libdvdcss in `/opt/homebrew/lib`, `/usr/local/lib`, `/opt/local/lib`) instead of Homebrew's bottle, which linked `/opt/homebrew/opt/libdvdcss/…` and failed to load on Macs without it; macOS x64 gets the same patched build. Absolute build-machine rpaths stripped from libvapoursynth, vapoursynth.abi3.so, libfftw3f*, libboost_charconv, bm3d, dctfilter and mvtools (inert: nothing used `@rpath`). Windows and Linux binaries unchanged; libdvdread is now a required file on every platform |
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |
