@@ -1324,6 +1324,7 @@ void main() {
       final out = await WorkerHarness.firstStream(result.outputPath!,
           selector: 'v:0', entries: ['pix_fmt', 'height']);
       expect(out!['pix_fmt'], 'yuv420p');
+      expect('${out['height']}', '240');
     }, timeout: const Timeout(Duration(minutes: 4)));
   });
 
