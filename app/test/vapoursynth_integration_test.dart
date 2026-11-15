@@ -591,13 +591,14 @@ print("fmtconv r31 chroma placement OK")
       expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
       final hasSvt = RegExp(r'^\s*V\S*\s+libsvtav1\s', multiLine: true)
           .hasMatch(result.stdout.toString());
-      if (depsPlatform == 'macos-x64' && _depsVersionAtMost(depsDir, [1, 16, 0])) {
-        // The known gap; flip this to an expectation when a deps release
-        // ships an x64 FFmpeg with SVT-AV1.
+      if (depsPlatform == 'macos-x64') {
+        // The known gap, at every deps version (evermeet's static x64 build
+        // has no SVT-AV1). Flip this to an expectation when a deps release
+        // ships an x64 FFmpeg with SVT-AV1; until then this fails if one does.
         expect(hasSvt, isFalse,
             reason: 'macos-x64 now has libsvtav1: drop this exception');
-        markTestSkipped('macos-x64 deps <= 1.16.0: evermeet FFmpeg has no '
-            'libsvtav1, so AV1 is offered as unavailable there');
+        markTestSkipped('macos-x64: evermeet FFmpeg has no libsvtav1, so AV1 '
+            'is offered as unavailable there');
         return;
       }
       expect(hasSvt, isTrue,

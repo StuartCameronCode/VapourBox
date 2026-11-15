@@ -2666,8 +2666,9 @@ AV1 through SVT-AV1, its own family (`EncoderFamily::SvtAv1`, Dart
   `needsAvailabilityCheck` (hardware + AV1) and the panel shows AV1
   unavailable; the worker refuses it before the pipeline starts
   (`missing_encoder_problem`). `vapoursynth_integration_test`'s `libsvtav1 is
-  compiled in` checks every bundle, except macOS x64 at deps <= 1.16.0, and
-  fails if that bundle gains it (drop the exception then).
+  compiled in` checks every bundle, except macOS x64 (evermeet's FFmpeg, at
+  every deps version), and fails if that bundle gains it (drop the exception
+  then).
 - **4:2:0 at 8 or 10 bits, converted in the script.**
   `VideoJob::output_chroma_subsampling` is the one decision (script
   `CHROMA_CONVERT`, encode and preview, and `encoder_input_pix_fmt`):
