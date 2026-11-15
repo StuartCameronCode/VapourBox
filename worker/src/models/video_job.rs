@@ -1136,7 +1136,8 @@ impl VideoCodec {
     /// Whether this is an editing intermediate (ProRes, v210): a file made to
     /// be cut in an NLE, not delivered. It gets no `+faststart`
     /// (`pipeline_executor::uses_faststart`) and 24-bit PCM for a restored audio
-    /// track under Passthrough (`audio_restoration::restored_passthrough_codec`).
+    /// track under Passthrough in every container (AVI gives it to every codec;
+    /// `audio_restoration::restored_passthrough_codec`).
     /// Field-order flagging is decided separately (`field_order_signal`).
     pub fn is_editing_intermediate(&self) -> bool {
         self.is_prores() || self.is_uncompressed()

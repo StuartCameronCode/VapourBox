@@ -255,12 +255,13 @@ void main() {
     });
   });
 
-  test('beside ProRes or v210, with audio copied, the restored stream is 24-bit PCM', () async {
-    // An editing intermediate keeps its restored audio lossless and 24-bit
-    // (restored_passthrough_codec; docs/reports/2026-11-intermediate-pcm-depth):
-    // AAC would be a second lossy generation, 16-bit rounds the float render's
-    // quietest detail away. The same render in MKV (FLAC, already 24-bit) is
-    // the reference: every one must decode to the same samples.
+  test('beside ProRes or v210, and in AVI, with audio copied, the restored stream is 24-bit PCM', () async {
+    // An editing intermediate keeps its restored audio lossless and 24-bit, and
+    // so does AVI beside any codec (restored_passthrough_codec;
+    // docs/reports/2026-11-intermediate-pcm-depth, F6 for AVI): AAC would be a
+    // second lossy generation, 16-bit rounds the float render's quietest detail
+    // away. The same render in MKV (FLAC, already 24-bit) is the reference:
+    // every one must decode to the same samples.
     Future<List<int>> s32(String path) async {
       final r = await Process.run(WorkerHarness.ffmpegPath,
           ['-v', 'error', '-i', path, '-map', '0:a:0', '-f', 's32le', '-'],
@@ -282,8 +283,12 @@ void main() {
       ('v210', 'mov'),
       ('v210', 'mkv'),
       ('v210', 'avi'),
+      // Not intermediates: AVI alone makes these 24-bit.
+      ('ffv1', 'avi'),
+      ('huffyuv', 'avi'),
+      ('libx264', 'avi'),
     ]) {
-      final label = '${codec == 'v210' ? 'v210' : 'prores'}_$container';
+      final label = '${codec.startsWith('prores') ? 'prores' : codec}_$container';
       final out = await _encode(AudioFixtures.job(clicks, {'limiter': true},
           container: container, label: 'intermediate_$label',
           encoding: {'audioMode': 'passthrough', 'codec': codec}));
