@@ -3287,9 +3287,10 @@ fn test_87_prores_10bit_422_is_read_natively_by_both_paths() {
 fn test_88_ivtc_and_descratch_keep_their_eight_bit_guards() {
     // Both filters are 8-bit only. VFM takes its metrics from a downconverted
     // copy and its pixels from the full-depth clip via clip2, so IVTC on a
-    // 10-bit source neither fails nor loses precision; DeScratch converts down
-    // and back. These are the guards that made 10-bit ProRes work at all, so
-    // they are pinned in both scripts.
+    // 10-bit source neither fails nor loses precision; DeScratch analyses an
+    // 8-bit copy and applies only its change at full depth (task #34). These
+    // are the guards that made 10-bit ProRes work at all, so they are pinned
+    // in both scripts.
     create_output_dir();
 
     let mut job = create_10bit_job("test_88_ivtc_descratch_guards");
@@ -3323,6 +3324,11 @@ fn test_88_ivtc_and_descratch_keep_their_eight_bit_guards() {
             script.contains("_descratch_orig_format = clip.format")
                 && script.contains("if _descratch_orig_format.bits_per_sample != 8:"),
             "{}: DeScratch must round-trip the source bit depth",
+            label
+        );
+        assert!(
+            script.contains("_descratch_src = clip") && script.contains("], \"x y + z -\")"),
+            "{}: DeScratch must restore the depth by applying its change to the source",
             label
         );
     }
@@ -8823,5 +8829,43 @@ fn test_242_descratch_any_subsampling() {
             // The 8-bit guard (test_88) is still around the whole block.
             assert!(script.contains("_descratch_orig_format = clip.format"), "{}", ctx);
         }
+    }
+}
+
+#[test]
+fn test_243_descratch_keeps_high_bit_depth_outside_scratches() {
+    // DeScratch is 8-bit only. Up-converting its whole 8-bit result quantised
+    // every sample of a 10/12/16-bit source (76-99.6% of luma samples changed,
+    // where the plugin touches ~1%). The block now adds only the plugin's
+    // change, source + up(result) - up(8-bit input), so untouched samples stay
+    // bit-exact (task #34, docs/reports/issue-34-descratch-high-bit-depth).
+    create_output_dir();
+
+    let mut job = create_10bit_job("test_243_descratch_high_bit_depth");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        descratch: DeScratchParameters { enabled: true, ..DeScratchParameters::default() },
+        ..ProcessingPipeline::default()
+    });
+
+    let (encode, preview) = generate_both_scripts(&job);
+    for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(
+            script.contains("_descratch_in8 = clip"),
+            "{}: the 8-bit input must be kept for the delta",
+            label
+        );
+        assert!(
+            script.contains("core.resize.Point(clip, format=_descratch_orig_format)")
+                && script.contains("core.resize.Point(_descratch_in8, format=_descratch_orig_format)")
+                && script.contains("], \"x y + z -\")"),
+            "{}: DeScratch must add only its change at full depth, script was:\n{}",
+            label, script
+        );
+        assert!(
+            !script.contains("core.resize.Bilinear(clip, format=_descratch_orig_format)"),
+            "{}: the whole 8-bit result must not be up-converted (task #34)",
+            label
+        );
     }
 }

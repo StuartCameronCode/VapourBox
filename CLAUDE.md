@@ -1366,6 +1366,12 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    (`vivtc.VFM`, `descratch.DeScratch`) and 10-bit-max cases (`havsfunc.LUTDeCrawl`)
    are guarded in **both** templates: convert down, run the filter, restore the
    source format.
+   **DeScratch applies only its change at full depth** (task #34):
+   `src + up(result8) - up(src8)`, so every sample it left alone stays
+   bit-exact. Up-converting its whole 8-bit result quantised every sample of
+   the source. Test a guard like this on a fixture with real sub-8-bit
+   content: one converted from an 8-bit master has zero low bits and passes
+   either way (docs/reports/issue-34-descratch-high-bit-depth).
    **DeScratch on 4:2:0 runs its luma on a 4:2:2 carrier** (task #29): the
    plugin's internal blur is a resize that zimg runs per field on a
    field-flagged clip, which fails on most 4:2:0 heights. Keep the carrier

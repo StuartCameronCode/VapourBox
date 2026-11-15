@@ -594,8 +594,10 @@ clip = _deflicker.reduce_flicker(clip, strength={{DEFLICKER_LOCAL_STRENGTH}}, ag
 # DeScratch - remove vertical scratches from film
 # DeScratch only supports 8-bit YUV (YV12/YV16/YV24) - convert if needed
 _descratch_orig_format = clip.format
+_descratch_src = clip
 if clip.format.bits_per_sample != 8:
     clip = core.resize.Bilinear(clip, format=clip.format.replace(bits_per_sample=8, sample_type=vs.INTEGER))
+_descratch_in8 = clip
 # DeScratch blurs each frame with an internal resize to height // (1 + blurlen)
 # rows, rounded to even. zimg resizes a field-based clip per field, where 4:2:0
 # chroma needs a multiple of 4, so the plugin failed on most interlaced 4:2:0
@@ -665,9 +667,20 @@ else:
     _ds_chroma = _descratch(core.std.RemoveFrameProps(clip, props="_FieldBased"))
 {{/DESCRATCH_CHROMA_MODES}}
     clip = core.std.ShufflePlanes([_ds_luma, _ds_chroma], [0, 1, 2], vs.YUV)
-# Restore original bit depth if we converted down
+# Restore the source depth by applying only DeScratch's change to the
+# full-depth clip: source + up(result) - up(8-bit input). Up-converting the
+# whole 8-bit result quantised every sample of a 10/12/16-bit source, though
+# the plugin changes ~1% of them; this way every sample it left alone stays
+# bit-exact, and a repaired one keeps the source's low bits (within half an
+# 8-bit level of the 8-bit repair). Both up-conversions go through zimg, as the
+# down-conversion did, so the delta is right in full and limited range
+# (task #34, docs/reports/issue-34-descratch-high-bit-depth).
 if _descratch_orig_format.bits_per_sample != 8:
-    clip = core.resize.Bilinear(clip, format=_descratch_orig_format)
+    clip = _expr([
+        _descratch_src,
+        core.resize.Point(clip, format=_descratch_orig_format),
+        core.resize.Point(_descratch_in8, format=_descratch_orig_format),
+    ], "x y + z -")
 {{/DESCRATCH}}
 
 # ============================================================================

@@ -328,6 +328,42 @@ Uint8List _planes(Uint8List raw, int plane, int chromaW, int chromaH,
   return out.takeBytes();
 }
 
+/// The [plane] of every frame in [raw], a little-endian 16-bit-container
+/// format (yuv4xxp10le and deeper), as samples.
+Uint16List _planes16(Uint8List raw, int plane, int chromaW, int chromaH,
+    {int width = _width, int height = _height}) {
+  final bytes = _planes(raw, plane, chromaW * 2, chromaH,
+      width: width * 2, height: height);
+  return bytes.buffer.asUint16List(bytes.offsetInBytes, bytes.length ~/ 2);
+}
+
+/// [_scratchedFixture] at 10 bits with genuine sub-8-bit content: each sample
+/// is four times the 8-bit fixture's plus a low-bit pattern of 0 or 1, which
+/// rounds back down to the 8-bit fixture exactly. A 10-bit file converted from
+/// an 8-bit master has zero low bits, and DeScratch was already bit-exact on
+/// that while quantising every real 10-bit sample (task #34).
+Future<String> _deepScratchedFixture(String pixFmt8) async {
+  final pixFmt = '${pixFmt8}10le';
+  final path = '$_outDir/scratched_deep_$pixFmt.mkv';
+  if (File(path).existsSync()) return path;
+  final result = await Process.run(
+    WorkerHarness.ffmpegPath,
+    [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', await _scratchedFixture(pixFmt8),
+      '-vf', "format=$pixFmt,"
+          "geq=lum='lum(X,Y)+mod(X+Y,2)':cb='cb(X,Y)+mod(X,2)'"
+          ":cr='cr(X,Y)+mod(Y,2)',setfield=tff",
+      '-c:v', 'ffv1', '-pix_fmt', pixFmt,
+      path,
+    ],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(result.exitCode, 0,
+      reason: 'deep fixture generation failed for $pixFmt: ${result.stderr}');
+  return path;
+}
+
 int _differing(Uint8List a, Uint8List b) {
   expect(a.length, b.length, reason: 'plane sizes differ');
   var n = 0;
@@ -519,8 +555,9 @@ List<_Pass> _passes() => [
         tolerance: 3.0,
       ),
 
-      // DeScratch is 8-bit only: the pass converts down and back, so the >8-bit
-      // result is expected to match the 8-bit one closely.
+      // DeScratch is 8-bit only: the pass analyses an 8-bit copy and applies
+      // only its change at full depth (task #34), so the >8-bit result is
+      // expected to match the 8-bit one closely.
       _Pass('descratch', _only(descratch: const DeScratchParameters(enabled: true))),
 
       _Pass('spotless', _only(spotless: const SpotLessParameters(enabled: true))),
@@ -1474,6 +1511,139 @@ void main() {
       expect(out['pix_fmt'], 'yuv420p10le');
       expect(int.parse('${out['nb_read_frames']}'), _frames * 2);
     }, timeout: const Timeout(Duration(minutes: 8)));
+  });
+
+  // ===========================================================================
+  // 3d. DeScratch keeps >8-bit precision (task #34). The plugin is 8-bit only;
+  //     the block used to up-convert its whole 8-bit result, quantising every
+  //     sample of a deeper source. It now adds only the plugin's change to the
+  //     source, so the output must be the source wherever the 8-bit run left a
+  //     sample alone, the 8-bit repair (to its rounding) where it changed one,
+  //     and keep the source's low bits everywhere.
+  //     docs/reports/issue-34-descratch-high-bit-depth
+  // ===========================================================================
+  group('DeScratch keeps >8-bit precision (task #34)', () {
+    const descratch = DeScratchParameters(enabled: true);
+
+    Future<Uint8List> encode(String fixture, String pixFmt, String name) async {
+      final result = await WorkerHarness.runJob(
+          _losslessJob(
+                  fixture: fixture,
+                  pixFmt: pixFmt,
+                  pipeline: _only(descratch: descratch),
+                  outputName: name)
+              .toJson(),
+          label: name);
+      expect(result.success, isTrue, reason: result.error);
+      return _rawFrames(result.outputPath!, pixFmt);
+    }
+
+    for (final pixFmt8 in ['yuv422p', 'yuv420p']) {
+      final pixFmt = '${pixFmt8}10le';
+      test('$pixFmt: untouched samples bit-exact, repairs match the 8-bit run',
+          () async {
+        const cw = _width ~/ 2;
+        final ch = pixFmt8 == 'yuv420p' ? _height ~/ 2 : _height;
+        final src8 = await _scratchedFixture(pixFmt8);
+        final src10 = await _deepScratchedFixture(pixFmt8);
+        final in8 = await _rawFrames(src8, pixFmt8);
+        final in10 = await _rawFrames(src10, pixFmt);
+
+        // The plugin must see the same 8-bit picture in both runs, or the
+        // comparison with the 8-bit run means nothing.
+        var lowBits = 0, notFourTimes = 0;
+        for (final plane in [0, 1, 2]) {
+          final a = _planes(in8, plane, cw, ch);
+          final b = _planes16(in10, plane, cw, ch);
+          expect(b.length, a.length);
+          for (var i = 0; i < a.length; i++) {
+            if (b[i] >> 2 != a[i] || b[i] & 3 > 1) notFourTimes++;
+            if (b[i] & 3 != 0) lowBits++;
+          }
+        }
+        expect(notFourTimes, 0,
+            reason: 'the 10-bit fixture must be the 8-bit one times four plus '
+                '0 or 1 (ffmpeg\'s 8 to 10-bit conversion changed?)');
+        expect(lowBits, greaterThan(0),
+            reason: 'the 10-bit fixture has no sub-8-bit content');
+
+        final out8 = await encode(src8, pixFmt8, 'ds_deep_ref_$pixFmt8');
+        final out10 = await encode(src10, pixFmt, 'ds_deep_$pixFmt');
+
+        for (final plane in [1, 2]) {
+          final a = _planes16(in10, plane, cw, ch);
+          final b = _planes16(out10, plane, cw, ch);
+          var differ = 0;
+          for (var i = 0; i < a.length; i++) {
+            if (a[i] != b[i]) differ++;
+          }
+          expect(differ, 0,
+              reason: 'plane $plane must be the source\'s, bit for bit');
+        }
+
+        final yIn8 = _planes(in8, 0, cw, ch);
+        final yOut8 = _planes(out8, 0, cw, ch);
+        final yIn10 = _planes16(in10, 0, cw, ch);
+        final yOut10 = _planes16(out10, 0, cw, ch);
+        var changed = 0, untouchedWrong = 0, setMismatch = 0;
+        var farFromRepair = 0, lowBitsLost = 0;
+        for (var i = 0; i < yIn10.length; i++) {
+          final changed8 = yOut8[i] != yIn8[i];
+          final changed10 = yOut10[i] != yIn10[i];
+          if (changed10) changed++;
+          if (changed8 != changed10) setMismatch++;
+          if (!changed8 && changed10) untouchedWrong++;
+          if ((yOut10[i] - 4 * yOut8[i]).abs() > 2) farFromRepair++;
+          if (yOut10[i] & 3 != yIn10[i] & 3) lowBitsLost++;
+        }
+        print('  $pixFmt: DeScratch changed $changed of ${yIn10.length} luma '
+            'samples');
+        expect(changed, greaterThan(0),
+            reason: 'DeScratch changed nothing, so the test proves nothing');
+        expect(untouchedWrong, 0,
+            reason: 'samples the 8-bit run left alone must be bit-exact');
+        expect(setMismatch, 0,
+            reason: 'the 10-bit run must change exactly the samples the 8-bit '
+                'run changes');
+        expect(farFromRepair, 0,
+            reason: 'every sample must be within half an 8-bit level of the '
+                '8-bit result');
+        expect(lowBitsLost, 0,
+            reason: 'the source\'s low bits must survive everywhere, repairs '
+                'included (no 8-bit banding)');
+      }, timeout: const Timeout(Duration(minutes: 6)));
+    }
+
+    test('preview matches the encode on yuv422p10le', () async {
+      final src10 = await _deepScratchedFixture('yuv422p');
+      final pipeline = _only(descratch: descratch);
+      final preview = await WorkerHarness.runPreview(
+        _losslessJob(
+                fixture: src10,
+                pixFmt: 'yuv422p10le',
+                pipeline: pipeline,
+                outputName: 'ds_deep_pv')
+            .toJson(),
+        frame: _previewFrame,
+        label: 'ds_deep_pv',
+      );
+      expect(preview.success, isTrue, reason: '$preview');
+      final result = await WorkerHarness.runJob(
+          _losslessJob(
+                  fixture: src10,
+                  pixFmt: 'yuv422p10le',
+                  pipeline: pipeline,
+                  outputName: 'ds_deep_pv_encode')
+              .toJson(),
+          label: 'ds_deep_pv_encode');
+      expect(result.success, isTrue, reason: result.error);
+      final diff = WorkerHarness.meanAbsDiff(
+          await WorkerHarness.imageToRgb24(preview.png!, label: 'dsp'),
+          await WorkerHarness.frameRgb24(result.outputPath!, _previewFrame,
+              label: 'dse'));
+      print('  preview vs encode: mean abs diff ${diff.toStringAsFixed(3)}');
+      expect(diff, lessThan(0.5));
+    }, timeout: const Timeout(Duration(minutes: 6)));
   });
 
   // ===========================================================================

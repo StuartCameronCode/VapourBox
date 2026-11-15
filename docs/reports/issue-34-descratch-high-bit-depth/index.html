@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeScratch at high depth</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>DeScratch quantised every sample of a &gt;8-bit source</h1>
+<p class="meta">2026-11-15 · task #34 (found in task #29) · deps 1.16.0 · measured on an Apple Silicon Mac (macOS arm64 bundle).
+The fix is integer arithmetic in zimg and Expr, so it doesn't depend on the platform; the nightly heavy run covers the
+other platforms.</p>
+
+<div class="card">
+<p><strong>Outcome: built.</strong> DeScratch is 8-bit only. The pass converted a 10/12/16-bit clip to 8 bits, ran the
+plugin, and up-converted the <em>whole 8-bit result</em> back to the source format. The plugin changes about 1.5% of
+luma samples, but the output lost the low bits of all of them. That was 78% of luma and chroma samples at 10-bit and
+99.6% at 16-bit (the rest happened to sit on an 8-bit level already). On a smooth gradient the picture came back in
+8-bit bands.</p>
+<p>The block now applies only the plugin's change at full depth:</p>
+<pre>clip = _expr([source, up(descratched8), up(source8)], "x y + z -")</pre>
+<p>Here <code>up()</code> is a zimg depth conversion back to the source format. Every sample the plugin left alone is
+bit-exact. A repaired sample is the 8-bit repair plus the source's own sub-8-bit residual, within half an 8-bit level
+of the 8-bit result. Scratch detection is unchanged because the plugin still sees the same 8-bit picture. 8-bit sources
+skip the new code.</p>
+</div>
+
+<h2>1. Fixtures</h2>
+<p>A 10-bit file converted from an 8-bit master has zero low bits, so the old code was already bit-exact on it. That is
+why the existing 8-vs-10-bit parity test never caught this, and why my first probe on such a fixture showed no loss at
+all. The repository has no genuine &gt;8-bit footage either: <code>pal-sd-25.mov</code>'s 10-bit samples are 99.99%
+multiples of four. So both fixtures here have <strong>synthetic</strong> sub-8-bit content:</p>
+<ul>
+<li><strong>capture</strong>: 12 frames of <code>Tests/TestResources/interlaced_test.avi</code> (real 720x576 PAL
+interlaced). It is promoted to 16-bit with a smooth ripple of ±1.5 10-bit levels added to luma and chroma.</li>
+<li><strong>gradient</strong>: a shallow horizontal luma ramp across the frame, from 64 to 80 in 8-bit levels, with
+flat chroma. This is where 8-bit quantisation shows as bands.</li>
+</ul>
+<p>Three dark scratches are drawn on each, multiplicatively, at x = 150 (2 px), 361 (1 px) and 560 (3 px). Each fixture
+is then converted to the format under test and flagged field-based TFF, as the templates mark an interlaced source.
+4:2:0 runs its luma on the 4:2:2 carrier, as the templates do (task #29).</p>
+<p class="caption">Trap: R78's <code>_Range</code> follows H.273, so 0 is limited and 1 is full. That is the opposite of the old
+<code>_ColorRange</code>. My first table had its range columns swapped, which surfaced as low bits "lost" on the
+"limited" rows. Full range scales by 1023/255, not 4.</p>
+
+<h2>2. What each version does</h2>
+<p>Three versions of the block are compared:</p>
+<ul>
+<li><strong>current</strong> is the code before this task.</li>
+<li><strong>delta</strong> is the fix.</li>
+<li><strong>masked</strong> is the alternative. It takes the up-converted 8-bit result wherever the plugin changed a
+sample, and the source elsewhere.</li>
+</ul>
+<p>The columns, all over 12 frames:</p>
+<ul>
+<li><em>non-exact</em> is the share of samples that differ from the source.</li>
+<li><em>set = 8-bit run</em> asks whether the samples that differ are exactly the ones the 8-bit run changed.</li>
+<li><em>max from repair</em> is the largest distance from the up-converted 8-bit result, in 8-bit levels.</li>
+<li><em>scratch left</em> is the mean |output − clean picture| over an 8-px strip around each scratch, in 8-bit levels.
+The 8-bit run's figure is measured against the clean picture rounded to 8 bits.</li>
+<li><em>low bits lost</em> counts samples whose bits below the 8-bit level differ from the source's (limited range
+only).</li>
+</ul>
+<div class="scroll"><table>
+<tr><th>fixture</th><th>format</th><th>version</th><th class="num">non-exact Y</th><th class="num">non-exact U / V</th><th>set = 8-bit run</th><th class="num">max from repair</th><th class="num">scratch left</th><th class="num">low bits lost</th></tr>
+<tr><td>capture</td><td>10-bit 4:2:2</td><td>8-bit run</td><td class="num">1.461%</td><td class="num">0</td><td>–</td><td class="num">–</td><td class="num">4.615</td><td class="num">–</td></tr>
+<tr><td></td><td></td><td>current</td><td class="num bad">78.27%</td><td class="num bad">78.01%</td><td class="bad">no</td><td class="num">0</td><td class="num">4.727</td><td class="num bad">3 878 799</td></tr>
+<tr><td></td><td></td><td>delta (fix)</td><td class="num good">1.461%</td><td class="num good">0</td><td class="good">yes</td><td class="num">0.50</td><td class="num">4.601</td><td class="num good">0</td></tr>
+<tr><td></td><td></td><td>masked</td><td class="num">1.461%</td><td class="num">0</td><td>yes</td><td class="num">0.50</td><td class="num">4.605</td><td class="num">56 395</td></tr>
+<tr><td>capture</td><td>10-bit 4:2:0</td><td>current / delta / masked</td><td class="num">78.27 / 1.461 / 1.461%</td><td class="num">78.01 / 0 / 0%</td><td>no / yes / yes</td><td class="num">0 / 0.50 / 0.50</td><td class="num">4.727 / 4.601 / 4.605</td><td class="num">3 878 799 / 0 / 56 395</td></tr>
+<tr><td>capture</td><td>12-bit 4:2:2</td><td>current / delta / masked</td><td class="num">94.36 / 1.459 / 1.459%</td><td class="num">94.36 / 0 / 0%</td><td>no / yes / yes</td><td class="num">0 / 0.50 / 0.50</td><td class="num">4.740 / 4.604 / 4.603</td><td class="num">4 690 986 / 0 / 67 895</td></tr>
+<tr><td>capture</td><td>16-bit 4:4:4</td><td>current / delta / masked</td><td class="num">99.59 / 1.459 / 1.459%</td><td class="num">99.67 / 0 / 0%</td><td>no / yes / yes</td><td class="num">0 / 0.50 / 0.50</td><td class="num">4.737 / 4.602 / 4.600</td><td class="num">4 955 859 / 0 / 72 321</td></tr>
+<tr><td>capture</td><td>10-bit 4:2:2 full range</td><td>current / delta / masked</td><td class="num">75.35 / 1.436 / 1.436%</td><td class="num">77.8 / 0 / 0%</td><td>no / yes / yes</td><td class="num">0 / 0.50 / 0.50</td><td class="num">4.762 / 4.619 / 4.619</td><td class="num">n/a</td></tr>
+<tr><td>gradient</td><td>10-bit 4:2:2</td><td>8-bit run</td><td class="num">0.694%</td><td class="num">0</td><td>–</td><td class="num">–</td><td class="num">1.500</td><td class="num">–</td></tr>
+<tr><td></td><td></td><td>current / delta / masked</td><td class="num">74.44 / 0.694 / 0.694%</td><td class="num">0 / 0 / 0</td><td>no / yes / yes</td><td class="num">0 / 0.50 / 0.50</td><td class="num">1.755 / 1.610 / 1.579</td><td class="num">3 704 832 / 0 / 34 560</td></tr>
+<tr><td>gradient</td><td>16-bit 4:4:4</td><td>current / delta / masked</td><td class="num">99.44 / 0.694 / 0.694%</td><td class="num">0 / 0 / 0</td><td>no / yes / yes</td><td class="num">0 / 0.50 / 0.50</td><td class="num">1.765 / 1.596 / 1.584</td><td class="num">4 948 992 / 0 / 34 560</td></tr>
+</table></div>
+<p class="caption">The gradient's chroma is flat at 512, an 8-bit level, so the current code leaves it exact by
+coincidence. The gradient's 4:2:0, 12-bit and full-range rows are in the script output and show the same pattern. The 1-px scratch at
+x = 361 is too faint for the plugin at its default settings at any depth, so it stays in every version. That is the
+plugin, not this change.</p>
+<p>Distinct luma values along one untouched row of the 10-bit gradient: source 68, <span class="bad">current 18</span>,
+delta 66, masked 66. The row crosses the repaired 2-px scratch, which accounts for the two values missing from delta
+and masked.</p>
+
+<h2>3. The pictures</h2>
+<p><a href="img/gradient_1_source.png"><img src="img/gradient_1_source.png" width="240" alt="source"></a>
+<a href="img/gradient_2_current.png"><img src="img/gradient_2_current.png" width="240" alt="current"></a>
+<a href="img/gradient_3_delta.png"><img src="img/gradient_3_delta.png" width="240" alt="delta"></a></p>
+<p class="caption">10-bit gradient around the 2-px scratch at x = 150, frame 0, 160x120 at 3x, luma contrast-stretched
+16x. Left: the scratched source. Centre: the current code; the scratch is gone but the ramp is in four 8-bit bands.
+Right: the fix; the scratch is gone and the ramp keeps its 10-bit steps.</p>
+<p><a href="img/capture_4_diff_current.png"><img src="img/capture_4_diff_current.png" width="240" alt="current diff"></a>
+<a href="img/capture_5_diff_delta.png"><img src="img/capture_5_diff_delta.png" width="240" alt="delta diff"></a></p>
+<p class="caption">|output − source| on the 10-bit capture around the same scratch, x64. Left: the current code changes
+the whole frame (the diagonal pattern is the ripple's low bits being rounded away). Right: the fix changes only the
+scratch.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>Delta, not masked.</strong> Both change exactly the 8-bit run's samples and remove the same scratch, within
+0.04 levels. The delta also keeps the source's low bits inside the repair, so a repaired column on a gradient doesn't
+step. It also carries DeScratch's partial <code>keep</code> blending without a separate mask.</li>
+<li><strong>Both up-conversions go through zimg</strong>, not <code>(y − z) × 2^(bits−8)</code> inside the expression.
+The down-conversion is zimg's and depends on the range: full range scales by 1023/255. Converting back the same way
+keeps the delta right in both ranges (the full-range rows above).</li>
+<li><strong>The down-conversion is unchanged</strong> (plain rounding, no dither), so detection is identical to
+before.</li>
+<li>Expr clamps to the format's range, and the frame properties come from the source clip, so <code>_FieldBased</code>
+is kept. <code>std.Expr</code> and <code>akarin.Expr</code> both accept mixed-depth inputs. The block itself only
+passes clips of one format.</li>
+</ul>
+
+<h2>Limits of these measurements</h2>
+<ul>
+<li>The sub-8-bit content is synthetic: a ripple and a ramp, not a real 10-bit capture. The claims don't depend on
+what the low bits hold. Bit-exactness and low-bit preservation are exact integer statements.</li>
+<li>Detection is still done at 8 bits, so a scratch fainter than half an 8-bit level is invisible to the plugin either
+way. This change is about the samples the plugin doesn't touch.</li>
+<li>Measured on macOS arm64 only. The arithmetic is integer zimg and Expr, with no CPU-dispatched code of our own.</li>
+</ul>
+
+<h2>Tests</h2>
+<ul>
+<li>Rust: <code>test_88</code> keeps its guard strings and pins the delta. <code>test_243</code> asserts the delta in
+both scripts and that the whole-clip up-conversion is gone.</li>
+<li>Flutter (heavy), <code>integration_high_bit_depth_filters_test.dart</code>, group "DeScratch keeps &gt;8-bit
+precision (task #34)". It runs on 10-bit 4:2:2 and 4:2:0 fixtures whose samples are four times the 8-bit scratched
+fixture's plus 0 or 1, so the plugin sees the same 8-bit picture in both runs. It asserts:
+<ul>
+<li>chroma is bit-exact;</li>
+<li>every sample the 8-bit run left alone is bit-exact;</li>
+<li>the changed set equals the 8-bit run's;</li>
+<li>every sample is within half an 8-bit level of 4 × the 8-bit output;</li>
+<li>the source's low bits survive everywhere;</li>
+<li>the preview matches the encode.</li>
+</ul>
+On the old templates both fixture tests fail: 633 600 and 316 800 chroma samples differ.</li>
+</ul>
+
+<h2>Follow-ups</h2>
+<p>The same whole-frame quantisation is in the other "convert down, run, convert back" guards. Bifrost and DeDot are
+8-bit only, and Bifrost also dithers on the way back up. LUTDeCrawl and DeRainbow cap out at 10-bit, so they affect
+12/16-bit sources. Filed as task #37.</p>
+
+<h2>Reproduce</h2>
+<pre>SCRATCH=/some/scratch/dir DEPS=deps/macos-arm64 docs/reports/issue-34-descratch-high-bit-depth/scripts/reproduce.sh</pre>
+<p><code>reproduce.sh</code> decodes the capture with the bundle's ffmpeg and runs <code>precision.py</code>, which
+prints every table above and writes the images. <code>common.py</code> holds the fixtures and the three versions of
+the block. It needs akarin, so it can't run on the macos-x64 bundle.</p>
+</main>
+</body>
+</html>
