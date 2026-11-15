@@ -304,6 +304,9 @@ which any documentation would have shown:
 > **CTMF rejects 9-bit, and 9-bit is reachable.** `pixel_format.rs` rounds an odd
 > source depth up through `[8, 9, 10, 12, 14, 16]` and `pipe_source` maps
 > `yuv420p9le`, so a 9-bit source would kill the job. Guarded in both templates.
+> *Superseded (task #31, 2026-11-15):* 9-bit sources now decode as 10-bit, so
+> no 9-bit clip reaches CTMF and the guard was removed. The guard only ever
+> covered this one call; YAHR and five other havsfunc paths reach CTMF too.
 > Its `memsize` is also pinned to 16 MiB: at the plugin's 1 MiB default, 16-bit
 > radius 3 measures **0.79 fps against 42 fps**, for bit-identical output.
 >
@@ -4082,7 +4085,8 @@ Full evidence:
   14-bit fixture). x264/x265/SVT-AV1 negotiate the same depth from 14 or 16.
 - Found on the way, filed: DeScratch fails on every 4:2:0 source (task #29,
   fixed below);
-  Dehalo's YAHR fails on 9-bit, where CTMF has no format (task #31).
+  Dehalo's YAHR fails on 9-bit, where CTMF has no format (task #31,
+  fixed below).
 
 ### A PS whose last picture has no PTS counted one frame short (task #26, 2026-11-15)
 
@@ -4252,3 +4256,25 @@ Full evidence:
   used `-fps_mode cfr` as their reference, which disagreed with #174's grid
   on `interlaced_test.avi`'s null frames; and the add-ons widget test waited
   a fixed 200 ms for an install.
+
+### 9-bit sources decode as 10-bit: CTMF has no 9-bit format (task #31, 2026-11-15)
+
+Full evidence:
+[docs/reports/2026-11-9-bit-sources/](reports/2026-11-9-bit-sources/index.html).
+
+- CTMF r5 accepts 8/10/12/14/16-bit integer and float, not 9-bit. havsfunc
+  reaches it through `MinBlur(r>=2)` and directly. At 9-bit, YAHR,
+  `FineDehalo(contra>0)`, `MCTemporalDenoise(pfMode=2)` and
+  `ContraSharpening(radius=2)` fail at every size; HQDeringmod (its `nrmode`
+  is 2 above 1024x576) and `SMDegrain(contrasharp=True)` fail at HD only.
+  The heavy test's SD fixture saw only YAHR.
+- `pixel_format::native_name` now rounds to 8/10/12/16, and the three
+  `p9le` formats left `NATIVE_FORMATS` and `pipe_source.py`. The decoder's
+  9 → 10 conversion keeps every 9-bit value in the top 9 bits (limited range
+  an exact `<< 1`). 10-bit jobs are bit-identical; QTGMC on a 9-bit source
+  now works at 10 bits (51–53 dB PSNR against the old 9-bit output).
+- The Noise Reduction CTMF block's 9-bit lift/restore is removed (no 9-bit
+  clip can reach it); its 9-bit output was MD5-identical either way.
+- Under Output Colour Format `original` a 9-bit source comes out 10-bit;
+  only FFV1/FFVHuff stored 9 bits (+1.2% FFV1). x264/x265/SVT-AV1 already
+  encoded 9-bit input as 10-bit.

@@ -1052,15 +1052,18 @@ void main() {
   });
 
   // ===========================================================================
-  // 2. Do the deeper formats work too? 12-bit is ProRes 4444 XQ; 14-bit is
-  //    FFV1 film scans (decoded as 16-bit, task #23: QTGMC, santiag and
-  //    Deblock QED all failed on it before); 16-bit is what the
+  // 2. Do the deeper formats work too? 9-bit is some H.264 High 4:4:4 and
+  //    FFV1 files (decoded as 10-bit, task #31: Dehalo's YAHR failed on it
+  //    before, as CTMF has no 9-bit format); 12-bit is ProRes 4444 XQ;
+  //    14-bit is FFV1 film scans (decoded as 16-bit, task #23: QTGMC,
+  //    santiag and Deblock QED all failed on it before); 16-bit is what the
   //    high-precision paths convert to internally, so a pass that rejects it
   //    is a latent failure even for a 10-bit source. yuv420p14le gives every
   //    pass a field-flagged 4:2:0 source (DeScratch failed on it, task #29).
   // ===========================================================================
   group('preview runs on deeper formats', () {
     for (final pixFmt in [
+      'yuv422p9le',
       'yuv444p12le',
       'yuv420p14le',
       'yuv422p14le',
@@ -1377,6 +1380,100 @@ void main() {
       expect(out!['pix_fmt'], 'yuv420p');
       expect('${out['height']}', '240');
     }, timeout: const Timeout(Duration(minutes: 4)));
+  });
+
+  // ===========================================================================
+  // 3a'. 9-bit sources (task #31). CTMF has no 9-bit format and havsfunc
+  //     reaches it through MinBlur(r>=2) (YAHR; HQDeringmod, ContraSharpening
+  //     and SMDegrain's contrasharp at HD), so the worker decodes 9-bit as
+  //     10-bit. The decoder's 9 -> 10 conversion is an exact shift in
+  //     limited range, so a 9-bit source must give the 10-bit fixture's
+  //     picture.
+  // ===========================================================================
+  group('9-bit sources (task #31)', () {
+    const qtgmcDefault = QTGMCParameters(enabled: true, tff: true);
+
+    // As for 14 vs 16 above: the fixtures are separate conversions of the
+    // master, so measure their own difference first.
+    double? baseline;
+    Future<double> diff9vs10(ProcessingPipeline pipeline, String label) async {
+      final src9 = await _fixture('yuv422p9le');
+      final src10 = await _fixture('yuv422p10le');
+      final r9 = await WorkerHarness.runPreview(
+        _job(fixture: src9, pixFmt: 'yuv422p9le', pipeline: pipeline).toJson(),
+        frame: _previewFrame,
+        label: '${label}_9',
+      );
+      final r10 = await WorkerHarness.runPreview(
+        _job(fixture: src10, pixFmt: 'yuv422p10le', pipeline: pipeline).toJson(),
+        frame: _previewFrame,
+        label: '${label}_10',
+      );
+      expect(r9.success, isTrue, reason: '$label failed on 9-bit: $r9');
+      expect(r10.success, isTrue, reason: '$label failed on 10-bit: $r10');
+      return WorkerHarness.meanAbsDiff(
+          await WorkerHarness.imageToRgb24(r9.png!, label: '${label}_r9'),
+          await WorkerHarness.imageToRgb24(r10.png!, label: '${label}_r10'));
+    }
+
+    final cases = <String, ProcessingPipeline>{
+      'passthrough': _only(),
+      'dehalo_yahr': _only(
+          dehalo: const DehaloParameters(
+              enabled: true, method: DehaloMethod.yahr)),
+      'noise_ctmf': _only(
+          noiseReduction: const NoiseReductionParameters(
+              enabled: true, method: NoiseReductionMethod.ctmf, ctmfRadius: 3)),
+    };
+    for (final entry in cases.entries) {
+      test('${entry.key}: 9-bit gives the 10-bit picture', () async {
+        baseline ??= await diff9vs10(_only(), 'p9_passthrough');
+        final diff = entry.key == 'passthrough'
+            ? baseline!
+            : await diff9vs10(entry.value, 'p9_${entry.key}');
+        print('  ${entry.key}: 9 vs 10-bit mean abs diff '
+            '${diff.toStringAsFixed(3)} (fixtures alone: '
+            '${baseline!.toStringAsFixed(3)})');
+        expect(diff, lessThan(baseline! + 0.25));
+      }, timeout: const Timeout(Duration(minutes: 6)));
+    }
+
+    test('default pipeline encodes a 9-bit 4:2:0 source to FFV1', () async {
+      final fixture = await _fixture('yuv420p9le');
+      final pipeline = _only(deinterlace: qtgmcDefault);
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: fixture,
+        outputPath: '$_outDir/p9_encode.mkv',
+        qtgmcParameters: pipeline.deinterlace,
+        processingPipeline: pipeline,
+        encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.mkv,
+          audioMode: AudioMode.none,
+          chromaSubsampling: ChromaSubsampling.original,
+        ),
+        detectedFieldOrder: FieldOrder.topFieldFirst,
+        totalFrames: _frames,
+        inputFrameRate: _fps,
+        inputWidth: _width,
+        inputHeight: _height,
+        inputPixelFormat: 'yuv420p9le',
+      );
+      final result = await WorkerHarness.runJob(job.toJson(), label: 'p9_encode');
+      expect(result.success, isTrue, reason: result.error);
+      final out = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0',
+          entries: ['pix_fmt', 'nb_read_frames'],
+          countFrames: true);
+      expect(out, isNotNull);
+      print('  9-bit encode -> ${out!['pix_fmt']}, '
+          '${out['nb_read_frames']} frames');
+      // Documented: "match source" delivers a 9-bit source as 10-bit, the
+      // depth the pipeline worked in.
+      expect(out['pix_fmt'], 'yuv420p10le');
+      expect(int.parse('${out['nb_read_frames']}'), _frames * 2);
+    }, timeout: const Timeout(Duration(minutes: 8)));
   });
 
   // ===========================================================================

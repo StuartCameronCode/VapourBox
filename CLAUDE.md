@@ -1029,14 +1029,20 @@ it — if they disagree, the byte stream desyncs from the frame geometry
 - Readable formats pass through unchanged.
 - Anything else is converted **by the decoder ffmpeg** to the nearest readable
   superset format (never less chroma resolution or bit depth): 4:1:0/4:4:0 go to
-  4:2:2; depth rounds *up* to 8/9/10/12/16; unrecognized names fall back to
+  4:2:2; depth rounds *up* to 8/10/12/16; unrecognized names fall back to
   `yuv444p16le`.
 - **14-bit is never piped** (task #23): a 14-bit (or 13-bit) source decodes as
   16-bit, losslessly (an exact shift in limited range). fmtconv's
   `bitdepth` has no 14-bit output and havsfunc returns to the clip's depth
   through it (`Bob`, `Resize`, `Deblock_QED`), so a 14-bit clip failed QTGMC at every preset, santiag and
-  Deblock QED. `test_no_native_format_is_14_bit` keeps it out of
-  `NATIVE_FORMATS` (docs/reports/2026-11-14-bit-sources).
+  Deblock QED (docs/reports/2026-11-14-bit-sources).
+- **9-bit is never piped either** (task #31): a 9-bit source decodes as
+  10-bit, losslessly. CTMF has no 9-bit format and havsfunc reaches it
+  through `MinBlur(r>=2)`: YAHR, HQDeringmod at HD, ContraSharpening,
+  SMDegrain's contrasharp at HD, MCTemporalDenoise pfMode 2, FineDehalo's
+  contra. So the Noise Reduction CTMF block has no 9-bit guard of its own
+  (docs/reports/2026-11-9-bit-sources). `test_no_native_format_is_9_or_14_bit`
+  keeps both depths out of `NATIVE_FORMATS` and `native_name`.
 
 `NATIVE_FORMATS` (Rust) and `_FORMAT_MAP` (Python) must stay in step —
 `test_native_formats_match_pipe_source` parses the Python file and fails if they
@@ -1375,8 +1381,9 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
 correctly-scaled filter produces the same picture at 10-bit as at 8-bit, to
 within rounding. `app/test/integration_high_bit_depth_filters_test.dart` (heavy)
 runs every pass on identical 8/10-bit fixtures and diffs the preview frames; it
-also runs 12/14/16-bit to check the depth-rejection guards, and compares a
-14-bit source with the 16-bit one it is decoded as. A >8-bit preview PNG
+also runs 9/12/14/16-bit to check the depth-rejection guards, and compares a
+9-bit source with the 10-bit one and a 14-bit source with the 16-bit one they
+are decoded as. A >8-bit preview PNG
 comes out `rgb48be`, not `rgb24` — that's expected, don't force 8-bit.
 
 ### Output Colour Format
@@ -1386,7 +1393,7 @@ does, and decides bit depth as well as chroma:
 
 | Option | Output | For |
 |---|---|---|
-| `original` (default) | source format, depth included (a 14-bit source comes out 16-bit, see "Source Pixel Formats") | archival; a 10-bit source stays 10-bit |
+| `original` (default) | source format, depth included (a 9-bit source comes out 10-bit, a 14-bit one 16-bit, see "Source Pixel Formats") | archival; a 10-bit source stays 10-bit |
 | `yuv420` | `vs.YUV420P8` | compatibility — the only one every player opens |
 | `yuv420p10` | `vs.YUV420P10` | the only 10-bit layout NVENC/QSV/AMF encode (issue #74) |
 | `yuv422` | `vs.YUV422P8` | more chroma detail, 8-bit |

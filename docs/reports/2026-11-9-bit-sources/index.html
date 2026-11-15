@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>9-bit Sources</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>9-bit sources: Dehalo's YAHR failed, and CTMF waited in five more places</h1>
+<p class="meta">2026-11-15 · task #31 · deps 1.16.0 · measured on an Apple Silicon Mac (macOS arm64 bundle);
+Windows and Linux are covered by the nightly heavy run, not measured here. Follows
+<a href="../2026-11-14-bit-sources/index.html">14-bit sources</a> (task #23), which found the YAHR failure.</p>
+
+<div class="card">
+<p><strong>Outcome: built.</strong> CTMF (<code>ctmf.CTMF</code>, r5) accepts 8, 10, 12, 14 and 16-bit integer and 32-bit float,
+<strong>not 9-bit</strong>. havsfunc calls it through <code>MinBlur(r&gt;=2)</code> and directly, so a 9-bit source, which
+was piped natively (<code>yuv4xxp9le</code>), failed Dehalo's YAHR. The same failure was waiting in HQDeringmod at HD,
+FineDehalo with contrasharpening, MCTemporalDenoise's MinBlur(2) prefilter, ContraSharpening at radius 2, and SMDegrain's
+contrasharp at HD.</p>
+<p><code>pixel_format::decode_pixel_format</code> now decodes 9-bit as <strong>10-bit</strong>, the same mechanism as
+14 → 16. The conversion loses nothing and costs nothing (both depths use 2 bytes a sample). The Noise Reduction CTMF block's own
+9-bit guard is gone, since no 9-bit clip can reach it. The one visible effect: with Output Colour Format <em>original</em>, a 9-bit
+source comes out 10-bit. Only FFV1 and FFVHuff would have stored 9 bits (+1.2% FFV1 size on the fixture).</p>
+</div>
+
+<h2>1. A real job, before and after</h2>
+<p>FFV1 fixtures made losslessly from one degraded interlaced MPEG-2 master (<code>testsrc2</code> plus seeded noise, TFF,
+352x288, 2 s). Each was run with <code>vapourbox-worker --config</code> to FFV1 at Colour Format <em>original</em>, with three
+pipelines: the default (QTGMC, TFF), Dehalo YAHR alone, and Noise Reduction CTMF (radius 3) alone. "Before" is a worker built at
+<code>a7ba1ac</code> from that commit's sources and templates; "after" is this change.</p>
+<div class="scroll"><table>
+<tr><th>source pix_fmt</th><th>pipeline</th><th>before</th><th>after</th></tr>
+<tr><td><code>yuv420p10le</code> (control)</td><td>default / YAHR / CTMF</td><td class="good">ok, <code>yuv420p10le</code></td><td class="good">ok, bit-identical to before</td></tr>
+<tr><td rowspan="3"><code>yuv420p9le</code></td><td>default</td><td class="good">ok, <code>yuv420p9le</code>, 100 frames</td><td class="good">ok, <code>yuv420p10le</code>, 100 frames</td></tr>
+<tr><td>YAHR</td><td class="bad">failed</td><td class="good">ok, <code>yuv420p10le</code>, 50 frames</td></tr>
+<tr><td>CTMF</td><td class="good">ok (template guard)</td><td class="good">ok, same picture</td></tr>
+<tr><td rowspan="3"><code>yuv422p9le</code></td><td>default</td><td class="good">ok, <code>yuv422p9le</code></td><td class="good">ok, <code>yuv422p10le</code></td></tr>
+<tr><td>YAHR</td><td class="bad">failed</td><td class="good">ok, <code>yuv422p10le</code></td></tr>
+<tr><td>CTMF</td><td class="good">ok (template guard)</td><td class="good">ok, same picture</td></tr>
+<tr><td rowspan="3"><code>gray9le</code></td><td>default</td><td class="good">ok, <code>yuv420p9le</code></td><td class="good">ok, <code>yuv420p10le</code></td></tr>
+<tr><td>YAHR</td><td class="bad">failed</td><td class="good">ok, <code>yuv420p10le</code></td></tr>
+<tr><td>CTMF</td><td class="good">ok (template guard)</td><td class="good">ok, <code>yuv420p10le</code></td></tr>
+</table></div>
+<p class="caption">Each failure was <code>CTMF: only constant format 8, 10, 12, 14, 16 bit integer and 32 bit float input
+supported</code>. "Same picture": the 9-bit CTMF output before, read as 10-bit, has the same MD5 as the output after
+(<code>yuv422p9le</code>): a median commutes with an exact shift. The default pipeline's 9-bit output differs, since QTGMC now
+works at 10 bits: 51.4 dB (4:2:0) and 52.7 dB (4:2:2) average PSNR between before and after, which is rounding.</p>
+
+<h2>2. Which havsfunc paths fail at 9-bit</h2>
+<p><code>haf_depths_9.py</code> runs each call on a grainy YUV420 clip at 9 and 10 bits, at SD and HD. Every case passes at 10-bit.</p>
+<div class="scroll"><table>
+<tr><th>call</th><th>352x288</th><th>1280x720</th><th>reached by</th></tr>
+<tr><td><code>YAHR</code></td><td class="bad">FAIL</td><td class="bad">FAIL</td><td>Dehalo → YAHR (MinBlur r=2)</td></tr>
+<tr><td><code>HQDeringmod</code> (defaults)</td><td class="good">ok</td><td class="bad">FAIL</td><td>Dehalo → HQDeringmod: <code>nrmode</code> is 2 above 1024x576</td></tr>
+<tr><td><code>FineDehalo(contra=1)</code></td><td class="bad">FAIL</td><td class="bad">FAIL</td><td>its contrasharpening calls <code>CTMF(radius=2)</code></td></tr>
+<tr><td><code>MCTemporalDenoise(pfMode=2)</code></td><td class="bad">FAIL</td><td class="bad">FAIL</td><td>MinBlur(2) prefilter</td></tr>
+<tr><td><code>ContraSharpening(radius=2)</code></td><td class="bad">FAIL</td><td class="bad">FAIL</td><td>MinBlur(radius)</td></tr>
+<tr><td><code>SMDegrain(contrasharp=True)</code></td><td class="good">ok</td><td class="bad">FAIL</td><td>its ContraSharpening picks radius 2 at HD</td></tr>
+<tr><td><code>ctmf.CTMF</code> direct</td><td class="bad">FAIL</td><td class="bad">FAIL</td><td>Noise Reduction → CTMF (was guarded in the templates)</td></tr>
+<tr><td>QTGMC Slower, LSFmod, EdgeCleaner, FineDehalo, MCTD and SMDegrain at defaults, SMDegrain prefilter=2</td><td class="good">ok</td><td class="good">ok</td><td></td></tr>
+</table></div>
+<p class="caption">The heavy test's "preview runs on deeper formats" group uses a 352x288 fixture, so on a 9-bit row it would
+have caught only YAHR. The HD-only failures are why the fix is at the decoder: no 9-bit clip exists for any call to reject, at any size.</p>
+
+<h2>3. The 9 → 10 decode is lossless</h2>
+<p>The same <code>yuv444p9le</code> frame, decoded by the bundled ffmpeg as <code>yuv444p9le</code> and as
+<code>yuv444p10le</code> (<code>shift_check_9.py</code>):</p>
+<table>
+<tr><th>range</th><th class="num">samples</th><th class="num">exact <code>x&lt;&lt;1</code></th><th class="num"><code>y&gt;&gt;1 == x</code></th><th class="num">max distance from x·1023/511</th></tr>
+<tr><td>limited</td><td class="num">304128</td><td class="num">304128</td><td class="num">304128</td><td class="num">1.00</td></tr>
+<tr><td>full</td><td class="num">304128</td><td class="num">254182</td><td class="num">304128</td><td class="num">1.00</td></tr>
+</table>
+<p class="caption">In both ranges every 9-bit value survives in the top 9 bits of the 10-bit sample. In full range ffmpeg scales
+toward x·1023/511 rather than shifting, so the low bit is sometimes set; nothing is lost either way.</p>
+
+<h2>4. Output at Colour Format <em>original</em></h2>
+<ul>
+<li>libx264, libx265 and libsvtav1 already encode a 9-bit input as 10-bit (<code>yuv420p9le → yuv420p10le</code>), so their
+output is unchanged in format.</li>
+<li>FFV1 and FFVHuff stored 9 bits and now store 10: +1.2% FFV1 size on the 2 s fixture (2 560 276 → 2 590 647 bytes).
+ProRes and v210 have fixed formats and are unaffected.</li>
+<li>The app still calls the source 9-bit (<code>pixelFormatBitDepth</code>), so "your N-bit source will be output as 8-bit"
+warnings stay correct.</li>
+</ul>
+
+<h2>5. Decisions</h2>
+<ul>
+<li><strong>Built: 9-bit decodes as 10-bit</strong> in <code>pixel_format::native_name</code> (depths 8/10/12/16).
+<code>NATIVE_FORMATS</code> and <code>pipe_source.py</code> drop the three <code>p9le</code> entries;
+<code>test_no_native_format_is_9_or_14_bit</code> fails if either depth comes back, in the list or from <code>native_name</code>.</li>
+<li><strong>Removed: the Noise Reduction CTMF block's 9-bit guard</strong> (lift to 10, filter, restore 9). Nothing can reach it,
+and it was the only per-call depth guard of this class left in the templates. The CTMF picture on a 9-bit source is unchanged
+(section 1).</li>
+<li><strong>Rejected: guards around YAHR and the other calls.</strong> Six calls in both templates, two of them only at HD, and
+the next havsfunc path through MinBlur would need another.</li>
+</ul>
+
+<h2>6. Tests</h2>
+<ul>
+<li>Rust: <code>pixel_format</code> unit tests (every 9-bit layout → 10, no native format or <code>native_name</code> result at 9 or
+14), <code>test_242_9_bit_source_pipes_as_10</code> (script and <code>encoder_input_pix_fmt</code>, with YAHR and CTMF on, and no
+9-bit guard left), and <code>test_128</code> no longer expects the guard.</li>
+<li>Heavy (<code>integration_high_bit_depth_filters_test.dart</code>): "preview runs on deeper formats" gains a
+<code>yuv422p9le</code> row (every pass, 55 tests, all pass). A new group compares 9-bit with 10-bit previews: passthrough 0.105,
+YAHR 0.105, CTMF 0.113 levels mean abs diff (fixtures alone 0.105; the two fixtures are separate conversions of the master), and
+encodes the default pipeline to FFV1 from <code>yuv420p9le</code> (output <code>yuv420p10le</code>, 50 frames).</li>
+</ul>
+
+<h2>7. Not tested</h2>
+<ul>
+<li>Windows and Linux bundles directly; their CTMF is the same r5, and the nightly heavy run covers them.</li>
+<li>Real-world 9-bit files. FFV1 and H.264 High 4:4:4 Predictive can be 9-bit; the fix keys on the decoded format, so the codec
+does not matter.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre>SCRATCH=/some/scratch/dir docs/reports/2026-11-9-bit-sources/scripts/reproduce.sh
+# the "before" column: a worker built from a7ba1ac or earlier, from that commit's own tree
+SCRATCH=… WORKER=/path/to/old/vapourbox-worker docs/reports/2026-11-9-bit-sources/scripts/reproduce.sh</pre>
+<p class="caption">Build the old worker in an export of that commit (<code>git archive a7ba1ac worker app/assets/addons
+Tests/TestResources</code>) so it finds its own templates by searching upward; with the new <code>pipe_source.py</code> it could not
+read a 9-bit pipe.</p>
+</main>
+</body>
+</html>

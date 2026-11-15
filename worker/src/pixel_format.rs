@@ -21,6 +21,13 @@
 //! lossless (each 16-bit sample keeps the 14-bit value in its top bits; an
 //! exact shift in limited range) and free (both are 2 bytes a sample). See
 //! docs/reports/2026-11-14-bit-sources.
+//!
+//! **9-bit is never piped either** (task #31): CTMF has no 9-bit format, and
+//! havsfunc reaches it through `MinBlur(r>=2)` (YAHR, HQDeringmod at HD,
+//! ContraSharpening, SMDegrain's contrasharp at HD, MCTemporalDenoise's
+//! pfMode 2, FineDehalo's contra). A 9-bit source is decoded as 10-bit
+//! instead: lossless (an exact `<< 1` in limited range; full range keeps the
+//! 9-bit value in the top 9 bits) and free. See docs/reports/2026-11-9-bit-sources.
 
 /// Formats `templates/pipe_source.py` reads directly off the pipe.
 ///
@@ -31,9 +38,6 @@ pub const NATIVE_FORMATS: &[&str] = &[
     "yuv420p",
     "yuv422p",
     "yuv444p",
-    "yuv420p9le",
-    "yuv422p9le",
-    "yuv444p9le",
     "yuv420p10le",
     "yuv422p10le",
     "yuv444p10le",
@@ -230,10 +234,12 @@ fn parse_depth(tail: &str) -> Option<u32> {
 /// The native format name for a chroma class at (at least) `depth` bits.
 fn native_name(class: ChromaClass, depth: u32) -> String {
     // The depths the pipeline works in. Round *up* so the pipe format never
-    // has less precision than the source. 14 is deliberately absent: fmtconv
-    // can't write 14-bit, and havsfunc's Bob/Resize/Deblock_QED go back to the
-    // clip's depth through it (task #23, docs/reports/2026-11-14-bit-sources).
-    let depth = [8, 9, 10, 12, 16]
+    // has less precision than the source. 9 and 14 are deliberately absent:
+    // CTMF has no 9-bit format and havsfunc's MinBlur(r>=2) calls it (task
+    // #31, docs/reports/2026-11-9-bit-sources); fmtconv can't write 14-bit,
+    // and havsfunc's Bob/Resize/Deblock_QED go back to the clip's depth
+    // through it (task #23, docs/reports/2026-11-14-bit-sources).
+    let depth = [8, 10, 12, 16]
         .into_iter()
         .find(|d| *d >= depth)
         .unwrap_or(16);
@@ -331,12 +337,41 @@ mod tests {
         }
     }
 
-    /// Nothing at 14 bits may come back into the pipe list: it is the one
-    /// depth havsfunc's fmtconv calls refuse.
+    /// Task #31: CTMF has no 9-bit format, and havsfunc reaches it through
+    /// MinBlur(r>=2) (YAHR and more). Every 9-bit source decodes as 10-bit,
+    /// keeping its chroma class.
     #[test]
-    fn test_no_native_format_is_14_bit() {
+    fn test_9_bit_sources_decode_as_10() {
+        for (probed, expected) in [
+            ("yuv420p9le", "yuv420p10le"),
+            ("yuv422p9le", "yuv422p10le"),
+            ("yuv444p9le", "yuv444p10le"),
+            ("yuv420p9be", "yuv420p10le"),
+            ("yuva444p9le", "yuv444p10le"),
+            ("gray9le", "yuv420p10le"),
+            ("gbrp9le", "yuv444p10le"),
+        ] {
+            let result = decode_pixel_format(Some(probed));
+            assert_eq!(result.name, expected, "{}", probed);
+            assert_eq!(result.converted_from.as_deref(), Some(probed), "{}", probed);
+        }
+    }
+
+    /// Nothing at 9 or 14 bits may come back into the pipe list: 9 is the
+    /// depth CTMF refuses (task #31), 14 the one havsfunc's fmtconv calls
+    /// refuse (task #23).
+    #[test]
+    fn test_no_native_format_is_9_or_14_bit() {
         for fmt in NATIVE_FORMATS {
-            assert_ne!(classify(fmt).1, 14, "{} is 14-bit", fmt);
+            let depth = classify(fmt).1;
+            assert_ne!(depth, 9, "{} is 9-bit", fmt);
+            assert_ne!(depth, 14, "{} is 14-bit", fmt);
+        }
+        for class in [ChromaClass::C420, ChromaClass::C422, ChromaClass::C444] {
+            for depth in 1..=16 {
+                let d = classify(&native_name(class, depth)).1;
+                assert!(d != 9 && d != 14, "{:?} at {} pipes {}-bit", class, depth, d);
+            }
         }
     }
 

@@ -36,9 +36,8 @@ _FORMAT_MAP = {
     'yuv420p':     vs.YUV420P8,
     'yuv422p':     vs.YUV422P8,
     'yuv444p':     vs.YUV444P8,
-    'yuv420p9le':  vs.YUV420P9,
-    'yuv422p9le':  vs.YUV422P9,
-    'yuv444p9le':  vs.YUV444P9,
+    # No 9-bit: CTMF has no 9-bit format, and havsfunc's MinBlur(r>=2) calls
+    # it, so pixel_format.rs decodes 9-bit sources as 10 (task #31).
     'yuv420p10le': vs.YUV420P10,
     'yuv422p10le': vs.YUV422P10,
     'yuv444p10le': vs.YUV444P10,

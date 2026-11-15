@@ -1761,7 +1761,7 @@ void main() {
 
     // --- Batch four -------------------------------------------------------
 
-    test('noise reduction: CTMF, with its 9-bit guard, pinned memsize and pinned dispatch',
+    test('noise reduction: CTMF, with its pinned memsize and pinned dispatch',
         () async {
       loadSchema('noise_reduction');
       final job = buildJob(
@@ -1778,9 +1778,10 @@ void main() {
       expect(script, contains('core.ctmf.CTMF('));
       final actual = parseFilterParams(script, 'core.ctmf.CTMF(');
       expect(actual['radius'], '4');
-      // 9-bit is rejected by the plugin and IS reachable: pixel_format.rs
-      // rounds an odd source depth up through 9.
-      expect(script, contains('bits_per_sample == 9'));
+      // CTMF rejects 9-bit, but no 9-bit clip reaches it: pixel_format.rs
+      // decodes a 9-bit source as 10-bit (task #31), so the block carries no
+      // guard of its own.
+      expect(script, isNot(contains('bits_per_sample == 9')));
       // At the plugin default, 16-bit radius 3 measures 0.79 fps against 42
       // here, for bit-identical output.
       expect(actual['memsize'], '16777216');

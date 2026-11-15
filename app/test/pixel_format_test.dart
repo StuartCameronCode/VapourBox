@@ -15,6 +15,15 @@ void main() {
       }
     });
 
+    // A 9-bit source is processed at 10-bit (CTMF has no 9-bit format,
+    // task #31), but it is still a 9-bit source: the "your N-bit source"
+    // warnings must say 9.
+    test('9-bit formats', () {
+      for (final f in ['yuv420p9le', 'yuv422p9le', 'yuv444p9le', 'gray9le', 'gbrp9le']) {
+        expect(pixelFormatBitDepth(f), 9, reason: f);
+      }
+    });
+
     test('10-bit formats', () {
       for (final f in [
         'yuv420p10le', 'yuv422p10le', 'yuv444p10le', 'yuv420p10be',
