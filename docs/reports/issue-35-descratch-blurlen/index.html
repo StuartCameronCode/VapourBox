@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeScratch Blur Radius</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>DeScratch Blur Radius on short frames</h1>
+<p class="meta">2026-11-15 · task #35 · deps 1.16.0 · measured on an Apple Silicon Mac (macOS arm64 bundle).
+The limit is integer arithmetic in the plugin's constructor, so it is the same on every platform; the nightly heavy
+run covers the others.</p>
+
+<div class="card">
+<p><strong>Outcome: built.</strong> The panel offers Blur Radius 1–200, but the plugin refuses
+<code>blurlen &gt; height // 2 - 1</code> (<em>"Descratch: blurlen is too large for the clip height!"</em>), so a job
+on any frame <strong>under 402 lines</strong> failed with values the panel offers. Both templates now pass
+<code>max(0, min(blurlen, c.height // 2 - 1))</code>, computed inside <code>_descratch</code> from the clip each call is given.
+At the limit the plugin already blurs to 2 rows, its strongest; the clamped call is <strong>bit-identical</strong>
+to choosing the limit.</p>
+</div>
+
+<h2>1. The limit</h2>
+<p>The plugin alone on BlankClips 720 wide, every blurlen 0–200 (<code>sweep.py</code>), in the four forms the
+template can call it with. The largest accepted value is <code>height // 2 - 1</code> (equivalently,
+<code>height // (1 + blurlen) &ge; 2</code>) in every form; the plugin's own cap is 200. It is the <em>luma</em> height
+that counts, also on 4:2:0, and <code>_FieldBased</code> makes no difference. No other error appeared below the limit.</p>
+<div class="scroll"><table>
+<tr><th class="num">height</th><th class="num">largest accepted blurlen</th><th>example</th></tr>
+<tr><td class="num">120</td><td class="num bad">59</td><td>small sample</td></tr>
+<tr><td class="num">144</td><td class="num bad">71</td><td>QCIF-ish</td></tr>
+<tr><td class="num">200</td><td class="num bad">99</td><td></td></tr>
+<tr><td class="num">240</td><td class="num bad">119</td><td>NTSC film DVD at 352x240 (<code>soft_telecine_dvd.mkv</code>)</td></tr>
+<tr><td class="num">288</td><td class="num bad">143</td><td>half-height PAL (the heavy test's fixture)</td></tr>
+<tr><td class="num">360</td><td class="num bad">179</td><td>360p web/phone</td></tr>
+<tr><td class="num">400</td><td class="num bad">199</td><td></td></tr>
+<tr><td class="num">402 and up (480, 486, 576, 1080…)</td><td class="num good">200</td><td>every value the panel offers</td></tr>
+</table></div>
+<p class="caption">Same numbers for 4:2:2 progressive, 4:2:2 TFF (the 4:2:0 luma carrier from task #29), 4:2:0
+progressive (the chroma-mode call) and 4:4:4 BFF. Synthetic blank frames: the check is in the constructor and does
+not look at the picture.</p>
+
+<div class="card correction"><p><strong>Correction to the task.</strong> The task, the task #29 report and its
+ENGINEERING_NOTES entry said values "above 119 on 480 lines, above 59 on 240" were refused. Both are off by a factor
+of two: 119 is the limit for <strong>240</strong> lines, and a 480-line source accepts every value up to 200.</p></div>
+
+<h2>2. The clamp gives the limit's picture</h2>
+<p>A dark two-pixel column on a two-tone grey frame, field-flagged 4:2:2, <code>mindif=3</code>
+(<code>sweep.py</code>, second table): at 240, 288 and 360 lines the limit's picture differs from the default
+15's, so the blur length reaches the output. The table's other column (clamped call = call at the limit) is true by
+construction, since both pass the same value; it only restates the arithmetic. The real check is the heavy test,
+which runs the template's own expression through the whole worker on a real scratched capture (288 lines, 4:2:0):
+blurlen 200 and 143 encode byte-identically, and 143 differs from 15, so the expression evaluates to the limit in the
+script and the value reaches the plugin.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>Clamp in the script, not in Rust.</strong> The worker knows the source height, not the height at the pass;
+the script reads it from the clip each call gets, so an earlier pass that changed it would still be handled.</li>
+<li><strong>No panel warning.</strong> With the clamp an out-of-range value is harmless (it means "as much blur as
+the frame allows"), and the app does not know the height at the pass. The parameter's description says so instead.</li>
+<li><strong>The range stays 1–200.</strong> Lowering it would take values away from 1080-line sources, where they work.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>Other platforms' bundles by hand (same plugin source; the nightly heavy run covers them).</li>
+<li>Whether such long blurs remove scratch better on real film: no scratched-film fixture exists (as in task #29).</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>DEPS=deps/macos-arm64 docs/reports/issue-35-descratch-blurlen/scripts/reproduce.sh</pre>
+<p>BlankClips only; no source plugin, no NumPy. The heavy test is the
+"DeScratch Blur Radius on short frames (task #35)" group in
+<code>app/test/integration_high_bit_depth_filters_test.dart</code>.</p>
+</main>
+</body>
+</html>

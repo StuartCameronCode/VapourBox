@@ -652,6 +652,10 @@ _descratch_in8 = clip
 # bit-identical to the 4:2:0 call wherever that call works
 # (docs/reports/issue-29-descratch-420). Chroma is copied unless a chroma mode
 # is on. Keep this; stripping _FieldBased instead removed less scratch.
+# The plugin refuses blurlen > height // 2 - 1 (any frame under 402 lines), so
+# Blur Radius is clamped to the strongest blur the clip allows, from the clip
+# itself since an earlier pass could change its height
+# (docs/reports/issue-35-descratch-blurlen).
 def _descratch(c):
     return core.descratch.DeScratch(
         c,
@@ -680,7 +684,7 @@ def _descratch(c):
         maxangle={{DESCRATCH_MAXANGLE}},
 {{/DESCRATCH_MAXANGLE}}
 {{#DESCRATCH_BLURLEN}}
-        blurlen={{DESCRATCH_BLURLEN}},
+        blurlen=max(0, min({{DESCRATCH_BLURLEN}}, c.height // 2 - 1)),
 {{/DESCRATCH_BLURLEN}}
 {{#DESCRATCH_KEEP}}
         keep={{DESCRATCH_KEEP}},

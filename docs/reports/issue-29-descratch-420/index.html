@@ -175,7 +175,10 @@ Filed as task #33. <em>Fixed by task #33 (2026-11-15):
 <li>DeScratch on a source deeper than 8-bit up-converts the whole 8-bit frame, so untouched pixels lose
 precision. Filed as task #34.</li>
 <li>Blur Radius allows 200, but the plugin refuses <code>height // (1 + blurlen) &lt; 2</code> (above 119 on 480 lines).
-Filed as task #35.</li>
+Filed as task #35.
+<span class="warn">Correction (task #35):</span> 119 is the limit on 240 lines, not 480; a 480-line source accepts every
+value up to 200. The limit is <code>height // 2 - 1</code>, now clamped in the script
+(<a href="../issue-35-descratch-blurlen/index.html">report</a>).</li>
 </ul>
 
 <h2>Reproduce</h2>

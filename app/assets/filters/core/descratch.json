@@ -154,7 +154,7 @@
       "vapoursynth": { "name": "blurlen" },
       "ui": {
         "label": "Blur Radius",
-        "description": "Vertical blur radius for analysis",
+        "description": "Vertical blur radius for analysis. Limited to half the picture height less one; a larger value acts as that limit",
         "widget": "slider",
         "advanced": true
       }

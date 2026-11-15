@@ -8943,3 +8943,46 @@ fn test_244_soft_telecine_frames_are_progressive() {
         }
     }
 }
+
+#[test]
+fn test_245_descratch_blurlen_clamped_to_height() {
+    // Task #35: the plugin refuses blurlen > height // 2 - 1, so any frame
+    // under 402 lines failed with values the panel offers (up to 200). Both
+    // scripts clamp it inside `_descratch`, from the clip each call is given,
+    // so the 4:2:2 carrier and the chroma-mode call are both covered.
+    create_output_dir();
+    for blurlen in [15, 200] {
+        for pix_fmt in ["yuv420p", "yuv422p"] {
+            for mode_u in [0, 3] {
+                let mut job = create_base_job("test_245_descratch_blurlen");
+                job.input_pixel_format = Some(pix_fmt.to_string());
+                job.processing_pipeline = Some(ProcessingPipeline {
+                    deinterlace: QTGMCParameters {
+                        enabled: false,
+                        ..QTGMCParameters::default()
+                    },
+                    descratch: DeScratchParameters {
+                        enabled: true,
+                        blurlen,
+                        mode_u,
+                        ..DeScratchParameters::default()
+                    },
+                    ..ProcessingPipeline::default()
+                });
+                let (encode, preview) = generate_both_scripts(&job);
+                for (label, script) in [("encode", &encode), ("preview", &preview)] {
+                    let ctx = format!("{} blurlen={} {} modeu={}", label, blurlen, pix_fmt, mode_u);
+                    let clamp = format!("blurlen=max(0, min({}, c.height // 2 - 1)),", blurlen);
+                    assert_eq!(script.matches("core.descratch.DeScratch(").count(), 1, "{}", ctx);
+                    assert_eq!(script.matches("blurlen=").count(), 1, "{}: one blurlen", ctx);
+                    let def = script.find("def _descratch(c):").expect("_descratch helper");
+                    let call = script[def..].find("core.descratch.DeScratch(").unwrap() + def;
+                    let close = script[call..].find("\n    )\n").unwrap() + call;
+                    let at = script.find(&clamp).unwrap_or_else(|| panic!("{}: clamp missing", ctx));
+                    assert!(at > call && at < close, "{}: clamp must be inside the one call", ctx);
+                    assert!(!script.contains("{{DESCRATCH"), "{}: placeholder left", ctx);
+                }
+            }
+        }
+    }
+}

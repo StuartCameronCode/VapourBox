@@ -1662,6 +1662,109 @@ void main() {
   });
 
   // ===========================================================================
+  // 3e. DeScratch Blur Radius on short frames (task #35). The plugin refuses
+  //     blurlen > height // 2 - 1, so every frame under 402 lines failed with
+  //     values the panel offers (up to 200). The script clamps it, which must
+  //     give exactly the limit's picture. The fixture is 288 lines: limit 143.
+  // ===========================================================================
+  group('DeScratch Blur Radius on short frames (task #35)', () {
+    const limit = _height ~/ 2 - 1;
+
+    for (final (name, params) in [
+      ('default modes', const DeScratchParameters(enabled: true, blurlen: 200)),
+      (
+        'chroma modes on',
+        const DeScratchParameters(
+            enabled: true, blurlen: 200, modeU: 3, modeV: 3)
+      ),
+    ]) {
+      test('blurlen 200, $name: preview and encode run at $_height lines',
+          () async {
+        final fixture = await _scratchedFixture('yuv420p');
+        final pipeline = _only(descratch: params);
+        final tag = 'dsbl_${name.replaceAll(' ', '_')}';
+        final preview = await WorkerHarness.runPreview(
+          _job(fixture: fixture, pixFmt: 'yuv420p', pipeline: pipeline)
+              .toJson(),
+          frame: _previewFrame,
+          label: tag,
+        );
+        expect(preview.success, isTrue, reason: 'preview failed: $preview');
+        final result = await WorkerHarness.runJob(
+            _losslessJob(
+                    fixture: fixture,
+                    pixFmt: 'yuv420p',
+                    pipeline: pipeline,
+                    outputName: tag)
+                .toJson(),
+            label: tag);
+        expect(result.success, isTrue,
+            reason: 'encode failed: ${result.error}');
+      }, timeout: const Timeout(Duration(minutes: 4)));
+    }
+
+    test('blurlen 200 gives exactly the limit\'s picture', () async {
+      final fixture = await _scratchedFixture('yuv420p');
+      Future<Uint8List> encode(int blurlen) async {
+        final result = await WorkerHarness.runJob(
+            _losslessJob(
+                    fixture: fixture,
+                    pixFmt: 'yuv420p',
+                    pipeline: _only(
+                        descratch: DeScratchParameters(
+                            enabled: true, blurlen: blurlen)),
+                    outputName: 'dsbl_$blurlen')
+                .toJson(),
+            label: 'dsbl_$blurlen');
+        expect(result.success, isTrue, reason: result.error);
+        return _rawFrames(result.outputPath!, 'yuv420p');
+      }
+
+      final input = await _rawFrames(fixture, 'yuv420p');
+      final at200 = await encode(200);
+      final atLimit = await encode(limit);
+      final atDefault = await encode(15);
+      const cw = _width ~/ 2;
+      const ch = _height ~/ 2;
+      final changed =
+          _differing(_planes(atLimit, 0, cw, ch), _planes(input, 0, cw, ch));
+      print('  blurlen $limit changed $changed luma samples');
+      expect(changed, greaterThan(0),
+          reason: 'DeScratch changed nothing, so the comparison proves nothing');
+      expect(_differing(at200, atLimit), 0,
+          reason: 'blurlen 200 must be clamped to $limit exactly');
+      expect(_differing(atLimit, atDefault), greaterThan(0),
+          reason: 'blurlen must reach the plugin at all');
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('blurlen 200 encodes a 240-line NTSC film DVD', () async {
+      final fixture =
+          '${WorkerHarness.repoRoot}/Tests/TestResources/soft_telecine_dvd.mkv';
+      final pipeline = _only(
+        deinterlace: const QTGMCParameters(
+            enabled: true, method: DeinterlaceMethod.softTelecine, tff: true),
+        descratch: const DeScratchParameters(enabled: true, blurlen: 200),
+      );
+      final result = await WorkerHarness.runJob(
+          _losslessJob(
+            fixture: fixture,
+            pixFmt: 'yuv420p',
+            pipeline: pipeline,
+            outputName: 'dsbl_soft_telecine',
+            width: 352,
+            height: 240,
+            frames: 120,
+            fps: 30000 / 1001,
+          ).toJson(),
+          label: 'dsbl_soft_telecine');
+      expect(result.success, isTrue, reason: result.error);
+      final out = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0', entries: ['height']);
+      expect('${out!['height']}', '240');
+    }, timeout: const Timeout(Duration(minutes: 4)));
+  });
+
+  // ===========================================================================
   // 3b. KNLMeans on 10-bit 4:2:0, the format issue #144 was reported on, in
   //     both paths. The groups above use 4:2:2 and 4:4:4 fixtures.
   // ===========================================================================

@@ -4200,7 +4200,8 @@ Full evidence:
   no job reaches it that way.
 - Filed: Soft Telecine leaves `_FieldBased` on film frames (task #33); DeScratch's
   >8-bit round trip loses precision everywhere (task #34); Blur Radius
-  > ~119 is refused on 480 lines (task #35).
+  > ~119 is refused on 480 lines (task #35). *Corrected by task #35: 119 is
+  the limit on 240 lines; 480 lines accepts every value up to 200.*
 
 ### DVD import copies the title, not the title set (task #27, 2026-11-15)
 
@@ -4392,3 +4393,20 @@ Full evidence:
   `test_244` sweeps every codec's flags to keep it so.
 - Every Soft Telecine job that resizes or converts format changes output, all
   toward the correct picture.
+
+### DeScratch Blur Radius clamped to the frame height (task #35, 2026-11-15)
+
+Full evidence:
+[docs/reports/issue-35-descratch-blurlen/](reports/issue-35-descratch-blurlen/index.html).
+
+- The plugin refuses `blurlen > height // 2 - 1` (luma height, any
+  subsampling, any `_FieldBased`); its own cap is 200. So only frames under
+  402 lines fail: 240 → 119, 288 → 143, 360 → 179. The panel offers 1–200.
+- Both templates pass `max(0, min(blurlen, c.height // 2 - 1))` inside
+  `_descratch`, from the clip each call gets (the 4:2:2 carrier and the
+  chroma-mode call alike). At the limit the plugin already blurs to 2 rows.
+  The heavy test on a real 288-line capture checks through the worker that
+  200 encodes byte-identically to the limit (143) and that 143 differs from 15.
+- No panel warning: harmless once clamped, and the app doesn't know the height
+  at the pass. Range kept at 200 (works from 402 lines up).
+- Correction: task #29 said "> ~119 refused on 480 lines"; that is 240 lines.

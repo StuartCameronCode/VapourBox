@@ -969,7 +969,8 @@ void main() {
       expect(actual['asym'], '8');
       expect(actual['maxgap'], '4');
       expect(actual['maxwidth'], '5');
-      expect(actual['blurlen'], '12');
+      // Task #35: clamped in the script to what the clip's height allows.
+      expect(actual['blurlen'], 'max(0, min(12, c.height // 2 - 1))');
       expect(actual['modey'], '1');
       expect(actual['modeu'], '1');
       // Task #29: one call site; 4:2:0 luma runs on a 4:2:2 carrier,
@@ -982,6 +983,11 @@ void main() {
           descratch: const DeScratchParameters(enabled: true)));
       expect(off, contains('_ds_luma = _descratch(core.std.ShufflePlanes('));
       expect(off, isNot(contains('_ds_chroma = _descratch(')));
+      final wide = await generateScriptViaWorker(buildJob(
+          testName: 'descratch_blurlen_200',
+          descratch: const DeScratchParameters(enabled: true, blurlen: 200)));
+      expect(parseFilterParams(wide, 'core.descratch.DeScratch(')['blurlen'],
+          'max(0, min(200, c.height // 2 - 1))');
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
