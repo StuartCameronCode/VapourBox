@@ -4755,7 +4755,7 @@ fn test_127_rotation_inverts_the_declared_sample_aspect() {
 }
 
 #[test]
-fn test_128_ctmf_with_its_nine_bit_guard_and_pinned_memsize() {
+fn test_128_ctmf_with_its_pinned_memsize() {
     create_output_dir();
     let mut job = create_base_job("test_128_ctmf");
     job.qtgmc_parameters.enabled = false;
@@ -4777,9 +4777,6 @@ fn test_128_ctmf_with_its_nine_bit_guard_and_pinned_memsize() {
             "core.ctmf.CTMF(",
             "radius=4",
             "planes=[0]",
-            // 9-bit is rejected outright by the plugin and IS reachable —
-            // pixel_format.rs rounds an odd source depth up through 9.
-            "bits_per_sample == 9",
             // Pinned: at the plugin's 1 MiB default, 16-bit radius 3 measures
             // 0.79 fps against 42 fps here, for bit-identical output.
             "memsize=16777216",
@@ -8595,6 +8592,56 @@ fn test_241_14_bit_source_pipes_as_16() {
         let expected = format!(r#"pix_fmt="{}""#, piped);
         assert!(encode.contains(&expected), "{}: encode should pipe {}", probed, piped);
         assert!(!encode.contains("p14le"), "{}: no 14-bit format may reach the script", probed);
+        assert_eq!(job.encoder_input_pix_fmt(), piped, "{}", probed);
+    }
+}
+
+/// Task #31: CTMF has no 9-bit format, and havsfunc reaches it through
+/// MinBlur(r>=2) — Dehalo's YAHR failed on a 9-bit source, as do
+/// HQDeringmod at HD, ContraSharpening and others. A 9-bit source is piped as
+/// 10-bit, and an `original` output is encoded from that 10-bit format. The
+/// Noise Reduction CTMF block no longer carries a 9-bit guard of its own.
+#[test]
+fn test_242_9_bit_source_pipes_as_10() {
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap();
+    for (probed, piped) in [
+        ("yuv420p9le", "yuv420p10le"),
+        ("yuv422p9le", "yuv422p10le"),
+        ("yuv444p9le", "yuv444p10le"),
+        ("gray9le", "yuv420p10le"),
+        ("gbrp9le", "yuv444p10le"),
+    ] {
+        let mut job = create_base_job("test_242_9_bit_source");
+        job.qtgmc_parameters.enabled = false;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..Default::default() },
+            noise_reduction: NoiseReductionParameters {
+                enabled: true,
+                method: NoiseReductionMethod::Ctmf,
+                ..Default::default()
+            },
+            dehalo: DehaloParameters {
+                enabled: true,
+                method: DehaloMethod::Yahr,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job.input_pixel_format = Some(probed.to_string());
+        job.encoding_settings.chroma_subsampling = ChromaSubsampling::Original;
+
+        let encode = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
+        let expected = format!(r#"pix_fmt="{}""#, piped);
+        assert!(encode.contains(&expected), "{}: encode should pipe {}", probed, piped);
+        assert!(!encode.contains("p9le"), "{}: no 9-bit format may reach the script", probed);
+        assert!(encode.contains("haf.YAHR("), "{}: YAHR should run", probed);
+        assert!(encode.contains("core.ctmf.CTMF("), "{}: CTMF should run", probed);
+        assert!(
+            !encode.contains("bits_per_sample == 9"),
+            "{}: the CTMF block's 9-bit guard is gone (no 9-bit clip reaches it)",
+            probed
+        );
         assert_eq!(job.encoder_input_pix_fmt(), piped, "{}", probed);
     }
 }

@@ -890,12 +890,12 @@ clip = haf.STPresso(
 # impulse noise, at a cost that barely moves with radius (measured: radius 1 to
 # 127 is about 20% apart).
 #
-# Three guards, all measured against the bundle rather than assumed:
+# CTMF rejects 9-bit outright ("only constant format 8, 10, 12, 14, 16 bit
+# integer ... supported"); no 9-bit clip reaches here, because pixel_format.rs
+# decodes a 9-bit source as 10-bit (task #31).
 #
-#  - 9-BIT IS REJECTED outright ("only constant format 8, 10, 12, 14, 16 bit
-#    integer ... supported"), and 9-bit is reachable here: pixel_format.rs rounds
-#    an odd source depth up through [8, 9, 10, 12, 14, 16] and pipe_source maps
-#    yuv420p9le. So a 9-bit clip is lifted to 10-bit and restored after.
+# Two guards, both measured against the bundle rather than assumed:
+#
 #  - memsize is pinned to 16 MiB. At the plugin's 1 MiB default, 16-bit radius 3
 #    runs at 0.79 fps against 42 fps with this value — a 40x cliff — for
 #    BIT-IDENTICAL output.
@@ -912,10 +912,6 @@ clip = haf.STPresso(
 #    the level it is handed, so opt=3 on a pre-AVX2 machine crashes the same
 #    way. `script_generator::ctmf_opt` queries the CPU and sends 3 or 2, which
 #    are bit-identical to each other and to the C path.
-_ctmf_src_format = clip.format
-if clip.format.bits_per_sample == 9:
-    clip = core.resize.Point(clip, format=clip.format.replace(
-        bits_per_sample=10, sample_type=vs.INTEGER).id)
 clip = core.ctmf.CTMF(
     clip,
     radius={{NR_CTMF_RADIUS}},
@@ -923,8 +919,6 @@ clip = core.ctmf.CTMF(
     memsize=16777216,
     opt={{NR_CTMF_OPT}},
 )
-if _ctmf_src_format.bits_per_sample == 9:
-    clip = core.resize.Point(clip, format=_ctmf_src_format.id)
 {{/NR_CTMF}}
 
 {{#NR_MCDEGRAINSHARP}}

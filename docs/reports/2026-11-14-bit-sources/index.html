@@ -99,6 +99,8 @@ macOS arm64 bundle's Python (havsfunc r31 with VapourBox's patches, fmtconv r31)
 script shows <code>YAHR</code> and <code>MinBlur(r=2)</code> failing at 9-bit: <code>ctmf.CTMF</code> accepts
 8/10/12/14/16 only. A 9-bit run of the heavy test's pass matrix confirms one app-visible failure, Dehalo's YAHR method.
 It is unrelated to 14-bit and left alone here; it is filed as task #31, where the same remedy (decoding 9 as 10) would apply.</p>
+<p><em>Later (task #31, 2026-11-15):</em> built, and the one app-visible failure was not the only one: HQDeringmod and
+SMDegrain's contrasharp fail on 9-bit at HD, among others. See <a href="../2026-11-9-bit-sources/index.html">9-bit sources</a>.</p>
 </div>
 
 <h2>3. The decoder's 14 → 16-bit conversion loses nothing</h2>
