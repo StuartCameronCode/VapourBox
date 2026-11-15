@@ -1203,13 +1203,22 @@ fn run_worker(
         None
     };
 
+    // AVI cannot mark a lossy audio encoder's start-up (priming), so Convert
+    // into AVI reads its sound later by it (audio_restoration::EncoderPriming).
+    // Before the sound copy: it moves the encoder's seek.
+    let encoder_priming = {
+        let d = dependency_locator::DependencyLocator::new()?;
+        audio_restoration::AudioRestorer::new(reporter.clone(), d)
+            .encoder_priming(&job, restored_audio.as_ref().map(|r| &r.track))
+    };
+
     // A delayed AVI trimmed near its start cannot seek its sound
     // (source_decode rule 9): the encode then seeks a copy of it. Held to the
     // end of the job, like the rendered track.
     let sound_sidecar = {
         let d = dependency_locator::DependencyLocator::new()?;
         audio_restoration::AudioRestorer::new(reporter.clone(), d)
-            .sound_sidecar(&job, restored_audio.as_ref().map(|r| &r.track))
+            .sound_sidecar(&job, restored_audio.as_ref().map(|r| &r.track), encoder_priming.as_ref())
     };
 
     // AVI cannot store a picture that starts after its sound either, so an
@@ -1297,7 +1306,8 @@ fn run_worker(
             .with_timeline(timeline.clone())
             .with_restored_audio(restored_audio.as_ref().map(|r| r.track.clone()))
             .with_sound_copy(sound_sidecar.as_ref().map(|s| s.copy.clone()))
-            .with_sound_cut(sound_cut.clone());
+            .with_sound_cut(sound_cut.clone())
+            .with_encoder_priming(encoder_priming);
         match executor.execute(&script_path, &job, || cancelled.load(Ordering::SeqCst)) {
             Ok(()) => break,
             Err(e)

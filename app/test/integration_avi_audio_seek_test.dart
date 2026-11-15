@@ -228,6 +228,30 @@ void main() {
     });
   }
 
+  // Task #38: Convert into AVI reads the sound late by the encoder's priming
+  // (AAC: 1024 samples, 32 ms at 32 kHz), which moves even an untrimmed
+  // job's sound seek off 0 and so onto the NUT copy (rule 9). Medium, not
+  // High: mono AAC at 192 kbps can exceed avienc's block size (task #41).
+  for (final start in [0, 2, 20]) {
+    test('the chirp converted to AAC into AVI from frame $start is in sync', () async {
+      final out = await _encode(_job(chirp, 'chirp_avi_aac_$start',
+          start: start,
+          container: 'avi',
+          encoding: {'audioMode': 'convert', 'audioCodec': 'aac', 'audioQuality': 128}));
+      final starts = await _starts(out);
+      final lag = _syncLag(source, await _sound(out), start, starts.video);
+      // Before task #38 (frame 0): 63 stored frames for 62, and the sound
+      // 1024 samples off, the priming played as sound.
+      expect(lag, isNotNull, reason: 'the in-point\'s sound is not near the picture: $starts');
+      expect(lag!.abs(), lessThanOrEqualTo(2), reason: 'lag $lag samples, $starts');
+      final stored = int.parse('${(await WorkerHarness.ffprobeJson([
+        '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=nb_frames',
+        '-of', 'json', out,
+      ]))['streams'][0]['nb_frames']}');
+      expect(stored, _end - start + 1, reason: 'stored frames, null frames included');
+    });
+  }
+
   test('re-encoded from frame 2, the sound is the source sample for sample', () async {
     final out = await _encode(_job(chirp, 'flac_2',
         start: 2, encoding: {'audioMode': 'convert', 'audioCodec': 'flac'}));

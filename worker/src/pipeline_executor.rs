@@ -188,7 +188,7 @@ fn preview_window(target: i32, radius: i32) -> (i32, i32, i32) {
     (first, local, num_frames)
 }
 
-use crate::audio_restoration::{self, RestoredTrack, SoundCopy, SoundCut};
+use crate::audio_restoration::{self, EncoderPriming, RestoredTrack, SoundCopy, SoundCut};
 /// The `PREVIEW_INFO:` line a preview reports on stderr after rendering: the
 /// frame it rendered, which of that frame's outputs, and — when not square —
 /// the display aspect the encode will declare for it. The PNG carries no
@@ -352,6 +352,11 @@ pub struct PipelineExecutor {
     /// a stream's start (`audio_restoration::needs_sound_cut`). `None`
     /// otherwise.
     sound_cut: Option<SoundCut>,
+    /// The audio encoder's start-up, which AVI cannot mark: every encoded
+    /// sound input is read this much later and the output keeps its
+    /// timestamps (`audio_restoration::needs_priming_shift`). `None`
+    /// otherwise.
+    encoder_priming: Option<EncoderPriming>,
 }
 
 /// Watches for the pipeline making no progress at all.
@@ -418,6 +423,7 @@ impl PipelineExecutor {
             restored_audio: None,
             sound_copy: None,
             sound_cut: None,
+            encoder_priming: None,
         })
     }
 
@@ -442,6 +448,12 @@ impl PipelineExecutor {
     /// Cut the copied sound for AVI (see `self.sound_cut`).
     pub fn with_sound_cut(mut self, cut: Option<SoundCut>) -> Self {
         self.sound_cut = cut;
+        self
+    }
+
+    /// Account for the audio encoder's start-up (see `self.encoder_priming`).
+    pub fn with_encoder_priming(mut self, priming: Option<EncoderPriming>) -> Self {
+        self.encoder_priming = priming;
         self
     }
 
@@ -1078,20 +1090,20 @@ impl PipelineExecutor {
         // doesn't read the entire audio track (which hangs for small segments of
         // large files). One decision with the video delay below and Audio
         // Restoration's window: `VideoJob::source_audio_start`.
-        args.extend(source_audio_input_seek(job));
+        args.extend(source_audio_input_seek(job, self.encoder_priming.as_ref()));
         args.extend(["-i".to_string(), job.input_path.clone()]);
 
         // Input 2: the output's comment, as an FFMETADATA file (issue #138)
         args.extend(comment_file.input_args());
 
         // Input 3: the restored audio track, when audio restoration ran.
-        args.extend(audio_restoration::encode_input_args(self.restored_audio.as_ref()));
+        args.extend(audio_restoration::encode_input_args(self.restored_audio.as_ref(), self.encoder_priming.as_ref()));
 
         // Next input: the copy of the source's sound, when a delayed AVI
         // cannot seek its own near its start (rule 9). Input 1 is unchanged;
         // it still supplies subtitles (an AVI's XSUB, which MKV cannot copy).
         let sound = sound_copy_input(self.sound_copy.as_ref(), self.restored_audio.is_some());
-        args.extend(sound_copy_input_args(job, self.sound_copy.as_ref()));
+        args.extend(sound_copy_input_args(job, self.sound_copy.as_ref(), self.encoder_priming.as_ref()));
 
         // Next input: the same sound again, seeked half a packet early, when
         // a compressed stream is copied into AVI (audio_restoration::SoundCut).
@@ -1272,10 +1284,17 @@ impl PipelineExecutor {
                 DeinterlaceMethod::SoftTelecine => pipeline.soft_telecine_decimates(),
                 _ => false,
             };
+        // An audio encoder's start-up in AVI keeps every stream where it is
+        // instead (the sound is read late by it): shifting them is what
+        // wrote a null frame at the head (audio_restoration::EncoderPriming).
+        let priming = encoder_priming_output_args(self.encoder_priming.as_ref());
         if is_framerate_change {
-            args.extend(["-avoid_negative_ts".to_string(), "make_zero".to_string()]);
+            if priming.is_empty() {
+                args.extend(["-avoid_negative_ts".to_string(), "make_zero".to_string()]);
+            }
             args.push("-start_at_zero".to_string());
         }
+        args.extend(priming);
 
         // When trimming, stop when the shortest stream (the trimmed video) ends.
         // Without this, ffmpeg reads the full audio track even if only a small
@@ -1853,12 +1872,27 @@ pub fn video_delay_encoder_args(job: &VideoJob) -> Vec<String> {
 }
 
 /// The `-ss` before the source input the encoder takes its sound from, or none.
-pub fn source_audio_input_seek(job: &VideoJob) -> Vec<String> {
+/// An [`EncoderPriming`] reads it that much later
+/// (`audio_restoration::encode_sound_start`), rounded up to the microsecond.
+pub fn source_audio_input_seek(job: &VideoJob, priming: Option<&EncoderPriming>) -> Vec<String> {
+    if priming.is_some() {
+        let at = audio_restoration::encode_sound_start(job, priming);
+        return vec!["-ss".to_string(), crate::source_decode::seek_arg(at)];
+    }
     let start = job.source_audio_start();
     if start > 0.0 {
         vec!["-ss".to_string(), format!("{:.6}", start)]
     } else {
         Vec::new()
+    }
+}
+
+/// The output option an [`EncoderPriming`] needs
+/// (`audio_restoration::ENCODER_PRIMING_OUTPUT_ARGS`), or none.
+pub fn encoder_priming_output_args(priming: Option<&EncoderPriming>) -> Vec<String> {
+    match priming {
+        Some(_) => audio_restoration::ENCODER_PRIMING_OUTPUT_ARGS.iter().map(|a| a.to_string()).collect(),
+        None => Vec::new(),
     }
 }
 
@@ -1897,9 +1931,9 @@ pub fn sound_cut_input_args(job: &VideoJob, copy: Option<&SoundCopy>, cut: Optio
 
 /// The sound copy's input, seeked exactly as the source's sound would be:
 /// NUT, unlike the delayed AVI, seeks there sample-exact.
-pub fn sound_copy_input_args(job: &VideoJob, copy: Option<&SoundCopy>) -> Vec<String> {
+pub fn sound_copy_input_args(job: &VideoJob, copy: Option<&SoundCopy>, priming: Option<&EncoderPriming>) -> Vec<String> {
     let Some(c) = copy else { return Vec::new() };
-    let mut args = source_audio_input_seek(job);
+    let mut args = source_audio_input_seek(job, priming);
     args.extend(["-i".to_string(), c.path.to_string_lossy().to_string()]);
     args
 }
@@ -2162,10 +2196,15 @@ mod tests {
         static TEST_SOUND_COPY: std::cell::RefCell<Option<SoundCopy>> = const { std::cell::RefCell::new(None) };
     }
 
+    thread_local! {
+        static TEST_PRIMING: std::cell::RefCell<Option<EncoderPriming>> = const { std::cell::RefCell::new(None) };
+    }
+
     /// Build args as the job would run them, with a sound copy whenever
     /// `needs_sound_sidecar` asks for one.
     fn build_ffmpeg_args_with_sound_copy(job: &VideoJob) -> Vec<String> {
-        let copy = audio_restoration::needs_sound_sidecar(job, None)
+        let priming = TEST_PRIMING.with(|p| *p.borrow());
+        let copy = audio_restoration::needs_sound_sidecar(job, None, priming.as_ref())
             .then(|| SoundCopy { path: "/tmp/sound.nut".into(), streams: 1 });
         TEST_SOUND_COPY.with(|c| *c.borrow_mut() = copy);
         let args = build_ffmpeg_args_for_test(job);
@@ -2210,8 +2249,8 @@ mod tests {
         assert_eq!(sound_copy_input(Some(&c), true), Some((4, 2)));
         assert_eq!(sound_copy_input(None, true), None);
         let job = create_test_job("/tmp/out.mkv");
-        assert!(sound_copy_input_args(&job, None).is_empty());
-        assert_eq!(sound_copy_input_args(&job, Some(&c)), ["-i", "/tmp/s.nut"]);
+        assert!(sound_copy_input_args(&job, None, None).is_empty());
+        assert_eq!(sound_copy_input_args(&job, Some(&c), None), ["-i", "/tmp/s.nut"]);
     }
 
     /// Build args as the job would run them, with the sound cut `cut`.
@@ -2356,6 +2395,111 @@ mod tests {
         }
     }
 
+    /// Build args as the job would run them with the encoder's priming `p`
+    /// (only where `needs_priming_shift` would measure one).
+    fn build_ffmpeg_args_with_priming(job: &VideoJob, p: Option<EncoderPriming>) -> Vec<String> {
+        let use_p = p.filter(|_| audio_restoration::needs_priming_shift(job));
+        TEST_PRIMING.with(|c| *c.borrow_mut() = use_p);
+        let args = build_ffmpeg_args_with_sound_copy(job);
+        TEST_PRIMING.with(|c| *c.borrow_mut() = None);
+        args
+    }
+
+    const AAC_PRIMING: EncoderPriming = EncoderPriming { secs: 1024.0 / 48000.0 };
+
+    fn convert_avi_job() -> VideoJob {
+        let mut job = avi_trim_job(ContainerFormat::Avi);
+        job.start_frame = None;
+        job.end_frame = None;
+        job.input_frame_rate = Some(25.0);
+        job.encoding_settings.audio_mode = AudioMode::Convert;
+        job.encoding_settings.audio_codec = AudioCodec::Aac;
+        job
+    }
+
+    /// Task 38: Convert into AVI reads its sound later by the encoder's
+    /// priming, untrimmed, behind a late video and trimmed, and keeps every
+    /// stream's timestamps, so no null frame is written.
+    #[test]
+    fn convert_into_avi_reads_its_sound_late_by_the_priming() {
+        let mut job = convert_avi_job();
+        let joined = build_ffmpeg_args_with_priming(&job, Some(AAC_PRIMING)).join(" ");
+        assert!(joined.contains("-ss 0.021334 -i input.mp4"), "{joined}");
+        assert!(joined.contains("-avoid_negative_ts disabled -y /tmp/out.avi"), "{joined}");
+        assert!(!build_ffmpeg_args_with_priming(&job, None).join(" ").contains("-avoid_negative_ts"));
+
+        // A late video starts both with the picture in AVI.
+        job.video_start_offset = Some(1.0);
+        let joined = build_ffmpeg_args_with_priming(&job, Some(AAC_PRIMING)).join(" ");
+        assert!(joined.contains("-ss 1.021334 -i input.mp4"), "{joined}");
+
+        // Trimmed: the in-point plus the priming.
+        job.start_frame = Some(30);
+        job.end_frame = Some(89);
+        let joined = build_ffmpeg_args_with_priming(&job, Some(AAC_PRIMING)).join(" ");
+        assert!(joined.contains("-ss 2.221334 -i input.mp4"), "{joined}");
+    }
+
+    /// The NUT copy is read late by the priming too, and an untrimmed delayed
+    /// AVI needs it once the priming moves its seek off 0 (rule 9).
+    #[test]
+    fn the_sound_copy_is_read_late_by_the_priming() {
+        let mut job = convert_avi_job();
+        job.input_path = "input.avi".to_string();
+        job.input_frame_rate = Some(30000.0 / 1001.0);
+        job.decoder_delay_frames = Some(2);
+        assert!(!build_ffmpeg_args_with_priming(&job, None).join(" ").contains("sound.nut"));
+        let joined = build_ffmpeg_args_with_priming(&job, Some(AAC_PRIMING)).join(" ");
+        assert!(joined.contains("-ss 0.021334 -i input.avi -ss 0.021334 -i /tmp/sound.nut"), "{joined}");
+        assert!(joined.contains("-map 2:a?"), "{joined}");
+    }
+
+    /// Every job the priming does not apply to keeps its arguments byte for
+    /// byte: MKV/MP4/MOV, Passthrough, None, any codec, trimmed or not.
+    #[test]
+    fn a_priming_shift_changes_nothing_outside_convert_into_avi() {
+        for container in [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
+            for mode in [AudioMode::Passthrough, AudioMode::Convert, AudioMode::None] {
+                for codec in [AudioCodec::Aac, AudioCodec::Mp3, AudioCodec::Ac3, AudioCodec::Flac, AudioCodec::Pcm] {
+                    for start in [None, Some(20)] {
+                        let mut job = convert_avi_job();
+                        job.output_path = format!("/tmp/out.{}", container.extension());
+                        job.encoding_settings.container = container;
+                        job.encoding_settings.audio_mode = mode;
+                        job.encoding_settings.audio_codec = codec;
+                        job.start_frame = start;
+                        job.end_frame = start.map(|_| 61);
+                        let applies = container == ContainerFormat::Avi && mode == AudioMode::Convert;
+                        assert_eq!(audio_restoration::needs_priming_shift(&job), applies);
+                        let plain = build_ffmpeg_args_with_sound_copy(&job);
+                        assert_eq!(build_ffmpeg_args_with_priming(&job, None), plain);
+                        if !applies {
+                            assert_eq!(
+                                build_ffmpeg_args_with_priming(&job, Some(AAC_PRIMING)),
+                                plain,
+                                "{container:?} {mode:?} {codec:?} {start:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The real builder takes the priming's seeks and output option from the
+    /// helpers, and an IVTC job's `make_zero` gives way to it.
+    #[test]
+    fn test_real_ffmpeg_builder_applies_the_encoder_priming() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        assert!(body.contains("let priming = encoder_priming_output_args(self.encoder_priming.as_ref());"));
+        assert!(body.contains("if priming.is_empty() {\n                args.extend([\"-avoid_negative_ts\".to_string(), \"make_zero\".to_string()]);"));
+        assert!(body.contains("args.extend(priming);"));
+        assert_eq!(body.matches("\"-avoid_negative_ts\"").count(), 1, "one place per option");
+    }
+
     #[test]
     fn the_packet_input_follows_the_sound_copy() {
         let c = SoundCopy { path: "/tmp/s.nut".into(), streams: 1 };
@@ -2453,12 +2597,12 @@ mod tests {
         let body = &body[..body.find("\n    }\n").expect("end of builder")];
         let file = body.find("comment_file.input_args()").expect("metadata file input");
         let track = body
-            .find("audio_restoration::encode_input_args(self.restored_audio.as_ref())")
+            .find("audio_restoration::encode_input_args(self.restored_audio.as_ref(), self.encoder_priming.as_ref())")
             .expect("restored track input");
         assert!(file < track, "the restored track must be input 3, after the metadata file");
         assert!(body.contains("audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3, sound, cut)"));
         let copy = body
-            .find("args.extend(sound_copy_input_args(job, self.sound_copy.as_ref()));")
+            .find("args.extend(sound_copy_input_args(job, self.sound_copy.as_ref(), self.encoder_priming.as_ref()));")
             .expect("sound copy input");
         assert!(track < copy, "the sound copy comes after the restored track");
         assert!(body.contains("sound_copy_input(self.sound_copy.as_ref(), self.restored_audio.is_some())"));
@@ -2482,16 +2626,16 @@ mod tests {
         job.input_frame_rate = Some(25.0);
         assert!(video_delay_filters(&job).is_empty());
         assert!(video_delay_encoder_args(&job).is_empty());
-        assert!(source_audio_input_seek(&job).is_empty());
+        assert!(source_audio_input_seek(&job, None).is_empty());
 
         job.video_start_offset = Some(1.010022);
         assert_eq!(video_delay_filters(&job), ["settb=1/120000", "setpts=PTS+121203"]);
         assert_eq!(video_delay_encoder_args(&job), ["-enc_time_base:v", "1/120000"]);
-        assert!(source_audio_input_seek(&job).is_empty(), "the sound is copied from the start");
+        assert!(source_audio_input_seek(&job, None).is_empty(), "the sound is copied from the start");
 
         job.start_frame = Some(30);
         assert!(video_delay_filters(&job).is_empty());
-        assert_eq!(source_audio_input_seek(&job), ["-ss", "2.210022"]);
+        assert_eq!(source_audio_input_seek(&job, None), ["-ss", "2.210022"]);
 
         // Every broadcast rate's frame is a whole number of ticks.
         for (num, den) in [(25u64, 1u64), (50, 1), (24, 1), (30, 1), (60, 1), (24000, 1001), (30000, 1001), (60000, 1001)] {
@@ -2507,7 +2651,9 @@ mod tests {
         let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
         let body = &src[start..];
         let body = &body[..body.find("\n    }\n").expect("end of builder")];
-        let seek = body.find("args.extend(source_audio_input_seek(job));").expect("audio seek");
+        let seek = body
+            .find("args.extend(source_audio_input_seek(job, self.encoder_priming.as_ref()));")
+            .expect("audio seek");
         let input = body.find(r#"args.extend(["-i".to_string(), job.input_path.clone()]);"#).unwrap();
         assert!(seek < input, "the sound's seek is an input option of the source");
         let delay = body.find("vf.extend(video_delay_filters(job));").expect("delay filters");
@@ -2532,14 +2678,17 @@ mod tests {
         args.extend(field_order.input.iter().cloned());
         args.extend(["-i".to_string(), "-".to_string()]);
 
-        // Input 1: Original file for audio stream, seeked as build_ffmpeg_args does
-        args.extend(source_audio_input_seek(job));
+        // Input 1: Original file for audio stream, seeked as build_ffmpeg_args
+        // does, later by the encoder's priming when one applies (tests set it
+        // through `TEST_PRIMING`).
+        let priming = TEST_PRIMING.with(|p| *p.borrow());
+        args.extend(source_audio_input_seek(job, priming.as_ref()));
         args.extend(["-i".to_string(), job.input_path.clone()]);
 
         // Input 2: the sound copy, when the job needs one (mirrors
         // build_ffmpeg_args; tests set it through `TEST_SOUND_COPY`).
         let copy = TEST_SOUND_COPY.with(|c| c.borrow().clone());
-        args.extend(sound_copy_input_args(job, copy.as_ref()));
+        args.extend(sound_copy_input_args(job, copy.as_ref(), priming.as_ref()));
 
         // Next: the sound cut's packet input (mirrors build_ffmpeg_args; tests
         // set the cut through `TEST_SOUND_CUT`). Index 2 + the copy here.
@@ -2602,6 +2751,10 @@ mod tests {
 
         // Audio handling (mirrors build_ffmpeg_args; no restored track here).
         args.extend(audio_restoration::encode_codec_args(settings, None, sound_cut.as_ref()));
+
+        // The encoder's priming keeps every stream's timestamps (mirrors
+        // build_ffmpeg_args; its IVTC `make_zero` is not mirrored here).
+        args.extend(encoder_priming_output_args(priming.as_ref()));
 
         // Custom arguments
         if !settings.custom_ffmpeg_args.is_empty() {

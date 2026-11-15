@@ -60,6 +60,8 @@ VideoJob _job(
   int? start,
   int? end,
   AudioMode audio = AudioMode.none,
+  AudioCodec audioCodec = AudioCodec.aac,
+  AudioQuality audioQuality = AudioQuality.high,
   AudioRestorationParameters audioPass = const AudioRestorationParameters(),
   ContainerFormat container = ContainerFormat.mkv,
   VideoCodec codec = VideoCodec.ffv1,
@@ -74,6 +76,8 @@ VideoJob _job(
       codec: codec,
       container: container,
       audioMode: audio,
+      audioCodec: audioCodec,
+      audioQuality: audioQuality,
     ),
     inputWidth: 320,
     inputHeight: 240,
@@ -395,8 +399,6 @@ void main() {
         });
       }
 
-      // (Convert is left out: its AAC in AVI gains a frame at the head on
-      // every source, gap or not, a separate fault.)
       test('untrimmed to AVI: in sync from the first picture, copied and restored',
           () async {
         final half = await _halfPacket(video);
@@ -420,6 +422,58 @@ void main() {
           final a = await WorkerHarness.firstStream(out, selector: 'a:0', entries: ['duration']);
           final d = double.tryParse('${a?['duration']}');
           if (d != null) expect(d, closeTo(_frames / _fps, 0.05), reason: 'AVI, $label');
+        }
+      });
+
+      // Task #38: AVI cannot mark a lossy encoder's start-up (priming).
+      // ffmpeg shifted every stream by it, which wrote a null frame at the
+      // head (AAC, MP3), and the player played the priming as sound: AAC
+      // 18.6 ms early, MP3 16.9 ms early, AC-3 5.4 ms late. The encode now
+      // reads the sound later by the measured priming and keeps every
+      // stream's timestamps (docs/reports/2026-11-avi-convert-priming).
+      // At Medium: mono AAC at 192 kbps sometimes writes a packet over the
+      // 768 bytes avienc declares as its block size, which a reader then
+      // times as two packets (a separate fault, task #41).
+      test('untrimmed to AVI with Convert (aac, libmp3lame, ac3): every picture once, in sync',
+          () async {
+        for (final ac in [AudioCodec.aac, AudioCodec.mp3, AudioCodec.ac3]) {
+          final out = await _encode(
+              _job(video, 'avi_convert_${ac.name}_$stem',
+                  audio: AudioMode.convert,
+                  audioCodec: ac,
+                  audioQuality: AudioQuality.medium,
+                  container: ContainerFormat.avi),
+              'vstart_avi_convert_${ac.name}');
+          final v = await _aviVideo(out);
+          expect(v.stored, _frames, reason: '${ac.value}: stored frames, null frames included');
+          expect(v.pts.take(2).toList(), [0.0, 0.04], reason: ac.value);
+          await _expectInSync('AVI, Convert ${ac.value}', out, flashes: 2, tolerance: 0.001);
+          final e = await _events(out);
+          expect(e.flashes.first, closeTo(1.0, 0.001), reason: '${ac.value}: frame 25 at 1 s');
+        }
+      });
+
+      test('to AVI with Convert AAC, restored and trimmed: in sync', () async {
+        for (final (label, job) in [
+          ('restored', _job(video, 'avi_convert_restored_$stem',
+              audio: AudioMode.convert,
+              audioQuality: AudioQuality.medium,
+              container: ContainerFormat.avi,
+              audioPass: const AudioRestorationParameters(enabled: true, limiter: true))),
+          ('trimmed', _job(video, 'avi_convert_trim_$stem',
+              start: _trimStart,
+              end: 89,
+              audio: AudioMode.convert,
+              audioQuality: AudioQuality.medium,
+              container: ContainerFormat.avi)),
+        ]) {
+          final out = await _encode(job, 'vstart_avi_convert_$label');
+          final pictures = label == 'trimmed' ? 89 - _trimStart + 1 : _frames;
+          final v = await _aviVideo(out);
+          expect(v.stored, pictures, reason: '$label: stored frames, null frames included');
+          expect(v.pts.take(2).toList(), [0.0, 0.04], reason: label);
+          await _expectInSync('AVI, Convert AAC, $label', out,
+              flashes: label == 'trimmed' ? 1 : 2, tolerance: 0.001);
         }
       });
 
@@ -460,6 +514,30 @@ void main() {
     expect(v.rate, '25/1');
     expect(v.stored, 126, reason: 'every picture once, no null frames');
     expect(v.pts.take(2).toList(), [0.0, 0.04]);
+  });
+
+  // Task #38's own repro: AAC in AVI stored 51 frames for 50.
+  test('small_clip trimmed 0..49 to AVI with Convert AAC stores its 50 pictures', () async {
+    final job = VideoJob(
+      id: const Uuid().v4(),
+      inputPath: _resource('small_clip.mp4'),
+      outputPath: '$_outDir/small_clip_convert.avi',
+      qtgmcParameters: _off,
+      processingPipeline: const ProcessingPipeline(deinterlace: _off),
+      encodingSettings: EncodingSettings(
+        codec: VideoCodec.ffv1,
+        container: ContainerFormat.avi,
+        audioMode: AudioMode.convert,
+        audioCodec: AudioCodec.aac,
+      ),
+      inputFrameRate: 2997 / 100,
+      startFrame: 0,
+      endFrame: 49,
+      totalFrames: 50,
+    );
+    final v = await _aviVideo(await _encode(job, 'vstart_small_clip_convert'));
+    expect(v.stored, 50, reason: 'stored frames, null frames included');
+    expect(v.pts.first, 0.0);
   });
 
   test('a source whose streams start together gets no delay', () async {
