@@ -67,7 +67,9 @@ release ships an x64 FFmpeg that has it.
 <tr><td>macOS x64</td><td>9.0.1 (evermeet.cx)</td><td><code>libaom-av1</code> only</td><td class="bad">absent</td></tr>
 <tr><td>Windows x64, Linux x64/arm64</td><td>9.0 (BtbN gpl)</td><td colspan="2">Not measured here. The push-gate test
 <code>FFmpeg encoders: libsvtav1 is compiled in</code> (<code>vapoursynth_integration_test.dart</code>) checks every
-bundle on its own CI runner, with an exception only for macOS x64 at deps ≤ 1.16.0</td></tr>
+bundle on its own CI runner, with an exception only for macOS x64 at deps ≤ 1.16.0.
+<em>Correction (2026-11-15, task #44): deps 1.17.0 keeps evermeet's FFmpeg, so the exception now covers
+macOS x64 at every deps version; the test still fails if that bundle gains <code>libsvtav1</code>.</em></td></tr>
 </table>
 <p><code>libsvtav1</code> declares two pixel formats, <code>yuv420p</code> and <code>yuv420p10le</code>.
 That is SVT-AV1's main profile: no 4:2:2, no 4:4:4, no 12-bit.
