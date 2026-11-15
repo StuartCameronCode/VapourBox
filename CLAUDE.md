@@ -2949,8 +2949,7 @@ bundle at 1.16.0 or older, the known skew.
     = access violation, `0xC000001D` = illegal instruction (CPU feature the
     machine lacks) — both decoded by `format_exit_status`, as are SIGILL/SIGSEGV.
     `Header too large` in a job error now means vspipe exited cleanly (or by
-    SIGPIPE) with
-    nothing to send.
+    SIGPIPE) with nothing to send.
     **If it happens with every pass disabled, it is load-time, not a filter**:
     VapourSynth autoloads every plugin when the core starts, so one plugin whose
     static initializers use a missing instruction set kills every job (issue #92,
