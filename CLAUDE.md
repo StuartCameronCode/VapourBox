@@ -149,6 +149,7 @@ VapourBox/
 | `Tests/TestResources/audio_codec_containers.json` | Which Convert audio codec each container holds, and the refusal's wording; read by both sides (see "Convert audio: codec × container") |
 | `worker/src/avi_header.rs` | An AVI output's AAC block size raised to its largest packet after the encode (task #41; see "Source Frame Size") |
 | `worker/templates/pipeline_template.vpy` | The one VapourSynth script template, for the encode and the preview (see "One script template") |
+| `worker/templates/gauss_blur.py` | TCanny's Gaussian blur (`mode=-1`) on `std.Convolution`; never call `tcanny.TCanny` from a template (see "One script template") |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
 ### Flutter App
@@ -1549,6 +1550,14 @@ that havsfunc's QTGMC takes none of them (setting one failed every encode).
   `core.<ns>.<fn>` call against the signatures the bundle's own core reports.
   The Rust suite only inspects the generated text, and a default leaves most
   optional arguments out, so nothing else catches a wrong name.
+- **Never call `tcanny.TCanny` from a template or its modules** (task #52).
+  TCanny r14, in every bundle, fills shared per-thread maps with no lock, and
+  two threads starting together abort vspipe with an uncaught
+  `std::out_of_range` ("unordered_map::at: key not found"). For its Gaussian
+  (`mode=-1`) use `gauss_blur.gaussian_blur`, within 1 level of it;
+  `test_250` enforces this. `std.Convolution` repeats the edge sample when it
+  mirrors, which TCanny doesn't: that helper pads each plane first
+  (docs/reports/task-52-tcanny-race).
 
 ### VapourSynth Frame Cache (issue #107)
 
