@@ -37,6 +37,70 @@ enum AudioCodec {
 
   /// Whether this is a lossless codec (no quality setting needed).
   bool get isLossless => this == AudioCodec.flac || this == AudioCodec.pcm;
+
+  /// The codec's short name, as messages print it. Twin of the worker's
+  /// `AudioCodec::short_name`.
+  String get shortName {
+    switch (this) {
+      case AudioCodec.aac:
+        return 'AAC';
+      case AudioCodec.mp3:
+        return 'MP3';
+      case AudioCodec.ac3:
+        return 'AC-3';
+      case AudioCodec.flac:
+        return 'FLAC';
+      case AudioCodec.opus:
+        return 'Opus';
+      case AudioCodec.pcm:
+        return 'PCM';
+    }
+  }
+
+  /// Whether the bundled FFmpeg can mux this codec into [container] (task
+  /// #39). MOV takes neither FLAC nor Opus and AVI has no Opus tag; no option
+  /// changes that. Twin of the worker's `AudioCodec::supports_container`,
+  /// both pinned by `Tests/TestResources/audio_codec_containers.json`, and
+  /// checked against the real muxers by `audio_compatibility_test.dart`.
+  bool supportsContainer(ContainerFormat container) {
+    switch (container) {
+      case ContainerFormat.mp4:
+      case ContainerFormat.mkv:
+        return true;
+      case ContainerFormat.mov:
+        return this != AudioCodec.flac && this != AudioCodec.opus;
+      case ContainerFormat.avi:
+        return this != AudioCodec.opus;
+    }
+  }
+
+  /// The codec to switch to when [container] can't hold this one: itself if
+  /// it fits, else PCM for a lossless codec and AAC for a lossy one, so a
+  /// lossless choice never silently turns lossy. Every container holds both.
+  AudioCodec fallbackFor(ContainerFormat container) {
+    if (supportsContainer(container)) return this;
+    return isLossless ? AudioCodec.pcm : AudioCodec.aac;
+  }
+
+  /// Why this codec can't go into [container], or null when it can. The same
+  /// words as the worker's refusal (`AudioCodec::container_problem`).
+  String? containerProblem(ContainerFormat container) {
+    if (supportsContainer(container)) return null;
+    final codecs = container.supportedAudioCodecs.map((c) => c.shortName);
+    final containers = ContainerFormat.values
+        .where((k) => k != container && supportsContainer(k))
+        .map((k) => k.shortName);
+    return '$shortName audio can\'t be stored in ${container.shortName} files. '
+        'Choose ${_joinOr(codecs)} in Settings \u2192 Audio, '
+        'or save as ${_joinOr(containers)}.';
+  }
+}
+
+/// "A", "A or B", "A, B or C".
+String _joinOr(Iterable<String> items) {
+  final list = items.toList();
+  if (list.length <= 1) return list.join();
+  return '${list.sublist(0, list.length - 1).join(', ')} or ${list.last}';
 }
 
 /// Audio quality presets (bitrate in kbps).
@@ -250,6 +314,25 @@ class EncodingSettings {
   /// told.
   ChromaSubsampling get effectiveChromaSubsampling =>
       codec.fixedOutputFormat ?? chromaSubsampling;
+
+  /// These settings with [newContainer], and every codec the container can't
+  /// hold switched: the video codec to the container's first, the Convert
+  /// audio codec to [AudioCodec.fallbackFor] (task #39). What the Settings
+  /// container switch applies.
+  EncodingSettings withContainer(ContainerFormat newContainer) => copyWith(
+        container: newContainer,
+        codec: codec.supportsContainer(newContainer)
+            ? codec
+            : newContainer.supportedCodecs.first,
+        audioCodec: audioCodec.fallbackFor(newContainer),
+      );
+
+  /// Why this job's audio can't be written, or null (task #39): only a
+  /// Convert codec the container can't hold. Twin of the worker's
+  /// `EncodingSettings::audio_container_problem`, which refuses such a job.
+  String? get audioContainerProblem => audioMode == AudioMode.convert
+      ? audioCodec.containerProblem(container)
+      : null;
 
   /// Backward compatibility: alias for audioMode == passthrough.
   @Deprecated('Use audioMode instead')

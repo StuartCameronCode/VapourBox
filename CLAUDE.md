@@ -146,6 +146,7 @@ VapourBox/
 | `worker/src/crop_detect.rs` | `--detect-crop`: black borders, blanking, letterbox bars and the head-switching band, for Crop & Resize's Detect (see "Crop Detection"); also the detectors' shared sampling and decode (`decode_samples`) |
 | `worker/src/noise_halo.rs` | `--detect-noise-halo`: a source's noise sigma and halo score, for the pass list's suggestions (see "Noise and Halo Scores") |
 | `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args, including the NUT sound copy, the AVI copy cut (`SoundCut`) and the encoder priming for Convert into AVI (`EncoderPriming`) (see "Audio Restoration", "Source Frame Size") |
+| `Tests/TestResources/audio_codec_containers.json` | Which Convert audio codec each container holds, and the refusal's wording; read by both sides (see "Convert audio: codec × container") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -2194,6 +2195,30 @@ model (`worker/templates/colorize.py`, on `ai_runtime`). Rules:
 `integration_colorize_test.dart` (heavy) checks luma bit-exact (8- and 10-bit,
 and on a colour source), strength 0 = input, both models, and preview = encode.
 See docs/ENGINEERING_NOTES.md (2026-11-08) and docs/reports/2026-11-colourisation.
+
+### Convert audio: codec × container (task #39)
+
+The bundled FFmpeg cannot mux Opus into AVI or MOV, nor FLAC into MOV (no
+option fixes it; the encode died at "Could not write header"). Rules:
+
+- **One table, two sides**: `AudioCodec::supports_container` /
+  `container_problem` (Rust, exhaustive match) and
+  `AudioCodec.supportsContainer` / `containerProblem` (Dart), both pinned to
+  `Tests/TestResources/audio_codec_containers.json`, message included. The
+  push-gate `audio_compatibility_test.dart` encodes every codec into every
+  container with the real binary, both ways; the Convert table must agree
+  with the Passthrough one (`audio_codec_container_test.dart`).
+- **The app offers only what fits**: the Codec dropdown lists
+  `audioCodecChoices` (the container's codecs, plus a saved unsupported one so
+  the dropdown keeps its value, shown with the error); the container switch is
+  `EncodingSettings.withContainer`, which applies `fallbackFor` (lossless →
+  PCM, lossy → AAC, never lossless → lossy). A preset that still pairs them
+  gets a "Use <fallback>" dialog before the queue runs.
+- **The worker refuses before any work**:
+  `EncodingSettings::audio_container_problem` in `run_worker`, right after the
+  config is parsed. Under Convert the restored track is encoded with the
+  chosen codec, so the one check covers it; under Passthrough it is
+  `restored_passthrough_codec`, asserted to fit every container.
 
 ### Audio Restoration
 
