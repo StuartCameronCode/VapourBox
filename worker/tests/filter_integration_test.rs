@@ -2813,8 +2813,9 @@ fn test_77_chroma_denoise_absent_when_disabled() {
 #[test]
 fn test_78_mcdegrainsharp() {
     // Issue #50: MCDegrainSharp (Didée) — "denoise with MDegrain, sharpen where
-    // the motion match is good, blur where it is bad". Needs only mvtools and
-    // tcanny, both already bundled.
+    // the motion match is good, blur where it is bad". Needs only mvtools; the
+    // blurs are TCanny's Gaussian computed by `gauss_blur`, never TCanny
+    // itself (its per-thread buffers race and abort vspipe).
     create_output_dir();
 
     let mut job = create_base_job("test_78_mcdegrainsharp");
@@ -2830,7 +2831,8 @@ fn test_78_mcdegrainsharp() {
     });
 
     run_job_and_verify(&job, "MCDegrainSharp", &[
-        "core.tcanny.TCanny",
+        "from gauss_blur import gaussian_blur as _gaussian_blur",
+        "_mcds_blurred = _gaussian_blur(clip, ",
         "core.mv.Super",
         // 3 frames selects Degrain3, and the other two must be gone.
         "core.mv.Degrain3(",
@@ -2876,7 +2878,7 @@ fn test_79_mcdegrainsharp_frame_count_and_planes() {
         }
     }
 
-    // The TCanny plane list must match mvtools' plane selector, or the blur and
+    // The blur's plane list must match mvtools' plane selector, or the blur and
     // sharpen references would cover different planes than the degrain.
     let script = render(2, 3, true);
     assert!(script.contains("_mcds_planes = [1, 2]"));
@@ -9180,4 +9182,55 @@ fn test_249_chroma_fixes_keep_high_bit_depth() {
             assert!(!section.contains(old), "{}: old guard `{}` is back", label, old);
         }
     }
+}
+
+#[test]
+fn test_250_templates_do_not_call_tcanny() {
+    // Task #52: TCanny r14 (every bundle) fills its per-thread buffer maps on
+    // a thread's first frame with no lock, so two threads starting together
+    // corrupt them and vspipe aborts with an uncaught `std::out_of_range`
+    // ("unordered_map::at: key not found"). Its Gaussian (mode -1), the only
+    // thing the templates used it for, is `gauss_blur.gaussian_blur`.
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let mut checked = 0;
+    for entry in std::fs::read_dir(&templates_dir).expect("read templates dir") {
+        let path = entry.unwrap().path();
+        let Some(ext) = path.extension() else { continue };
+        if ext != "py" && ext != "vpy" {
+            continue;
+        }
+        let body = std::fs::read_to_string(&path).unwrap();
+        let calls: Vec<_> = body
+            .lines()
+            // Comments and docstrings name it in backticks; a call doesn't.
+            .filter(|l| !l.trim_start().starts_with('#') && !l.contains('`'))
+            .filter(|l| l.contains("tcanny.TCanny("))
+            .collect();
+        assert!(
+            calls.is_empty(),
+            "{} calls TCanny, whose per-thread buffers race; use \
+             gauss_blur.gaussian_blur: {calls:?}",
+            path.display()
+        );
+        checked += 1;
+    }
+    assert!(checked > 5, "only {checked} template files found");
+
+    let mut job = create_base_job("test_250_templates_do_not_call_tcanny");
+    job.processing_pipeline = Some(ProcessingPipeline {
+        noise_reduction: NoiseReductionParameters {
+            enabled: true,
+            method: NoiseReductionMethod::McDegrainSharp,
+            ..NoiseReductionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let script = std::fs::read_to_string(ScriptGenerator::new().unwrap().generate(&job).unwrap()).unwrap();
+    assert!(
+        !script
+            .lines()
+            .any(|l| !l.trim_start().starts_with('#') && l.contains("tcanny.")),
+        "the generated script still reaches TCanny"
+    );
+    assert!(script.contains("_gaussian_blur(clip, "));
 }

@@ -461,7 +461,7 @@ impl NoiseReductionParameters {
 
     /// The `planes` list literal matching `mcds_plane`.
     ///
-    /// mvtools takes a single `plane` selector but TCanny takes a list, so the
+    /// mvtools takes a single `plane` selector but the blur takes a list, so the
     /// two have to agree or the blur/sharpen references would cover different
     /// planes than the degrain does.
     pub fn mcds_planes_literal(&self) -> String {

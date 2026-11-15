@@ -1022,11 +1022,16 @@ clip = core.ctmf.CTMF(
 # supplies the pixels the averaging draws from (so well-matched areas come back
 # sharper than the source), and the motion search runs on the blurred clip when
 # asked, which finds steadier vectors on a noisy source.
+#
+# The blurs are TCanny's Gaussian (mode -1) through `gauss_blur`, never
+# `core.tcanny.TCanny` itself: TCanny r14 races on its per-thread buffers and
+# aborts vspipe now and then (see gauss_blur.py).
+from gauss_blur import gaussian_blur as _gaussian_blur
 _mcds_planes = {{NR_MCDS_PLANES}}
-_mcds_blurred = core.tcanny.TCanny(clip, sigma={{NR_MCDS_BLUR_SIGMA}}, mode=-1, planes=_mcds_planes)
+_mcds_blurred = _gaussian_blur(clip, {{NR_MCDS_BLUR_SIGMA}}, _mcds_planes)
 # Unsharp mask: original plus the difference between it and its own blur.
 _mcds_sharpened = _expr(
-    [clip, core.tcanny.TCanny(clip, sigma={{NR_MCDS_SHARP_SIGMA}}, mode=-1, planes=_mcds_planes)],
+    [clip, _gaussian_blur(clip, {{NR_MCDS_SHARP_SIGMA}}, _mcds_planes)],
     ['x x + y -'],
 )
 # Larger blocks for HD; 8 is the classic SD value.

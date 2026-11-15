@@ -4675,3 +4675,30 @@ Full evidence:
   ±4 works for all four.
 - Frame properties now come from the source; the one lost is LUTDeCrawl's
   `_SceneChangePrev/Next` on scene-change frames, which nothing reads.
+
+### TCanny's Gaussian without TCanny; Windows flash probe (task #52, 2026-11-16)
+
+Full evidence:
+[docs/reports/task-52-tcanny-race/](reports/task-52-tcanny-race/index.html).
+
+- The nightly's MCDegrainSharp encode on macOS x64 aborted in
+  `tcannyGetFrame` with an uncaught `std::out_of_range` ("unordered_map::at:
+  key not found"). TCanny r14, in every bundle, inserts each thread's buffers
+  into shared `unordered_map`s on its first frame with no lock and catches
+  only `std::string`; two threads starting together corrupt the map. Rare and
+  timing-dependent (1 failure in the ~25 nightlies looked at).
+- The templates used only its Gaussian (`mode=-1`): MCDegrainSharp's blur and
+  sharpen references, TemporalDegrain2's search clip, mClean's sharpen (a
+  branch the worker's clamp makes unreachable). `worker/templates/gauss_blur.py`
+  computes the same blur with `std.Convolution`: same weights, radius rule,
+  per-plane sigma, float accumulation, one rounding. Within 1 level of TCanny
+  at 8/10/16-bit for every sigma in use; faster on arm64 (640 vs 222 fps at
+  1080p, sigma 2). `test_250` keeps `tcanny.TCanny(` out of the templates.
+- Trap: `std.Convolution` mirrors *with* the edge sample (x = -1 reads x = 0);
+  TCanny reflects without it. Convolving directly was 7–15 levels off at the
+  frame's edges. Each plane is padded TCanny's way and cropped after.
+- Same nightly, Windows (both tiers): the seek-reset sound tests read the
+  output through a `movie=` graph source, which no escaping of a drive letter
+  survives (see `WorkerHarness.frameAverages`). `_flashTime` now uses `-i`
+  with `signalstats,metadata=print`, `-copyts` keeping the clock `_beepTime`
+  reads. Test-only.

@@ -524,16 +524,24 @@ void main() {
 }
 
 /// When the output's white flash picture is shown (its pts), in seconds.
+///
+/// The file goes through `-i`, not a `movie=` graph source: no escaping of
+/// a Windows path survives the graph parser (the drive letter's colon
+/// splits it, see `WorkerHarness.frameAverages`). `-copyts` keeps the
+/// stored timestamps, the clock `_beepTime` reads the sound on.
 Future<double> _flashTime(String video) async {
-  final j = await WorkerHarness.ffprobeJson([
-    '-v', 'error', '-f', 'lavfi',
-    'movie=${video.replaceAll(':', '\\:')},signalstats',
-    '-show_entries', 'frame=pts_time:frame_tags=lavfi.signalstats.YAVG',
-    '-of', 'json',
-  ]);
-  for (final f in (j['frames'] as List)) {
-    final yavg = double.tryParse('${(f['tags'] as Map?)?['lavfi.signalstats.YAVG']}') ?? 0;
-    if (yavg > 200) return double.parse('${f['pts_time']}');
+  final r = await Process.run(
+    WorkerHarness.ffmpegPath,
+    ['-v', 'error', '-copyts', '-i', video, '-map', '0:v:0',
+     '-vf', 'signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-',
+     '-f', 'null', '-'],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(r.exitCode, 0, reason: '${r.stderr}');
+  // One block per frame: `frame:N pts:P pts_time:T`, then its YAVG line.
+  final frame = RegExp(r'pts_time:(-?[0-9.]+)\s+lavfi\.signalstats\.YAVG=([-0-9.]+)');
+  for (final m in frame.allMatches(r.stdout as String)) {
+    if (double.parse(m.group(2)!) > 200) return double.parse(m.group(1)!);
   }
   fail('no flash in $video');
 }

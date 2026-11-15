@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TCanny race</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>TCanny's per-thread buffers race: its Gaussian blur, computed without it</h1>
+<p class="meta">2026-11-16 · task #52 (nightly failure, 2026-11-15) · deps 1.16.0 / 1.17.0-rc1 · measured on an Apple
+Silicon Mac (macOS arm64 bundle). The race is in TCanny's source, which every platform's build shares; the crash was
+seen on macOS x64.</p>
+
+<div class="card">
+<p><strong>Outcome: built.</strong> The nightly's MCDegrainSharp encode on macOS x64 died with
+<code>libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found</code>,
+in <code>tcannyGetFrame</code>. TCanny r14 fills four <code>std::unordered_map</code>s keyed by thread id on each
+thread's first frame, with <strong>no lock</strong>, then reads them with <code>.at()</code>; two VapourSynth threads
+starting together can corrupt a map, and the <code>out_of_range</code> escapes (the filter only catches
+<code>std::string</code>), so vspipe aborts. The templates used TCanny only for its Gaussian blur (<code>mode=-1</code>),
+in MCDegrainSharp, mClean and TemporalDegrain2. <code>worker/templates/gauss_blur.py</code> now computes that blur with
+<code>std.Convolution</code>, which keeps no per-thread state: <strong>within 1 level of TCanny</strong> at 8/10/16-bit
+for every sigma a caller uses (most samples identical), untouched planes bit-exact, and faster than TCanny on arm64.
+<code>test_250</code> keeps <code>tcanny.TCanny</code> out of the templates.</p>
+</div>
+
+<h2>1. The race</h2>
+<p>From <code>TCanny/TCanny.cpp</code> at tag r14 (HomeOfVapourSynthEvolution/VapourSynth-TCanny). macOS x64 ships Stefan-Olt's r14 build and Windows upstream's r14
+DLL; macOS arm64 and Linux build master, one commit past r14 (an <code>alignof</code> change), so every bundle has
+this code:</p>
+<pre>// tcannyGetFrame, arAllFramesReady — run concurrently (fmParallel)
+if (!d-&gt;blur.count(threadId)) {
+    ...
+    d-&gt;blur.emplace(threadId, ...);       // no lock: a rehash here races
+    d-&gt;gradient.emplace(threadId, ...);   // another thread's emplace / at()
+    ...
+}
+} catch (const std::string&amp; error) { ... }  // std::out_of_range is not caught
+d-&gt;filter(src, dst, d, vsapi);             // filter_c: d-&gt;blur.at(threadId) ...</pre>
+<p>Only a thread's first frame inserts, so the window is the first few frames of each TCanny node, and it needs two
+threads to arrive together: a rare, timing-dependent abort, not reproducible on demand. It showed once in the nightly
+history fetched for this task (the 25 most recent nightly runs' failed jobs, 43 job logs): MCDegrainSharp's luma-only /
+chroma-only encode on macOS x64, 2026-11-15. The same <code>unordered_map::at</code> abort under QTGMC's KNLMeansCL
+(Linux x64, October) is a different plugin and is not addressed here.</p>
+<p>Fixing the plugin was not chosen: Windows ships the upstream r14 DLL and has no from-source path, and a patched
+build would be a deps release. Not calling it fixes every platform with the current bundles.</p>
+
+<h2>2. The replacement</h2>
+<p><code>gaussian_blur(clip, sigma, planes)</code> reproduces <code>TCanny(clip, sigma=sigma, mode=-1, planes=planes)</code>:
+the same normalised weights <code>exp(-k&sup2;/2&sigma;&sup2;)</code> over radius <code>max(int(&sigma;&middot;3 + 0.5), 1)</code>;
+chroma's sigma divided by the subsampling in each direction (TCanny's default for one given sigma); separable, vertical
+then horizontal, in 32-bit float, rounded once (an <code>Expr</code> of <code>x</code> to float and back, which copies values
+raw). A float clip is left unclamped, as TCanny leaves mode -1's.</p>
+
+<h3 class="correction">Correction during the work: the edges</h3>
+<p>The first version convolved each plane directly and differed from TCanny by up to <strong>7 levels at sigma 0.849
+and 15 at sigma 2</strong> (8-bit), all within the radius of the frame's edge (mean 0.011 / 0.075). <code>std.Convolution</code>
+mirrors <em>with</em> the edge sample; TCanny mirrors without it:</p>
+<pre>source               [1, 11, 21, 31, 41, 51, 61, 71]
+Convolution, x-2     [11, 1, 1, 11, 21, 31, 41, 51]   x=-1 reads x=0, x=-2 reads x=1
+Convolution, x+2     [21, 31, 41, 51, 61, 71, 71, 61] x=8 reads x=7
+TCanny               x=-i reads x=i, x=w-1+i reads x=w-1-i</pre>
+<p class="caption"><code>convolution_edges.py</code>: the Convolution rows are the ramp read two samples to each
+side.</p>
+<p>So each plane is now padded TCanny's way (flipped strips from one sample in) before each pass, and the padding is
+cropped after.</p>
+
+<h3>Against TCanny</h3>
+<p>One frame of <code>small_clip.mp4</code> (5 s in, 320x240), in each format, every plane compared
+(<code>compare.py</code>). Units are the format's own levels (float: 0–1).</p>
+<div class="scroll"><table>
+<tr><th>format</th><th class="num">sigma</th><th>planes</th><th class="num">max |diff|</th><th class="num">mean</th><th>used by</th></tr>
+<tr><td>YUV420P8</td><td class="num">0.537</td><td>0,1,2</td><td class="num good">0</td><td class="num">0</td><td>MCDegrainSharp blur (default)</td></tr>
+<tr><td>YUV420P8</td><td class="num">0.849</td><td>0</td><td class="num good">1</td><td class="num">2.6e-5</td><td>MCDegrainSharp sharpen (default)</td></tr>
+<tr><td>YUV420P8</td><td class="num">0.849</td><td>1,2</td><td class="num good">0</td><td class="num">0</td><td>MCDegrainSharp, chroma only</td></tr>
+<tr><td>YUV420P8</td><td class="num">2</td><td>0,1,2</td><td class="num good">1</td><td class="num">2.6e-5</td><td>TemporalDegrain2 search clip</td></tr>
+<tr><td>YUV422P10</td><td class="num">0.537 / 0.849 / 2</td><td>all cases</td><td class="num good">0–1</td><td class="num">&le; 1.8e-4</td><td></td></tr>
+<tr><td>YUV420P16</td><td class="num">0.537 / 0.849 / 2</td><td>all cases</td><td class="num good">1</td><td class="num">&le; 0.0084</td><td></td></tr>
+<tr><td>YUV444PS</td><td class="num">0.537 / 0.849 / 2</td><td>all cases</td><td class="num good">3.6e-7</td><td class="num">&le; 5.1e-8</td><td></td></tr>
+<tr><td>8 / 10-bit</td><td class="num">5</td><td>0</td><td class="num">1</td><td class="num">0.014 / 0.057</td><td rowspan="2">none: past Convolution's 25 taps, so run as two passes of &sigma;/&radic;2 (each kernel's tails truncated). mClean's TCanny branch needs <code>sharp</code> &gt; 50 and the worker clamps it to 24</td></tr>
+<tr><td>16-bit</td><td class="num">5</td><td>0</td><td class="num warn">37</td><td class="num">3.6</td></tr>
+</table></div>
+<p class="caption">A 1-level difference is float summation order landing on the other side of .5. One natural frame,
+not a population; edges of every kind are present (frame borders included). Untouched planes go through the
+<code>Expr</code> round trip and come back exact.</p>
+
+<h3>Speed</h3>
+<p>1080p 4:2:0 8-bit with grain, 200 frames, Apple M1 Pro (<code>speed.py</code>):</p>
+<table>
+<tr><th>call</th><th class="num">TCanny</th><th class="num">gaussian_blur</th></tr>
+<tr><td>sigma 2, all planes</td><td class="num">222 fps</td><td class="num">640 fps</td></tr>
+<tr><td>sigma 0.849, luma</td><td class="num">475 fps</td><td class="num">932 fps</td></tr>
+</table>
+<p class="caption">On arm64 the <code>Expr</code> steps run on akarin's JIT (<code>hybrid_mv._expr</code>); macOS x64 has
+no akarin and uses VapourSynth's own x86 Expr JIT. x86 speed was not measured; with <code>std.Expr</code> instead of
+akarin on arm64 (the scalar interpreter) it was still 264 / 372 fps. Either way the blur is a small part of a
+motion-compensated denoiser's time.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>Replace the calls, not the plugin.</strong> TCanny stays in the bundle (it is still a required namespace
+and credited); nothing VapourBox generates calls it.</li>
+<li><strong>Match TCanny rather than pick a new blur</strong> (box blurs, as mClean/TD2's no-TCanny fallbacks used):
+a saved MCDegrainSharp/TD2 setting keeps its picture.</li>
+<li><strong>A guard, not a probe.</strong> The race cannot be triggered on demand, so the test is static:
+<code>test_250</code> fails on any <code>tcanny.TCanny(</code> call in <code>worker/templates</code> and on any in
+a generated MCDegrainSharp script.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>That the abort is gone: it was one failure in ~25 nightlies; the evidence is that the code that races is no longer
+called.</li>
+<li>Other plugins with the same per-thread-map pattern (several HolyWu plugins use it); none has been seen to crash.</li>
+<li>x86 speed; images other than the one frame.</li>
+</ul>
+
+<h2>Scripts</h2>
+<p><code>scripts/reproduce.sh</code> (<code>DEPS=deps/&lt;platform&gt;</code>, scratch in <code>$SCRATCH</code>) runs
+<code>convolution_edges.py</code>, <code>compare.py</code> and <code>speed.py</code>.</p>
+</main>
+</body>
+</html>

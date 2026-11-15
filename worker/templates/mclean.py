@@ -11,8 +11,8 @@ invents one. The attribution the upstream docstring itself carries is:
 
     From: https://forum.doom9.org/showthread.php?t=174804 by burfadel
 
-The MVTools substrate and the helpers this needs (``MV``, ``BoxFilter``,
-``Blur``, ``scale``) live in ``hybrid_mv.py``, shared with
+The MVTools substrate and the helpers this needs (``MV``, ``Blur``,
+``scale``) live in ``hybrid_mv.py``, shared with
 ``temporaldegrain2.py``; that file documents its own derivation.
 
 +++ Deviations from upstream, all of them load-bearing +++
@@ -69,7 +69,8 @@ from typing import Optional
 
 import vapoursynth as vs
 
-from hybrid_mv import MV, Blur, BoxFilter, _expr, require_integer
+from gauss_blur import gaussian_blur
+from hybrid_mv import MV, Blur, _expr, require_integer
 
 core = vs.core
 
@@ -239,14 +240,10 @@ def mClean(
     if sharp:
         if sharp <= 50:
             clsharp = core.std.MakeDiff(clean, Blur(clean2, amountH=0.08 + 0.03 * sharp))
-        elif hasattr(core, 'tcanny'):
-            clsharp = core.std.MakeDiff(clean, clean2.tcanny.TCanny(sigma=(sharp - 46) / 4, mode=-1))
         else:
-            radius = max(1, round(((sharp - 46) / 4) * 1.5))
-            blur = clean2
-            for _ in range(3):
-                blur = BoxFilter(blur, radius=radius, radius_v=radius)
-            clsharp = core.std.MakeDiff(clean, blur)
+            # TCanny's Gaussian without TCanny, whose per-thread buffers race
+            # (see gauss_blur.py).
+            clsharp = core.std.MakeDiff(clean, gaussian_blur(clean2, (sharp - 46) / 4))
         clsharp = core.std.MergeDiff(clean2, RE(TM(clsharp), clsharp, 12))
 
     # ------------------------------------------------------------------ renoise
