@@ -1,5 +1,6 @@
 import 'package:json_annotation/json_annotation.dart';
 
+import '../utils/pixel_format.dart';
 import 'video_job.dart';
 
 part 'encoding_settings.g.dart';
@@ -316,16 +317,17 @@ class EncodingSettings {
       codec.fixedOutputFormat ?? chromaSubsampling;
 
   /// These settings with [newContainer], and every codec the container can't
-  /// hold switched: the video codec to the container's first, the Convert
-  /// audio codec to [AudioCodec.fallbackFor] (task #39). What the Settings
-  /// container switch applies.
-  EncodingSettings withContainer(ContainerFormat newContainer) => copyWith(
-        container: newContainer,
-        codec: codec.supportsContainer(newContainer)
+  /// hold switched: the video codec to the container's first (through
+  /// [withCodec], so its preset and quality reset with it: AV1 into MOV
+  /// becomes H.264 at CRF 18, task #40), the Convert audio codec to
+  /// [AudioCodec.fallbackFor] (task #39). What the Settings container switch
+  /// applies.
+  EncodingSettings withContainer(ContainerFormat newContainer) => withCodec(
+        codec.supportsContainer(newContainer)
             ? codec
             : newContainer.supportedCodecs.first,
-        audioCodec: audioCodec.fallbackFor(newContainer),
-      );
+        container: newContainer,
+      ).copyWith(audioCodec: audioCodec.fallbackFor(newContainer));
 
   /// Why this job's audio can't be written, or null (task #39): only a
   /// Convert codec the container can't hold. Twin of the worker's
@@ -333,6 +335,36 @@ class EncodingSettings {
   String? get audioContainerProblem => audioMode == AudioMode.convert
       ? audioCodec.containerProblem(container)
       : null;
+
+  /// The colour format the script converts to for a source whose pipe format
+  /// is [pixelFormat] (null before a file is analysed). The same as
+  /// [effectiveChromaSubsampling], except for a codec limited to 4:2:0 at 8
+  /// or 10 bits ([VideoCodec.limitsTo420Up10], AV1): a format that already
+  /// fits is kept, anything else becomes 4:2:0 at 8 bits (8-bit content) or
+  /// 10 bits (deeper). Mirrors `VideoJob::output_chroma_subsampling`; without
+  /// a source format under Original it returns Original.
+  ChromaSubsampling outputChromaSubsamplingFor(String? pixelFormat) {
+    final selected = effectiveChromaSubsampling;
+    if (!codec.limitsTo420Up10) return selected;
+    return limitTo420Up10(selected, pixelFormat);
+  }
+
+  /// These settings with [newCodec] selected. Switching encoder family resets
+  /// the preset to the new family's default (vocabularies don't overlap), and
+  /// switching between quality scales (AV1's CRF 0-63 vs x264's 0-51, whose
+  /// numbers mean different things) resets the quality to the new codec's
+  /// default — x264's 18 would otherwise be a near-lossless AV1 encode several
+  /// times the intended size.
+  EncodingSettings withCodec(VideoCodec newCodec, {ContainerFormat? container}) {
+    final familyChanged = codec.encoderFamily != newCodec.encoderFamily;
+    final scaleChanged = codec.isAv1 != newCodec.isAv1;
+    return copyWith(
+      codec: newCodec,
+      container: container,
+      encoderPreset: familyChanged ? newCodec.defaultPreset : null,
+      quality: scaleChanged ? newCodec.defaultQuality : null,
+    );
+  }
 
   /// Backward compatibility: alias for audioMode == passthrough.
   @Deprecated('Use audioMode instead')
@@ -360,6 +392,14 @@ class EncodingSettings {
       if (quality <= 25) return 'Medium (Quality $quality)';
       if (quality <= 30) return 'Low (Quality $quality)';
       return 'Very Low (Quality $quality)';
+    }
+    if (codec.isAv1) {
+      // SVT-AV1's CRF runs 0-63 and its numbers mean less than x264's.
+      if (quality <= 20) return 'Very High (CRF $quality)';
+      if (quality <= 26) return 'High (CRF $quality)';
+      if (quality <= 32) return 'Medium (CRF $quality)';
+      if (quality <= 40) return 'Low (CRF $quality)';
+      return 'Very Low (CRF $quality)';
     }
     // NVENC uses CQ (constant quality) in VBR mode, not CRF
     final label = codec.isNvenc ? 'CQ' : 'CRF';

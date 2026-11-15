@@ -8986,3 +8986,46 @@ fn test_245_descratch_blurlen_clamped_to_height() {
         }
     }
 }
+
+/// Task #40: AV1 (SVT-AV1) stores 4:2:0 at 8 or 10 bits only, so the script —
+/// encode and preview alike — converts anything else itself (field-aware,
+/// dithered), never ffmpeg's `-pix_fmt`. A source already 4:2:0 at <= 10 bits
+/// under Original is left alone.
+#[test]
+fn test_246_av1_converts_to_420_in_the_script() {
+    create_output_dir();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_addons(std::env::temp_dir().join("vb-no-addons-here"), "macos-arm64");
+    for (src, cs, expected) in [
+        ("yuv422p10le", ChromaSubsampling::Original, Some("vs.YUV420P10")),
+        ("yuv444p12le", ChromaSubsampling::Original, Some("vs.YUV420P10")),
+        ("yuv422p", ChromaSubsampling::Original, Some("vs.YUV420P8")),
+        ("yuv420p", ChromaSubsampling::Yuv422P10, Some("vs.YUV420P10")),
+        ("yuv420p", ChromaSubsampling::Original, None),
+        ("yuv420p10le", ChromaSubsampling::Original, None),
+    ] {
+        let ctx = format!("{src} {cs:?}");
+        let mut job = create_base_job("test_246_av1");
+        job.input_pixel_format = Some(src.to_string());
+        job.encoding_settings.codec = VideoCodec::Av1;
+        job.encoding_settings.container = ContainerFormat::Mp4;
+        job.encoding_settings.chroma_subsampling = cs;
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (label, script) in [("encode", &encode), ("preview", &preview)] {
+            match expected {
+                Some(format) => assert!(
+                    script.contains(&format!("target_format = {format}")),
+                    "{ctx} {label}: converts to {format}"
+                ),
+                None => assert!(!script.contains("target_format = "), "{ctx} {label}: no conversion"),
+            }
+        }
+    }
+    // The same 4:2:2 10-bit source to H.265 keeps its format.
+    let mut job = create_base_job("test_246_h265");
+    job.input_pixel_format = Some("yuv422p10le".to_string());
+    job.encoding_settings.codec = VideoCodec::H265;
+    let (encode, _) = both_scripts_with(&generator, &job).unwrap();
+    assert!(!encode.contains("target_format = "));
+}

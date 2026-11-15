@@ -4472,3 +4472,33 @@ Report: [docs/reports/2026-11-avi-convert-priming](reports/2026-11-avi-convert-p
   probe. Under Convert the restored track uses the chosen codec too, so the
   one check covers it; under Passthrough it is `restored_passthrough_codec`,
   asserted to fit every container.
+
+### AV1 output through SVT-AV1 (task #40, 2026-11-15)
+
+Full evidence:
+[docs/reports/task-40-av1-svtav1/](reports/task-40-av1-svtav1/index.html).
+
+- `VideoCodec::Av1` (`libsvtav1`, `EncoderFamily::SvtAv1`), MP4/MKV only:
+  FFmpeg refuses AV1 in MOV ("av1 only supported in MP4 and AVIF"), AVI muxes
+  a non-standard `AV01` fourcc. The worker refuses either (`container_problem`).
+- **The macOS x64 FFmpeg (evermeet 9.0.1) has no `libsvtav1`**, only libaom;
+  arm64 (martin-riedl 9.0.2) has SVT-AV1 v4.2.0, libaom and rav1e. The app's
+  encoder detector shows AV1 unavailable there and the worker refuses it up
+  front; the push gate's `libsvtav1 is compiled in` test checks every other
+  bundle on its own runner.
+- SVT-AV1 takes `yuv420p` / `yuv420p10le` only. Left alone, FFmpeg converted
+  4:2:2 / 4:4:4 / 12-bit through swscale, which blended an interlaced
+  picture's two fields' chroma (Cr 175/175 against 240/110 field-aware). So
+  `VideoJob::output_chroma_subsampling` resolves the limit in the script
+  (both templates' `CHROMA_CONVERT`): a 4:2:0 <= 10-bit result is kept, else
+  4:2:0 at 8 bits (8-bit content) or 10 (deeper).
+- HDR10 static metadata in `-svtav1-params` as decimals (x265's integer
+  units divided out); read back exactly.
+- Defaults from measurement on an M1 Pro: preset 6 (179 fps SD, 54 fps
+  1080p; x264 medium 188 / 40) and CRF 24 (VMAF at or just below x264 CRF 18
+  at 21–40% less bitrate). Presets 1–10; CRF clamped to 0–63.
+- `SVT_LOG=2` on the encoder: SVT's ~20-line info banner otherwise fills the
+  stderr tail a failure is reported from.
+- Not built: hardware AV1 (NVENC/QSV/AMF; unverifiable here, AMF's QP is
+  0–255), WebM/VP9, film-grain synthesis, an x64 macOS FFmpeg with SVT-AV1
+  (needs a deps release).

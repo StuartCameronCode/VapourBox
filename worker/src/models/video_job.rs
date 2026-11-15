@@ -383,13 +383,43 @@ impl VideoJob {
     /// its input format. Custom VapourSynth could break that assumption, and
     /// like everything else about custom code, it is the user's to get right.
     pub fn encoder_input_pix_fmt(&self) -> String {
-        self.encoding_settings
-            .effective_chroma_subsampling()
+        self.output_chroma_subsampling()
             .ffmpeg_pix_fmt()
             .map(str::to_string)
             .unwrap_or_else(|| {
                 crate::pixel_format::decode_pixel_format(self.input_pixel_format.as_deref()).name
             })
+    }
+
+    /// The output colour format the script converts to: the one decision,
+    /// read by the script generator (`CHROMA_CONVERT`, encode and preview) and
+    /// by [`encoder_input_pix_fmt`](Self::encoder_input_pix_fmt).
+    ///
+    /// [`EncodingSettings::effective_chroma_subsampling`] first (the user's
+    /// choice, or the one format ProRes/v210 store). Then, for a codec limited
+    /// to 4:2:0 at 8 or 10 bits ([`VideoCodec::limits_to_420_10`], AV1), the
+    /// format that choice delivers (the pipe format under `Original`) is kept
+    /// when it already fits, else becomes `Yuv420` for 8-bit content and
+    /// `Yuv420P10` for anything deeper — converted in the script, field-aware
+    /// and dithered, not by ffmpeg's `-pix_fmt`. `av1ChromaWarning` in
+    /// `app/lib/utils/pixel_format.dart` is pinned to
+    /// `av1_stores_420_up_to_10_bits`.
+    pub fn output_chroma_subsampling(&self) -> ChromaSubsampling {
+        let selected = self.encoding_settings.effective_chroma_subsampling();
+        if !self.encoding_settings.codec.limits_to_420_10() {
+            return selected;
+        }
+        let delivered = selected.ffmpeg_pix_fmt().map(str::to_string).unwrap_or_else(|| {
+            crate::pixel_format::decode_pixel_format(self.input_pixel_format.as_deref()).name
+        });
+        let (class, depth) = crate::pixel_format::chroma_and_depth(&delivered);
+        if class == crate::pixel_format::ChromaClass::C420 && depth <= 10 {
+            selected
+        } else if depth > 8 {
+            ChromaSubsampling::Yuv420P10
+        } else {
+            ChromaSubsampling::Yuv420
+        }
     }
 
     /// Get the effective processing pipeline.
@@ -688,6 +718,10 @@ fn default_encoder_preset() -> String {
 fn default_quality() -> i32 {
     18
 }
+
+/// SVT-AV1's default preset in VapourBox (docs/reports/task-40-av1-svtav1).
+/// Mirrors `VideoCodec.defaultPreset` in `app/lib/models/video_job.dart`.
+pub const SVT_AV1_DEFAULT_PRESET: &str = "6";
 
 /// Audio handling mode for output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -1063,6 +1097,13 @@ pub enum VideoCodec {
     #[serde(rename = "libx265")]
     H265,
 
+    /// AV1 through SVT-AV1 (task #40). 8- or 10-bit 4:2:0 only, in MP4 or
+    /// MKV; the script converts anything else (`VideoJob::output_chroma_subsampling`).
+    /// Not in every bundled FFmpeg: the macOS x64 build (evermeet) has no
+    /// `libsvtav1`, so the app checks for it (`HardwareEncoderDetector`).
+    #[serde(rename = "libsvtav1")]
+    Av1,
+
     // NVIDIA NVENC
     #[serde(rename = "h264_nvenc")]
     H264Nvenc,
@@ -1156,6 +1197,9 @@ pub enum EncoderFamily {
     Lossless,
     /// v210: no quality, no preset, a data rate fixed by the frame size.
     Uncompressed,
+    /// SVT-AV1: CRF 0-63 and numeric presets, so not `Software`, whose
+    /// presets are x264's words.
+    SvtAv1,
 }
 
 #[allow(dead_code)]
@@ -1165,6 +1209,7 @@ impl VideoCodec {
         match self {
             VideoCodec::H264 => "libx264",
             VideoCodec::H265 => "libx265",
+            VideoCodec::Av1 => "libsvtav1",
             VideoCodec::H264Nvenc => "h264_nvenc",
             VideoCodec::H265Nvenc => "hevc_nvenc",
             VideoCodec::H264Qsv => "h264_qsv",
@@ -1191,6 +1236,7 @@ impl VideoCodec {
     pub const ALL: &'static [VideoCodec] = &[
         VideoCodec::H264,
         VideoCodec::H265,
+        VideoCodec::Av1,
         VideoCodec::H264Nvenc,
         VideoCodec::H265Nvenc,
         VideoCodec::H264Qsv,
@@ -1229,6 +1275,7 @@ impl VideoCodec {
             VideoCodec::ProRes4444Xq => Some(5),
             VideoCodec::H264
             | VideoCodec::H265
+            | VideoCodec::Av1
             | VideoCodec::H264Nvenc
             | VideoCodec::H265Nvenc
             | VideoCodec::H264Qsv
@@ -1305,7 +1352,9 @@ impl VideoCodec {
             // FFmpeg-based players, so the two would disagree about one file.
             // The hardware encoders can't code fields either (VideoToolbox
             // ignores `+ildct`) or can't be verified (NVENC, QSV, AMF).
+            // AV1 has no interlaced coding tools at all.
             VideoCodec::H265
+            | VideoCodec::Av1
             | VideoCodec::H264Nvenc
             | VideoCodec::H265Nvenc
             | VideoCodec::H264Qsv
@@ -1343,6 +1392,17 @@ impl VideoCodec {
                 ChromaSubsampling::Yuv422P10
             }
         })
+    }
+
+    /// Whether this codec limits the output to 4:2:0 at 8 or 10 bits (SVT-AV1's
+    /// main profile: `libsvtav1` takes `yuv420p` and `yuv420p10le` and nothing
+    /// else). Unlike [`fixed_output_format`](Self::fixed_output_format) the
+    /// result depends on the source, so it is resolved by
+    /// [`VideoJob::output_chroma_subsampling`]. Left to ffmpeg, a 4:2:2 or
+    /// 12-bit picture is converted by swscale, which is neither field-aware
+    /// nor the script's dither (docs/reports/task-40-av1-svtav1).
+    pub fn limits_to_420_10(&self) -> bool {
+        matches!(self, VideoCodec::Av1)
     }
 
     /// FFmpeg output pixel format to force for this codec, given the format the
@@ -1413,6 +1473,13 @@ impl VideoCodec {
             // 10-bit mode at all. Pinning nv12 makes the conversion explicit
             // and identical on every card.
             VideoCodec::H264Amf | VideoCodec::H265Amf => return Some("nv12"),
+            // SVT-AV1 takes 4:2:0 at 8 or 10 bits. The script already delivers
+            // one of them (`VideoJob::output_chroma_subsampling`), field-aware,
+            // so this is a guard that keeps the pipeline's depth.
+            VideoCodec::Av1 => {
+                let (_, depth) = crate::pixel_format::chroma_and_depth(encoder_input);
+                return Some(if depth > 8 { "yuv420p10le" } else { "yuv420p" });
+            }
             _ => {}
         }
 
@@ -1468,6 +1535,10 @@ impl VideoCodec {
                 "veryfast", "faster", "fast", "medium", "slow", "slower", "veryslow",
             ],
             EncoderFamily::Amf => &["speed", "balanced", "quality"],
+            // SVT-AV1's presets run -2..13; 0 and below are hours a minute,
+            // and SVT itself warns that 11 and up are for automation only
+            // ("visual artifacts may occur").
+            EncoderFamily::SvtAv1 => &["1", "2", "3", "4", "5", "6", "7", "8", "9", "10"],
             // VideoToolbox, ProRes, the lossless codecs and v210 take no preset.
             _ => &[],
         }
@@ -1478,6 +1549,7 @@ impl VideoCodec {
         match self.encoder_family() {
             EncoderFamily::Nvenc => "p4",
             EncoderFamily::Amf => "balanced",
+            EncoderFamily::SvtAv1 => SVT_AV1_DEFAULT_PRESET,
             _ => "medium",
         }
     }
@@ -1510,11 +1582,39 @@ impl VideoCodec {
                        VideoCodec::H265Videotoolbox | VideoCodec::H265Amf)
     }
 
+    /// Whether this codec produces AV1 output.
+    pub fn is_av1(&self) -> bool {
+        matches!(self, VideoCodec::Av1)
+    }
+
+    /// The quality (`-crf`) range this codec accepts. A saved preset or an
+    /// imported job can carry any number, so the executor clamps to it.
+    pub fn crf_range(&self) -> (i32, i32) {
+        if self.is_av1() {
+            (0, 63)
+        } else {
+            (0, 51)
+        }
+    }
+
+    /// Whether `container` can hold this codec. Only AV1 is restricted today:
+    /// FFmpeg refuses AV1 in MOV ("av1 only supported in MP4 and AVIF") and
+    /// writes AVI with a non-standard `AV01` fourcc few players read. Mirrors
+    /// `supportsContainer` in `app/lib/models/video_job.dart` for AV1.
+    pub fn allows_container(&self, container: ContainerFormat) -> bool {
+        if self.is_av1() {
+            matches!(container, ContainerFormat::Mp4 | ContainerFormat::Mkv)
+        } else {
+            true
+        }
+    }
+
     /// Whether this is a hardware-accelerated encoder.
     pub fn is_hardware(&self) -> bool {
         !matches!(
             self.encoder_family(),
             EncoderFamily::Software
+                | EncoderFamily::SvtAv1
                 | EncoderFamily::ProRes
                 | EncoderFamily::Lossless
                 | EncoderFamily::Uncompressed
@@ -1525,6 +1625,7 @@ impl VideoCodec {
     pub fn encoder_family(&self) -> EncoderFamily {
         match self {
             VideoCodec::H264 | VideoCodec::H265 => EncoderFamily::Software,
+            VideoCodec::Av1 => EncoderFamily::SvtAv1,
             VideoCodec::H264Nvenc | VideoCodec::H265Nvenc => EncoderFamily::Nvenc,
             VideoCodec::H264Qsv | VideoCodec::H265Qsv => EncoderFamily::Qsv,
             VideoCodec::H264Videotoolbox | VideoCodec::H265Videotoolbox => EncoderFamily::Videotoolbox,
@@ -1559,6 +1660,7 @@ impl VideoCodec {
         match self {
             VideoCodec::H264 => "H.264",
             VideoCodec::H265 => "H.265 (HEVC)",
+            VideoCodec::Av1 => "AV1 (SVT-AV1)",
             VideoCodec::H264Nvenc => "H.264 (NVENC)",
             VideoCodec::H265Nvenc => "H.265 (NVENC)",
             VideoCodec::H264Qsv => "H.264 (Intel QSV)",
@@ -2076,8 +2178,8 @@ mod tests {
             } else if codec == VideoCodec::H264 {
                 FieldOrderSignal::X264Interlaced
             } else {
-                // x265 and every hardware encoder.
-                assert!(codec.is_h265() || codec.is_hardware(), "{codec:?}");
+                // x265, AV1 and every hardware encoder.
+                assert!(codec.is_h265() || codec.is_av1() || codec.is_hardware(), "{codec:?}");
                 FieldOrderSignal::None
             };
             assert_eq!(codec.field_order_signal(), expected, "{codec:?}");
@@ -2166,6 +2268,92 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The table `av1ChromaWarning` (app/lib/utils/pixel_format.dart) is pinned
+    /// to, in `app/test/av1_test.dart`. Change one, change both.
+    ///
+    /// AV1 keeps a selection (or, under Original, a source) that is already
+    /// 4:2:0 at 8 or 10 bits; anything else is converted in the script to
+    /// 4:2:0 at 8 bits (8-bit content) or 10 bits (deeper). Each row:
+    /// (selection, source pipe format, stored format).
+    #[test]
+    fn av1_stores_420_up_to_10_bits() {
+        use ChromaSubsampling as C;
+        let rows: &[(C, &str, C)] = &[
+            (C::Original, "yuv420p", C::Original),
+            (C::Original, "yuvj420p", C::Original),
+            (C::Original, "yuv420p10le", C::Original),
+            (C::Original, "yuv411p", C::Yuv420),
+            (C::Original, "yuv422p", C::Yuv420),
+            (C::Original, "yuv444p", C::Yuv420),
+            (C::Original, "yuv420p12le", C::Yuv420P10),
+            (C::Original, "yuv422p10le", C::Yuv420P10),
+            (C::Original, "yuv444p12le", C::Yuv420P10),
+            (C::Original, "yuv422p16le", C::Yuv420P10),
+            (C::Yuv420, "yuv422p10le", C::Yuv420),
+            (C::Yuv420P10, "yuv420p", C::Yuv420P10),
+            (C::Yuv422, "yuv420p", C::Yuv420),
+            (C::Yuv422P10, "yuv420p", C::Yuv420P10),
+            (C::Yuv444P10, "yuv444p12le", C::Yuv420P10),
+        ];
+        for &(selection, src, stored) in rows {
+            let job = fixed_format_job(VideoCodec::Av1, selection, src);
+            assert_eq!(job.output_chroma_subsampling(), stored, "{selection:?} from {src}");
+            let input = job.encoder_input_pix_fmt();
+            let (class, depth) = crate::pixel_format::chroma_and_depth(&input);
+            assert_eq!(class, crate::pixel_format::ChromaClass::C420, "{selection:?} {src}");
+            assert!(depth <= 10, "{selection:?} {src}");
+            // The guard asks for exactly what the script delivers (the
+            // full-range yuvj420p is the same layout as yuv420p).
+            let pin = VideoCodec::Av1.forced_pix_fmt(&input).unwrap();
+            assert_eq!(pin, if depth > 8 { "yuv420p10le" } else { "yuv420p" });
+        }
+        // Every selection x source lands on 4:2:0 <= 10 bits.
+        for &cs in ChromaSubsampling::ALL {
+            for src in FIXED_FORMAT_SOURCES {
+                let job = fixed_format_job(VideoCodec::Av1, cs, src);
+                let (class, depth) =
+                    crate::pixel_format::chroma_and_depth(&job.encoder_input_pix_fmt());
+                assert!(class == crate::pixel_format::ChromaClass::C420 && depth <= 10);
+            }
+        }
+        // Other codecs keep the selection untouched.
+        for codec in VideoCodec::ALL.iter().copied().filter(|c| !c.limits_to_420_10()) {
+            for &cs in ChromaSubsampling::ALL {
+                let job = fixed_format_job(codec, cs, "yuv422p10le");
+                assert_eq!(
+                    job.output_chroma_subsampling(),
+                    job.encoding_settings.effective_chroma_subsampling()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn av1_presets_quality_and_containers() {
+        let c = VideoCodec::Av1;
+        assert_eq!(c.encoder_family(), EncoderFamily::SvtAv1);
+        assert!(!c.is_hardware() && !c.is_editing_intermediate());
+        assert_eq!(c.ffmpeg_codec(), "libsvtav1");
+        assert_eq!(c.default_preset(), "6");
+        assert!(c.available_presets().contains(&"6"));
+        assert_eq!(c.normalized_preset("medium"), "6");
+        assert_eq!(c.normalized_preset("p4"), "6");
+        assert_eq!(c.normalized_preset("3"), "3");
+        assert_eq!(c.normalized_preset("13"), "6");
+        assert_eq!(c.crf_range(), (0, 63));
+        assert_eq!(VideoCodec::H264.crf_range(), (0, 51));
+        assert_eq!(c.preferred_container(), ContainerFormat::Mp4);
+        assert!(c.allows_container(ContainerFormat::Mp4));
+        assert!(c.allows_container(ContainerFormat::Mkv));
+        assert!(!c.allows_container(ContainerFormat::Mov));
+        assert!(!c.allows_container(ContainerFormat::Avi));
+        for codec in VideoCodec::ALL.iter().copied().filter(|c| !c.is_av1()) {
+            assert!(codec.allows_container(ContainerFormat::Mov), "{codec:?}");
+        }
+        let json = serde_json::to_string(&c).unwrap();
+        assert_eq!(json, "\"libsvtav1\"");
     }
 
     /// The codecs that store one format pin ffmpeg to that same format, from
@@ -2310,7 +2498,7 @@ mod tests {
         );
         assert_eq!(
             VideoCodec::ALL.len(),
-            20,
+            21,
             "a VideoCodec variant was added without listing it in ALL"
         );
     }

@@ -619,6 +619,16 @@ class WorkerHarness {
     return counts;
   }
 
+  /// Whether the bundled ffmpeg lists [encoder] in `-encoders` (e.g.
+  /// `libsvtav1`, which the macOS x64 FFmpeg lacks).
+  static Future<bool> hasEncoder(String encoder) async {
+    final r = await Process.run(ffmpegPath, ['-hide_banner', '-encoders'],
+        environment: ffmpegEnv);
+    if (r.exitCode != 0) return false;
+    return RegExp('^\\s*V\\S*\\s+${RegExp.escape(encoder)}\\s', multiLine: true)
+        .hasMatch(r.stdout as String);
+  }
+
   /// First stream of [selector] (e.g. `a:0`, `v:0`) as a map, or null.
   static Future<Map<String, dynamic>?> firstStream(
     String videoPath, {

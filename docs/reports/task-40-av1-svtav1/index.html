@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AV1 output through SVT-AV1</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>AV1 output through SVT-AV1</h1>
+<p class="meta">2026-11-15 · task #40 · measured on an Apple M1 Pro (16 GB), deps 1.16.0 bundle
+(FFmpeg 9.0.2, SVT-AV1 v4.2.0); the macOS x64 FFmpeg (evermeet 9.0.1) run under Rosetta for F1 only</p>
+
+<div class="card">
+<strong>Outcome: built.</strong> A new output codec, <code>VideoCodec::Av1</code> (<code>libsvtav1</code>),
+in MP4 and MKV, at 8- or 10-bit 4:2:0. Anything else is converted <em>in the script</em>, which is field-aware
+and dithered. Left to FFmpeg, the two fields' chroma of an interlaced picture were blended (F4).
+HDR10 static metadata travels in <code>-svtav1-params</code> (F5). The defaults are <strong>preset 6</strong>
+(about x264 medium's speed at SD, faster at 1080p, F6) and <strong>CRF 24</strong> (about x264 CRF 18
+by VMAF, at 21–40% less bitrate, F7). <span class="warn">The macOS x64 FFmpeg has no SVT-AV1</span> (F1).
+There the app shows AV1 as unavailable and the worker refuses it with a clear message, until a deps
+release ships an x64 FFmpeg that has it.
+</div>
+
+<h2>F1 · Which bundled FFmpeg can encode AV1</h2>
+<table>
+<tr><th>Bundle</th><th>FFmpeg</th><th>AV1 encoders</th><th>SVT-AV1</th></tr>
+<tr><td>macOS arm64</td><td>9.0.2 (martin-riedl.de)</td><td><code>libaom-av1</code>, <code>librav1e</code>, <code>libsvtav1</code></td><td class="good">v4.2.0</td></tr>
+<tr><td>macOS x64</td><td>9.0.1 (evermeet.cx)</td><td><code>libaom-av1</code> only</td><td class="bad">absent</td></tr>
+<tr><td>Windows x64, Linux x64/arm64</td><td>9.0 (BtbN gpl)</td><td colspan="2">Not measured here. The push-gate test
+<code>FFmpeg encoders: libsvtav1 is compiled in</code> (<code>vapoursynth_integration_test.dart</code>) checks every
+bundle on its own CI runner, with an exception only for macOS x64 at deps ≤ 1.16.0</td></tr>
+</table>
+<p><code>libsvtav1</code> declares two pixel formats, <code>yuv420p</code> and <code>yuv420p10le</code>.
+That is SVT-AV1's main profile: no 4:2:2, no 4:4:4, no 12-bit.
+VideoToolbox has no AV1 encoder (Apple decodes AV1 but cannot encode it).</p>
+<p>Why SVT-AV1 and not libaom or rav1e: it is fast enough to sit behind QTGMC (F6), and it is the encoder
+HandBrake, FastFlix and StaxRip lead with. Offering libaom on Intel Macs instead would add a second
+option vocabulary at a fraction of the speed.</p>
+
+<h2>F2 · Containers</h2>
+<table>
+<tr><th>Container</th><th>Result</th><th>Decision</th></tr>
+<tr><td>MP4</td><td class="good">ok, <code>av01</code></td><td>offered, the default</td></tr>
+<tr><td>MKV</td><td class="good">ok</td><td>offered</td></tr>
+<tr><td>MOV</td><td class="bad">refused: <code>av1 only supported in MP4 and AVIF.</code></td><td>not offered; the worker refuses it</td></tr>
+<tr><td>AVI</td><td class="warn">muxes, with a non-standard <code>AV01</code> fourcc</td><td>not offered: few players read it, and AVI has nothing to offer AV1</td></tr>
+</table>
+<p>WebM (AV1 with Opus/Vorbis audio only) is left for later, with VP9.</p>
+
+<h2>F3 · What FFmpeg does with a format SVT-AV1 can't take</h2>
+<table>
+<tr><th>Input</th><th>Stored, left to FFmpeg</th></tr>
+<tr><td><code>yuv422p</code>, <code>yuv444p</code></td><td><code>yuv420p</code></td></tr>
+<tr><td><code>yuv422p10le</code>, <code>yuv420p12le</code></td><td><code>yuv420p10le</code></td></tr>
+</table>
+<p>It works silently, through swscale: a progressive conversion with no dither of the script's
+choosing. That is the trap ProRes and v210 fell into before
+(<a href="../2026-11-prores-script-chroma/index.html">ProRes script chroma</a>,
+<a href="../2026-11-v210-field-order/index.html">v210</a>). So <code>VideoJob::output_chroma_subsampling</code>
+resolves AV1's limit in the script.</p>
+<ul>
+<li>A selection, or under Match source a pipe format, that is already 4:2:0 at ≤ 10 bits is kept.</li>
+<li>Anything else becomes 4:2:0 at 8 bits for 8-bit content, or at 10 bits for anything deeper.</li>
+</ul>
+<p>The <code>-pix_fmt</code> stays as a guard that asks for exactly what the script delivers.</p>
+
+<h2>F4 · Field chroma on a picture left interlaced</h2>
+<p>The fixture is an interlaced 4:2:2 picture, 720×576, with a red top field and a blue bottom field woven
+line by line. It was encoded to 4:2:0 AV1 at CRF 10. The table shows the Cr row means of each field
+(rows 20–268 of 288).</p>
+<table>
+<tr><th>4:2:0 conversion</th><th class="num">Field 0 Cr</th><th class="num">Field 1 Cr</th></tr>
+<tr><td>FFmpeg's <code>-pix_fmt</code> (swscale)</td><td class="num bad">175.0</td><td class="num bad">175.0</td></tr>
+<tr><td>Field-aware (what the script does)</td><td class="num good">240.0</td><td class="num good">110.0</td></tr>
+</table>
+<a href="img/01-field-chroma.png"><img src="img/01-field-chroma.png" alt="Left: blended purple rows; right: alternating red and blue rows"></a>
+<p class="caption">A 48×24 crop, enlarged 8× nearest-neighbour. <strong>Left:</strong> FFmpeg's own conversion.
+Both fields' chroma are averaged into purple, and only the luma still differs row to row.
+<strong>Right:</strong> the field-aware conversion. Each field keeps its own colour. The heavy test
+<code>integration_av1_output_test.dart</code> checks the worker's real encode the same way
+(measured 240.0 / 110.0).</p>
+<p>AV1 itself has no interlaced coding, so a picture left interlaced goes out flagged progressive
+(<code>field_order_signal</code> = None, and the job log says so), as with x265.</p>
+
+<h2>F5 · HDR10 static metadata</h2>
+<p><code>-svtav1-params "mastering-display=G(0.265,0.69)B(0.15,0.06)R(0.68,0.32)WP(0.3127,0.329)L(1000,0.0001):content-light=1000,400"</code>
+reads back from the stream as the same values. SVT stores chromaticities in 1/65536 and luminance in
+1/256 and 1/16384. For example, red_x = 44564/65536 = 0.68000, max luminance = 1000, min = 2/16384 ≈ 0.00012,
+MaxCLL 1000 / MaxFALL 400. <code>HdrMetadata::svtav1_params</code> converts from the x265 units the
+worker stores (0.00002 chromaticity, 0.0001 cd/m²) to SVT's decimals.
+<code>integration_hdr_test.dart</code> runs the real job on the HDR10 fixture.</p>
+
+<h2>F6 · Speed and size per preset (CRF 28)</h2>
+<p>The SD clip is <code>interlaced_test.avi</code> (a VHS capture), deinterlaced by bwdif and played
+forward and back twice: 316 frames at 720×576. The 1080p clip is the same picture resized with Spline36.
+That is fine for speed, but an upscale is unrealistically smooth, so it has no quality numbers.
+All encodes read a decoded <code>.y4m</code>, and fps is wall-clock throughput on an M1 Pro.</p>
+<div class="scroll">
+<table>
+<tr><th>Encoder</th><th class="num">SD fps</th><th class="num">SD kbit/s</th><th class="num">SD VMAF</th><th class="num">1080p fps</th><th class="num">1080p kbit/s</th></tr>
+<tr><td>SVT-AV1 preset 2</td><td class="num">26.8</td><td class="num">1348</td><td class="num">99.21</td><td class="num">7.0</td><td class="num">3829</td></tr>
+<tr><td>SVT-AV1 preset 4</td><td class="num">114.7</td><td class="num">1426</td><td class="num">99.15</td><td class="num">32.1</td><td class="num">3978</td></tr>
+<tr><td><strong>SVT-AV1 preset 6</strong></td><td class="num">178.9</td><td class="num">1638</td><td class="num">99.21</td><td class="num">54.4</td><td class="num">4623</td></tr>
+<tr><td>SVT-AV1 preset 8</td><td class="num">253.2</td><td class="num">1732</td><td class="num">99.21</td><td class="num">102.7</td><td class="num">5178</td></tr>
+<tr><td>SVT-AV1 preset 10</td><td class="num">601.8</td><td class="num">2065</td><td class="num">99.28</td><td class="num">192.8</td><td class="num">5361</td></tr>
+<tr><td>x264 medium CRF 18 (VapourBox default)</td><td class="num">187.6</td><td class="num">3818</td><td class="num">99.46</td><td class="num">39.5</td><td class="num">15846</td></tr>
+<tr><td>x265 medium CRF 18</td><td class="num">60.4</td><td class="num">3127</td><td class="num">99.37</td><td class="num">13.6</td><td class="num">9358</td></tr>
+</table>
+</div>
+<p><strong>Default: preset 6.</strong> It is about x264 medium's speed at SD and faster at 1080p, and it is far
+above QTGMC's own rate (~15 fps at 1080i Very Slow on this machine), so it rarely limits a job. Preset 4
+saves another ~13% of size for ~35–40% more time. Presets 1–10 are offered. 0 and below take hours a
+minute, and SVT-AV1 itself warns that 11 and up are "meant for automation tooling… visual artifacts may occur".</p>
+<p><em>Limits:</em> Apple Silicon with NEON. SVT-AV1 on an AVX2 x86 is relatively faster against x264,
+but this was not measured. One clip per resolution. VMAF is saturated on this soft VHS picture, so
+read the bitrate column.</p>
+
+<h2>F7 · CRF against x264 CRF 18 (preset 6)</h2>
+<p>The two clips are the VHS SD clip above, and <code>small_clip.mp4</code>: 300 frames of 320×240 camera footage
+with more fine detail, already H.264-compressed.</p>
+<div class="scroll">
+<table>
+<tr><th class="num">CRF</th><th class="num">VHS kbit/s</th><th class="num">VHS VMAF</th><th class="num">Camera kbit/s</th><th class="num">Camera VMAF</th></tr>
+<tr><td class="num">16</td><td class="num">3711</td><td class="num">99.69</td><td class="num">505</td><td class="num">96.77</td></tr>
+<tr><td class="num">20</td><td class="num">2876</td><td class="num">99.63</td><td class="num">395</td><td class="num">96.19</td></tr>
+<tr><td class="num"><strong>24</strong></td><td class="num"><strong>2278</strong></td><td class="num"><strong>99.53</strong></td><td class="num"><strong>319</strong></td><td class="num"><strong>95.47</strong></td></tr>
+<tr><td class="num">28</td><td class="num">1638</td><td class="num">99.21</td><td class="num">239</td><td class="num">94.25</td></tr>
+<tr><td class="num">32</td><td class="num">1187</td><td class="num">98.54</td><td class="num">183</td><td class="num">92.71</td></tr>
+<tr><td class="num">36</td><td class="num">871</td><td class="num">97.25</td><td class="num">143</td><td class="num">90.71</td></tr>
+<tr><td class="num">40</td><td class="num">638</td><td class="num">95.22</td><td class="num">113</td><td class="num">88.30</td></tr>
+<tr><td>x264 CRF 18</td><td class="num">3818</td><td class="num">99.46</td><td class="num">403</td><td class="num">96.10</td></tr>
+</table>
+</div>
+<p><strong>Default: CRF 24.</strong></p>
+<ul>
+<li>On VHS it is slightly above x264 CRF 18's VMAF at 40% less bitrate.</li>
+<li>On the small camera clip it is 0.6 VMAF below at 21% less. Matching VMAF there takes CRF ~20 at the
+same bitrate as x264.</li>
+</ul>
+<p>The plan's provisional 28 was too low a quality to stand in for VapourBox's x264 default. Switching to
+AV1 from another codec family sets the quality to 24 (<code>EncodingSettings.withCodec</code>),
+because CRF numbers mean different things across encoders.</p>
+<p><em>Limits:</em> VMAF (v0.6.1) models one viewing condition and is weak on grain and on soft
+sources (VHS saturates near 100). Two short clips are not a population, and the camera clip is
+320×240 and already lossy. The AV1 gain grows with resolution and clean detail, so these numbers are
+conservative for HD restorations.</p>
+
+<div class="card correction">
+<strong>Correction (2026-11-15, during the work).</strong> The first run paired the 29.97 fps camera
+clip's frames by timestamp. It scored every encode around 70, x264 at CRF 18 included, with a minimum
+PSNR of 14 dB: the pairs were misaligned. VMAF now pairs by frame index (<code>setpts=N</code>), and the
+numbers above come from that run.
+</div>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>SVT-AV1 only, software only.</strong> Hardware AV1 (<code>av1_nvenc</code> RTX 40+, <code>av1_qsv</code>,
+<code>av1_amf</code> RX 7000+) has its own quality scales (AMF's AV1 QP runs 0–255) and can't be verified on any
+machine or runner here, so it is left for a follow-up.</li>
+<li><strong>Its own encoder family</strong> (<code>EncoderFamily::SvtAv1</code>). Its numeric presets share no
+vocabulary with x264's, and the settings dialog resets the preset only on a family change.</li>
+<li><strong>Quality clamped to 0–63</strong> in the worker, because saved presets and imported jobs can carry anything.</li>
+<li><strong><code>SVT_LOG=2</code></strong> on the encoder process. SVT-AV1 prints a ~20-line <code>Svt[info]</code>
+banner to stderr on every encode, which would crowd the stderr tail that a failure is reported from.</li>
+<li><strong>A missing <code>libsvtav1</code> is refused before the pipeline starts</strong> (one <code>ffmpeg -encoders</code>
+call), and the app shows the codec as unavailable through the same detector as the hardware encoders.</li>
+<li><strong>No built-in preset switches to AV1.</strong> H.264 stays for compatibility and FFV1 for archiving.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>Windows and Linux AV1 encodes on real machines. The CI push gate checks that the encoder is present,
+and nightly runs the heavy encodes.</li>
+<li>Playback of the files on TVs and phones. AV1 decoding needs recent hardware: Apple M3/A17, Intel
+Arc/11th gen, RTX 30, RX 6000 and newer, or a software decoder.</li>
+<li>Sharp HD content for F7; film-grain synthesis (<code>film-grain=N</code>); SVT's <code>tune</code> options.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>python3 -I scripts/measure.py --deps deps/macos-arm64 \
+    [--ffmpeg-x64 &lt;macOS x64 bundle&gt;/ffmpeg/ffmpeg] --scratch "$SCRATCH" &gt; results.json
+DEPS=deps/macos-arm64 SCRATCH="$SCRATCH" scripts/make_images.sh</pre>
+<p><code>scripts/results.json</code> is the run these tables come from.</p>
+</main>
+</body>
+</html>

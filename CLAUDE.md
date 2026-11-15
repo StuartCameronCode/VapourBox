@@ -141,7 +141,7 @@ VapourBox/
 | `worker/templates/colorize.py` | The Colourisation pass: model run at a fixed square size, temporal smoothing, Lab/RGB to chroma, luma kept bit-exact (see "Colourisation") |
 | `worker/src/models/colorize_parameters.rs` | Colourisation's parameters, its add-on per model, render size and temporal reach |
 | `worker/src/comment_metadata.rs` | The source's comment tag, prefixed with the version and passed to ffmpeg as an FFMETADATA file (issue #138) |
-| `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
+| `worker/src/hdr_metadata.rs` | HDR10 mastering display / MaxCLL read from the source for x265 and SVT-AV1, and the Dolby Vision profile (see "HDR Sources and Dolby Vision") |
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
 | `worker/src/crop_detect.rs` | `--detect-crop`: black borders, blanking, letterbox bars and the head-switching band, for Crop & Resize's Detect (see "Crop Detection"); also the detectors' shared sampling and decode (`decode_samples`) |
 | `worker/src/noise_halo.rs` | `--detect-noise-halo`: a source's noise sigma and halo score, for the pass list's suggestions (see "Noise and Halo Scores") |
@@ -1005,10 +1005,11 @@ tone-mapped.
 - **The preview job carries the source's colour tags** (`PreviewGenerator`
   sends `inputColor*`). Without them the worker can't tell the source is HDR,
   and the SDR matrix fix in `swscale_input_opts` doesn't apply either.
-- **HDR10 static metadata goes to libx265 only**, as `-x265-params`
-  (`HdrMetadata::encoder_args`), and only when the tags are PQ/HLG. Probed by
-  the executor (stream side data, else the first frame's SEI). Any other
-  encoder keeps the tags only; never hand it x265 options.
+- **HDR10 static metadata goes to libx265 and SVT-AV1 only**, as
+  `-x265-params` / `-svtav1-params` (`HdrMetadata::encoder_args`), and only
+  when the tags are PQ/HLG. Probed by the executor (stream side data, else
+  the first frame's SEI). Any other encoder keeps the tags only; never hand
+  it another encoder's options.
 - **Dolby Vision RPU is not carried.** Profiles 7/8/9 decode as their HDR10 /
   HLG / SDR base layer and come out as that. **Profile 5** (IPTPQc2,
   `ipt-c2`) can't be decoded correctly — no bundled FFmpeg on macOS has
@@ -2612,6 +2613,53 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
   `integration_v210_output_test.dart` (heavy) checks v210 bit-exact against a
   10-bit 4:2:2 source, per-field chroma (v210, ProRes Proxy/HQ/4444), PCM in
   MOV and preview = encode.
+
+### AV1 (SVT-AV1) (task #40, app 1.8.0)
+
+`VideoCodec::Av1` (serde `"libsvtav1"`, Dart `VideoCodec.av1`) is software
+AV1 through SVT-AV1, its own family (`EncoderFamily::SvtAv1`, Dart
+`encoderFamily` `'SVT-AV1'`). Evidence: docs/reports/task-40-av1-svtav1.
+
+- **MP4 (default) and MKV only** (`VideoCodec::allows_container`, Dart
+  `supportsContainer`). FFmpeg refuses AV1 in MOV; AVI's `AV01` fourcc is
+  non-standard. The worker refuses either (`container_problem`).
+- **Not in every bundled FFmpeg.** The macOS x64 build (evermeet) has no
+  `libsvtav1`. `HardwareEncoderDetector` checks every codec with
+  `needsAvailabilityCheck` (hardware + AV1) and the panel shows AV1
+  unavailable; the worker refuses it before the pipeline starts
+  (`missing_encoder_problem`). `vapoursynth_integration_test`'s `libsvtav1 is
+  compiled in` checks every bundle, except macOS x64 at deps <= 1.16.0, and
+  fails if that bundle gains it (drop the exception then).
+- **4:2:0 at 8 or 10 bits, converted in the script.**
+  `VideoJob::output_chroma_subsampling` is the one decision (script
+  `CHROMA_CONVERT`, encode and preview, and `encoder_input_pix_fmt`):
+  `effective_chroma_subsampling` first, then for a codec with
+  `limits_to_420_10` a result already 4:2:0 <= 10-bit is kept, else 4:2:0 at
+  8 bits (8-bit content) or 10. FFmpeg's own conversion blended an
+  interlaced picture's field chroma. `forced_pix_fmt` is only a guard.
+  `av1ChromaWarning` (Dart, via `limitTo420Up10`) is pinned row for row to
+  `av1_stores_420_up_to_10_bits` by `app/test/av1_test.dart`, which parses
+  the Rust table.
+- **Presets `"1"`..`"10"`, default `"6"`; CRF 0-63, clamped in the worker;
+  the app's default AV1 quality is 24** (≈ x264 CRF 18 by VMAF).
+  `EncodingSettings.withCodec` resets the preset on a family change and the
+  quality when the scale changes (AV1 <-> the 0-51 codecs); use it for any
+  codec switch. Rust `available_presets` / `SVT_AV1_DEFAULT_PRESET` and Dart
+  `availablePresets` / `defaultPreset` are pinned by `av1_test.dart`.
+- **HDR10 metadata goes in `-svtav1-params`** (`HdrMetadata::svtav1_params`,
+  decimals: chromaticity / 50000, luminance / 10000), only for PQ/HLG tags.
+  It is the only `-svtav1-params` today; a Custom FFmpeg Argument
+  `-svtav1-params` replaces it, as with `-x265-params`.
+- **No field-order signalling** (`FieldOrderSignal::None`): AV1 has no
+  interlaced coding; the job log says so.
+- **`SVT_LOG=2` on the encoder** (`encoder_env`): SVT's ~20-line info banner
+  otherwise fills the stderr tail a failure is reported from.
+- Not built: hardware AV1 (NVENC/QSV/AMF), WebM/VP9, film grain. No
+  built-in preset uses AV1.
+
+`integration_av1_output_test.dart` (heavy) checks MP4/MKV output, 10-bit
+4:2:2 -> 10-bit 4:2:0, per-field chroma, preview = encode and the MOV refusal;
+`integration_hdr_test.dart` the metadata. Both skip without `libsvtav1`.
 
 ## QTGMC Parameters Reference
 
