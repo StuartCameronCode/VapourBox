@@ -81,10 +81,19 @@ void main() {
   testWidgets('Install installs, then offers Remove; Remove names what goes with it',
       (tester) async {
     await pump(tester, AddonsSettingsTab(service: service));
-    await tester.runAsync(() async {
-      await tester.tap(find.byKey(const ValueKey('install-whisper-model-small')));
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-    });
+    await tester.tap(find.byKey(const ValueKey('install-whisper-model-small')));
+    // The install is real file I/O, requirement first. While it runs the row
+    // shows an indeterminate progress bar, which never settles, so wait for it
+    // to finish before pumpAndSettle. A fixed 200 ms was too short on the
+    // macOS x64 runner (pumpAndSettle timed out there).
+    for (var i = 0;
+        i < 100 &&
+            (service.installingId != null ||
+                !service.isInstalled('whisper-model-small'));
+        i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
     await tester.pumpAndSettle();
     expect(service.isInstalled('whisper'), isTrue, reason: 'its requirement came first');
     expect(service.isInstalled('whisper-model-small'), isTrue);
