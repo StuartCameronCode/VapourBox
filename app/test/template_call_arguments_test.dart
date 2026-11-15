@@ -121,8 +121,10 @@ core.std.BlankClip().set_output()
 
     // "clip:vnode;width:int:opt;..." -> {clip, width}; "any" takes anything.
     final signatures = <String, Set<String>?>{};
+    // Trim: on Windows each line ends in \r, which made the last argument of
+    // `clip:vnode;any` read as "any\r" and SetFrameProps look strict.
     for (final line in (r.stderr as String).split('\n')) {
-      final parts = line.split('\t');
+      final parts = line.trimRight().split('\t');
       if (parts.length != 3 || parts[0] != 'SIG') continue;
       final args = parts[2].split(';').where((a) => a.isNotEmpty).map((a) => a.split(':').first).toSet();
       signatures[parts[1]] = args.contains('any') ? null : args;
