@@ -4405,9 +4405,9 @@ Full evidence:
   402 lines fail: 240 → 119, 288 → 143, 360 → 179. The panel offers 1–200.
 - Both templates pass `max(0, min(blurlen, c.height // 2 - 1))` inside
   `_descratch`, from the clip each call gets (the 4:2:2 carrier and the
-  chroma-mode call alike). At the limit the plugin already blurs to 2 rows,
-  so the clamped call is bit-identical to the limit (BlankClip sweep and the
-  heavy test on a real 288-line capture).
+  chroma-mode call alike). At the limit the plugin already blurs to 2 rows.
+  The heavy test on a real 288-line capture checks through the worker that
+  200 encodes byte-identically to the limit (143) and that 143 differs from 15.
 - No panel warning: harmless once clamped, and the app doesn't know the height
   at the pass. Range kept at 200 (works from 402 lines up).
 - Correction: task #29 said "> ~119 refused on 480 lines"; that is 240 lines.

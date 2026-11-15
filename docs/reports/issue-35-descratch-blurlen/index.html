@@ -55,7 +55,7 @@ run covers the others.</p>
 <p><strong>Outcome: built.</strong> The panel offers Blur Radius 1–200, but the plugin refuses
 <code>blurlen &gt; height // 2 - 1</code> (<em>"Descratch: blurlen is too large for the clip height!"</em>), so a job
 on any frame <strong>under 402 lines</strong> failed with values the panel offers. Both templates now pass
-<code>min(blurlen, c.height // 2 - 1)</code>, computed inside <code>_descratch</code> from the clip each call is given.
+<code>max(0, min(blurlen, c.height // 2 - 1))</code>, computed inside <code>_descratch</code> from the clip each call is given.
 At the limit the plugin already blurs to 2 rows, its strongest; the clamped call is <strong>bit-identical</strong>
 to choosing the limit.</p>
 </div>
@@ -86,10 +86,12 @@ of two: 119 is the limit for <strong>240</strong> lines, and a 480-line source a
 
 <h2>2. The clamp gives the limit's picture</h2>
 <p>A dark two-pixel column on a two-tone grey frame, field-flagged 4:2:2, <code>mindif=3</code>
-(<code>sweep.py</code>, second table): at 240, 288 and 360 lines the clamped call (asked for 200) is byte-identical
-to the call at the limit, and the limit's picture differs from the default 15's, so the comparison is not trivially
-true. The heavy test repeats this through the whole worker on a real scratched capture (288 lines, 4:2:0): blurlen
-200 and 143 encode byte-identically, and 143 differs from 15.</p>
+(<code>sweep.py</code>, second table): at 240, 288 and 360 lines the limit's picture differs from the default
+15's, so the blur length reaches the output. The table's other column (clamped call = call at the limit) is true by
+construction, since both pass the same value; it only restates the arithmetic. The real check is the heavy test,
+which runs the template's own expression through the whole worker on a real scratched capture (288 lines, 4:2:0):
+blurlen 200 and 143 encode byte-identically, and 143 differs from 15, so the expression evaluates to the limit in the
+script and the value reaches the plugin.</p>
 
 <h2>Decisions</h2>
 <ul>
