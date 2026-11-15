@@ -132,7 +132,9 @@ restored (1 ms), and the DVB-T capture (126 stored frames).</li>
 <li>The head sound is left out of AVI by design; option B is the way to keep it, at the costs above.</li>
 <li>Found on the way and <strong>not fixed here</strong>: Convert into AVI writes AAC, and the AVI then holds a null
 frame at the head and its sound ~18.6 ms early, on every source, gap or not (the same AAC-priming effect as option B's
-MP4 row). Filed as task #38.</li>
+MP4 row). Filed as task #38. <em>Fixed by task #38: Convert into AVI now reads the sound later by the encoder's
+measured priming and keeps every stream's timestamps; see
+<a href="../2026-11-avi-convert-priming/index.html">the AVI Convert priming report</a>.</em></li>
 </ul>
 
 <h2>Reproducing</h2>

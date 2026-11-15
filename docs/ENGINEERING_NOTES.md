@@ -4410,3 +4410,33 @@ Full evidence:
 - No panel warning: harmless once clamped, and the app doesn't know the height
   at the pass. Range kept at 200 (works from 402 lines up).
 - Correction: task #29 said "> ~119 refused on 480 lines"; that is 240 lines.
+
+### Convert into AVI: the encoder's priming (task #38, 2026-11-15)
+
+Report: [docs/reports/2026-11-avi-convert-priming](reports/2026-11-avi-convert-priming/index.html).
+
+- **The fault:** a lossy audio encoder's first packet has a negative
+  timestamp, its priming (AAC 1024 samples, libmp3lame 1105, AC-3 256, at
+  every rate; FLAC/PCM none). AVI stores neither an edit list nor skip
+  samples, so ffmpeg's `-avoid_negative_ts auto` shifted every stream by it.
+  At 25 fps that rounded to a whole slot for AAC and MP3 and wrote a null
+  frame (101 stored frames for 100 pictures; `small_clip.mp4` 0..49 stored
+  51). The player then played the priming as sound: lag = P − the video's
+  shift, AAC −18.6 ms, MP3 −16.9 ms, AC-3 +5.4 ms, the same on every source.
+- **Fix:** for Convert into AVI (`needs_priming_shift`), measure P from the
+  job's own encoder (`priming_from_probe`, framecrc of silence at the
+  sound's rate, so AC-3's 96 → 48 kHz resample is caught), seek every
+  encoded sound input `+P` and write `-avoid_negative_ts disabled`. AAC, MP3
+  and AC-3 then store 100 frames, 0.08–0.10 ms from the beep, the same as
+  the PCM control. `setts=ts=TS+P` measured the same; `disabled` was chosen
+  since a one-sample miss in the seek cannot bring a shift back.
+  `-itsoffset` beside `-ss` is inert. Shift alone (no seek) gives +21 ms.
+- **Kept:** `source_audio_start` (render, transcription, notes); MKV/MP4/MOV
+  and Passthrough arguments byte for byte. Cost: the first 21–23 ms of sound
+  is the encoder's start-up.
+- **Found on the way (task #41, not fixed):** ffmpeg's AAC encoder at
+  192 kbps mono sometimes writes a packet over 768 bytes, the block size
+  avienc declares per channel; a reader that times VBR AVI audio by block
+  size (ffmpeg's avidec) counts it twice and the sound runs 21 ms late from
+  there. 160 kbps and below never did in 20 encodes. Sample-counting
+  measurements cannot see it; the heavy test's pts-based check did.

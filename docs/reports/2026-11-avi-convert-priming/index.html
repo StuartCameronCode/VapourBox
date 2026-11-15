@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVI Convert priming</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Convert into AVI: a null frame at the head and the sound off by the encoder's priming</h1>
+<p class="meta">2026-11-15 · macOS arm64, deps 1.16.0 (FFmpeg 9.0.2) · task #38, found during
+<a href="../2026-11-avi-late-video/index.html">the AVI late video</a> fix (task #30)</p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> Every lossy audio encoder starts with a few samples of start-up, its
+<em>priming</em> (encoder delay): AAC 1024 samples, libmp3lame 1105, AC-3 256. Its first packet has a negative
+timestamp, and MP4, MOV and MKV mark it to be skipped (an edit list, skip samples). <strong>AVI cannot.</strong>
+ffmpeg's default <code>-avoid_negative_ts auto</code> then shifted every stream later by the priming. At 25 fps that
+rounds to a whole frame for AAC and MP3, so avienc wrote a <strong>null frame at the head</strong> (101 stored frames
+for 100 pictures; <code>small_clip.mp4</code> 0..49 stored 51). The player then played the priming as sound, so the
+sound was off by the priming minus the video's shift: <strong>AAC −18.6 ms, MP3 −16.9 ms, AC-3 +5.4 ms</strong>, on
+every source, gap or not.</p>
+<p>For Convert into AVI the worker now measures the priming from the job's own encoder, <strong>reads every encoded
+sound input that much later</strong>, and writes <code>-avoid_negative_ts disabled</code>. AAC, MP3 and AC-3 then
+store 100 frames and sit 0.08–0.10 ms from the beep, the same as the PCM control. The cost is the first 21–23 ms of
+sound, which is replaced by the encoder's near-silent start-up. MKV, MP4, MOV and Passthrough are unchanged, byte for
+byte.</p>
+</div>
+
+<h2>Fixtures and method</h2>
+<p>The late-video fixtures of <code>Tests/TestResources/generate_video_start_offset.sh</code>: 25 fps, 100 pictures, the
+video starting 1 s after the sound, white frames at pictures 25 and 75 with a 1 kHz beep at each, all mono 48 kHz.
+<code>late_video.mp4</code> holds AAC, <code>late_video_intra.ts</code> MP2 and <code>late_video.mkv</code> FLAC. The fault
+does not depend on the gap: <code>small_clip.mp4</code> (29.97 fps, stereo AAC, no gap) shows it too. Every job runs
+through the worker with FFV1 into AVI and Convert at 192 kbps, the app's default quality.</p>
+<p><strong>Lag</strong> is the beep's onset minus the white frame's presentation time, both decoded from the output. The
+beep's time is counted in decoded samples from the stream's start (<code>scripts/measure.py</code>, as in the #30
+report). <strong>Stored frames</strong> is the AVI header's <code>avih.dwTotalFrames</code>, read directly by
+<code>scripts/riff.py</code>, which agrees with the video <code>strh.dwLength</code> and ffprobe's
+<code>nb_frames</code> in every row. A null frame counts there but is not decoded, so the decoded count stayed 100
+throughout and only the stored count shows the fault.</p>
+
+<h2>The priming, per encoder</h2>
+<p><code>scripts/priming.py</code> encodes 0.2 s of silence and reads the first packet's timestamp from
+<code>-f framecrc</code>. This is the same probe the worker runs (<code>audio_restoration::priming_probe_args</code>).</p>
+<div class="scroll"><table>
+<tr><th>encoder</th><th class="num">priming (samples)</th><th class="num">48 kHz</th><th class="num">44.1 kHz</th><th class="num">32 kHz</th><th>96 kHz input</th></tr>
+<tr><td><code>aac</code></td><td class="num">1024</td><td class="num">21.33 ms</td><td class="num">23.22 ms</td><td class="num">32.0 ms</td><td>encodes at 96 kHz: 10.67 ms</td></tr>
+<tr><td><code>libmp3lame</code></td><td class="num">1105</td><td class="num">23.02 ms</td><td class="num">25.06 ms</td><td class="num">34.53 ms</td><td>resamples to 48 kHz: 23.02 ms</td></tr>
+<tr><td><code>ac3</code></td><td class="num">256</td><td class="num">5.33 ms</td><td class="num">5.81 ms</td><td class="num">8.0 ms</td><td>resamples to 48 kHz: 5.33 ms</td></tr>
+<tr><td><code>flac</code>, <code>pcm_s16le</code></td><td class="num">0</td><td class="num" colspan="4">none</td></tr>
+</table></div>
+<p class="caption">The count in samples is constant, but the encoder picks its own rate: MP3 and AC-3 resample a 96 kHz
+input to 48 kHz. That is why the worker measures the priming in seconds from the encoder's time base and does not use
+a table indexed by the source rate.</p>
+
+<h2>Before and after, through the worker</h2>
+<figure>
+<svg viewBox="0 0 640 240" width="100%" role="img" aria-label="Beep minus flash, before and after, per codec">
+<style>.before{fill:var(--bad)} .after{fill:var(--good)} .grid{stroke:var(--border);stroke-width:1} .zero{stroke:var(--text-secondary);stroke-width:1} .axis{fill:var(--text-secondary);font-size:12px} .lbl{fill:var(--text-primary);font-size:11px}</style>
+<line x1="70" x2="630" y1="200.0" y2="200.0" class="grid"/><text x="64" y="204.0" text-anchor="end" class="axis">-20</text><line x1="70" x2="630" y1="160.0" y2="160.0" class="grid"/><text x="64" y="164.0" text-anchor="end" class="axis">-10</text><line x1="70" x2="630" y1="80.0" y2="80.0" class="grid"/><text x="64" y="84.0" text-anchor="end" class="axis">+10</text><line x1="70" x2="630" y1="40.0" y2="40.0" class="grid"/><text x="64" y="44.0" text-anchor="end" class="axis">+20</text><line x1="70" x2="630" y1="120" y2="120" class="zero"/>
+<text x="14" y="124" class="axis">0 ms</text>
+<rect x="110" y="120.0" width="36" height="74.3" class="before"><title>AAC before: -18.58 ms</title></rect><text x="128.0" y="206.3" text-anchor="middle" class="lbl">-18.6</text><rect x="150" y="119.7" width="36" height="1.5" class="after"><title>AAC after: +0.08 ms</title></rect><text x="168.0" y="115.7" text-anchor="middle" class="lbl">+0.1</text><text x="148" y="232" text-anchor="middle" class="axis">AAC</text><rect x="230" y="120.0" width="36" height="67.6" class="before"><title>MP3 before: -16.90 ms</title></rect><text x="248.0" y="199.6" text-anchor="middle" class="lbl">-16.9</text><rect x="270" y="119.6" width="36" height="1.5" class="after"><title>MP3 after: +0.10 ms</title></rect><text x="288.0" y="115.6" text-anchor="middle" class="lbl">+0.1</text><text x="268" y="232" text-anchor="middle" class="axis">MP3</text><rect x="350" y="98.3" width="36" height="21.7" class="before"><title>AC-3 before: +5.42 ms</title></rect><text x="368.0" y="94.3" text-anchor="middle" class="lbl">+5.4</text><rect x="390" y="119.7" width="36" height="1.5" class="after"><title>AC-3 after: +0.08 ms</title></rect><text x="408.0" y="115.7" text-anchor="middle" class="lbl">+0.1</text><text x="388" y="232" text-anchor="middle" class="axis">AC-3</text><rect x="470" y="119.7" width="36" height="1.5" class="before"><title>FLAC before: +0.08 ms</title></rect><text x="488.0" y="115.7" text-anchor="middle" class="lbl">+0.1</text><rect x="510" y="119.7" width="36" height="1.5" class="after"><title>FLAC after: +0.08 ms</title></rect><text x="528.0" y="115.7" text-anchor="middle" class="lbl">+0.1</text><text x="508" y="232" text-anchor="middle" class="axis">FLAC</text><rect x="590" y="119.7" width="36" height="1.5" class="before"><title>PCM before: +0.08 ms</title></rect><text x="608.0" y="115.7" text-anchor="middle" class="lbl">+0.1</text><rect x="630" y="119.7" width="36" height="1.5" class="after"><title>PCM after: +0.08 ms</title></rect><text x="648.0" y="115.7" text-anchor="middle" class="lbl">+0.1</text><text x="628" y="232" text-anchor="middle" class="axis">PCM</text>
+<rect x="470" y="8" width="10" height="10" class="before"/><text x="485" y="17" class="axis">before</text>
+<rect x="540" y="8" width="10" height="10" class="after"/><text x="555" y="17" class="axis">after</text>
+</svg>
+<figcaption class="caption">Beep minus flash per Convert codec, <code>late_video.mp4</code> untrimmed into AVI. Before
+is <code>main</code> at 7094d2b; after is this change. <code>late_video_intra.ts</code> gives the same values within
+0.03 ms. Before, the sound was early by the priming's rounding to a frame (AAC, MP3) or late by the priming itself
+(AC-3).</figcaption>
+</figure>
+<div class="scroll"><table>
+<tr><th>source</th><th>Convert</th><th class="num">stored frames before → after</th><th>first pictures before → after (s)</th><th class="num">lag before → after (ms)</th></tr>
+<tr><td rowspan="6"><code>late_video.mp4</code> (<code>late_video_intra.ts</code> the same)</td><td>AAC</td><td class="num"><span class="bad">101</span> → <span class="good">100</span></td><td><span class="bad">0, 0.08, 0.12</span> → <span class="good">0, 0.04, 0.08</span></td><td class="num"><span class="bad">−18.58</span> → <span class="good">+0.08</span></td></tr>
+<tr><td>MP3</td><td class="num"><span class="bad">101</span> → <span class="good">100</span></td><td><span class="bad">0, 0.08, 0.12</span> → <span class="good">0, 0.04, 0.08</span></td><td class="num"><span class="bad">−16.87</span> → <span class="good">+0.10</span></td></tr>
+<tr><td>AC-3</td><td class="num">100 → 100</td><td>0, 0.04, 0.08 (both)</td><td class="num"><span class="bad">+5.42</span> → <span class="good">+0.08</span></td></tr>
+<tr><td>FLAC, PCM (control)</td><td class="num">100 → 100</td><td>0, 0.04, 0.08 (both)</td><td class="num">+0.08 → +0.08</td></tr>
+<tr><td>AAC, Audio Restoration</td><td class="num"><span class="bad">101</span> → <span class="good">100</span></td><td><span class="bad">0, 0.08</span> → <span class="good">0, 0.04</span></td><td class="num"><span class="bad">−18.58</span> → <span class="good">+0.08</span></td></tr>
+<tr><td>AAC, trimmed 30..89</td><td class="num"><span class="bad">61</span> → <span class="good">60</span></td><td><span class="bad">0, 0.08</span> → <span class="good">0, 0.04</span></td><td class="num"><span class="bad">−18.56</span> → <span class="good">+0.10</span></td></tr>
+<tr><td rowspan="3"><code>late_video.mkv</code> (FLAC, ms timestamps)</td><td>AAC</td><td class="num"><span class="bad">101</span> → <span class="good">100</span></td><td><span class="bad">0, 0.08</span> → <span class="good">0, 0.04</span></td><td class="num"><span class="bad">−21.25</span> → <span class="good">+0.75</span></td></tr>
+<tr><td>MP3 / AC-3</td><td class="num"><span class="bad">101</span> / 100 → <span class="good">100</span> / 100</td><td></td><td class="num"><span class="bad">−19.54 / +2.75</span> → <span class="good">+0.46 / +0.75</span></td></tr>
+<tr><td>FLAC, PCM (control)</td><td class="num">100 → 100</td><td></td><td class="num">−2.58 → −2.58</td></tr>
+<tr><td><code>late_video.mp4</code></td><td>AAC into <strong>MKV</strong> (control)</td><td class="num">—</td><td>1.00, 1.04 (both)</td><td class="num">+0.08 → +0.08</td></tr>
+<tr><td rowspan="2"><code>small_clip.mp4</code> (no gap)</td><td>AAC, 0..49 / untrimmed</td><td class="num"><span class="bad">51 / 3152</span> → <span class="good">50 / 3151</span></td><td colspan="2">(no flashes; the task's own repro)</td></tr>
+<tr><td>AC-3, 0..49 / untrimmed</td><td class="num">50 / 3151 → 50 / 3151</td><td colspan="2"></td></tr>
+</table></div>
+<p class="caption"><strong>The MKV rows are off by the fixture's own seek, not by this change.</strong> The PCM control
+reads −2.58 ms before and after. An input <code>-ss</code> on this MKV (FLAC in 21 ms packets with millisecond
+timestamps) is not sample-exact: through plain ffmpeg, PCM seeked 0, 5, 10 and 21.33 ms past the first picture lands at
+−2.58, −4.58, −9.58 and −20.58 ms, where the MP4 tracks the seek to within 0.1 ms. The +0.75 ms after the fix is
+therefore within that seek error, and closer to 0 than the control.</p>
+
+<h2>Candidates (ffmpeg only)</h2>
+<p><code>scripts/candidates.py</code> puts the picture through as the encoder gets it (a Y4M from the first picture) and
+the source's sound as input 1, seeked to the first picture (<code>off</code>), at 128 kbps. P is the priming.
+<code>late_video.mp4</code> and <code>late_video_intra.ts</code> agree within 0.03 ms.</p>
+<div class="scroll"><table>
+<tr><th>arguments</th><th class="num">AAC</th><th class="num">MP3</th><th class="num">AC-3</th></tr>
+<tr><td>current (<code>-ss off</code>)</td><td class="num bad">101, −18.58</td><td class="num bad">101, −16.87</td><td class="num bad">100, +5.42</td></tr>
+<tr><td><code>-avoid_negative_ts disabled</code> only</td><td class="num warn">100, +21.42</td><td class="num warn">100, +23.13</td><td class="num bad">100, +5.42</td></tr>
+<tr><td><code>-bsf:a setts=ts=TS+P</code> only</td><td class="num warn">100, +21.42</td><td class="num warn">100, +23.13</td><td class="num bad">100, +5.42</td></tr>
+<tr><td><code>-ss off+P -itsoffset P</code></td><td class="num bad">101, −18.58</td><td class="num bad">101, −16.87</td><td class="num bad">100, +5.42</td></tr>
+<tr><td><strong><code>-ss off+P</code> + <code>-avoid_negative_ts disabled</code></strong> (chosen)</td><td class="num good">100, +0.08</td><td class="num good">100, +0.10</td><td class="num good">100, +0.08</td></tr>
+<tr><td><code>-ss off+P</code> + <code>-bsf:a setts=ts=TS+P</code></td><td class="num good">100, +0.08</td><td class="num good">100, +0.10</td><td class="num good">100, +0.08</td></tr>
+</table></div>
+<p class="caption">Cells are stored frames and lag (ms). Stopping the shift removes the null frame but leaves the sound
+late by the priming, which the player still plays. Seeking the encoder's input P later cancels it, so decoded time t
+plays source time t. <code>-itsoffset</code> has no effect beside an input <code>-ss</code>.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong><code>disabled</code> over <code>setts</code>.</strong> Both measured the same.
+<code>-avoid_negative_ts disabled</code> is one output option with no per-stream numbers, and avienc ignores where an
+audio stream starts, so a seek one sample short cannot bring a shift back. With <code>setts</code>, a first packet at
+−1 would trigger the shift again. In AVI the video starts at 0 (task #30), no subtitles are mapped, and under Convert
+every audio stream is encoded and seeked alike. On an IVTC/decimating job the option replaces <code>make_zero</code>.</li>
+<li><strong>The priming is measured, not tabled.</strong> The encoder picks its own rate (see the priming table above).
+FLAC and PCM measure none and change nothing. A failed probe is a warning, never a refusal.</li>
+<li><strong>Only the encoder's inputs move</strong> (<code>audio_restoration::encode_sound_start</code>): the source, the
+NUT sound copy, and the restored WAV (<code>-ss P</code>). <code>source_audio_start</code> is unchanged, so the render,
+transcription and notes keep the true start. An untrimmed delayed AVI's sound seek moves off 0 and therefore takes the
+NUT copy (rule 9). <code>integration_avi_audio_seek_test.dart</code> checks this on the chirp fixture: before, 63 stored
+frames for 62 and 1024 samples off; after, 62 and within 2 samples.</li>
+<li><strong>Not PCM in place of the user's codec.</strong> Swapping the codec overrides an explicit choice and makes the
+file about 8× larger, and MP3, the obvious "compatible" substitute, has the same fault.</li>
+<li><strong>Not an <code>-af</code>.</strong> The encode never filters audio (the input seek does the same job).</li>
+</ul>
+
+<h2>Found on the way: AAC packets over avienc's block size (task #41, not fixed)</h2>
+<p class="correction card">The first run of the heavy test failed on <code>late_video.mkv</code> and a trimmed
+<code>late_video_gop.ts</code>, ~21 ms late at one flash. That test reads beep times from each decoded frame's
+timestamp, whereas <code>measure.py</code> counts samples. The cause is a separate fault. avienc writes AAC's
+<code>nBlockAlign</code> as 768 bytes per channel, and a reader of VBR AVI audio counts a chunk as
+<code>ceil(size / nBlockAlign)</code> packets. ffmpeg's AAC encoder at 192 kbps <strong>mono</strong> occasionally writes
+769–777 bytes, and from that chunk on ffmpeg's reader times the sound one packet (21.33 ms) late. The file holds every
+chunk (checked chunk by chunk). In 20 mono encodes per bitrate, 96, 128 and 160 kbps never exceeded 768 bytes and
+192 kbps did once. The last column of <code>worker_convert_avi.py</code>'s output counts such packets: one, on the MKV
+AAC row (its sample-counted lag above is unaffected). The heavy tests run Convert at Medium (128 kbps) so that they
+measure this fault and not that one. Filed as task #41.</p>
+
+<h2>Tests</h2>
+<ul>
+<li>Rust:
+  <ul>
+    <li><code>needs_priming_shift</code>'s truth table (never together with a <code>SoundCut</code>);</li>
+    <li><code>priming_from_probe</code> on captured framecrc for AAC 48/44.1 kHz, MP3, AC-3 96→48 kHz, FLAC, PCM and
+      garbage;</li>
+    <li>the probe's arguments, and the restored track's <code>-ss</code>;</li>
+    <li>the sidecar decision moving with the priming;</li>
+    <li>the encoder's arguments untrimmed, behind a late video, trimmed, and from the NUT copy;</li>
+    <li><code>a_priming_shift_changes_nothing_outside_convert_into_avi</code>, over container × mode × codec × trim;</li>
+    <li>the real builder's pins.</li>
+  </ul></li>
+<li>Heavy:
+  <ul>
+    <li><code>integration_video_start_offset_test.dart</code>, on all four late fixtures: AAC, MP3 and AC-3 into AVI
+      store 100 frames, first pictures at 0 and 0.04, in sync within 1 ms, frame 25 at 1.000 s. The restored and
+      trimmed cases are also checked, and <code>small_clip.mp4</code> 0..49 stores 50.</li>
+    <li><code>integration_avi_audio_seek_test.dart</code>: the delayed-AVI chirp converted to AAC from frames 0, 2 and
+      20 is within 2 samples.</li>
+  </ul></li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>macOS arm64 only. avienc and the encoders are the same FFmpeg 9.0 series on every platform, and the nightly runs
+cover them.</li>
+<li>Sync is measured with ffmpeg's decoders. Other players are assumed to play the priming too, since nothing in an AVI
+says to skip it.</li>
+<li>The first P of sound (21–23 ms at 44.1/48 kHz) is the encoder's start-up, not the source's.</li>
+<li>All encoded streams share one P, measured at the rate of the first sound encoded (the restored track's, else the
+source's first stream's). A second stream at another rate is off by the difference (&lt; 3 ms between 44.1 and
+48 kHz AAC).</li>
+<li>A source with millisecond audio timestamps (the MKV rows) seeks only to within a few ms, before and after.</li>
+<li>Opus cannot be written into AVI at all (task #39). The AAC block-size fault is task #41.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre>(cd worker &amp;&amp; cargo build)
+VAPOURBOX_DEPS_DIR=deps/macos-arm64 BEFORE_WORKER=&lt;a worker built at 7094d2b&gt; \
+  sh docs/reports/2026-11-avi-convert-priming/scripts/run.sh</pre>
+<p><code>scripts/priming.py</code> prints the priming table, <code>scripts/worker_convert_avi.py</code> every worker job
+(one JSON line each), and <code>scripts/candidates.py</code> the ffmpeg-only arguments.
+<code>scripts/measure.py</code> is a copy of the #30 report's, and <code>scripts/riff.py</code> reads an AVI's header.</p>
+</main>
+</body>
+</html>

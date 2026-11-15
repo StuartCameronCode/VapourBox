@@ -761,12 +761,26 @@ pub struct RestoredTrack {
     pub source_streams: u32,
 }
 
-/// The encoder's input for the rendered track (comes after its other inputs).
-pub fn encode_input_args(track: Option<&RestoredTrack>) -> Vec<String> {
-    match track {
-        Some(t) => vec!["-i".into(), t.path.to_string_lossy().to_string()],
-        None => Vec::new(),
+/// The encoder's input for the rendered track (comes after its other inputs),
+/// read from its start, or later by the encoder's priming when one applies
+/// ([`EncoderPriming`]; a WAV seeks to the sample).
+pub fn encode_input_args(track: Option<&RestoredTrack>, priming: Option<&EncoderPriming>) -> Vec<String> {
+    let Some(t) = track else { return Vec::new() };
+    let mut args = Vec::new();
+    if let Some(p) = priming {
+        args.extend(["-ss".into(), crate::source_decode::seek_arg(p.secs)]);
     }
+    args.extend(["-i".into(), t.path.to_string_lossy().to_string()]);
+    args
+}
+
+/// Where the encoder reads the output's sound from on the source's container
+/// timeline: `VideoJob::source_audio_start`, plus the encoder's priming when
+/// one applies ([`EncoderPriming`]). Only the encoder's audio inputs read
+/// from here; the render, transcription, `OutputWindow` and every note keep
+/// `source_audio_start` itself.
+pub fn encode_sound_start(job: &VideoJob, priming: Option<&EncoderPriming>) -> f64 {
+    job.source_audio_start() + priming.map_or(0.0, |p| p.secs)
 }
 
 /// The encoder's audio `-map`s. Without a rendered track, every source audio
@@ -979,13 +993,15 @@ impl Drop for SoundSidecar {
 
 /// Whether the encode must take the source's sound from a [`SoundCopy`]:
 /// it carries source audio (all of it, or the streams beside a rendered
-/// track), and that sound's seek would fail (`VideoJob::sound_seek`).
-pub fn needs_sound_sidecar(job: &VideoJob, track: Option<&RestoredTrack>) -> bool {
+/// track), and that sound's seek would fail (`VideoJob::sound_seek`). The
+/// seek is the encoder's own, which an [`EncoderPriming`] moves later: an
+/// untrimmed delayed AVI converted into AVI seeks its sound by the priming.
+pub fn needs_sound_sidecar(job: &VideoJob, track: Option<&RestoredTrack>, priming: Option<&EncoderPriming>) -> bool {
     job.encoding_settings.audio_mode != AudioMode::None
         && job.source_has_audio != Some(false)
         && track.map_or(true, |t| t.source_streams > 1)
         && matches!(
-            job.sound_seek(job.source_audio_start()),
+            job.sound_seek(encode_sound_start(job, priming)),
             crate::source_decode::SoundSeek::Skip(_)
         )
 }
@@ -1145,6 +1161,88 @@ fn parse_time_base(s: &str) -> Option<f64> {
     let (n, d) = s.split_once('/')?;
     let (n, d): (f64, f64) = (n.trim().parse().ok()?, d.trim().parse().ok()?);
     (n > 0.0 && d > 0.0).then_some(n / d)
+}
+
+// ---------------------------------------------------------------------------
+// A lossy encoder's start-up (priming) in a container that cannot mark it
+// ---------------------------------------------------------------------------
+
+/// How long a lossy audio encoder's start-up (its priming, or encoder delay)
+/// lasts: its first packet's negative timestamp, in seconds. AAC primes 1024
+/// samples, libmp3lame 1105, AC-3 256; FLAC and PCM none.
+///
+/// MP4, MOV and MKV mark the priming to be skipped (an edit list, skip
+/// samples); AVI cannot. There ffmpeg's default `-avoid_negative_ts` shifted
+/// every stream later by the priming, which rounds to a null frame at the
+/// head when it is over half a frame (AAC, MP3 at 25 and 29.97 fps), and the
+/// player then plays the priming as sound, so the content was late by it and
+/// early by the null frame: AAC −18.6 ms, MP3 −16.9 ms, AC-3 +5.4 ms at 25 fps
+/// (docs/reports/2026-11-avi-convert-priming). So the encode reads every
+/// encoded sound input this much later and writes
+/// `-avoid_negative_ts disabled` ([`ENCODER_PRIMING_OUTPUT_ARGS`]): the
+/// priming then takes the place of the first `secs` of sound, and decoded
+/// time t plays source time t.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EncoderPriming {
+    pub secs: f64,
+}
+
+/// The encoder's output option that keeps every stream where it is when an
+/// [`EncoderPriming`] applies: the video starts at 0 in AVI
+/// (`VideoJob::output_video_delay` is 0 there), no subtitles are mapped, and
+/// every audio stream is encoded and read late by the priming.
+pub const ENCODER_PRIMING_OUTPUT_ARGS: [&str; 2] = ["-avoid_negative_ts", "disabled"];
+
+/// Whether the encode must account for its audio encoder's priming
+/// ([`EncoderPriming`]): Convert (every audio stream encoded) into a
+/// container that cannot store where a stream starts (AVI), with sound. The
+/// codec is not part of the decision: the probe measures it, and an encoder
+/// with no priming (FLAC, PCM) measures none and changes nothing. Never with
+/// a [`SoundCut`], which is Passthrough only.
+pub fn needs_priming_shift(job: &VideoJob) -> bool {
+    job.encoding_settings.audio_mode == AudioMode::Convert
+        && !job.encoding_settings.container.stores_stream_start()
+        && job.source_has_audio != Some(false)
+}
+
+/// ffmpeg's arguments for [`priming_from_probe`]: a fifth of a second of
+/// silence at `rate`, encoded with the job's own audio codec arguments
+/// (`codec_args`, from [`encode_codec_args`]), as `framecrc`, which prints
+/// each packet's timestamp in the encoder's time base. The encoder chooses
+/// its own rate (AC-3 encodes a 96 kHz source at 48 kHz), which the time
+/// base shows.
+pub fn priming_probe_args(codec_args: &[String], rate: u32) -> Vec<String> {
+    let mut args = quiet_args();
+    args.extend(["-v".into(), "error".into(), "-f".into(), "lavfi".into()]);
+    args.extend(["-i".into(), format!("anullsrc=r={rate}:cl=stereo"), "-t".into(), "0.2".into()]);
+    args.extend(codec_args.iter().cloned());
+    args.extend(["-f".into(), "framecrc".into(), "-".into()]);
+    args
+}
+
+/// The [`EncoderPriming`] from ffmpeg's `framecrc` output for
+/// [`priming_probe_args`]: the first packet's timestamp in the stream's time
+/// base (`#tb 0: 1/48000`). `None` when it is not negative (no priming) or
+/// the output cannot be read.
+pub fn priming_from_probe(framecrc: &str) -> Option<EncoderPriming> {
+    let mut tb = None;
+    for line in framecrc.lines().map(str::trim) {
+        if let Some(rest) = line.strip_prefix("#tb 0:") {
+            tb = parse_time_base(rest.trim());
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut fields = line.split(',').map(str::trim);
+        if fields.next() != Some("0") {
+            continue;
+        }
+        let pts: i64 = fields.next()?.parse().ok()?;
+        let secs = -(pts as f64) * tb?;
+        return (secs > 0.0 && secs < 1.0).then_some(EncoderPriming { secs });
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,8 +1417,13 @@ impl AudioRestorer {
     /// ([`needs_sound_sidecar`]). A failure is a warning, not a refusal: the
     /// encode then seeks the source as before and may lose its first second
     /// or so of sound, which the warning says.
-    pub fn sound_sidecar(&self, job: &VideoJob, track: Option<&RestoredTrack>) -> Option<SoundSidecar> {
-        if !needs_sound_sidecar(job, track) {
+    pub fn sound_sidecar(
+        &self,
+        job: &VideoJob,
+        track: Option<&RestoredTrack>,
+        priming: Option<&EncoderPriming>,
+    ) -> Option<SoundSidecar> {
+        if !needs_sound_sidecar(job, track, priming) {
             return None;
         }
         // A silent source has nothing to copy, and nothing to lose.
@@ -1337,8 +1440,8 @@ impl AudioRestorer {
         match self.write_sound_copy(job, streams) {
             Ok(sidecar) => {
                 self.log(LogLevel::Info, &format!(
-                    "The source has a decoder delay (AVI) and the trim starts within {} s, where it cannot \
-                     seek its sound: the sound is copied to a temporary file so the trim can.",
+                    "The source has a decoder delay (AVI) and the output's sound starts within {} s of it, \
+                     where it cannot seek its sound: the sound is copied to a temporary file that can.",
                     crate::source_decode::COUNT_SEEK_BELOW
                 ));
                 Some(sidecar)
@@ -1359,7 +1462,7 @@ impl AudioRestorer {
         if !needs_sound_cut(job, track) {
             return None;
         }
-        let late = "the sound may run late by up to a keyframe interval; MKV or Convert keeps it in sync";
+        let late = "the sound may run late by up to a keyframe interval; MKV, MP4 or MOV keeps it in sync";
         let ffprobe = match self.deps.ffprobe_path() {
             Ok(p) => p,
             Err(e) => {
@@ -1403,6 +1506,64 @@ impl AudioRestorer {
             parts.join("; the ")
         ));
         Some(cut)
+    }
+
+    /// The [`EncoderPriming`] the encode accounts for, when it needs one
+    /// ([`needs_priming_shift`]), measured from the job's own encoder at the
+    /// rate of the sound it encodes first (the rendered track's, else the
+    /// source's first stream's). `None` when the encoder has no priming. A
+    /// failed probe is a warning: the encode then runs as before, with a
+    /// null frame at the head and the sound off by the priming.
+    pub fn encoder_priming(&self, job: &VideoJob, track: Option<&RestoredTrack>) -> Option<EncoderPriming> {
+        if !needs_priming_shift(job) {
+            return None;
+        }
+        let settings = &job.encoding_settings;
+        let codec = settings.audio_codec.ffmpeg_name();
+        let warn = |why: String| {
+            self.log(LogLevel::Warning, &format!(
+                "Could not measure the {codec} encoder's start-up for the AVI output ({why}); \
+                 the output may hold an extra frame at its head and its sound may be off by up to ~25 ms."
+            ));
+        };
+        let heard = track.map_or_else(|| job.input_path.clone(), |t| t.path.to_string_lossy().to_string());
+        let rate = match self.probe_source(&heard, 0) {
+            Ok(Some(s)) if s.streams > 0 && s.sample_rate > 0 => s.sample_rate,
+            // A silent source has no sound to shift.
+            Ok(_) => return None,
+            Err(e) => {
+                warn(format!("{e:#}"));
+                return None;
+            }
+        };
+        let args = priming_probe_args(&encode_codec_args(settings, None, None), rate);
+        self.log(LogLevel::Debug, &format!("ffmpeg (encoder start-up): {args:?}"));
+        let ffmpeg = match self.deps.ffmpeg_path() {
+            Ok(p) => p,
+            Err(e) => {
+                warn(format!("{e:#}"));
+                return None;
+            }
+        };
+        let out = Command::new(ffmpeg).args(&args).envs(self.deps.build_environment()).stdin(Stdio::null()).output();
+        let priming = match out {
+            Ok(o) if o.status.success() => priming_from_probe(&String::from_utf8_lossy(&o.stdout)),
+            Ok(o) => {
+                warn(String::from_utf8_lossy(&o.stderr).trim().to_string());
+                return None;
+            }
+            Err(e) => {
+                warn(e.to_string());
+                return None;
+            }
+        }?;
+        let ms = priming.secs * 1000.0;
+        self.log(LogLevel::Info, &format!(
+            "AVI cannot mark the {codec} encoder's start-up ({ms:.1} ms), which a player plays as sound: \
+             the sound is read {ms:.1} ms later to stay in sync with the picture, and its first {ms:.1} ms \
+             is the encoder's start-up. MKV, MP4 and MOV keep every sample."
+        ));
+        Some(priming)
     }
 
     fn write_sound_copy(&self, job: &VideoJob, streams: u32) -> Result<SoundSidecar> {
@@ -2139,8 +2300,8 @@ mod tests {
             ]
         );
         assert!(encode_map_args(&settings(AudioMode::None, ContainerFormat::Mkv), Some(&t), 3, None, None).is_empty());
-        assert_eq!(encode_input_args(Some(&t)), vec!["-i", "r.wav"]);
-        assert!(encode_input_args(None).is_empty());
+        assert_eq!(encode_input_args(Some(&t), None), vec!["-i", "r.wav"]);
+        assert!(encode_input_args(None, None).is_empty());
     }
 
     /// Rule 9: the source's sound from the copy (input 4 here), its tags
@@ -2179,25 +2340,102 @@ mod tests {
     #[test]
     fn the_sound_copy_is_used_only_where_the_seek_fails() {
         let job = delayed_avi(Some(2));
-        assert!(needs_sound_sidecar(&job, None));
+        assert!(needs_sound_sidecar(&job, None, None));
         // A rendered track covers the only stream; with a second, that one
         // still comes from the source.
         let one = RestoredTrack { path: "r.wav".into(), stream: 0, source_streams: 1 };
         let two = RestoredTrack { source_streams: 2, ..one.clone() };
-        assert!(!needs_sound_sidecar(&job, Some(&one)));
-        assert!(needs_sound_sidecar(&job, Some(&two)));
+        assert!(!needs_sound_sidecar(&job, Some(&one), None));
+        assert!(needs_sound_sidecar(&job, Some(&two), None));
         // No sound, no source sound, untrimmed, far enough in, no delay.
         let mut j = job.clone();
         j.encoding_settings.audio_mode = AudioMode::None;
-        assert!(!needs_sound_sidecar(&j, None));
+        assert!(!needs_sound_sidecar(&j, None, None));
         let mut j = job.clone();
         j.source_has_audio = Some(false);
-        assert!(!needs_sound_sidecar(&j, None));
-        assert!(!needs_sound_sidecar(&delayed_avi(None), None));
-        assert!(!needs_sound_sidecar(&delayed_avi(Some(20)), None));
+        assert!(!needs_sound_sidecar(&j, None, None));
+        assert!(!needs_sound_sidecar(&delayed_avi(None), None, None));
+        assert!(!needs_sound_sidecar(&delayed_avi(Some(20)), None, None));
         let mut j = job.clone();
         j.decoder_delay_frames = None;
-        assert!(!needs_sound_sidecar(&j, None));
+        assert!(!needs_sound_sidecar(&j, None, None));
+    }
+
+    /// Task 38: an untrimmed delayed AVI converted into AVI seeks its sound
+    /// by the encoder's priming, which it cannot do near its start: the
+    /// sound copy then applies, as it would to a trim there.
+    #[test]
+    fn a_priming_moves_the_sound_copy_decision() {
+        let p = EncoderPriming { secs: 1024.0 / 48000.0 };
+        let mut job = delayed_avi(None);
+        job.encoding_settings.container = ContainerFormat::Avi;
+        job.encoding_settings.audio_mode = AudioMode::Convert;
+        assert!(!needs_sound_sidecar(&job, None, None));
+        assert!(needs_sound_sidecar(&job, None, Some(&p)));
+        assert!((encode_sound_start(&job, Some(&p)) - p.secs).abs() < 1e-12);
+        assert_eq!(encode_sound_start(&job, None), 0.0);
+        // Far enough in, the seek works either way.
+        let far = delayed_avi(Some(20));
+        assert!(!needs_sound_sidecar(&far, None, Some(&p)));
+    }
+
+    /// Only Convert into a container that cannot store a stream's start, with
+    /// sound, accounts for the encoder's priming; never together with a
+    /// sound cut (Passthrough only).
+    #[test]
+    fn the_priming_shift_applies_only_to_convert_into_avi() {
+        for container in [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
+            for mode in [AudioMode::Passthrough, AudioMode::Convert, AudioMode::None] {
+                for start in [None, Some(20)] {
+                    let mut j = avi_trim(start);
+                    j.encoding_settings.container = container;
+                    j.encoding_settings.audio_mode = mode;
+                    let applies = container == ContainerFormat::Avi && mode == AudioMode::Convert;
+                    assert_eq!(needs_priming_shift(&j), applies, "{container:?} {mode:?} {start:?}");
+                    assert!(!(needs_priming_shift(&j) && needs_sound_cut(&j, None)), "{container:?} {mode:?}");
+                    j.source_has_audio = Some(false);
+                    assert!(!needs_priming_shift(&j));
+                }
+            }
+        }
+    }
+
+    /// framecrc as FFmpeg 9.0 prints it for each encoder (anullsrc, stereo).
+    const FRAMECRC_AAC_48K: &str = "#extradata 0:        5, 0x056101dc\n#software: Lavf63.1.102\n#tb 0: 1/48000\n#media_type 0: audio\n#codec_id 0: aac\n#sample_rate 0: 48000\n#channel_layout_name 0: stereo\n0,      -1024,      -1024,     1024,       21, 0x43390566\n0,          0,          0,     1024,        6, 0x037a013d\n";
+    const FRAMECRC_AAC_44K: &str = "#tb 0: 1/44100\n#media_type 0: audio\n0,      -1024,      -1024,     1024,       21, 0x43390566\n";
+    const FRAMECRC_MP3_48K: &str = "#software: Lavf63.1.102\n#tb 0: 1/48000\n#media_type 0: audio\n#codec_id 0: mp3\n0,      -1105,      -1105,     1152,      576, 0x963cb835, S=1, Skip Samples,       10, 0x034e0055\n0,         47,         47,     1152,      576, 0x963cb835\n";
+    /// AC-3 of a 96 kHz input: the encoder runs at 48 kHz, as its time base says.
+    const FRAMECRC_AC3_96K: &str = "#software: Lavf63.1.102\n#tb 0: 1/48000\n#media_type 0: audio\n#codec_id 0: ac3\n#sample_rate 0: 48000\n0,       -256,       -256,     1536,      768, 0x146b5487\n";
+    const FRAMECRC_FLAC: &str = "#extradata 0:       34, 0x36ec0265\n#tb 0: 1/48000\n#media_type 0: audio\n#codec_id 0: flac\n0,          0,          0,     1024,       14, 0x2b7e047d\n";
+    const FRAMECRC_PCM: &str = "#tb 0: 1/48000\n#codec_id 0: pcm_s16le\n0,          0,          0,     1024,     4096, 0x00000000\n0,       1024,       1024,     1024,     4096, 0x00000000\n";
+
+    #[test]
+    fn the_priming_is_read_from_the_first_packet() {
+        let secs = |t: &str| priming_from_probe(t).map(|p| p.secs);
+        assert!((secs(FRAMECRC_AAC_48K).unwrap() - 1024.0 / 48000.0).abs() < 1e-12);
+        assert!((secs(FRAMECRC_AAC_44K).unwrap() - 1024.0 / 44100.0).abs() < 1e-12);
+        assert!((secs(FRAMECRC_MP3_48K).unwrap() - 1105.0 / 48000.0).abs() < 1e-12);
+        assert!((secs(FRAMECRC_AC3_96K).unwrap() - 256.0 / 48000.0).abs() < 1e-12);
+        assert_eq!(secs(FRAMECRC_FLAC), None);
+        assert_eq!(secs(FRAMECRC_PCM), None);
+        assert_eq!(secs(""), None);
+        assert_eq!(secs("garbage\n"), None);
+        assert_eq!(secs("0,      -1024,      -1024,     1024\n"), None, "no time base");
+    }
+
+    /// The probe encodes silence with the job's own codec arguments; the
+    /// rendered track's input is read late by the priming, to the sample.
+    #[test]
+    fn the_priming_probe_uses_the_jobs_encoder() {
+        let mut s = settings(AudioMode::Convert, ContainerFormat::Avi);
+        s.audio_codec = AudioCodec::Aac;
+        let args = priming_probe_args(&encode_codec_args(&s, None, None), 44100).join(" ");
+        assert!(args.contains("-f lavfi -i anullsrc=r=44100:cl=stereo -t 0.2 -c:a aac -b:a "), "{args}");
+        assert!(args.ends_with("-f framecrc -"), "{args}");
+        let t = RestoredTrack { path: "r.wav".into(), stream: 0, source_streams: 1 };
+        let p = EncoderPriming { secs: 1024.0 / 48000.0 };
+        assert_eq!(encode_input_args(Some(&t), Some(&p)), vec!["-ss", "0.021334", "-i", "r.wav"]);
+        assert!(encode_input_args(None, Some(&p)).is_empty());
     }
 
     fn avi_trim(start_frame: Option<i32>) -> VideoJob {
