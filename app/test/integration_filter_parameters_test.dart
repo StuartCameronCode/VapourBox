@@ -972,6 +972,16 @@ void main() {
       expect(actual['blurlen'], '12');
       expect(actual['modey'], '1');
       expect(actual['modeu'], '1');
+      // Task #29: one call site; 4:2:0 luma runs on a 4:2:2 carrier,
+      // and the chroma gets its own call only with a chroma mode on.
+      expect('core.descratch.DeScratch('.allMatches(script).length, 1);
+      expect(script, contains('_ds_luma = _descratch(core.std.ShufflePlanes('));
+      expect(script, contains('_ds_chroma = _descratch('));
+      final off = await generateScriptViaWorker(buildJob(
+          testName: 'descratch_modes_off',
+          descratch: const DeScratchParameters(enabled: true)));
+      expect(off, contains('_ds_luma = _descratch(core.std.ShufflePlanes('));
+      expect(off, isNot(contains('_ds_chroma = _descratch(')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

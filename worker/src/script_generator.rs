@@ -1034,6 +1034,14 @@ impl ScriptGenerator {
             script = process_optional_int("DESCRATCH_MODEU", Some(descratch.mode_u), script);
             script = process_optional_int("DESCRATCH_MODEV", Some(descratch.mode_v), script);
             script = process_optional_int("DESCRATCH_MINDIFUV", Some(descratch.mindif_uv), script);
+            // 4:2:0 runs the luma on a 4:2:2 carrier with blank
+            // chroma (task #29); the chroma needs its own call only when a
+            // chroma mode is on.
+            if descratch.mode_u != 0 || descratch.mode_v != 0 {
+                script = keep_block_lines("DESCRATCH_CHROMA_MODES", script);
+            } else {
+                script = remove_block("{{#DESCRATCH_CHROMA_MODES}}", "{{/DESCRATCH_CHROMA_MODES}}", script);
+            }
         } else {
             script = remove_block("{{#DESCRATCH}}", "{{/DESCRATCH}}", script);
         }

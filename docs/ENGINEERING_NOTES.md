@@ -4050,7 +4050,8 @@ Full evidence:
 - Under Output Colour Format `original` a 14-bit source comes out 16-bit;
   only FFV1/FFVHuff store that as such (+7.8% FFV1 size on an unfiltered
   14-bit fixture). x264/x265/SVT-AV1 negotiate the same depth from 14 or 16.
-- Found on the way, filed: DeScratch fails on every 4:2:0 source (task #29);
+- Found on the way, filed: DeScratch fails on every 4:2:0 source (task #29,
+  fixed below);
   Dehalo's YAHR fails on 9-bit, where CTMF has no format (task #31).
 
 ### A PS whose last picture has no PTS counted one frame short (task #26, 2026-11-15)
@@ -4135,3 +4136,32 @@ Follow-up to task #22.
   (avienc pads gaps only after the first packet). Task #30.
 - `integration_avi_copy_trim_test.dart` (heavy) and the AVI cases of
   `integration_avi_audio_seek_test.dart`: 13 fail with the cut switched off.
+
+### DeScratch on interlaced 4:2:0: luma on a 4:2:2 carrier (task #29, 2026-11-15)
+
+Full evidence:
+[docs/reports/issue-29-descratch-420/](reports/issue-29-descratch-420/index.html).
+
+- The failure ("Resize error 1027") was in the plugin, not our depth guard.
+  Its constructor blurs by resizing to `height // (1 + blurlen)` rows,
+  rounded to even. zimg resizes a field-flagged clip per field, and 4:2:0
+  chroma then needs a multiple of 4. At the default blurlen that failed
+  240/288/480/1080 lines, and 486 at every blurlen; PAL 576 failed at 30/50.
+- Affected jobs: deinterlacing off with a detected order, and Soft
+  Telecine. A bare `VDecimate` keeps `_FieldBased=2`; QTGMC, Bwdif and IVTC
+  reset it, which is why the QTGMC-first encode test never caught this.
+- Measured on a real capture with drawn scratches (strip MAE, lower better),
+  field-aware 1.75/3.60/1.67 vs progressive 2.34/3.66/1.84 vs per-field
+  3.42/3.66/3.77. So the fix keeps field-aware analysis rather than strip
+  `_FieldBased`.
+- 4:2:0 luma runs on a 4:2:2 carrier (blank half-width chroma via
+  `ShufflePlanes`, no resample), and the source's chroma goes back. It is
+  bit-identical to the native call in Y/U/V wherever that call works, and it
+  works at every height. A chroma mode (default off) adds a second call on a
+  copy without `_FieldBased`.
+- Correction: the plan said NTSC DV (4:1:1) failed too. The plugin refuses
+  4:1:1, but both templates convert 4:1:1 to 4:2:2 right after the pipe, so
+  no job reaches it that way.
+- Filed: Soft Telecine leaves `_FieldBased` on film frames (task #33); DeScratch's
+  >8-bit round trip loses precision everywhere (task #34); Blur Radius
+  > ~119 is refused on 480 lines (task #35).
