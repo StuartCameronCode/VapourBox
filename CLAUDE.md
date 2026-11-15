@@ -128,6 +128,7 @@ VapourBox/
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
 | `worker/src/dvd_reader.rs` | DVD import: IFO parsing for the title picker, `title_cells` (a title's cells for a chapter range and angle), the copy plan, the NAV walk for interleaved cells, and the libdvdread copy (see "DVD Import") |
 | `worker/src/source_continuity.rs` | Timestamp resets in an MPEG-PS/TS: the rule, `--scan-timestamps`, and the continuous same-container copy decoded instead (see "Source Frame Size") |
+| `worker/src/vspipe_failure.rs` | A failed encode's blame (encoder first, unless it only saw vspipe's empty pipe) and vspipe's stderr turned into the job error (see Debugging Tips #11) |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
 | `worker/src/animejanai.rs` | AnimeJaNai's add-on models: where they live, which one a job runs, the refusal when they're missing (see "Add-ons") |
@@ -2934,13 +2935,21 @@ bundle at 1.16.0 or older, the known skew.
     job after **600s with no frame progress** rather than hanging forever.
     Raise/disable with `VAPOURBOX_STALL_TIMEOUT_SECS=<secs>` (`0` = wait
     forever) when deliberately debugging a stall.
-11. **"Header too large" / vspipe exits with no message**: this is a **native
-    crash inside a plugin**, not a template or muxer bug — vspipe dies before
-    writing the Y4M header, so absence of a Python traceback is the diagnostic.
-    Bisect by generating the script (`--config`, keep the `.vpy`) and running it
-    under vspipe with passes commented out; on Windows, `$LASTEXITCODE`
-    `0xC0000005` = access violation, `0xC000001D` = illegal instruction (CPU
-    feature the machine lacks) — both are decoded by `format_exit_status`.
+11. **A vspipe failure is reported as vspipe's, not the encoder's (task #28).**
+    When vspipe dies before writing the Y4M header, the encoder ffmpeg says only
+    `Header too large`; `vspipe_failure::blame` then reports vspipe instead (it
+    must have failed for real, not by SIGPIPE, *and* the encoder must say it got
+    no header — every other encoder failure is still reported first). The job
+    error is the Python exception and its traceback (`The VapourSynth script
+    failed: …`, `VapourSynth failed on output frame N: …`) or, for a **native
+    crash inside a plugin**, `vspipe exited with <status> — a native crash …;
+    no Python error was printed`: absence of a traceback is the diagnostic.
+    Bisect a crash by generating the script (`--config`, keep the `.vpy`) and
+    running it under vspipe with passes commented out; on Windows `0xC0000005`
+    = access violation, `0xC000001D` = illegal instruction (CPU feature the
+    machine lacks) — both decoded by `format_exit_status`, as are SIGILL/SIGSEGV.
+    `Header too large` in a job error now means vspipe exited cleanly (or by
+    SIGPIPE) with nothing to send.
     **If it happens with every pass disabled, it is load-time, not a filter**:
     VapourSynth autoloads every plugin when the core starts, so one plugin whose
     static initializers use a missing instruction set kills every job (issue #92,

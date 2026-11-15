@@ -11,6 +11,7 @@ pub mod dvd_reader;
 pub mod filter_registry;
 pub mod filter_schema;
 pub mod pipeline_executor;
+pub mod vspipe_failure;
 pub mod pixel_format;
 pub mod source_continuity;
 pub mod source_decode;
