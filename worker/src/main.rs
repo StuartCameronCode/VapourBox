@@ -9,7 +9,8 @@
 //!
 //! DVD modes:
 //!   --dvd-info <path>: Enumerate DVD titles, output JSON to stdout
-//!   --dvd-extract <path> --title N [--chapters S-E] --output <path>: Extract DVD title
+//!   --dvd-extract <path> --title N [--chapters S-E] [--angle A] --output <path>:
+//!     extract one title (its cells only, one angle, the chapter range)
 //!
 //! Timestamp resets (MPEG-PS/TS, see source_continuity):
 //!   --scan-timestamps <path>: print the resets as JSON
@@ -89,9 +90,13 @@ struct Args {
     #[arg(long)]
     title: Option<u32>,
 
-    /// Chapter range to extract (e.g., "1-5", optional with --dvd-extract)
+    /// Chapter range to extract (e.g., "1-5" or "3", optional with --dvd-extract)
     #[arg(long)]
     chapters: Option<String>,
+
+    /// Angle to extract from a multi-angle title (1-based, default 1)
+    #[arg(long, default_value_t = 1)]
+    angle: u8,
 
     /// Output file path (required with --dvd-extract and --make-continuous)
     #[arg(long)]
@@ -606,23 +611,12 @@ fn run_dvd_extract(args: &Args, dvd_path: &str) -> ExitCode {
         }
     };
 
-    // Parse chapter range (e.g., "1-5")
-    let (start_chapter, end_chapter) = if let Some(ref ch) = args.chapters {
-        let parts: Vec<&str> = ch.split('-').collect();
-        match parts.len() {
-            1 => {
-                let ch: u32 = parts[0].parse().unwrap_or(1);
-                (Some(ch), Some(ch))
-            }
-            2 => {
-                let start: u32 = parts[0].parse().unwrap_or(1);
-                let end: u32 = parts[1].parse().unwrap_or(start);
-                (Some(start), Some(end))
-            }
-            _ => (None, None),
+    let chapters = match args.chapters.as_deref().map(parse_chapter_range).transpose() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            return ExitCode::from(1);
         }
-    } else {
-        (None, None)
     };
 
     let reporter = ProgressReporter::new();
@@ -633,7 +627,7 @@ fn run_dvd_extract(args: &Args, dvd_path: &str) -> ExitCode {
     let mut part_name = output.as_os_str().to_owned();
     part_name.push(".part");
     let part = PathBuf::from(part_name);
-    let result = dvd_reader::extract_title(dvd_path, title, start_chapter, end_chapter, &part, &reporter)
+    let result = dvd_reader::extract_title(dvd_path, title, chapters, args.angle, &part, &reporter)
         .and_then(|()| join_dvd_resets(&part, &output, &reporter));
     if result.is_err() {
         let _ = std::fs::remove_file(&part);
@@ -650,6 +644,28 @@ fn run_dvd_extract(args: &Args, dvd_path: &str) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// `--chapters`: "S-E" or "N", 1-based and inclusive. Anything else is an
+/// error rather than a guess (the title's own chapter count is checked later).
+fn parse_chapter_range(s: &str) -> Result<(u16, u16)> {
+    let parse = |p: &str| -> Result<u16> {
+        match p.trim().parse::<u16>() {
+            Ok(n) if n > 0 => Ok(n),
+            _ => anyhow::bail!("--chapters expects S-E or N with chapters from 1, got {:?}", s),
+        }
+    };
+    let range = match s.split_once('-') {
+        Some((a, b)) => (parse(a)?, parse(b)?),
+        None => {
+            let n = parse(s)?;
+            (n, n)
+        }
+    };
+    if range.0 > range.1 {
+        anyhow::bail!("--chapters {:?} ends before it starts", s);
+    }
+    Ok(range)
 }
 
 /// The DVD import's last step: scan the extraction and, when its timestamps
