@@ -11,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/audio_restoration_parameters.dart';
 import 'package:vapourbox/models/pass_relevance.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
+import 'package:vapourbox/models/video_job.dart' show ContainerFormat;
 import 'package:vapourbox/services/field_order_detector.dart';
 import 'package:vapourbox/services/preview_generator.dart';
 
@@ -260,12 +261,34 @@ void main() {
       expect(relevanceFor(PassType.audioRestoration, null).level, PassRelevance.neutral);
     });
 
+    test('no suggestion into AVI, which already starts the sound with the picture (task #30)', () {
+      for (final c in ContainerFormat.values) {
+        final r = relevanceFor(PassType.audioRestoration, _info(1.32), container: c);
+        expect(r.isRecommended, c != ContainerFormat.avi, reason: c.name);
+      }
+    });
+
+    test('only AVI cannot store where a stream starts (twin of the worker)', () {
+      expect([for (final c in ContainerFormat.values) if (!c.storesStreamStart) c],
+          [ContainerFormat.avi]);
+    });
+
     test('the panel notice: any gap, and never for none', () {
       expect(videoStartNotice(0), isNull);
       expect(videoStartNotice(0.021), contains('0.02 s'));
       final text = videoStartNotice(1.202)!;
       expect(text, contains('1.20 s'));
       expect(text, contains('Start the sound with the picture'));
+      // MKV, MP4 and MOV keep today's wording.
+      for (final c in [ContainerFormat.mkv, ContainerFormat.mp4, ContainerFormat.mov]) {
+        expect(videoStartNotice(1.202, container: c), text);
+      }
+      // AVI says the gap is left out, and that the step has nothing to do.
+      final avi = videoStartNotice(1.202, container: ContainerFormat.avi)!;
+      expect(avi, contains("AVI can't store a picture that starts after its sound"));
+      expect(avi, contains('leaves those 1.20 s out'));
+      expect(avi, isNot(contains('Start the sound with the picture')));
+      expect(videoStartNotice(0, container: ContainerFormat.avi), isNull);
     });
 
     test('the step counts as a step, and survives a round trip', () {

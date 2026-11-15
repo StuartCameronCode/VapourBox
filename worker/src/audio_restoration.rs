@@ -1363,7 +1363,7 @@ impl AudioRestorer {
         let ffprobe = match self.deps.ffprobe_path() {
             Ok(p) => p,
             Err(e) => {
-                self.log(LogLevel::Warning, &format!("Could not probe the source's sound for the AVI trim ({e:#}); {late}."));
+                self.log(LogLevel::Warning, &format!("Could not probe the source's sound for the AVI output ({e:#}); {late}."));
                 return None;
             }
         };
@@ -1376,11 +1376,11 @@ impl AudioRestorer {
             Ok(o) if o.status.success() => sound_cut_from_probe(&String::from_utf8_lossy(&o.stdout)),
             Ok(o) => {
                 let err = String::from_utf8_lossy(&o.stderr);
-                self.log(LogLevel::Warning, &format!("Could not probe the source's sound for the AVI trim ({}); {late}.", err.trim()));
+                self.log(LogLevel::Warning, &format!("Could not probe the source's sound for the AVI output ({}); {late}.", err.trim()));
                 return None;
             }
             Err(e) => {
-                self.log(LogLevel::Warning, &format!("Could not probe the source's sound for the AVI trim ({e}); {late}."));
+                self.log(LogLevel::Warning, &format!("Could not probe the source's sound for the AVI output ({e}); {late}."));
                 return None;
             }
         };
@@ -1396,7 +1396,7 @@ impl AudioRestorer {
             parts.push("PCM sound is re-written in its own format, cut to the sample".to_string());
         }
         if packet {
-            parts.push("compressed sound is copied from the packet nearest the in-point (within half a packet)".to_string());
+            parts.push("compressed sound is copied from the packet nearest the in-point or first picture (within half a packet)".to_string());
         }
         self.log(LogLevel::Info, &format!(
             "AVI cannot store where a stream starts, so a copied sound would keep the seek's pre-roll and run late: the {}.",
@@ -2243,6 +2243,33 @@ mod tests {
         })).unwrap());
         assert!(j.source_audio_start() > 0.0);
         assert!(needs_sound_cut(&j, Some(&two)));
+    }
+
+    /// Task 30: an untrimmed late video into AVI starts its sound at the
+    /// first picture, so the copy is cut as a trim's is and the rendered
+    /// window starts at the offset, the picture's length long.
+    #[test]
+    fn an_untrimmed_late_video_into_avi_is_cut_at_the_first_picture() {
+        let mut j = avi_trim(None);
+        j.video_start_offset = Some(1.0);
+        assert!(needs_sound_cut(&j, None));
+        j.encoding_settings.container = ContainerFormat::Mkv;
+        assert!(!needs_sound_cut(&j, None), "MKV delays the picture instead");
+
+        let mut job: VideoJob = serde_json::from_value(serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000030",
+            "inputPath": "in.ts", "outputPath": "out.avi",
+            "qtgmcParameters": {}, "encodingSettings": {"container": "avi"},
+            "totalFrames": 125, "inputFrameRate": 25.0,
+            "videoStartOffset": 1.2,
+            "processingPipeline": { "deinterlace": { "enabled": false } }
+        }))
+        .unwrap();
+        let w = OutputWindow::for_job(&job);
+        assert!((w.start - 1.2).abs() < 1e-9 && (w.duration.unwrap() - 5.0).abs() < 1e-9, "{w:?}");
+        job.encoding_settings.container = ContainerFormat::Mkv;
+        let w = OutputWindow::for_job(&job);
+        assert!(w.start == 0.0 && (w.duration.unwrap() - 6.2).abs() < 1e-9, "{w:?}");
     }
 
     #[test]

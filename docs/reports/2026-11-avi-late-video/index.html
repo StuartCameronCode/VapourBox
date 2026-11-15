@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVI late video</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>A late-starting picture in AVI became a 600 fps file</h1>
+<p class="meta">2026-11-15 · macOS arm64, deps 1.16.0 (FFmpeg 9.0.2) · task #30, found during
+<a href="../2026-11-avi-copy-trim/index.html">the AVI copy trim</a> (task #24); corrects
+<a href="../2026-11-video-start-offset/index.html">the video start offset</a> report</p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> When a source's sound starts before its picture (broadcast captures: 1.0–1.3 s), an
+untrimmed encode keeps that layout: the encoder delays the picture by the gap (<code>VideoJob::output_video_delay</code>)
+and copies the sound from the start. MKV, MP4 and MOV store the delay as the video stream's start. <strong>AVI has
+no per-stream start</strong>: avienc gave the video a <code>1/600</code> time base and filled the gaps between pictures
+with null frames, and since it pads only after the first packet, the first picture was written at 0 and held until
+the second (1.0–1.24 s). Sync after the first picture was right; the file was not: an editor read 600 fps and 30× the
+real frame count.</p>
+<p>AVI output now starts sound and picture together at the first picture, as a trim does: <code>output_video_delay</code>
+is 0 for a container that cannot store where a stream starts (<code>ContainerFormat::stores_stream_start</code>), the
+sound is read from the first picture, and a copied sound is cut by task #24's machinery. The 1.0–1.2 s of sound before
+the first picture is left out of an AVI (the job log and the Audio Restoration panel say so); MKV, MP4 and MOV are
+unchanged and keep it.</p>
+</div>
+
+<h2>Fixtures and method</h2>
+<p>The late-video fixtures of <code>Tests/TestResources/generate_video_start_offset.sh</code>: 25 fps, 100 pictures,
+the video starting 1 s after the sound, white frames at pictures 25 and 75 with a beep at each
+(<code>late_video_intra.ts</code> and <code>late_video_gop.ts</code> with MP2, <code>late_video.mp4</code> with AAC,
+<code>late_video.mkv</code> with FLAC), and the real DVB-T capture <code>pal-dvbt-fieldcoded-25i.ts</code> (1.202 s:
+an open GOP's B pictures before the 2.722 s keyframe; no beeps). Every job runs through the worker, untrimmed, Passthrough
+sound. <strong>Sync is measured against the file's own content</strong>, not its <code>start_time</code> tags: lag = the
+beep's onset minus the white frame's presentation time, both decoded from the output
+(<code>scripts/measure.py</code>). Frame counts are the AVI header's stored count (null frames included) and the frames a
+decoder returns.</p>
+
+<h2>Before and after, through the worker</h2>
+<div class="scroll"><table>
+<tr><th>source</th><th>output</th><th>time base / avg rate</th><th class="num">stored / decoded</th><th>first pictures (s)</th><th class="num">lag (ms)</th></tr>
+<tr><td rowspan="3"><code>late_video_intra.ts</code>, <code>late_video_gop.ts</code> (MP2)</td><td>AVI FFV1 / HuffYUV, copied, <span class="bad">before</span></td><td class="bad">1/600, 600/1</td><td class="num bad">3006 / 100</td><td class="bad">0, 1.05, 1.09</td><td class="num">+0.1</td></tr>
+<tr><td>AVI FFV1 / HuffYUV, copied, <span class="good">after</span></td><td class="good">1/25, 25/1</td><td class="num good">100 / 100</td><td class="good">0, 0.04, 0.08</td><td class="num">+2.1</td></tr>
+<tr><td>AVI FFV1, restored, <span class="good">after</span></td><td class="good">1/25, 25/1</td><td class="num good">100 / 100</td><td class="good">0, 0.04, 0.08</td><td class="num">+0.08</td></tr>
+<tr><td rowspan="3"><code>late_video.mp4</code> (AAC)</td><td>AVI, copied, <span class="bad">before</span></td><td class="bad">1/600, 600/1</td><td class="num bad">3013 / 100</td><td class="bad">0, 1.0617, 1.1017</td><td class="num">−0.25</td></tr>
+<tr><td>AVI, copied, <span class="good">after</span></td><td class="good">1/25, 25/1</td><td class="num good">100 / 100</td><td class="good">0, 0.04, 0.08</td><td class="num">−2.6</td></tr>
+<tr><td>AVI, restored, <span class="good">after</span></td><td class="good">1/25, 25/1</td><td class="num good">100 / 100</td><td class="good">0, 0.04, 0.08</td><td class="num">+0.1</td></tr>
+<tr><td rowspan="3"><code>late_video.mkv</code> (FLAC)</td><td>AVI, copied, <span class="bad">before</span></td><td class="bad">1/600, 600/1</td><td class="num bad">3000 / 100</td><td class="bad">0, 1.04, 1.08</td><td class="num">+0.08</td></tr>
+<tr><td>AVI, copied, <span class="good">after</span></td><td class="good">1/25, 25/1</td><td class="num good">100 / 100</td><td class="good">0, 0.04, 0.08</td><td class="num">−2.6</td></tr>
+<tr><td>AVI, restored, <span class="good">after</span></td><td class="good">1/25, 25/1</td><td class="num good">100 / 100</td><td class="good">0, 0.04, 0.08</td><td class="num">+0.42</td></tr>
+<tr><td rowspan="2"><code>pal-dvbt-fieldcoded-25i.ts</code> (MP2)</td><td>AVI, copied, <span class="bad">before</span></td><td class="bad">1/600, 600/1</td><td class="num bad">3745 / 126</td><td class="bad">0, 1.2417, 1.2817</td><td class="num">—</td></tr>
+<tr><td>AVI, copied, <span class="good">after</span></td><td class="good">1/25, 25/1</td><td class="num good">126 / 126</td><td class="good">0, 0.04, 0.08</td><td class="num">—</td></tr>
+<tr><td>every late fixture</td><td>MKV, copied (control, before = after)</td><td>1/1000, 25/1</td><td class="num">— / 100</td><td>1.0 (1.01 TS), +0.04 …</td><td class="num">+0.08 … +0.1</td></tr>
+</table></div>
+<p class="caption">The MP4 source's AVI timeline was 21.3 ms later throughout before the fix (AVI drops the AAC priming
+edit); picture and sound moved together, so sync was unaffected. A copied compressed sound is cut at the packet nearest
+the first picture, so its lag is bounded by half a packet (MP2 24 ms, AAC 21.3 ms, FLAC ~21 ms): +2.1 and −2.6 ms here.
+PCM and the restored track are cut to the sample.</p>
+
+<h2>What AVI could do with the gap</h2>
+<p>Three options, each run (<code>scripts/candidates.py</code> runs ffmpeg in the encoder's shape: input 0 is the picture
+from its first frame, input 1 the source's sound).</p>
+<div class="scroll"><table>
+<tr><th>option</th><th>file</th><th>sync</th><th>cost</th></tr>
+<tr><td class="good">A. Start both with the picture (chosen)</td><td>1/25, 100 stored = 100 pictures, frame 0 at 0</td><td>copy cut at the nearest packet: +2.1 ms (TS), −2.6 ms (MP4); PCM: +0.08 ms</td><td>The sound before the first picture is left out, which trims and "Start the sound with the picture" already do. Usually the end of the previous programme.</td></tr>
+<tr><td>B. Pad the head with 25 black or repeated frames, sound from 0</td><td>125 frames from the TS; <strong>126 from the MP4</strong>, a null frame at the head (AAC priming)</td><td>±half a frame from rounding the gap: +10.1 ms (TS), −18.6 ms (MP4); exact only by also cutting the sound's remainder</td><td>Invents 25–30 frames; output frame N is no longer source frame N, so trims, preview, progress, burn-in and Audio Restoration's window would all need a second timeline</td></tr>
+<tr><td>C. Keep it and warn</td><td>600 fps, null frames</td><td>as before</td><td>The broken file still ships</td></tr>
+</table></div>
+<p>A is a one-condition change to the one decision. Every consumer already reads <code>output_video_delay</code> and
+handles a sound start above 0: the sound's input seek, task #24's sound cut (which already applied to "Start the sound
+with the picture" on a late video), Audio Restoration's <code>OutputWindow</code>, transcription and rule 9's sound copy.</p>
+
+<h2>What changed</h2>
+<ul>
+<li><code>VideoJob::output_video_delay</code> returns 0 when <code>!container.stores_stream_start()</code>;
+<code>lead_sound_left_out</code> / <code>lead_sound_note</code> say how much sound an AVI leaves out, logged once per job.</li>
+<li>Task #24's log wording no longer assumes a trim ("for the AVI output", "nearest the in-point or first picture").</li>
+<li>App: <code>ContainerFormat.storesStreamStart</code> (twin); the Audio Restoration notice says an AVI leaves the gap
+out; the pass list no longer suggests Audio Restoration for the gap when the output is AVI.</li>
+<li>Tests: Rust (every container × Passthrough/Convert; MKV/MP4/MOV keep the delay; AVI without a gap unchanged) and
+the heavy <code>integration_video_start_offset_test.dart</code>: every late fixture to AVI with FFV1 and HuffYUV
+(25/1, 100 stored frames, frame 0 at 0, frames 0/1/99 = source frames), sync copied (half a packet + 1 ms) and
+restored (1 ms), and the DVB-T capture (126 stored frames).</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>macOS arm64 only; avienc is the same FFmpeg 9.0 series on every platform, and the nightly runs cover them.</li>
+<li>A copied compressed sound is bounded by half a packet (task #24), not exact.</li>
+<li>The head sound is left out of AVI by design; option B is the way to keep it, at the costs above.</li>
+<li>Found on the way and <strong>not fixed here</strong>: Convert into AVI writes AAC, and the AVI then holds a null
+frame at the head and its sound ~18.6 ms early, on every source, gap or not (the same AAC-priming effect as option B's
+MP4 row). Filed as task #38.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre>(cd worker &amp;&amp; cargo build)
+VAPOURBOX_DEPS_DIR=deps/macos-arm64 BEFORE_WORKER=&lt;a worker built at a7ba1ac&gt; \
+  sh docs/reports/2026-11-avi-late-video/scripts/run.sh</pre>
+<p><code>scripts/worker_avi_late.py</code> runs every worker job above and prints one JSON line per output;
+<code>scripts/measure.py</code> measures one; <code>scripts/candidates.py</code> the three options.</p>
+</main>
+</body>
+</html>

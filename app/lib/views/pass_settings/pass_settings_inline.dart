@@ -312,7 +312,8 @@ class PassSettingsInline extends StatelessWidget {
   /// Restoration's "start the sound with the picture". Shown whenever there
   /// is a gap, badge or not, and never changes a value.
   Widget _buildVideoStartNotice(BuildContext context, MainViewModel viewModel) {
-    final message = videoStartNotice(viewModel.videoInfo?.videoStartOffset ?? 0);
+    final message = videoStartNotice(viewModel.videoInfo?.videoStartOffset ?? 0,
+        container: viewModel.encodingSettings.container);
     if (message == null) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
     return Padding(

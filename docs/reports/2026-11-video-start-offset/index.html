@@ -80,7 +80,7 @@ Now frame N counts from the video's first picture: <span class="good">every seek
 start offset</span>, a decode that doesn't seek resets timestamps when there is a gap, and the frame
 count is the video's own. The output keeps the source's layout (sound first, the picture joining
 when it does in the source): <span class="good">in sync to within 0.8 ms</span> in MKV, MP4 and AVI
-output, with the sound copied losslessly. Audio Restoration gains <em>Start the sound with the
+output, with the sound copied losslessly <span class="caption">(AVI: see the correction below)</span>. Audio Restoration gains <em>Start the sound with the
 picture</em> to drop the sound before the first picture instead, suggested when the gap is
 ≥ 0.25 s. <span class="good">Sources whose streams start together are bit-identical</span> to
 before. Not fixed here: MPEG-TS seeks that land on a later keyframe, so the DVB-T clip's preview
@@ -304,6 +304,16 @@ frame 10, compared by its PNG bytes.</p>
 <code>reserved_colour_tags_4444a.mov</code>, <code>seek_timebase_2997.mov</code>,
 <code>small_clip.mp4</code>, <code>soft_telecine_test.mkv</code>. The Rust unit tests also pin the
 decoder and encoder arguments for an offset-0 job word for word.</p>
+
+<div class="card correction">
+<strong>Correction (2026-11-15, task #30): the AVI row was not a success.</strong> Sync held in AVI, as
+the table says, but the file was broken: AVI has no per-stream start, so avienc wrote the delayed
+picture with a <code>1/600</code> time base and null frames between pictures (3006 stored frames for
+100 pictures, 600 fps to an editor), and the first picture at 0, held for 1.05 s. "In sync … in MKV,
+MP4 and AVI" above should have said MKV and MP4 only. AVI output now starts sound and picture together
+at the first picture (25/1, every picture once) and leaves the sound before it out; see
+<a href="../2026-11-avi-late-video/index.html">A late-starting picture in AVI became a 600 fps file</a>.
+</div>
 
 <div class="card correction">
 <strong>Correction: the offset's definition.</strong> The offset was first taken as the smallest

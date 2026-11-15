@@ -100,7 +100,7 @@ pub struct VideoJob {
     /// Seconds from the container's start to the video's first picture
     /// (`source_decode::video_start_from_probe`). Non-zero when the audio
     /// starts first, as on broadcast captures. Every seek adds it, and the
-    /// output keeps the gap (see `output_video_delay`). Filled by the worker
+    /// output keeps the gap, except in AVI (see `output_video_delay`). Filled by the worker
     /// when the job omits it; `None` and 0 both mean "no gap".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video_start_offset: Option<f64>,
@@ -217,8 +217,24 @@ impl VideoJob {
     /// when the job is trimmed (both then start at the in-point), when the
     /// output or the source has no audio, and when Audio Restoration's "start
     /// the sound with the picture" drops the sound before the first picture
-    /// instead.
+    /// instead. It is also 0 for a container that cannot store where a stream
+    /// starts ([`ContainerFormat::stores_stream_start`], AVI): avienc wrote
+    /// such a delay as null frames at a 1/600 time base, the first picture
+    /// held from 0, so both start with the picture there and the sound before
+    /// it is left out ([`Self::lead_sound_left_out`], task #30).
     pub fn output_video_delay(&self) -> f64 {
+        if self.encoding_settings.container.stores_stream_start() {
+            self.sound_first_gap()
+        } else {
+            0.0
+        }
+    }
+
+    /// The seconds of sound before the first picture that the output would
+    /// keep by delaying the picture, whatever the container: the video start
+    /// offset, or 0 when trimmed, without audio, or with "start the sound with
+    /// the picture".
+    fn sound_first_gap(&self) -> f64 {
         let offset = self.video_start();
         if offset <= 0.0
             || self.in_point_secs() > 0.0
@@ -232,6 +248,24 @@ impl VideoJob {
             return 0.0;
         }
         offset
+    }
+
+    /// The sound before the first picture that the output leaves out only
+    /// because its container cannot store a later video start (AVI), seconds;
+    /// `None` when the output keeps it or there is none.
+    pub fn lead_sound_left_out(&self) -> Option<f64> {
+        let gap = self.sound_first_gap();
+        (gap > 0.0 && !self.encoding_settings.container.stores_stream_start()).then_some(gap)
+    }
+
+    /// The job-log note for [`Self::lead_sound_left_out`].
+    pub fn lead_sound_note(&self) -> Option<String> {
+        self.lead_sound_left_out().map(|gap| {
+            format!(
+                "AVI cannot store a picture that starts after its sound: both start with the picture, \
+                 and the {gap:.3} s of sound before it is left out. MKV, MP4 and MOV keep it, in sync."
+            )
+        })
     }
 
     /// The span of the source's sound the output carries, as `(start,
@@ -2321,4 +2355,53 @@ mod video_start_tests {
         assert_eq!(j.output_video_delay(), 0.0);
         assert_eq!(j.video_start(), 1.322);
     }
+
+    /// Task 30: AVI cannot store where a stream starts, so a late video's
+    /// delay is 0 there and the sound before the first picture is left out
+    /// (and said). Every other container keeps the delay exactly as before.
+    #[test]
+    fn avi_starts_sound_and_picture_together_at_the_first_picture() {
+        for container in [ContainerFormat::Mp4, ContainerFormat::Mov, ContainerFormat::Mkv, ContainerFormat::Avi] {
+            for mode in [AudioMode::Passthrough, AudioMode::Convert] {
+                let mut j = job(Some(1.322));
+                j.encoding_settings.container = container;
+                j.encoding_settings.audio_mode = mode;
+                if container.stores_stream_start() {
+                    assert_eq!(j.output_video_delay(), 1.322, "{container:?}");
+                    assert_eq!(j.source_audio_start(), 0.0);
+                    assert_eq!(j.lead_sound_left_out(), None);
+                    assert!(j.lead_sound_note().is_none());
+                } else {
+                    assert_eq!(j.output_video_delay(), 0.0);
+                    assert_eq!(j.source_audio_start(), 1.322);
+                    assert_eq!(j.source_audio_window(), Some((1.322, None)));
+                    assert_eq!(j.lead_sound_left_out(), Some(1.322));
+                    let note = j.lead_sound_note().unwrap();
+                    assert!(note.contains("AVI") && note.contains("1.322 s"), "{note}");
+                }
+            }
+        }
+
+        // Nothing is left out where nothing would have been kept.
+        let avi = |offset| {
+            let mut j = job(offset);
+            j.encoding_settings.container = ContainerFormat::Avi;
+            j
+        };
+        assert_eq!(avi(None).lead_sound_left_out(), None);
+        let mut j = avi(Some(1.322));
+        j.start_frame = Some(40);
+        assert_eq!(j.lead_sound_left_out(), None, "trimmed: both start at the in-point anyway");
+        let mut j = avi(Some(1.322));
+        j.encoding_settings.audio_mode = AudioMode::None;
+        assert_eq!(j.lead_sound_left_out(), None);
+        let mut j = avi(Some(1.322));
+        j.source_has_audio = Some(false);
+        assert_eq!(j.lead_sound_left_out(), None);
+        let mut j = avi(Some(1.322));
+        start_with_picture(&mut j);
+        assert_eq!(j.lead_sound_left_out(), None, "the user chose it");
+        assert_eq!(j.source_audio_start(), 1.322);
+    }
+
 }

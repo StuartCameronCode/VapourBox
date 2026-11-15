@@ -61,16 +61,18 @@ VideoJob _job(
   int? end,
   AudioMode audio = AudioMode.none,
   AudioRestorationParameters audioPass = const AudioRestorationParameters(),
+  ContainerFormat container = ContainerFormat.mkv,
+  VideoCodec codec = VideoCodec.ffv1,
 }) {
   return VideoJob(
     id: const Uuid().v4(),
     inputPath: input,
-    outputPath: '$_outDir/$name.mkv',
+    outputPath: '$_outDir/$name.${container.extension}',
     qtgmcParameters: _off,
     processingPipeline: ProcessingPipeline(deinterlace: _off, audio: audioPass),
     encodingSettings: EncodingSettings(
-      codec: VideoCodec.ffv1,
-      container: ContainerFormat.mkv,
+      codec: codec,
+      container: container,
       audioMode: audio,
     ),
     inputWidth: 320,
@@ -132,7 +134,8 @@ Future<Uint8List> _beforeFrame(String video, int frame, double offset, SeekPlan?
 /// [img] is source frame [n]: the closest of n-1..n+1, and nearly identical.
 /// Every frame of the fixture differs (testsrc2), and the old fault was 25
 /// frames off, so the neighbours tell a shift from a colour conversion.
-Future<void> _expectFrame(String what, Uint8List img, String video, int n) async {
+Future<void> _expectFrame(String what, Uint8List img, String video, int n,
+    {double maxDiff = 1.0}) async {
   final diffs = <int, double>{
     for (final k in [n - 1, n, n + 1])
       if (k >= 0 && k < _frames)
@@ -141,7 +144,7 @@ Future<void> _expectFrame(String what, Uint8List img, String video, int n) async
   final best = diffs.entries.reduce((a, b) => a.value <= b.value ? a : b).key;
   final table = diffs.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(2)}').join(', ');
   expect(best, n, reason: '$what is source frame $best, not $n ($table)');
-  expect(diffs[n]!, lessThan(1.0), reason: '$what is not source frame $n ($table)');
+  expect(diffs[n]!, lessThan(maxDiff), reason: '$what is not source frame $n ($table)');
 }
 
 /// Presentation times, on the file's own timeline, of its white frames and of
@@ -216,13 +219,14 @@ Future<({List<double> flashes, List<double> beeps, double videoStart})> _events(
 
 /// Each white frame has its beep: the first beep from 0.5 s before it to 1.5 s
 /// after (beeps are 2 s apart and the fault was late sound), within half a frame.
-Future<void> _expectInSync(String what, String path, {required int flashes}) async {
+Future<void> _expectInSync(String what, String path,
+    {required int flashes, double tolerance = _syncTolerance}) async {
   final e = await _events(path);
   expect(e.flashes, hasLength(flashes), reason: '$what: white frames at ${e.flashes}');
   for (final f in e.flashes) {
     final near = e.beeps.where((b) => b - f >= -0.5 && b - f <= 1.5).toList();
     expect(near, isNotEmpty, reason: '$what: no beep for the flash at $f (beeps ${e.beeps})');
-    expect((near.first - f).abs(), lessThan(_syncTolerance),
+    expect((near.first - f).abs(), lessThan(tolerance),
         reason: '$what: the beep is ${(near.first - f).toStringAsFixed(4)} s from '
             'the flash at $f');
   }
@@ -238,6 +242,38 @@ Future<int> _countFrames(String path) async {
   final s = await WorkerHarness.firstStream(path,
       selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
   return int.parse('${s!['nb_read_frames']}');
+}
+
+/// The video stream of an AVI as stored: its average rate, the frame count
+/// in its header (null frames included: the 600 fps trap of task #30, which
+/// `nb_read_frames` hides) and the first frames' times.
+Future<({String rate, int stored, List<double> pts})> _aviVideo(String path) async {
+  final v = await WorkerHarness.ffprobeJson([
+    '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+    'stream=avg_frame_rate,time_base,nb_frames', '-read_intervals', '%+#3',
+    '-show_entries', 'frame=pts_time', '-of', 'json', path,
+  ]);
+  final s = (v['streams'] as List).first as Map<String, dynamic>;
+  return (
+    rate: '${s['avg_frame_rate']}',
+    stored: int.parse('${s['nb_frames']}'),
+    pts: [for (final f in v['frames'] as List) double.parse('${f['pts_time']}')],
+  );
+}
+
+/// Half the longest of the source's first audio packets, seconds: how far a
+/// copied compressed sound cut at a packet may sit from the first picture.
+Future<double> _halfPacket(String video) async {
+  final a = await WorkerHarness.ffprobeJson([
+    '-v', 'error', '-select_streams', 'a:0', '-read_intervals', '%+#32',
+    '-show_entries', 'packet=duration_time', '-of', 'json', video,
+  ]);
+  var longest = 0.0;
+  for (final pk in a['packets'] as List) {
+    final d = double.tryParse('${pk['duration_time']}') ?? 0;
+    if (d > longest && d < 1) longest = d;
+  }
+  return longest / 2;
 }
 
 void main() {
@@ -336,6 +372,57 @@ void main() {
         if (d != null) expect(d, closeTo(_frames / _fps, 0.1));
       });
 
+      // Task #30: AVI cannot store a picture that starts after its sound
+      // (avienc wrote null frames at 1/600 and held the first picture from
+      // 0), so an untrimmed AVI starts both with the picture.
+      for (final codec in [VideoCodec.ffv1, VideoCodec.huffyuv]) {
+        test('untrimmed to AVI (${codec.value}): a constant-rate file, every picture once',
+            () async {
+          final out = await _encode(
+              _job(video, 'avi_${codec.value}_$stem',
+                  audio: AudioMode.passthrough, container: ContainerFormat.avi, codec: codec),
+              'vstart_avi');
+          final v = await _aviVideo(out);
+          expect(v.rate, '25/1');
+          expect(v.stored, _frames, reason: 'stored frames, null frames included');
+          expect(v.pts.take(2).toList(), [0.0, 0.04]);
+          for (final i in [0, 1, _frames - 1]) {
+            // HuffYUV stores 4:2:2, so its chroma is resampled (~1.2 levels).
+            await _expectFrame('output frame $i of the AVI',
+                await WorkerHarness.frameRgb24(out, i, label: 'avi'), video, i,
+                maxDiff: codec == VideoCodec.huffyuv ? 2.0 : 1.0);
+          }
+        });
+      }
+
+      // (Convert is left out: its AAC in AVI gains a frame at the head on
+      // every source, gap or not, a separate fault.)
+      test('untrimmed to AVI: in sync from the first picture, copied and restored',
+          () async {
+        final half = await _halfPacket(video);
+        final copied = await _encode(
+            _job(video, 'avi_sync_copy_$stem',
+                audio: AudioMode.passthrough, container: ContainerFormat.avi),
+            'vstart_avi_sync_copy');
+        // PCM is re-written to the sample; a compressed copy is cut at the
+        // packet nearest the first picture.
+        await _expectInSync('AVI, copied', copied, flashes: 2, tolerance: half + 0.001);
+        for (final (label, job) in [
+          ('restored', _job(video, 'avi_sync_restored_$stem',
+              audio: AudioMode.passthrough,
+              container: ContainerFormat.avi,
+              audioPass: const AudioRestorationParameters(enabled: true, limiter: true))),
+        ]) {
+          final out = await _encode(job, 'vstart_avi_sync_$label');
+          await _expectInSync('AVI, $label', out, flashes: 2, tolerance: 0.001);
+          final e = await _events(out);
+          expect(e.flashes.first, closeTo(1.0, 0.001), reason: 'frame 25 at 1 s');
+          final a = await WorkerHarness.firstStream(out, selector: 'a:0', entries: ['duration']);
+          final d = double.tryParse('${a?['duration']}');
+          if (d != null) expect(d, closeTo(_frames / _fps, 0.05), reason: 'AVI, $label');
+        }
+      });
+
       test('trimmed $_trimStart..89, sound copied and restored: in sync', () async {
         final copied = await _encode(
             _job(video, 'sync_trim_copy_$stem',
@@ -353,6 +440,27 @@ void main() {
       });
     });
   }
+
+  test('the DVB-T capture to AVI: its 126 pictures at 25/1, the first at 0 (task #30)', () async {
+    final video = _resource('pal-dvbt-fieldcoded-25i.ts');
+    final job = VideoJob(
+      id: const Uuid().v4(),
+      inputPath: video,
+      outputPath: '$_outDir/dvbt.avi',
+      qtgmcParameters: _off,
+      processingPipeline: const ProcessingPipeline(deinterlace: _off),
+      encodingSettings: EncodingSettings(
+        codec: VideoCodec.ffv1,
+        container: ContainerFormat.avi,
+        audioMode: AudioMode.passthrough,
+      ),
+      inputFrameRate: _fps,
+    );
+    final v = await _aviVideo(await _encode(job, 'vstart_dvbt_avi'));
+    expect(v.rate, '25/1');
+    expect(v.stored, 126, reason: 'every picture once, no null frames');
+    expect(v.pts.take(2).toList(), [0.0, 0.04]);
+  });
 
   test('a source whose streams start together gets no delay', () async {
     final video = _resource('seek_timebase_2997.mov');

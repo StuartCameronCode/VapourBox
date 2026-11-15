@@ -1212,6 +1212,12 @@ fn run_worker(
             .sound_sidecar(&job, restored_audio.as_ref().map(|r| &r.track))
     };
 
+    // AVI cannot store a picture that starts after its sound either, so an
+    // untrimmed late video starts both with the picture there (task #30).
+    if let Some(note) = job.lead_sound_note() {
+        reporter.send_log(models::LogLevel::Info, &note);
+    }
+
     // AVI cannot store where a stream starts, so a copied sound that the
     // encoder seeks is cut there instead (audio_restoration::SoundCut).
     let sound_cut = {

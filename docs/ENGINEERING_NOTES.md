@@ -4315,3 +4315,27 @@ the preview showed them.
   frame-count refusal, a frame-time raise, and that an unknown encoder is still
   reported as ffmpeg's error. Only macOS was recorded; the text is vspipe's and
   FFmpeg 9.0's own on every platform.
+
+### A late-starting picture in AVI (task #30, 2026-11-15)
+
+Report: [docs/reports/2026-11-avi-late-video](reports/2026-11-avi-late-video/index.html).
+
+- **The fault:** `output_video_delay` keeps a late video's layout (sound
+  first, picture delayed by `settb`/`setpts` in the encoder). MKV/MP4/MOV
+  store that as the video's start; AVI cannot, so avienc wrote a 1/600 time
+  base with null frames (3006 stored frames for 100 pictures, 3745 for the
+  DVB-T clip's 126) and the first picture at 0, held 1.0–1.24 s. Sync after
+  the first picture was right, which is why the video-start-offset report
+  called the AVI row in sync (now corrected there).
+- **Fix:** `output_video_delay` is 0 when `!container.stores_stream_start()`;
+  the sound starts at the first picture through the paths a trim uses
+  (input `-ss`, task #24's sound cut, `OutputWindow`). After: 25/1, stored =
+  pictures, frame 0 at 0; restored ≤ 0.42 ms, copied +2.1 ms (MP2) / −2.6 ms
+  (AAC, FLAC), within half a packet. `lead_sound_note` logs the seconds left
+  out; the app's notice says so for AVI and the pass list no longer suggests
+  "start the sound with the picture" there (nothing left for it to change).
+- **Rejected:** padding the head with K frames (exact only to half a frame,
+  +10.1 / −18.6 ms, and frame N ≠ source frame N everywhere downstream);
+  keeping the 600 fps file with a warning.
+- **Found, not fixed:** Convert into AVI (AAC) puts a null frame at the head
+  and the sound ~18.6 ms early on every source, gap or not (task #38).

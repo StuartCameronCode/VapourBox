@@ -2,6 +2,7 @@ import '../services/field_order_detector.dart';
 import 'audio_restoration_parameters.dart';
 import 'noise_halo_report.dart';
 import 'processing_pipeline.dart';
+import 'video_job.dart' show ContainerFormat;
 
 /// How much a pass has to do with the file that is actually loaded.
 enum PassRelevance {
@@ -64,8 +65,12 @@ const int _sdMaxHeight = 576;
 ///
 /// Returns [PassRelevanceResult.neutral] for a null [info] (nothing loaded yet)
 /// and for anything detection can't speak to.
+///
+/// [container] is the output's: in one that cannot store a later video start
+/// (AVI) the output already starts the sound with the picture, so Audio
+/// Restoration is not suggested for the gap there.
 PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info,
-    {NoiseHaloReport? measured}) {
+    {NoiseHaloReport? measured, ContainerFormat? container}) {
   if (info == null) return PassRelevanceResult.neutral;
 
   // Soft telecine stored at its film rate already decodes to progressive
@@ -163,7 +168,8 @@ PassRelevanceResult relevanceFor(PassType pass, VideoInfo? info,
     // exactly. The output keeps that layout in sync by default, so this only
     // points at the one step that changes it, never at the sync offset.
     case PassType.audioRestoration:
-      if (info.videoStartOffset >= videoStartSuggestThreshold) {
+      if (info.videoStartOffset >= videoStartSuggestThreshold &&
+          (container?.storesStreamStart ?? true)) {
         return PassRelevanceResult(
           PassRelevance.recommended,
           'sound starts ${info.videoStartOffset.toStringAsFixed(2)} s before the picture',

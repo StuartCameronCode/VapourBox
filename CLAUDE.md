@@ -1159,11 +1159,20 @@ the **single** builder of both decoders' arguments (encode + preview):
     `-enc_time_base`) and copies the sound from the start, which is in sync
     and lossless. A trim seeks the sound to offset + in-point
     (`source_audio_start`), as do `OutputWindow` and transcription.
-  - **Only `startWithPicture` drops the sound before the first picture**, and
+  - **Except in AVI** (`ContainerFormat::stores_stream_start`, Dart
+    `storesStreamStart`): avienc cannot store a late picture (it wrote a
+    1/600 time base with null frames, the first picture held from 0), so
+    `output_video_delay` is 0 there and both start with the picture, the
+    sound seeked and cut as a trim's is (task #24's `SoundCut`). The job log
+    says how much sound is left out (`lead_sound_note`), and so does the
+    Audio Restoration panel (task #30, docs/reports/2026-11-avi-late-video).
+  - **Only `startWithPicture`, or AVI output, drops the sound before the first picture**, and
     **never prefill the sync offset (`offsetMs`) from the start offset**: it
     moves sound against picture and would create the desync it seems to fix.
   `integration_video_start_offset_test.dart` (heavy) checks pictures and sync
-  on late-video TS/MKV/MP4 fixtures (docs/reports/2026-11-video-start-offset).
+  on late-video TS/MKV/MP4 fixtures, and the AVI layout (stored frames =
+  pictures; the 600 fps trap hides from `nb_read_frames`)
+  (docs/reports/2026-11-video-start-offset).
 
 - **MPEG-TS/PS seek a GOP early and trim to the frame (issue #169).** They
   have no keyframe index: libavformat's timestamp search lands on a non-key
@@ -2204,7 +2213,9 @@ Rules, from docs/reports/2026-11-audio-restoration:
   reads the gap from the timestamps) and does nothing without a gap. The pass
   list suggests the pass when the gap is ≥ 0.25 s
   (`videoStartSuggestThreshold`; ffmpeg's TS muxer leaves 10–21 ms), and the
-  panel describes any gap; neither ticks anything. See "Source Frame Size".
+  panel describes any gap; neither ticks anything. In AVI output it changes
+  nothing (AVI already starts with the picture), so the suggestion is not
+  shown there (`relevanceFor(..., container:)`). See "Source Frame Size".
 - **One stream is restored** (`streamIndex`, default the first). The encoder
   maps the rendered track first, then the source's other audio streams
   untouched (trimmed into AVI, cut like any copy: `SoundCut`), each with its own tags (`encode_map_args`; naming one stream's
