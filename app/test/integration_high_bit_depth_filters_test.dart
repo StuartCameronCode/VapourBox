@@ -256,6 +256,48 @@ Future<String> _scratchedFixture(String pixFmt) async {
   return path;
 }
 
+/// The fixture at [pixFmt] with known camera shake: each frame of the master
+/// moved 2 px left or right (alternating) and 2 px up or down (in pairs), the
+/// edges smeared back to full size. For Stabilize (task #32).
+///
+/// On the plain master, which holds no global motion, Depan's estimate is a
+/// near-tie between ±0.011 px whose winner changes from run to run with
+/// VapourSynth's threading, and on some runners the estimate came out exactly
+/// zero, so the pass returned the source and the "did it do anything" check
+/// failed intermittently on every platform but macOS arm64. With every frame
+/// off the window's mean in both axes the estimate is unambiguous, and the
+/// output was identical over 12 multithreaded runs (and at 8-bit). This is
+/// also the fixture that showed Depan misreading 8-bit samples (8 vs 10-bit
+/// 9.66 levels apart with havsfunc's Stab, 0.343 with `stabilize.weave`;
+/// docs/reports/2026-11-depan-8-bit).
+Future<String> _shakenFixture(String pixFmt) async {
+  final path = '$_outDir/shaken_$pixFmt.mkv';
+  if (File(path).existsSync()) return path;
+  final master = await _master();
+  final result = await Process.run(
+    WorkerHarness.ffmpegPath,
+    [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', master,
+      '-vf', "crop=w=${_width - 12}:h=${_height - 12}"
+          ":x='6+2*(2*mod(n\\,2)-1)':y='6+2*(2*mod(floor(n/2)\\,2)-1)',"
+          'pad=$_width:$_height:6:6,'
+          'fillborders=left=6:right=6:top=6:bottom=6:mode=smear,'
+          'setfield=tff',
+      '-c:v', 'ffv1', '-pix_fmt', pixFmt,
+      path,
+    ],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(result.exitCode, 0,
+      reason: 'shaken fixture generation failed for $pixFmt: ${result.stderr}');
+  return path;
+}
+
+/// The fixture [pass] runs on, at [pixFmt].
+Future<String> _fixtureFor(_Pass pass, String pixFmt) =>
+    pass.shaken ? _shakenFixture(pixFmt) : _fixture(pixFmt);
+
 /// Every frame of [path] decoded as raw [pixFmt] (no conversion when it is the
 /// file's own format), so planes can be compared byte for byte.
 Future<Uint8List> _rawFrames(String path, String pixFmt) async {
@@ -337,10 +379,15 @@ class _Pass {
   const _Pass(this.name, this.pipeline,
       {this.tolerance = 2.0,
       this.changesPicture = true,
-      this.needsKnlmDevice = false});
+      this.needsKnlmDevice = false,
+      this.shaken = false});
 
   final String name;
   final ProcessingPipeline pipeline;
+
+  /// Run on [_shakenFixture] rather than the plain master: a stabiliser has
+  /// nothing to do on a picture with no global motion.
+  final bool shaken;
 
   /// Whether the pass needs a working KNLMeansCL OpenCL device. Without one the
   /// worker refuses the job by design, so the pass is skipped (with a printed
@@ -486,6 +533,7 @@ List<_Pass> _passes() => [
         _only(
           stabilize: const StabilizeParameters(enabled: true, pitchMode: PitchMode.auto),
         ),
+        shaken: true,
       ),
       _Pass(
         'stabilize_black_edges',
@@ -493,6 +541,7 @@ List<_Pass> _passes() => [
           stabilize: const StabilizeParameters(
               enabled: true, pitchMode: PitchMode.auto, pitchEdgeFill: EdgeFill.black),
         ),
+        shaken: true,
       ),
 
       _Pass(
@@ -929,14 +978,16 @@ ProcessingPipeline _stackedPipeline() => _only(
       ),
     );
 
-/// The unfiltered 10-bit frame, rendered once and reused as the reference every
-/// pass is checked against for "did this actually do anything".
-Uint8List? _passthroughCache;
+/// The unfiltered 10-bit frame, rendered once per fixture and reused as the
+/// reference every pass is checked against for "did this actually do
+/// anything". Keyed by [_Pass.shaken].
+final _passthroughCache = <bool, Uint8List>{};
 
-Future<Uint8List> _passthroughRgb10() async {
-  final cached = _passthroughCache;
+Future<Uint8List> _passthroughRgb10({bool shaken = false}) async {
+  final cached = _passthroughCache[shaken];
   if (cached != null) return cached;
-  final fixture = await _fixture('yuv422p10le');
+  final fixture =
+      await (shaken ? _shakenFixture('yuv422p10le') : _fixture('yuv422p10le'));
   final result = await WorkerHarness.runPreview(
     _job(fixture: fixture, pixFmt: 'yuv422p10le', pipeline: _only()).toJson(),
     frame: _previewFrame,
@@ -944,7 +995,7 @@ Future<Uint8List> _passthroughRgb10() async {
   );
   expect(result.success, isTrue,
       reason: 'the passthrough reference frame must render: $result');
-  return _passthroughCache =
+  return _passthroughCache[shaken] =
       await WorkerHarness.imageToRgb24(result.png!, label: 'ref10');
 }
 
@@ -983,7 +1034,7 @@ void main() {
     for (final pass in _passes()) {
       test(pass.name, () async {
         if (await _skipWithoutDevice(pass)) return;
-        final fixture = await _fixture('yuv422p10le');
+        final fixture = await _fixtureFor(pass, 'yuv422p10le');
         final result = await WorkerHarness.runPreview(
           _job(
                   fixture: fixture,
@@ -1018,7 +1069,7 @@ void main() {
       for (final pass in _passes()) {
         test('${pass.name} on $pixFmt', () async {
           if (await _skipWithoutDevice(pass)) return;
-          final fixture = await _fixture(pixFmt);
+          final fixture = await _fixtureFor(pass, pixFmt);
           final result = await WorkerHarness.runPreview(
             _job(fixture: fixture, pixFmt: pixFmt, pipeline: pass.pipeline)
                 .toJson(),
@@ -1041,8 +1092,8 @@ void main() {
     for (final pass in _passes()) {
       test(pass.name, () async {
         if (await _skipWithoutDevice(pass)) return;
-        final src8 = await _fixture('yuv422p');
-        final src10 = await _fixture('yuv422p10le');
+        final src8 = await _fixtureFor(pass, 'yuv422p');
+        final src10 = await _fixtureFor(pass, 'yuv422p10le');
 
         final eight = await WorkerHarness.runPreview(
           _job(fixture: src8, pixFmt: 'yuv422p', pipeline: pass.pipeline).toJson(),
@@ -1069,7 +1120,7 @@ void main() {
         // A pass that changes nothing would sail through the comparison below
         // while testing nothing, so prove it is doing work first.
         if (pass.changesPicture) {
-          final reference = await _passthroughRgb10();
+          final reference = await _passthroughRgb10(shaken: pass.shaken);
           final changed = rgb10.length != reference.length ||
               WorkerHarness.meanAbsDiff(rgb10, reference) > 0.05;
           expect(changed, isTrue,

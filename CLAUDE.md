@@ -121,7 +121,7 @@ VapourBox/
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
-| `worker/templates/stabilize.py` | Stabilize pass's vertical pitch correction (see "Stabilize") |
+| `worker/templates/stabilize.py` | Stabilize pass: the weave (`Stab` measured at 16-bit) and the vertical pitch correction (see "Stabilize") |
 | `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
 | `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
@@ -1439,9 +1439,18 @@ One pass, two independent corrections, weave first. It runs **last before
 framing** (after Colour Correction, before Rotate / Flip and Crop & Resize), so
 a crop can remove the edges both corrections expose.
 
-- **Weave / shake** — havsfunc `Stab(clp, dxmax, dymax, mirror)`
-  (`mv.DepanEstimate` / `DepanCompensate` against a 15-frame average), called
-  straight from both templates. On by default (`weave: true`).
+- **Weave / shake** — `stabilize.weave`: havsfunc's `Stab(clp, dxmax,
+  dymax, mirror)` (`mv.DepanEstimate` / `DepanCompensate` against a 15-frame
+  average) with the motion **measured on a 16-bit copy**. MVTools' Depan
+  reads every format as 16-bit samples (`frame_data2d` compares bytes per
+  sample with 8 and 32), so on 8-bit it measured horizontal shake at about
+  half. The clip itself is compensated, at its own depth. **Never call
+  `haf.Stab` or `mv.DepanEstimate` on a non-16-bit clip directly**
+  (task #32, docs/reports/2026-11-depan-8-bit). On by default (`weave: true`).
+  On a picture with no global motion, Depan's estimate is a ±0.011 px
+  near-tie that varies with VapourSynth's threading. So a test of this pass
+  needs a fixture with real shake (`_shakenFixture` in
+  `integration_high_bit_depth_filters_test.dart`).
 - **Vertical pitch ("frame height breathing")** — pull-through film scanners
   let the film slip in the gate, so each frame is a fraction of a percent
   taller or shorter than the last. `worker/templates/stabilize.py`
@@ -1464,9 +1473,10 @@ Invariants that are easy to break:
 
 - **A pipeline saved before pitch existed must produce the same script.** Old
   JSON has only `enabled/dxmax/dymax/mirror`; it deserialises to weave on,
-  pitch off, and the generator emits the Stab block byte-for-byte as before
-  (the inner `{{#STAB_WEAVE}}`/`{{#STAB_PITCH}}` tags go with their whole
-  lines — `keep_block_lines`). `test_212` pins it.
+  pitch off, and the generator emits the weave block byte-for-byte. It was
+  changed deliberately once (task #32: `Stab` became `stabilize.weave`). The
+  inner `{{#STAB_WEAVE}}`/`{{#STAB_PITCH}}` tags go with their whole lines
+  (`keep_block_lines`). `test_212` pins it.
 - **The pass's temporal reach is declared.** `Stab` reads n-8…n+9 (measured
   under vspipe: the ±7 average, its scene-change look-ahead, and Depan's
   interleaved pair), auto pitch another radius+1. `StabilizeParameters::radius`

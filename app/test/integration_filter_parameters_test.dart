@@ -1613,8 +1613,8 @@ void main() {
       );
       print('  Generating Stab script...');
       final script = await generateScriptViaWorker(job);
-      expect(script, contains('haf.Stab('));
-      final actual = parseFilterParams(script, 'haf.Stab(');
+      expect(script, contains('_stab_weave('));
+      final actual = parseFilterParams(script, '_stab_weave(');
       print('  Parsed ${actual.length} params');
       expect(actual['dxmax'], '6');
       expect(actual['dymax'], '8');
@@ -1636,7 +1636,7 @@ void main() {
       );
       final script = await generateScriptViaWorker(
           buildJob(testName: 'stabilize_auto', stabilize: typed));
-      final weave = parseFilterParams(script, 'haf.Stab(');
+      final weave = parseFilterParams(script, '_stab_weave(');
       expect(weave['dxmax'], '6');
       expect(weave['dymax'], '2');
       expect(script, contains('_stab_correct_pitch('));
@@ -1646,7 +1646,7 @@ void main() {
       expect(actual['radius'], '12');
       expect(actual['black'], 'True');
       expect(actual.containsKey('factors_path'), isFalse);
-      expect(script.indexOf('haf.Stab('), lessThan(script.indexOf('_stab_correct_pitch(')));
+      expect(script.indexOf('_stab_weave('), lessThan(script.indexOf('_stab_correct_pitch(')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
@@ -1659,7 +1659,7 @@ void main() {
         );
         final script = await generateScriptViaWorker(buildJob(
             testName: 'stabilize_file', stabilize: typed, pitchFactorsPath: factors.path));
-        expect(script, isNot(contains('haf.Stab(')));
+        expect(script, isNot(contains('_stab_weave(')));
         final actual = parseFilterParams(script, '_stab_correct_pitch(');
         expect(actual['mode'], '"file"');
         expect(actual['invert'], 'True');

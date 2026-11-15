@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Depan on 8-bit</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>Stabilize under-corrected horizontal shake on every 8-bit source</h1>
+<p class="meta">2026-11-15 · task #32 (overnight CI failures) · deps 1.16.0 · measured on an Apple Silicon Mac (macOS arm64 bundle).
+The fault is in MVTools' C++ (a sample-size comparison), not in CPU-dispatched code, and the same lines are in the MVTools
+<code>master</code> that the macOS and Linux bundles build and the <code>v24</code> tag Windows and macOS x64 ship.</p>
+
+<div class="card">
+<p><strong>Outcome: fixed in the templates.</strong> The Stabilize pass's weave correction is havsfunc's <code>Stab</code>, which measures
+global motion with MVTools' <code>DepanEstimate</code>. On 8-bit input that estimate reads each row as 16-bit samples, so it
+measured horizontal motion at about <span class="bad">half</span> its size. A clean 2 px shift came out as 0.91–0.97 px, against
+1.94 px at 10 and 16-bit. Vertical motion was measured right at every depth. The weave now measures motion on a 16-bit copy and
+compensates the clip itself (<code>stabilize.weave</code>). A 16-bit integer clip gets exactly havsfunc's <code>Stab</code>, and 10-bit
+was already right. On the heavy parity test's shaken fixture, 8-bit and 10-bit previews went from
+<span class="bad">9.66</span> to <span class="good">0.343</span> levels apart (tolerance 2.0).</p>
+</div>
+
+<h2>How it was found</h2>
+<p>Every nightly since Stabilize shipped (11-10) failed the <code>stabilize</code> / <code>stabilize_black_edges</code> cases of
+<code>integration_high_bit_depth_filters_test.dart</code> on some platform. The check that failed was "the pass produced the same frame as a passthrough".
+The fixture is <code>testsrc2</code> with grain and MPEG-2 artefacts, and it has no global motion, so Depan was estimating noise. On some runners the estimate
+came out zero, and the pass returned the source. When the case passed, 8-bit and 10-bit differed by 1.48–1.82 levels, far looser than any other pass.</p>
+<p>The same 10-bit preview also gave different pictures on different runs (2 of 15 locally). With <code>core.num_threads = 1</code> it was identical every
+time, and of the pass's pieces only <code>DepanEstimate</code> varied: its <code>dx</code> flipped between ±0.011 px. With nothing to measure, the
+correlation peak is a near-tie, and which side wins depends on threading. So the test was given a fixture with known shake. That made it deterministic
+and exposed the depth difference below.</p>
+
+<h2>1. The cause</h2>
+<p><code>frame_data2d</code> in <code>src/MVDepan.cpp</code> copies the FFT window and chooses how to read a sample like this:</p>
+<pre>if (bytes_per_sample == 8) {          // 8-bit read
+    ...
+} else if (bytes_per_sample == 32) {  // float read
+    ...
+} else {                              // 16-bit read
+    const uint16_t *srcp16 = (const uint16_t *)srcp;
+    ...</pre>
+<p>Its callers pass <code>vi-&gt;format.bytesPerSample</code>, which is 1, 2 or 4, never 8 or 32. So every format takes the 16-bit branch. That is
+right for 9–16-bit integer, but on 8-bit it reads two pixels as one sample, and twice the window's width, past the window. That halves the horizontal
+resolution of the correlation and reads unrelated bytes. A float clip is misread too, but none reaches Stabilize.</p>
+
+<h2>2. Measurements</h2>
+<h3>DepanEstimate on a known shift</h3>
+<p>Each frame of the degraded master against a copy of itself cropped 2 px across, down or both. There is no averaging, no Stab, and no compensation.
+Means over 12 pairs:</p>
+<div class="scroll"><table>
+<tr><th>True shift (x, y)</th><th>Format</th><th class="num">Measured dx</th><th class="num">Measured dy</th></tr>
+<tr><td>2, 0</td><td>8-bit</td><td class="num bad">0.942</td><td class="num">0.000</td></tr>
+<tr><td>2, 0</td><td>10-bit</td><td class="num good">1.936</td><td class="num">0.000</td></tr>
+<tr><td>2, 0</td><td>16-bit</td><td class="num good">1.936</td><td class="num">0.000</td></tr>
+<tr><td>0, 2</td><td>8-bit</td><td class="num">-0.010</td><td class="num good">1.954</td></tr>
+<tr><td>0, 2</td><td>10-bit</td><td class="num">0.000</td><td class="num good">1.965</td></tr>
+<tr><td>2, 2</td><td>8-bit</td><td class="num bad">0.911</td><td class="num good">1.954</td></tr>
+<tr><td>2, 2</td><td>10-bit</td><td class="num good">1.936</td><td class="num good">1.965</td></tr>
+</table></div>
+<p class="caption">The 8-bit dx also moved between two runs of the same script (0.973 and 0.942 for the 2, 0 case), as you would expect from a read
+past the window. Even 10/16-bit measure slightly under 2 px: the clip is noisy MPEG-2, and the cropped copy loses its edge columns.</p>
+
+<h3>Run-to-run determinism</h3>
+<p>The whole 25-frame clip run 8 times, with each run's frame hashes hashed together. The table gives the number of distinct outputs, so 1 means deterministic.
+"plain" is the test's motion-free master. "shaken" is the same picture moved ±2 px across (alternating frames) and ±2 px down (in pairs).</p>
+<div class="scroll"><table>
+<tr><th>Fixture</th><th>Format</th><th class="num">Stab, all threads</th><th class="num">Stab, 1 thread</th><th class="num">weave, all threads</th><th class="num">weave, 1 thread</th></tr>
+<tr><td>plain</td><td>8-bit</td><td class="num">1</td><td class="num">1</td><td class="num warn">8</td><td class="num">1</td></tr>
+<tr><td>plain</td><td>10-bit</td><td class="num warn">8</td><td class="num">1</td><td class="num warn">8</td><td class="num">1</td></tr>
+<tr><td>shaken</td><td>8-bit</td><td class="num">1</td><td class="num">1</td><td class="num good">1</td><td class="num">1</td></tr>
+<tr><td>shaken</td><td>10-bit</td><td class="num">1</td><td class="num">1</td><td class="num good">1</td><td class="num">1</td></tr>
+</table></div>
+<p>On a picture with real motion, both depths are deterministic. On a motion-free picture, the near-tie makes the result depend on threading. That was
+already true at 10-bit and above, and now it is true at 8-bit as well, because 8-bit is now measured the way 10-bit always was. Old 8-bit looked
+deterministic only because its misread landed on the same wrong answer every time. How large the difference is (plain 8-bit, weave, run 1 against two
+other runs):</p>
+<div class="scroll"><table>
+<tr><th>Region</th><th class="num">Max difference</th><th class="num">Mean difference</th></tr>
+<tr><td>Inside an 8 px border</td><td class="num">5</td><td class="num">0.028–0.033</td></tr>
+<tr><td>Whole frame</td><td class="num warn">202–204</td><td class="num">0.10–0.13</td></tr>
+</table></div>
+<p class="caption">Levels out of 255, luma. The large maximum is the frame edge: with <code>mirror=0</code> (the default), a sub-pixel change of sign
+decides whether a one-pixel black column appears. Inside the picture the difference is negligible.</p>
+
+<h3>8-bit against 10-bit, through the worker</h3>
+<p>From the heavy test's parity group, using the shaken fixture's frame 12 (RGB preview, mean absolute difference in levels):</p>
+<div class="scroll"><table>
+<tr><th>Weave implementation</th><th class="num">8 vs 10-bit</th></tr>
+<tr><td>havsfunc <code>Stab</code> (before)</td><td class="num bad">9.66</td></tr>
+<tr><td><code>stabilize.weave</code> (after)</td><td class="num good">0.343</td></tr>
+</table></div>
+<p class="caption">From <code>flutter test --tags heavy test/integration_high_bit_depth_filters_test.dart --plain-name stabilize</code>. For the
+"before" row, put <code>haf.Stab</code> back in the <code>{{#STAB_WEAVE}}</code> blocks. Each figure was the same on three runs. The other passes in that
+group sit around 0.7.</p>
+
+<h2>3. Decisions</h2>
+<ul>
+<li><strong>Measure on 16-bit, compensate the clip itself.</strong> <code>DepanCompensate</code> only applies the measured shift, so the picture keeps
+its own depth and nothing is converted back. The averages <code>Stab</code> compares against are rebuilt the same way at each depth.</li>
+<li><strong>In <code>stabilize.py</code>, not a havsfunc patch.</strong> The patches in the <code>download-deps-*</code> scripts would need a deps release,
+and they cannot touch the Windows DLL. One Python helper, imported by both templates, keeps preview and encode identical.</li>
+<li><strong>8-bit Stabilize output changes.</strong> This is deliberate: it now removes the horizontal shake it was missing.
+<code>test_212</code> pins the new weave block, so a pipeline saved before pitch correction still gets a fixed, known script.</li>
+<li><strong>The motion-free near-tie stays.</strong> It moves the picture by ±0.011 px, and only on frames where there is no shake to remove. Fixing it
+would mean replacing Depan.</li>
+<li><strong>The test uses the shaken fixture</strong> for both Stabilize cases. On the plain one, the "does the pass do anything" check rested on that near-tie.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>Real shaky footage, on any platform but macOS arm64. The cause is a comparison in portable C++, so the halving is the same everywhere. The nightly
+parity run checks the result on every platform.</li>
+<li>Whether the motion-free near-tie comes from FFTW, from frame-property buffers, or from something else inside the plugin.</li>
+<li>Reporting it upstream. The fix would be to compare <code>bytes_per_sample</code> with 1 and 4.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>SCRATCH=/some/scratch/dir DEPS=deps/macos-arm64 docs/reports/2026-11-depan-8-bit/scripts/measure.sh</pre>
+<p><code>measure.sh</code> builds the test's fixtures with ffmpeg and runs <code>stab.vpy</code> under the bundle's vspipe, reading raw frames through the
+templates' <code>pipe_source</code>. It needs no source plugin and no NumPy. <code>RUNS</code> sets the number of runs for the determinism table (default 8).</p>
+</main>
+</body>
+</html>
