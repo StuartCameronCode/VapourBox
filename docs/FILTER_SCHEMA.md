@@ -475,8 +475,8 @@ parameter's `vapoursynth.name` where given.
 
 > The **encode path does not run on this**. The real script comes from
 > `worker/templates/pipeline_template.vpy` plus `worker/src/script_generator.rs`,
-> and the preview from `preview_template.vpy`. A new filter needs a template block
-> in **both**, whatever `codeTemplate` says.
+> which generate the preview from the same template. A new filter needs a
+> template block there, whatever `codeTemplate` says.
 
 ## Worked Example
 

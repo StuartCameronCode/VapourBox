@@ -254,7 +254,7 @@ though the wheels declare them).
 
 ### Using it from a pass
 
-Both templates carry, near the top:
+The script template carries, near the top:
 
 ```python
 {{#AI_RUNTIME}}
@@ -317,7 +317,7 @@ it with `WorkerManager.probeAiRuntime()` → `AiRuntimeStatus`.
    CLAUDE.md, "Attribution"). A non-commercial licence needs `usageNote`.
 4. **Worker**: the pass adds an `AddonNeed` in `ProcessingPipeline::required_addons()`
    and loads its files from `addons::addon_dir(...)`; its template block uses
-   `ai_runtime` (both templates).
+   `ai_runtime`.
 5. **App**: the feature calls `AddonPrompt.ensure(context, ['<id>'], reason: …)`
    when it is chosen.
 6. **Tests**: a heavy integration test that calls

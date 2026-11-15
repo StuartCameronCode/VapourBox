@@ -3,6 +3,13 @@ VapourBox Multi-Pass Restoration Pipeline Template
 Supports: Crop, Deinterlace (QTGMC), Noise Reduction, Dehalo, Deblock, Deband, Sharpen, Chroma Fixes, Color Correction, Resize
 Placeholders use the format: {{PARAMETER_NAME}}
 Conditional blocks use: {{#BLOCK_NAME}}...{{/BLOCK_NAME}}
+
+The one template for both the encode and the preview (task #42). When it loads
+this file the worker keeps the ENCODE_ONLY blocks and drops the PREVIEW_ONLY
+ones for an encode, and the reverse for a preview (script_generator.rs,
+select_side); everything else is shared, so a pass cannot be written for one
+side and forgotten on the other. Keep the side blocks to what genuinely
+differs, never nest them, and never write their tags anywhere else.
 """
 
 import functools
@@ -219,7 +226,7 @@ clip = haf.QTGMC(
     ChromaEdi="{{CHROMA_EDI}}",
 {{/CHROMA_EDI}}
 {{#BLOCK_SIZE}}
-    Blocksize={{BLOCK_SIZE}},
+    BlockSize={{BLOCK_SIZE}},
 {{/BLOCK_SIZE}}
 {{#OVERLAP}}
     Overlap={{OVERLAP}},
@@ -377,21 +384,6 @@ clip = haf.QTGMC(
 {{#FORCE_TR}}
     ForceTR={{FORCE_TR}},
 {{/FORCE_TR}}
-{{#STR}}
-    Str={{STR}},
-{{/STR}}
-{{#AMP}}
-    Amp={{AMP}},
-{{/AMP}}
-{{#FAST_MA}}
-    FastMA={{FAST_MA}},
-{{/FAST_MA}}
-{{#E_SEARCH_P}}
-    ESearchP={{E_SEARCH_P}},
-{{/E_SEARCH_P}}
-{{#REFINE_MOTION}}
-    RefineMotion={{REFINE_MOTION}},
-{{/REFINE_MOTION}}
 {{#OPENCL}}
     opencl={{OPENCL}},
 {{/OPENCL}}
@@ -527,7 +519,9 @@ clip = core.std.DoubleWeave(core.std.Interleave([_fade_top, _fade_bot]), tff=Tru
 clip = core.std.SetFieldBased(clip, 0)
 clip = core.resize.Point(clip, format=_fade_fmt.id, dither_type="error_diffusion")
 {{/DEINT_IVTC_FIX_FADES}}
+{{#ENCODE_ONLY}}
 # VFM output is full-depth again; VDecimate accepts 8..16 bit natively.
+# (The preview shows VFM's field matching only, without VDecimate.)
 clip = core.vivtc.VDecimate(clip,
 {{#IVTC_CYCLE}}
     cycle={{IVTC_CYCLE}},
@@ -539,7 +533,9 @@ clip = core.vivtc.VDecimate(clip,
     scthresh={{IVTC_SCTHRESH}},
 {{/IVTC_SCTHRESH}}
 )
+{{/ENCODE_ONLY}}
 {{/DEINT_IVTC}}
+{{#ENCODE_ONLY}}
 {{#DEINT_SOFT_TELECINE}}
 # Soft Telecine: Remove duplicate frames from 3:2 pulldown.
 # Source frames are progressive but the container includes pulldown duplicates
@@ -547,6 +543,7 @@ clip = core.vivtc.VDecimate(clip,
 # ~23.976fps output with only unique frames.
 clip = core.vivtc.VDecimate(clip)
 {{/DEINT_SOFT_TELECINE}}
+{{/ENCODE_ONLY}}
 {{/DEINTERLACE}}
 
 # ============================================================================
@@ -563,8 +560,19 @@ clip = core.vivtc.VDecimate(clip)
 import sys as _unb_sys
 _unb_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
 import srestore as _unb
+{{#ENCODE_ONLY}}
 # The encode's clip starts at its first frame, so no phase padding.
 clip = _unb.unblend(clip, {{UNBLEND_NUM}}, {{UNBLEND_DEN}}, origin=0, window={{UNBLEND_WINDOW}})
+{{/ENCODE_ONLY}}
+{{#PREVIEW_ONLY}}
+# Preview only: copies of the window's first frame in front, so the pass's
+# phase (frame index mod its ratio's period) is the encode's, and the
+# detector told where the real frames start (ProcessingPipeline::preview_output).
+_unb_pad = {{PREVIEW_UNBLEND_PAD}}
+if _unb_pad:
+    clip = clip[0] * _unb_pad + clip
+clip = _unb.unblend(clip, {{UNBLEND_NUM}}, {{UNBLEND_DEN}}, origin={{PREVIEW_UNBLEND_ORIGIN}}, window={{UNBLEND_WINDOW}})
+{{/PREVIEW_ONLY}}
 {{/UNBLEND}}
 
 # ============================================================================
@@ -1848,6 +1856,10 @@ clip = haf.Vinverse(
 # colour is averaged with its neighbours' where the picture did not move.
 {{#COLORIZE}}
 import colorize as _colorize
+{{#PREVIEW_ONLY}}
+# preview=True: see colorize.PREVIEW_ON_CPU (Core ML compiles DDColor for over
+# a minute in every process, longer than a preview's few frames take on the CPU).
+{{/PREVIEW_ONLY}}
 clip = _colorize.colorize(
     clip,
     model_path={{CZ_MODEL_PATH}},
@@ -1857,6 +1869,9 @@ clip = _colorize.colorize(
     temporal_radius={{CZ_RADIUS}},
     matrix="{{CZ_MATRIX}}",
     color_range="{{CZ_RANGE}}",
+{{#PREVIEW_ONLY}}
+    preview=True,
+{{/PREVIEW_ONLY}}
 )
 {{/COLORIZE}}
 
@@ -2707,6 +2722,16 @@ if clip.format.subsampling_w == 2:
         clip,
         format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16,
     )
+{{#PREVIEW_ONLY}}
+# Preview only. A retime's phase depends on where its clip starts, and this
+# clip starts at the preview window, not the encode's first frame. Copies of
+# the first frame in front move the start back to a point in the encode's
+# phase, so the frame shown is generated at the same moment the encode's is
+# (ProcessingPipeline::preview_output). The requested frame never reads them.
+_fps_pad = {{PREVIEW_RATE_PAD}}
+if _fps_pad:
+    clip = clip[0] * _fps_pad + clip
+{{/PREVIEW_ONLY}}
 {{#FRAME_RATE_FLOWFPS}}
 _fps_super = core.mv.Super(clip, pel=2)
 _fps_bw = core.mv.Analyse(_fps_super, isb=True, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})
@@ -2921,4 +2946,12 @@ clip = _pad_to(clip, _canvas_w if _canvas_w > 0 else clip.width, _canvas_h if _c
 # ============================================================================
 # OUTPUT
 # ============================================================================
+{{#PREVIEW_ONLY}}
+# Preview: select the exact target frame. The worker decodes a window of
+# source frames around the requested frame and passes the deterministic output
+# index it maps to (after any frame-rate change such as QTGMC double-rate).
+# Clamp defensively in case the decode came up short.
+target_frame = max(0, min({{PREVIEW_OUTPUT_INDEX}}, clip.num_frames - 1))
+clip = clip[target_frame]
+{{/PREVIEW_ONLY}}
 clip.set_output()

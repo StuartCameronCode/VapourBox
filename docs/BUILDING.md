@@ -62,7 +62,7 @@ VapourBox/
 │   │   ├── dependency_locator.rs
 │   │   ├── pixel_format.rs
 │   │   └── progress_reporter.rs
-│   ├── templates/              # pipeline_template.vpy, preview_template.vpy,
+│   ├── templates/              # pipeline_template.vpy (encode + preview),
 │   │                           #   pipe_source.py, spotless.py, stabilize.py
 │   └── tests/                  # filter/preview/subtitle integration tests
 │

@@ -345,25 +345,11 @@ pub struct QTGMCParameters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force_tr: Option<i32>,
 
-    /// Pre-filter brightening strength
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub str: Option<f64>,
-
-    /// Amplitude
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub amp: Option<f64>,
-
-    /// Fast motion analysis
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fast_ma: Option<bool>,
-
-    /// Extended pel search
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub e_search_p: Option<bool>,
-
-    /// Refine motion estimation
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub refine_motion: Option<bool>,
+    // `str`, `amp`, `fastMa`, `eSearchP` and `refineMotion` were here until
+    // task #42. havsfunc's QTGMC takes none of them (they are SMDegrain's and
+    // AviSynth QTGMC's), so setting one failed every encode with an unexpected
+    // keyword argument. A saved job or preset that still has them loads; serde
+    // ignores the keys.
 
     // === GPU Acceleration ===
     /// Use OpenCL acceleration
@@ -556,11 +542,6 @@ impl Default for QTGMCParameters {
             border: None,
             precise: None,
             force_tr: None,
-            str: None,
-            amp: None,
-            fast_ma: None,
-            e_search_p: None,
-            refine_motion: None,
             opencl: None,
             device: None,
             ivtc_order: None,
