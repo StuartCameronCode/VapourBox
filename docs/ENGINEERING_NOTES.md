@@ -4394,7 +4394,6 @@ Full evidence:
 - Every Soft Telecine job that resizes or converts format changes output, all
   toward the correct picture.
 
-
 ### DeScratch Blur Radius clamped to the frame height (task #35, 2026-11-15)
 
 Full evidence:

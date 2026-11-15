@@ -1441,8 +1441,6 @@ void main() {
   //     10-bit. The decoder's 9 -> 10 conversion is an exact shift in
   //     limited range, so a 9-bit source must give the 10-bit fixture's
   //     picture.
-  // ====================================================================  });
-
   // ===========================================================================
   group('9-bit sources (task #31)', () {
     const qtgmcDefault = QTGMCParameters(enabled: true, tff: true);
@@ -1661,7 +1659,9 @@ void main() {
       print('  preview vs encode: mean abs diff ${diff.toStringAsFixed(3)}');
       expect(diff, lessThan(0.5));
     }, timeout: const Timeout(Duration(minutes: 6)));
-=======
+  });
+
+  // ===========================================================================
   // 3e. DeScratch Blur Radius on short frames (task #35). The plugin refuses
   //     blurlen > height // 2 - 1, so every frame under 402 lines failed with
   //     values the panel offers (up to 200). The script clamps it, which must
