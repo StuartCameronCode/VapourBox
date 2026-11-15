@@ -4368,3 +4368,27 @@ Full evidence:
   means full, the opposite of the old `_ColorRange`.
 - Same pattern, not fixed here: Bifrost and DeDot (8-bit; Bifrost dithers on
   the way back), LUTDeCrawl and DeRainbow (12/16-bit). Filed as task #37.
+
+### Soft Telecine film frames are no longer marked as fields (task #33, 2026-11-15)
+
+Full evidence:
+[docs/reports/issue-33-soft-telecine-field-based/](reports/issue-33-soft-telecine-field-based/index.html).
+
+- `field_based_for` stamped `_FieldBased=2` on every deinterlacing job.
+  Soft Telecine's method is a bare `VDecimate`, which copies it (QTGMC,
+  Bwdif and VFM reset it); a film-rate source had no VDecimate at all, and
+  the preview has no Soft Telecine block. Every later zimg resize then
+  resampled the progressive film frames' 4:2:0 chroma per field.
+- `field_based_for` now returns `None` for Soft Telecine: one change for the
+  encode, the preview and the film-rate case, no new `SetFieldBased` site.
+  VDecimate keeps the same 120/120 frames whether marked or not (8- and
+  10-bit), so dropping the marking changes nothing upstream of the resizes.
+- Measured: 4:2:0 → 4:2:2 chroma 2.3/2.7 levels mean apart (max 193); against
+  ground truth the marking cost 4.4/2.6 dB (VHS fields) and 10.5/10.6 dB
+  (testsrc2) of chroma PSNR. The worker's 4:2:2 encode is now 0.049 levels
+  from zscale's progressive conversion (2.505 before).
+- The task suspected `output_field_order` reported the output interlaced. It
+  never did: `still_interlaced_tff` is `None` whenever deinterlacing is on.
+  `test_244` sweeps every codec's flags to keep it so.
+- Every Soft Telecine job that resizes or converts format changes output, all
+  toward the correct picture.

@@ -2160,6 +2160,10 @@ void main() {
       expect(script, isNot(contains('haf.QTGMC(')));
       expect(script, isNot(contains('{{BWDIF_')));
       expect(script, isNot(contains('{{#DEINT')));
+      // Task #33: film frames are progressive, so nothing marks them
+      // field-based (a later resize would resample their chroma per field).
+      expect(script, isNot(contains('SetFieldBased(clip, 2)')));
+      expect(script, isNot(contains('SetFieldBased(clip, 1)')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

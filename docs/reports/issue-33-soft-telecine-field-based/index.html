@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Soft Telecine field marking</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>Soft Telecine marked progressive film frames as fields</h1>
+<p class="meta">2026-11-15 · task #33 (found in task #29) · deps 1.16.0 · measured on an Apple Silicon Mac (macOS arm64 bundle).
+The fault is in which frame property the script sets, not in CPU code, so it is the same on every platform.</p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> The source marking (<code>{{#SET_FIELD_BASED}}</code>) stamped
+<code>_FieldBased=2</code> on every job with deinterlacing on, including Soft Telecine. Soft Telecine's
+method is a bare <code>vivtc.VDecimate</code>, which copies the property through. QTGMC, Bwdif and VFM
+all reset it. Every later zimg resize therefore resampled each <em>progressive</em> film frame's 4:2:0 chroma as two
+fields. That covers the Color Format conversion, ProRes/v210's fixed format, Crop &amp; Resize, the BT.709 conversion,
+the AI upscalers' RGB conversion and DeScratch's internal blur. At a film-rate source there was no VDecimate at all,
+and the marking stayed too. So did the preview, which has no Soft Telecine block.</p>
+<p><code>ScriptGenerator::field_based_for</code>, the one derivation both scripts use, now returns
+<code>None</code> for Soft Telecine, so neither script marks those frames. The fix covers the encode, the preview and the
+film-rate case, and adds no new <code>SetFieldBased</code> call. VDecimate does not read the property (section 1), so
+it keeps exactly the same frames.</p>
+<p><strong>This changes the output of every Soft Telecine job that resizes or converts format.</strong> Every
+measurement below says the change is toward the correct picture: chroma is 4–11 dB closer to ground truth, and the
+4:2:2 encode now equals a progressive conversion to 0.05 levels.</p>
+</div>
+
+<h2>1. VDecimate ignores <code>_FieldBased</code></h2>
+<p><code>soft_telecine_dvd.mkv</code> decoded as the worker decodes it (150 frames at 29.97), marked 2 or 0, then
+<code>VDecimate</code> with its defaults:</p>
+<table>
+<tr><th>Depth</th><th class="num">Frames out (2 / 0)</th><th class="num">Identical frames</th><th class="num"><code>_FieldBased</code> after VDecimate</th></tr>
+<tr><td>8-bit</td><td class="num">120 / 120</td><td class="num">120 / 120</td><td class="num bad">2</td></tr>
+<tr><td>10-bit</td><td class="num">120 / 120</td><td class="num">120 / 120</td><td class="num bad">2</td></tr>
+</table>
+<p>So not marking the clip cannot change which frames are dropped, and the marking survives into everything after.</p>
+
+<h2>2. What the marking did to the fixture</h2>
+<p>The 120 film frames converted 4:2:0 → 4:2:2 with <code>resize.Bicubic</code> (the Color Format block's call), marked 2
+vs unmarked:</p>
+<table>
+<tr><th>Plane</th><th class="num">Mean |difference| (8-bit levels)</th><th class="num">Max</th></tr>
+<tr><td>Y</td><td class="num">0.000</td><td class="num">0</td></tr>
+<tr><td>U</td><td class="num">2.334</td><td class="num">193</td></tr>
+<tr><td>V</td><td class="num">2.669</td><td class="num">185</td></tr>
+</table>
+<p>Round trip 4:2:0 → 4:2:2 → 4:2:0 (the way back progressive), chroma against the source:</p>
+<table>
+<tr><th>Up-conversion</th><th class="num">U</th><th class="num">V</th></tr>
+<tr><td>marked 2 (before)</td><td class="num bad">2.152</td><td class="num bad">2.463</td></tr>
+<tr><td>unmarked (now)</td><td class="num good">0.880</td><td class="num good">1.001</td></tr>
+</table>
+<p><img src="img/01-source420.png" alt="Source 4:2:0 V plane crop" width="192">
+<img src="img/02-per_field.png" alt="Per-field 4:2:2 V plane crop" width="192">
+<img src="img/03-progressive.png" alt="Progressive 4:2:2 V plane crop" width="192"></p>
+<p class="caption">V plane of film frame 30, a 64×64 crop at chroma (40, 70), enlarged 6× with nearest neighbour. Left:
+the source's 4:2:0 chroma, each row doubled. Middle: 4:2:2 converted while marked TFF; the small coloured block has
+alternating light and dark rows, because each field was interpolated from its own rows. Right: converted progressively
+(now).</p>
+
+<h2>3. Against ground truth</h2>
+<p>The fixture only shows that the two conversions differ. For an absolute answer, two pictures with full vertical
+chroma were brought down to 4:2:0 progressively and back up to 4:2:2, marked 2 vs unmarked, and compared with the
+original:</p>
+<table>
+<tr><th>Picture</th><th class="num">Marked 2: U / V PSNR</th><th class="num">Unmarked: U / V PSNR</th></tr>
+<tr><td>Top fields of <code>interlaced_test.avi</code> (real VHS, 720×288 4:2:2, 24)</td><td class="num">44.30 / 47.49 dB</td><td class="num good">48.70 / 50.05 dB</td></tr>
+<tr><td><code>testsrc2</code> rendered at 4:2:2 (720×480, 24)</td><td class="num">36.63 / 32.64 dB</td><td class="num good">47.11 / 43.28 dB</td></tr>
+</table>
+<p class="caption">Limits: one kernel (bicubic, b = c = 1/3, the templates' kernel) and a progressive Bicubic
+downsample. Ground truth here is itself a 4:2:2 picture, not a 4:4:4 one. The comparison is between two
+up-conversions of the same 4:2:0 data, so it measures what the marking costs, not how good bicubic chroma upsampling
+is.</p>
+
+<h2>4. The worker's encodes, before and after</h2>
+<p>From <code>app/test/integration_soft_telecine_field_based_test.dart</code> (heavy). Two lossless FFV1 encodes of the
+same Soft Telecine job, Color Format <em>Match source</em> (4:2:0) and <em>4:2:2 8-bit</em>, give the same
+120 frames. The 4:2:2 output is compared with ffmpeg's <code>zscale=filter=bicubic</code> progressive conversion of the
+4:2:0 output, which uses the same zimg kernel. "Before" is the worker built from 7ef3a99.</p>
+<table>
+<tr><th>Measurement</th><th class="num">Before</th><th class="num">Now</th></tr>
+<tr><td>4:2:2 encode vs progressive conversion, chroma MAD</td><td class="num bad">2.505</td><td class="num good">0.049</td></tr>
+<tr><td>Preview, frame 40: 4:2:2 conversion vs none, RGB MAD</td><td class="num bad">2.848</td><td class="num good">1.082</td></tr>
+<tr><td>ProRes HQ / MOV: <code>fiel</code> atom, ffprobe <code>field_order</code>, frames</td><td class="num">progressive, 120</td><td class="num">progressive, 120</td></tr>
+</table>
+<p>The remaining 0.049 is the conversion's error-diffusion dither (the script's) against zscale's none. The preview row
+compares a converted frame with an unconverted one, so its floor is the chroma kernel's own effect, not zero. The test
+also computes an ffmpeg per-field reference (<code>separatefields,zscale,weave</code>) only to show that the fixture tells
+the two apart (3.6 levels from the progressive one). It does not reproduce the old script exactly: the old encode
+was 4.8 levels from it, because the two place field chroma differently.</p>
+
+<h2>5. Field-order flags: already right, unchanged</h2>
+<p>The task suggested that <code>output_field_order</code> might report a Soft Telecine output as interlaced. It did not:
+it starts from <code>still_interlaced_tff</code>, which is <code>None</code> whenever deinterlacing is on, and Soft Telecine
+is a deinterlace method. So <code>field_order_args</code> wrote no <code>-top</code>, <code>+ildct</code> or
+<code>tff=1</code> before the fix either; the ProRes row above passes on both workers. <code>test_244</code> now sweeps
+every codec to keep it that way.</p>
+
+<h2>What changed</h2>
+<ul>
+<li><code>ScriptGenerator::field_based_for</code>: <code>None</code> for Soft Telecine. Its other users are unaffected.
+<code>still_interlaced_tff</code>, <code>output_field_order</code>, Deblock's per-field path, the border field alignment
+and crop detection already treat deinterlaced jobs as progressive. SangNom already marks them 0. mpeg2stinx's field
+order falls back to TFF, which was Soft Telecine's default anyway. DeScratch's internal blur now runs
+progressively on film frames, which is correct for film. Task #29's finding that field-aware analysis removed more
+scratch was made on a genuinely interlaced capture.</li>
+<li>Tests: <code>test_244_soft_telecine_frames_are_progressive</code> (both scripts at 29.97 and 23.976, every
+<code>tff</code>, Color Format and ProRes; no field-order flags or note for any codec; the other methods keep their
+order), a script assertion in <code>integration_filter_parameters_test.dart</code> (push gate), and the heavy
+<code>integration_soft_telecine_field_based_test.dart</code>. <code>test_244</code> and both encode assertions fail on the
+previous worker.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>A real film DVD beyond the committed fixture. The fixture is MPEG-2 with soft pulldown flags, like a DVD.</li>
+<li>Platforms other than macOS arm64. The change is in script generation; the nightly heavy run covers the
+others.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>SCRATCH=/some/scratch/dir DEPS=deps/macos-arm64 [BEFORE=1] docs/reports/issue-33-soft-telecine-field-based/scripts/reproduce.sh</pre>
+<p><code>probe.py</code> (sections 1–3 and the crops) reads raw frames that <code>reproduce.sh</code> makes with ffmpeg from
+the committed fixtures, so it needs no source plugin and no NumPy. The script then runs the heavy test.
+<code>BEFORE=1</code> also runs it against the worker built from 7ef3a99, in a scratch worktree.</p>
+</main>
+</body>
+</html>
