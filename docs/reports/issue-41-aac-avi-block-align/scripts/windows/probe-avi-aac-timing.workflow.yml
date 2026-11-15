@@ -1,0 +1,70 @@
+name: Probe AVI readers (AAC timing, task 41)
+
+# Evidence for docs/reports/issue-41-aac-avi-block-align: when Windows' own
+# readers (DirectShow, Media Foundation, Video for Windows) time each AAC
+# packet of an AVI whose packets exceed avienc's nBlockAlign (768 per
+# channel), before and after the worker's header fix. A one-off, kept here
+# inert: to re-run it, copy it to .github/workflows/probe-avi-aac-timing.yml
+# on a branch and push (triggered by push, because workflow_dispatch needs the
+# file on main). Based on task #25's probe-avi-readers.
+on:
+  push:
+    paths:
+      - docs/reports/issue-41-aac-avi-block-align/scripts/**
+      - .github/workflows/probe-avi-aac-timing.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      WORK: ${{ github.workspace }}\probe-work
+      SCRIPTS: ${{ github.workspace }}\docs\reports\issue-41-aac-avi-block-align\scripts\windows
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Read the deps pointer
+        id: deps
+        shell: bash
+        run: |
+          echo "tag=$(python -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")" >> "$GITHUB_OUTPUT"
+          echo "ver=$(python -c "import json;print(json.load(open('app/assets/deps-version.json'))['version'])")" >> "$GITHUB_OUTPUT"
+
+      - name: Download dependencies (windows-x64)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/install-deps-bundle.sh windows-x64 "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/windows-x64
+
+      - name: Fixtures
+        shell: pwsh
+        run: |
+          $env:FFMPEG = "$PWD\deps\windows-x64\ffmpeg\ffmpeg.exe"
+          & $env:FFMPEG -version | Select-Object -First 1
+          python "$env:SCRIPTS\make_fixtures.py" "$env:WORK\avi" | Tee-Object "$env:WORK\fixtures.jsonl"
+
+      - name: Build the reader
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set VS=%%i
+          call "%VS%\VC\Auxiliary\Build\vcvars64.bat" >nul
+          cd /d "%WORK%"
+          cl /nologo /EHsc /O2 /DUNICODE /D_UNICODE "%SCRIPTS%\avi_timing.cpp" /Fe:avi_timing.exe
+
+      - name: Windows readers
+        shell: pwsh
+        run: |
+          [System.Environment]::OSVersion.VersionString
+          python "$env:SCRIPTS\analyze.py" "$env:WORK\avi_timing.exe" "$env:WORK\avi" | Tee-Object "$env:WORK\results.jsonl"
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: avi-aac-timing-probe
+          path: |
+            probe-work/fixtures.jsonl
+            probe-work/results.jsonl
+          if-no-files-found: warn

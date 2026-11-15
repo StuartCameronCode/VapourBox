@@ -147,6 +147,7 @@ VapourBox/
 | `worker/src/noise_halo.rs` | `--detect-noise-halo`: a source's noise sigma and halo score, for the pass list's suggestions (see "Noise and Halo Scores") |
 | `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args, including the NUT sound copy, the AVI copy cut (`SoundCut`) and the encoder priming for Convert into AVI (`EncoderPriming`) (see "Audio Restoration", "Source Frame Size") |
 | `Tests/TestResources/audio_codec_containers.json` | Which Convert audio codec each container holds, and the refusal's wording; read by both sides (see "Convert audio: codec × container") |
+| `worker/src/avi_header.rs` | An AVI output's AAC block size raised to its largest packet after the encode (task #41; see "Source Frame Size") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
@@ -1315,12 +1316,30 @@ the **single** builder of both decoders' arguments (encode + preview):
     near-silent start-up; a failed probe is a warning, never a refusal; every
     other job keeps its arguments byte for byte
     (`a_priming_shift_changes_nothing_outside_convert_into_avi`).
-  - **Mono AAC at 192 kbps can write a packet over the 768 bytes per channel
-    avienc declares as its block size**, which a reader times as two packets
-    (task #41, open); the heavy tests run Convert at Medium for that reason.
   `integration_video_start_offset_test.dart` (heavy): AAC/MP3/AC-3 into AVI
   store 100 frames and are in sync within 1 ms, restored and trimmed too,
   and `small_clip.mp4` 0..49 stores 50 (docs/reports/2026-11-avi-convert-priming).
+- **An AAC stream in AVI declares a block size no packet exceeds (task
+  #41).** avienc writes AAC's `nBlockAlign` as 768 × channels, and ffmpeg,
+  VLC and DirectShow time a VBR chunk as `ceil(size / nBlockAlign)` packets
+  (Media Foundation splits it in two). ffmpeg's AAC encoder overshoots at
+  ≥ 192 kbps per channel (mono at High/Very High; mono 160 kbps at 32 kHz),
+  and nothing in the encoder stops it, so each such packet made the rest of
+  the sound 21.3 ms later (320 ms by 12 s at 256 kbps); a copied AAC stream
+  too. After a successful encode into AVI with sound
+  (`avi_header::checks_block_align`), `avi_header::fix_aac_block_align`
+  raises each AAC (`0x00FF`) VBR stream's `nBlockAlign` to its largest
+  chunk, which avienc's trailer already records as `strh.dwSuggestedBufferSize`
+  (OpenDML's `AVIX` part included): one header read, 2 bytes written, and
+  only when needed, so every other file is byte for byte as before. Never
+  MP3 (its 1152 is a convention readers rely on) or AC-3 (within theirs at
+  every app setting). A failure is a warning. **It must follow anything that
+  writes the AVI** (today nothing: the subtitle mux never touches an AVI).
+  The heavy group `mono AAC over 768 bytes a packet into AVI (task #41)`
+  (fixture `generate_avi_aac_overshoot.sh`) asserts oversized packets were
+  written before checking the header, gap-free packet timestamps and beep
+  spacing; `_expectAacTimedOnce` also guards the other AVI Convert tests
+  (docs/reports/issue-41-aac-avi-block-align).
 
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,

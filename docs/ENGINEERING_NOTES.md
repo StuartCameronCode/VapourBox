@@ -4440,6 +4440,8 @@ Report: [docs/reports/2026-11-avi-convert-priming](reports/2026-11-avi-convert-p
   size (ffmpeg's avidec) counts it twice and the sound runs 21 ms late from
   there. 160 kbps and below never did in 20 encodes. Sample-counting
   measurements cannot see it; the heavy test's pts-based check did.
+  (Fixed by task #41, below; "160 kbps and below never did" holds at
+  48 kHz only: mono 160 kbps at 32 kHz overshoots.)
 
 ### Convert's audio codec must fit the container (task #39, 2026-11-15)
 
@@ -4536,3 +4538,32 @@ Report: [docs/reports/2026-11-libdvdread-dvdcss](reports/2026-11-libdvdread-dvdc
   and `dvd_extract_integration_test` fails instead of skipping.
 - **Not tested:** a Mac with no libdvdcss at all (the CI arm64 runner is that
   test) and a real CSS disc.
+
+### AAC in AVI: a packet over the declared block size (task #41, 2026-11-15)
+
+Report: [docs/reports/issue-41-aac-avi-block-align](reports/issue-41-aac-avi-block-align/index.html).
+
+- **The fault:** avienc declares AAC's `nBlockAlign` as 768 × channels and
+  stores AAC as VBR (`dwSampleSize` 0). ffmpeg's avidec, VLC 3.0.23 and
+  DirectShow's AVI Splitter time a chunk as `ceil(size / nBlockAlign)`
+  packets; Media Foundation splits an oversized chunk into two samples (15
+  extra frames decoded). ffmpeg's native AAC encoder writes packets over
+  768 bytes per channel at ≥ 192 kbps per channel (its `6144 × ch − 3` bit
+  cap is a rate-control target it gives up on): mono at High and Very High,
+  mono 160 kbps at 32 kHz, stereo only from 384 kbps (not offered). Each
+  made the rest of the sound 21.3 ms later: +320 ms by 12 s at 256 kbps.
+  Copying such AAC into AVI (Passthrough) did the same.
+- **No encoder-side fix:** `-aac_coder fast|twoloop`, `-aac_pns 0`,
+  `-maxrate`/`-bufsize` all still overshoot. A bitrate cap is no guarantee
+  (160 kbps at 32 kHz) and misses Passthrough.
+- **Fix:** after the encode, `avi_header::fix_aac_block_align` sets each AAC
+  VBR stream's `nBlockAlign` to its largest chunk, read from
+  `strh.dwSuggestedBufferSize` (avienc's trailer writes the stream's
+  maximum there; checked on a 1.2 GB OpenDML file whose oversized packets
+  are all in `AVIX`). Readers: ffmpeg, VLC, DirectShow and MF time every
+  packet once and read every byte; decoded samples unchanged. VfW
+  (avifil32) returns no AAC data from these files patched or not.
+- **Found on the way (task #43):** an untrimmed Passthrough of a primed AAC
+  source into AVI writes a null frame at the head (task #38's fault on the
+  copy path); the copy case of the heavy test checks beep spacing only.
+

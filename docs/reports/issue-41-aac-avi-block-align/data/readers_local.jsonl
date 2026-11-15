@@ -1,0 +1,10 @@
+{"file": "mono256", "ffmpeg": "packets 564, gaps 15, last pts 578", "vlc": "packets 564, late steps 15, last 12.331 s", "decoded_vs_unpatched": "identical"}
+{"file": "mono256_patched", "ffmpeg": "packets 564, gaps 0, last pts 563", "vlc": "packets 564, late steps 0, last 12.011 s", "decoded_vs_unpatched": "identical"}
+{"file": "mono192", "ffmpeg": "packets 564, gaps 2, last pts 565", "vlc": "packets 564, late steps 2, last 12.053 s", "decoded_vs_unpatched": "identical"}
+{"file": "mono192_patched", "ffmpeg": "packets 564, gaps 0, last pts 563", "vlc": "packets 564, late steps 0, last 12.011 s", "decoded_vs_unpatched": "identical"}
+{"file": "stereo192", "ffmpeg": "packets 564, gaps 0, last pts 563", "vlc": "packets 564, late steps 0, last 12.010 s", "decoded_vs_unpatched": "identical"}
+{"file": "mono192_patched.avi", "stream": 0, "wFormatTag": "0x00FF", "channels": 1, "rate": 48000, "nBlockAlign": 777, "dwSampleSize": 0, "dwSuggestedBufferSize": 777, "blockAlignOffset": 184}
+{"file": "mono192.avi", "stream": 0, "wFormatTag": "0x00FF", "channels": 1, "rate": 48000, "nBlockAlign": 768, "dwSampleSize": 0, "dwSuggestedBufferSize": 777, "blockAlignOffset": 184}
+{"file": "mono256_patched.avi", "stream": 0, "wFormatTag": "0x00FF", "channels": 1, "rate": 48000, "nBlockAlign": 833, "dwSampleSize": 0, "dwSuggestedBufferSize": 833, "blockAlignOffset": 184}
+{"file": "mono256.avi", "stream": 0, "wFormatTag": "0x00FF", "channels": 1, "rate": 48000, "nBlockAlign": 768, "dwSampleSize": 0, "dwSuggestedBufferSize": 833, "blockAlignOffset": 184}
+{"file": "stereo192.avi", "stream": 0, "wFormatTag": "0x00FF", "channels": 2, "rate": 48000, "nBlockAlign": 1536, "dwSampleSize": 0, "dwSuggestedBufferSize": 1434, "blockAlignOffset": 184}

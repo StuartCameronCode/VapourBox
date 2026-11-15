@@ -1,0 +1,7 @@
+{"file": "mono256_patched.avi", "fixes": [{"stream": 0, "from": 768, "to": 833}]}
+{"file": "mono192_patched.avi", "fixes": [{"stream": 0, "from": 768, "to": 777}]}
+{"file": "mono256", "stream": 0, "wFormatTag": "0x00FF", "channels": 1, "rate": 48000, "nBlockAlign": 768, "dwSampleSize": 0, "dwSuggestedBufferSize": 833, "blockAlignOffset": 184}
+{"file": "mono256_patched", "stream": 0, "wFormatTag": "0x00FF", "channels": 1, "rate": 48000, "nBlockAlign": 833, "dwSampleSize": 0, "dwSuggestedBufferSize": 833, "blockAlignOffset": 184}
+{"file": "mono192", "stream": 0, "wFormatTag": "0x00FF", "channels": 1, "rate": 48000, "nBlockAlign": 768, "dwSampleSize": 0, "dwSuggestedBufferSize": 777, "blockAlignOffset": 184}
+{"file": "mono192_patched", "stream": 0, "wFormatTag": "0x00FF", "channels": 1, "rate": 48000, "nBlockAlign": 777, "dwSampleSize": 0, "dwSuggestedBufferSize": 777, "blockAlignOffset": 184}
+{"file": "stereo192", "stream": 0, "wFormatTag": "0x00FF", "channels": 2, "rate": 48000, "nBlockAlign": 1536, "dwSampleSize": 0, "dwSuggestedBufferSize": 1434, "blockAlignOffset": 184}

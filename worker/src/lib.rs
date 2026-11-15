@@ -19,6 +19,7 @@ pub mod source_timing;
 pub mod progress_reporter;
 pub mod addons;
 pub mod audio_restoration;
+pub mod avi_header;
 pub mod ai_runtime;
 pub mod animejanai;
 pub mod upscale_addons;
