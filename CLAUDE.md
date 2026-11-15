@@ -145,7 +145,7 @@ VapourBox/
 | `worker/src/native_res.rs` | `--detect-native`: the resolution and kernel a source was upscaled from, for the Descale pass (see "Descale") |
 | `worker/src/crop_detect.rs` | `--detect-crop`: black borders, blanking, letterbox bars and the head-switching band, for Crop & Resize's Detect (see "Crop Detection"); also the detectors' shared sampling and decode (`decode_samples`) |
 | `worker/src/noise_halo.rs` | `--detect-noise-halo`: a source's noise sigma and halo score, for the pass list's suggestions (see "Noise and Halo Scores") |
-| `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args, including the NUT sound copy, the AVI copy cut (`SoundCut`) and the encoder priming for Convert into AVI (`EncoderPriming`) (see "Audio Restoration", "Source Frame Size") |
+| `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args, including the NUT sound copy, the AVI copy cut (`SoundCut`, trimmed or a primed head: `sound_cut_applies`) and the encoder priming for Convert into AVI (`EncoderPriming`) (see "Audio Restoration", "Source Frame Size") |
 | `Tests/TestResources/audio_codec_containers.json` | Which Convert audio codec each container holds, and the refusal's wording; read by both sides (see "Convert audio: codec × container") |
 | `worker/src/avi_header.rs` | An AVI output's AAC block size raised to its largest packet after the encode (task #41; see "Source Frame Size") |
 | `worker/templates/pipeline_template.vpy` | VapourSynth script template |
@@ -1294,13 +1294,32 @@ the **single** builder of both decoders' arguments (encode + preview):
     byte (`a_sound_cut_changes_nothing_outside_a_seeked_copy_into_avi`).
     `integration_avi_copy_trim_test.dart` (heavy;
     docs/reports/2026-11-avi-copy-trim).
+  - **An untrimmed copy is cut the same way when its sound starts before
+    the container (task #43).** ffmpeg-encoded AAC/MP3/AC-3/MP2 in MKV/MP4
+    starts with its priming at a negative timestamp; AVI cannot store one,
+    so ffmpeg shifted every stream by it (a null frame at the head, AAC
+    −18.6 ms). `may_cut_sound_head` (the same clauses with
+    `source_audio_start() <= 0`) asks the probe, which reads each stream's
+    first packet against the format start (`SoundCut::head_before_start`,
+    `starts_early`, copied compressed streams only);
+    **`sound_cut_applies` is the one decision** for both cases. The packet
+    input moves `-copypriorss`'s threshold half a packet before the start:
+    `-ss` when that is inside the file, else `-itsoffset` by the remainder
+    (never both). Every packet kept is then ≥ 0, so no output option is
+    added. AAC lands at 0.08 ms, MP3 −0.9 ms (its next packet starts 47
+    samples in); AC-3/MP2 keep their first packet (nearest) and their timing.
+    Never `-avoid_negative_ts disabled` alone: the sound is then late by the
+    whole priming (+21 ms). Heavy: `primed_aac.mkv` / `primed_mp3.mp4`
+    (`generate_primed_sound_test.sh`) in `integration_video_start_offset_test.dart`
+    (docs/reports/2026-11-avi-copy-priming).
 - **Convert into AVI reads its sound late by the encoder's priming (task
   #38).** A lossy encoder's first packet is negative (AAC 1024 samples,
   libmp3lame 1105, AC-3 256); MKV/MP4/MOV mark it skipped, AVI cannot, so
   ffmpeg shifted every stream by it (a null frame at the head for AAC/MP3)
   and the player played the priming as sound (AAC −18.6 ms, MP3 −16.9 ms,
   AC-3 +5.4 ms). One decision, `audio_restoration::needs_priming_shift`
-  (Convert, `!stores_stream_start()`, with sound), and one probe,
+  (Convert, `!stores_stream_start()`, with sound; a copied primed sound is
+  task #43's head cut, above), and one probe,
   `priming_from_probe` (`EncoderPriming`: the job's own encoder on silence
   at the sound's rate, `-f framecrc`; FLAC/PCM measure none):
   - **Every encoded sound input** is seeked `+P`
@@ -1337,8 +1356,8 @@ the **single** builder of both decoders' arguments (encode + preview):
   writes the AVI** (today nothing: the subtitle mux never touches an AVI).
   The heavy group `mono AAC over 768 bytes a packet into AVI (task #41)`
   (fixture `generate_avi_aac_overshoot.sh`) asserts oversized packets were
-  written before checking the header, gap-free packet timestamps and beep
-  spacing; `_expectAacTimedOnce` also guards the other AVI Convert tests
+  written before checking the header, gap-free packet timestamps and each
+  beep on its flash (the copied case too, since task #43); `_expectAacTimedOnce` also guards the other AVI Convert tests
   (docs/reports/issue-41-aac-avi-block-align).
 
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and

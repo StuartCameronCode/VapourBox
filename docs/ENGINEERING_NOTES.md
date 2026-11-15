@@ -4567,3 +4567,37 @@ Report: [docs/reports/issue-41-aac-avi-block-align](reports/issue-41-aac-avi-blo
   source into AVI writes a null frame at the head (task #38's fault on the
   copy path); the copy case of the heavy test checks beep spacing only.
 
+### Passthrough into AVI: a primed sound's head is cut (task #43, 2026-11-15)
+
+Report: [docs/reports/2026-11-avi-copy-priming](reports/2026-11-avi-copy-priming/index.html).
+
+- **The fault:** task #38's on the Passthrough path. A sound ffmpeg encoded
+  into MKV/MP4 (AAC, MP3, AC-3, MP2) starts with the encoder's priming at a
+  negative timestamp. An untrimmed copy into AVI was never cut
+  (`needs_sound_cut` needs a seek), so ffmpeg's default
+  `-avoid_negative_ts` shifted every stream by it: a null frame at the head
+  for AAC/MP3 (101 stored frames for 100), and the priming played as
+  silence, so the sound was AAC −18.6 ms / MP3 −16.9 ms against the picture
+  (AC-3 +5.4, MP2 +10.1 with no null frame).
+- **`-avoid_negative_ts disabled` alone is wrong**: it removes the null frame
+  but leaves the sound late by the whole priming (+21.4 / +23.1 ms). **Cutting
+  at 0** (`-copypriorss:a 0` alone) is right for AAC but drops AC-3's and
+  MP2's first packet, mostly real sound (−26.6 / −13.9 ms).
+- **The fix is #24's cut at the head:** threshold half a packet before 0
+  (`-itsoffset half` on the packet input, since there is nothing to seek
+  past), so the copy starts at the packet nearest the first picture. AAC
+  0.08 ms, MP3 −0.9 ms (its next packet starts 47 samples after 0); AC-3 and
+  MP2 keep their first packet and their timing. Every packet kept is ≥ 0, so
+  no output option is needed and an IVTC job keeps `make_zero` (measured
+  identical either way).
+- Applies when a **copied compressed** stream's first packet is before the
+  format start (> 1 µs), not only when the cut drops a packet: then no AVI
+  job hands avienc a negative audio timestamp. `small_clip.mp4` (−5.1 ms, a
+  partial priming) takes the cut, keeps its first packet and is unchanged
+  in timing and stored frames.
+- The cost: the decoder starts without the dropped packet, so AAC fades in
+  over its first 21 ms and MP3 is silent for one packet, half level for the
+  next, where the copied priming played 21–23 ms of silence before.
+- `sound_cut_input_args` now offsets (`-itsoffset`) whenever the threshold
+  falls before the file's start, which also moves a trim within half a packet
+  of 0 to the nearest packet (it cut at 0 before).

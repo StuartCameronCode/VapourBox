@@ -718,7 +718,7 @@ void main() {
       }
     });
 
-    test('a 256 kbps mono AAC source copied into AVI: the beeps keep their spacing', () async {
+    test('a 256 kbps mono AAC source copied into AVI: every beep on its flash', () async {
       await Directory(_outDir).create(recursive: true);
       final source = '$_outDir/aac_overshoot_source.mkv';
       final r = await Process.run(
@@ -729,12 +729,93 @@ void main() {
       );
       expect(r.exitCode, 0, reason: '${r.stderr}');
       final copied = job('aac_overshoot_copy', AudioMode.passthrough, AudioQuality.high);
-      // Drift only: copied untrimmed into AVI, a primed AAC source's picture
-      // starts a frame late (a null frame at the head, task #38's fault on
-      // the Passthrough path, task #43), which is not this fault.
+      // The source's AAC is primed: its head is cut at the packet nearest
+      // the first picture (task #43), so the beeps land on their flashes too.
       await check('Passthrough of 256 kbps mono AAC',
           VideoJob.fromJson({...copied.toJson(), 'inputPath': source}),
-          mustOvershoot: true, inSync: false);
+          mustOvershoot: true);
+    });
+  });
+
+  // Task #43: a source whose sound ffmpeg encoded (AAC, MP3 in MKV/MP4)
+  // starts it with the encoder's priming at a negative timestamp. Copied
+  // untrimmed into AVI, which cannot store one, ffmpeg shifted every stream
+  // by it: a null frame at the head (101 stored frames for 100) and the
+  // priming played as sound, AAC 18.6 ms and MP3 16.9 ms early. The copy is
+  // now cut at the packet nearest the first picture
+  // (docs/reports/2026-11-avi-copy-priming).
+  group('a primed sound copied untrimmed into AVI (task #43)', () {
+    for (final (file, tolerance) in [
+      ('primed_aac.mkv', 0.001), // the next packet starts at 0
+      ('primed_mp3.mp4', 0.0015), // the next packet starts 47 samples after 0
+    ]) {
+      test('$file: every picture once, from 0, in sync', () async {
+        final video = _resource(file);
+        final stem = p.basenameWithoutExtension(file);
+        final first = await WorkerHarness.ffprobeJson([
+          '-v', 'error', '-select_streams', 'a:0', '-read_intervals', '%+#1',
+          '-show_entries', 'packet=pts_time', '-of', 'json', video,
+        ]);
+        expect(double.parse('${(first['packets'] as List).first['pts_time']}'), lessThan(-0.02),
+            reason: '$file: the sound must start with a priming, or this case tests nothing');
+
+        final r = await WorkerHarness.runJob(
+            _job(video, 'avi_primed_copy_$stem',
+                    audio: AudioMode.passthrough, container: ContainerFormat.avi)
+                .toJson(),
+            label: 'vstart_avi_primed_copy');
+        expect(r.success, isTrue, reason: r.error);
+        final out = r.outputPath!;
+        final v = await _aviVideo(out);
+        expect(v.stored, _frames, reason: '$file: stored frames, null frames included');
+        expect(v.pts.take(2).toList(), [0.0, 0.04], reason: file);
+        await _expectInSync('AVI, copied $file', out, flashes: 2, tolerance: tolerance);
+        final e = await _events(out);
+        expect(e.flashes.first, closeTo(1.0, 0.001), reason: '$file: frame 25 at 1 s');
+        expect(r.logs.any((l) => l.contains('copied from the packet nearest the first picture')), isTrue,
+            reason: '$file: the job log says the head was cut');
+
+        // Trimmed, the seeked cut of task #24: unchanged, and in sync.
+        final trimmed = await _encode(
+            _job(video, 'avi_primed_copy_trim_$stem',
+                start: _trimStart,
+                end: 89,
+                audio: AudioMode.passthrough,
+                container: ContainerFormat.avi),
+            'vstart_avi_primed_copy_trim');
+        final tv = await _aviVideo(trimmed);
+        expect(tv.stored, 60, reason: '$file trimmed: stored frames');
+        await _expectInSync('AVI, copied $file, trimmed', trimmed,
+            flashes: 1, tolerance: await _halfPacket(video) + 0.001);
+
+        // MKV stores where a stream starts: nothing to cut, in sync.
+        final mkv = await _encode(
+            _job(video, 'mkv_primed_copy_$stem', audio: AudioMode.passthrough),
+            'vstart_mkv_primed_copy');
+        await _expectInSync('MKV, copied $file', mkv, flashes: 2, tolerance: 0.001);
+      });
+    }
+
+    // small_clip's AAC starts 5.1 ms before 0 (a partial priming): the
+    // nearest packet is the one it starts with, so its timing is as before,
+    // and no null frame.
+    test('small_clip.mp4 copied untrimmed into AVI: its 3151 pictures, the first at 0', () async {
+      final job = VideoJob(
+        id: const Uuid().v4(),
+        inputPath: _resource('small_clip.mp4'),
+        outputPath: '$_outDir/small_clip_copy.avi',
+        qtgmcParameters: _off,
+        processingPipeline: const ProcessingPipeline(deinterlace: _off),
+        encodingSettings: EncodingSettings(
+          codec: VideoCodec.ffv1,
+          container: ContainerFormat.avi,
+          audioMode: AudioMode.passthrough,
+        ),
+        inputFrameRate: 2997 / 100,
+      );
+      final v = await _aviVideo(await _encode(job, 'vstart_small_clip_copy'));
+      expect(v.stored, 3151, reason: 'stored frames, null frames included');
+      expect(v.pts.first, 0.0);
     });
   });
 }

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AVI copy priming</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Passthrough into AVI: a primed sound put a null frame at the head</h1>
+<p class="meta">2026-11-15 · macOS arm64, deps 1.16.0 (FFmpeg 9.0.2) · task #43, found by task #41; the Passthrough half of
+<a href="../2026-11-avi-convert-priming/index.html">task #38</a>, fixed with the cut of
+<a href="../2026-11-avi-copy-trim/index.html">task #24</a></p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> A sound that ffmpeg encoded into MKV or MP4 (AAC, MP3, AC-3, MP2) starts with the
+encoder's start-up, its <em>priming</em>, at a negative timestamp (AAC −21.3 ms, MP3 −23.0 ms, AC-3 −5 ms, MP2
+−10 ms). MKV and MP4 mark it to be skipped; <strong>AVI cannot store a negative timestamp</strong>. An
+<strong>untrimmed Passthrough</strong> into AVI copied the sound with no cut, because task #24's cut only applied
+when the encoder seeks. ffmpeg's default <code>-avoid_negative_ts</code> then shifted every stream by the
+priming. For AAC and MP3 that wrote a <strong>null frame at the head</strong> (101 stored frames for 100), and the
+player played the priming as silence. So the sound was <strong>AAC −18.6 ms, MP3 −16.9 ms</strong> against the picture.
+AC-3 and MP2 kept their frames but ran +5.4 / +10.1 ms.</p>
+<p>The copy is now cut at the head the same way a trim is cut: from the <strong>packet nearest the first
+picture</strong>, through <code>-copypriorss:a 0</code> with its threshold moved half a packet early by
+<code>-itsoffset</code> on the packet input. The results:</p>
+<ul>
+<li>AAC and MP3 store 100 frames and sit at <strong>+0.08 ms</strong> and <strong>−0.9 ms</strong>. MP3's next packet
+starts 47 samples after 0.</li>
+<li>AC-3 and MP2 keep the packet they start with, which is the nearest one, and so keep their timing.</li>
+<li>No output option is added, and every other job keeps its arguments byte for byte.</li>
+</ul>
+<p>The cost is the head of the sound. The decoder now starts without the dropped packet: AAC fades in over 21 ms,
+and MP3 is silent for one packet and at half level for the next. Before, the same span played 21–23 ms of silence.</p>
+</div>
+
+<h2>Fixtures and method</h2>
+<p><code>scripts/fixtures.sh</code> makes sources with no gap between sound and picture: 25 fps, 100 pictures, white
+frames at 25 and 75, and a 1 kHz beep at 1 s and 3 s over a 300 Hz bed, mono. The sound is encoded by ffmpeg at
+128 kbps into MKV (millisecond timestamps) or MP4 (an edit list), at 48 or 44.1 kHz. A FLAC master is the unprimed
+control. <code>small_clip.mp4</code> (29.97 fps, stereo AAC) is a real source whose AAC starts 5.1 ms before 0, a
+partial priming. The heavy test uses two committed fixtures from
+<code>Tests/TestResources/generate_primed_sound_test.sh</code>: <code>primed_aac.mkv</code> (96 kbps, below task
+#41's block-size overshoot) and <code>primed_mp3.mp4</code>.</p>
+<p>The measurements:</p>
+<ul>
+<li><strong>Stored frames</strong> is the AVI header's <code>avih.dwTotalFrames</code> (<code>scripts/riff.py</code>),
+null frames included.</li>
+<li><strong>Lag</strong> is the beep's onset, counted in decoded samples, minus the white frame's presentation time
+(<code>scripts/measure.py</code>, both from task #38's report).</li>
+<li><strong>Offset</strong> is the output's decoded sound against the source's own decode, by cross-correlation over
+0.5–1.5 s (<code>scripts/xcorr.py</code>). The <strong>head RMS</strong> is the level of the first windows of the
+output's decoded sound.</li>
+</ul>
+<p>Limits: every number is from macOS arm64 with FFmpeg 9.0.2, and the players measured are ffmpeg's decode only.
+The cut is at a packet, so the sync is good to half a packet at best: 10.7 ms for AAC, 12 ms for MP3, 16 ms for
+AC-3.</p>
+
+<h2>Candidates (ffmpeg only)</h2>
+<p><code>scripts/candidates.py</code> runs the worker's encode shape. Input 0 is the picture from frame 0 as a Y4M; input
+1 is the source, with <code>-c:a copy</code>; the output is FFV1 in AVI. <em>H</em> is half the source's longest
+packet. Cells are stored frames / lag in ms; a bold frame count is a null frame.</p>
+<div class="scroll"><table>
+<tr><th>variant</th><th>AAC 48k (mkv, mp4)</th><th>AAC 44.1k</th><th>AAC stereo</th><th>MP3 48k (mkv, mp4)</th><th>MP3 44.1k</th><th>AC-3</th><th>MP2</th><th>FLAC control</th></tr>
+<tr><td>A: current (nothing)</td><td class="bad">101 / −18.58</td><td class="bad">101 / −16.69</td><td class="bad">101 / −18.54</td><td class="bad">101 / −16.87</td><td class="bad">101 / −14.85</td><td>100 / +5.42</td><td>100 / +10.10</td><td>100 / +0.08</td></tr>
+<tr><td>B: <code>-avoid_negative_ts disabled</code></td><td class="warn">100 / +21.42</td><td class="warn">100 / +23.31</td><td class="warn">100 / +21.46</td><td class="warn">100 / +23.13</td><td class="warn">100 / +25.15</td><td>100 / +5.42</td><td>100 / +10.10</td><td>100 / +0.08</td></tr>
+<tr><td>C: <code>-copypriorss:a 0</code> (cut at 0)</td><td>100 / +0.08</td><td>100 / +0.08</td><td>100 / +0.13</td><td>100 / −0.87</td><td>100 / −0.98</td><td class="bad">100 / −26.58</td><td class="bad">100 / −13.90</td><td>100 / +0.08</td></tr>
+<tr><td>D/F: C + <code>disabled</code>, or <code>-ss 0</code> + both</td><td colspan="8">as C</td></tr>
+<tr><td><strong>G: <code>-itsoffset H</code> on the input + C (chosen)</strong></td><td class="good">100 / +0.08</td><td class="good">100 / +0.08</td><td class="good">100 / +0.13</td><td class="good">100 / −0.87</td><td class="good">100 / −0.98</td><td>100 / +5.42</td><td>100 / +10.10</td><td>100 / +0.08</td></tr>
+<tr><td>E, H, I: G + <code>disabled</code>; G + IVTC's <code>make_zero -start_at_zero</code>; G + <code>disabled -start_at_zero</code></td><td colspan="8">identical to G in every cell</td></tr>
+</table></div>
+<p>What each candidate does:</p>
+<ul>
+<li><strong>B</strong>, the first idea in the task, stops the shift but leaves the sound late by the whole priming,
+which is a bigger error than today's.</li>
+<li><strong>C</strong> drops every packet before 0. That is right for AAC and MP3, whose next packet starts at or just
+after 0. It is wrong for AC-3 and MP2, whose first packet is mostly real sound: they lose 27 and 14 ms.</li>
+<li><strong>G</strong> drops only packets more than half a packet before 0. That keeps the packet nearest 0, the same
+rule as a trim's cut. Every packet G keeps is at or after 0 once offset, so the muxer never shifts anything. Adding
+<code>disabled</code> (E) or an IVTC job's options (H, I) changes nothing.</li>
+<li>avienc ignores where an audio stream starts: the first audio pts of every output above is 0.000.</li>
+</ul>
+<p>Two more controls. <code>small_clip.mp4</code> stores 3151 frames under A, B, C and G alike. 60 fps MP2 and AC-3
+sources store 240 of 240 frames under A and G: a 5–10 ms priming against a 16.7 ms frame.</p>
+
+<h2>The sound itself, and what the priming sounds like</h2>
+<table>
+<tr><th>source</th><th class="num">offset A / B</th><th class="num">offset G</th><th>head RMS 0–10 / 10–21 / 21–43 ms: source</th><th>A / B</th><th>G</th></tr>
+<tr><td>aac.mkv, aac.mp4</td><td class="num">+21.33 ms</td><td class="num good">0.00 ms</td><td>0.038 / 0.036 / 0.035</td><td>0.000 / 0.000 / 0.037</td><td>0.010 / 0.027 / 0.035</td></tr>
+<tr><td>mp3.mkv</td><td class="num">+23.02 ms</td><td class="num good">−0.98 ms</td><td>0.034 / 0.034 / 0.034</td><td>0.000 / 0.000 / 0.032</td><td>0.000 / 0.000 / 0.017</td></tr>
+<tr><td>ac3.mkv</td><td class="num">+5.33 ms</td><td class="num">+5.33 ms</td><td>0.035 / 0.036 / 0.035</td><td colspan="2">0.025 / 0.035 / 0.035 (same packet kept)</td></tr>
+<tr><td>mp2.mkv</td><td class="num">+10.02 ms</td><td class="num">+10.02 ms</td><td>0.035 / 0.036 / 0.035</td><td colspan="2">0.000 / 0.036 / 0.035 (same packet kept)</td></tr>
+<tr><td>small_clip.mp4</td><td class="num">+5.15 ms</td><td class="num">+5.15 ms</td><td>0.040 / 0.097 / 0.085</td><td colspan="2">0.004 / 0.071 / 0.085 (same packet kept)</td></tr>
+</table>
+<p class="caption">The offset is the output's sound against the source's own decode, so it leaves out the null frame. With
+A, the AAC picture is also 40 ms late, which gives the −18.6 ms lag above.</p>
+<p>Copied into AVI, the priming plays as <strong>silence</strong>: 21 ms for AAC and 23 ms for MP3. That is the
+encoder's start-up, which MKV and MP4 skip. Cutting at the nearest packet removes that silence, but the decoder then
+starts without the dropped packet's overlap (and, for MP3, without its bit reservoir). So AAC fades in over its
+first packet, and MP3 is silent for one packet and at about half level for the next. The span is the same order as
+before, and the sound is now in sync.</p>
+
+<h2>Through the worker, before and after</h2>
+<p><code>scripts/worker_copy_avi.py</code> runs each job through a worker built from <code>929383f</code> (main
+before this change, "before") and through this change ("after"). The jobs are FFV1 into AVI with Passthrough.
+Cells are stored frames / lag in ms.</p>
+<div class="scroll"><table>
+<tr><th>source</th><th>untrimmed, before</th><th>untrimmed, after</th><th>head cut logged</th><th>trimmed 30..89 (both)</th><th>into MKV (both)</th></tr>
+<tr><td><code>primed_aac.mkv</code> (committed, 96k)</td><td class="bad">101 / −18.58</td><td class="good">100 / +0.08</td><td>yes</td><td>60 / +5.42</td><td>+0.08</td></tr>
+<tr><td><code>primed_mp3.mp4</code> (committed)</td><td class="bad">101 / −16.87</td><td class="good">100 / −0.87</td><td>yes</td><td>60 / −0.87</td><td>+0.10</td></tr>
+<tr><td>aac.mkv, aac.mp4</td><td class="bad">101 / −18.58</td><td class="good">100 / +0.08</td><td>yes</td><td>60 / +5.42</td><td>+0.08</td></tr>
+<tr><td>aac44.mkv</td><td class="bad">101 / −16.69</td><td class="good">100 / +0.08</td><td>yes</td><td>60 / −7.35</td><td>+0.08</td></tr>
+<tr><td>mp3.mkv, mp3.mp4</td><td class="bad">101 / −16.87</td><td class="good">100 / −0.87</td><td>yes</td><td>60 / −0.87</td><td>+0.10</td></tr>
+<tr><td>ac3.mkv</td><td>100 / +5.42</td><td>100 / +5.42</td><td>yes</td><td>60 / −10.58</td><td>+0.08</td></tr>
+<tr><td>mp2.mkv</td><td>100 / +10.10</td><td>100 / +10.10</td><td>yes</td><td>60 / +10.10</td><td>+0.08</td></tr>
+<tr><td>master48000.mkv (FLAC, control)</td><td>100 / +0.08</td><td>100 / +0.08</td><td>no</td><td>60 / +5.42</td><td>+0.08</td></tr>
+<tr><td><code>small_clip.mp4</code> (no flashes)</td><td>3151</td><td>3151</td><td>yes</td><td>—</td><td>—</td></tr>
+</table></div>
+<p class="caption">The first pictures are at 0 and 0.08 s before and at 0 and 0.04 s after, on every primed row. The
+trimmed and MKV columns are identical before and after: a trim was already cut (task #24), to within half a
+packet, which is where its −10.6 to +10.1 ms come from. The FLAC control does not take the cut, so its arguments are
+unchanged.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>The cut, not the output option.</strong> <code>-avoid_negative_ts disabled</code> alone trades the null frame
+for sound late by the whole priming. With the cut, no packet reaches the muxer with a negative timestamp, so no
+output option is needed, and an IVTC job's <code>make_zero</code> is untouched.</li>
+<li><strong>The nearest packet, not 0.</strong> The cut uses the same rule as a trim's, so AC-3 and MP2 keep the packet
+they start with.</li>
+<li><strong>One threshold rule.</strong> <code>sound_cut_input_args</code> moves <code>-copypriorss</code>'s threshold half
+a packet before the sound's start. It uses <code>-ss</code> when that point is inside the file, and otherwise
+<code>-itsoffset</code> by the remainder; it never uses both, since task #38 found <code>-itsoffset</code> inert beside
+<code>-ss</code>. This also changes a trim whose sound starts within half a packet of 0: it used to cut at 0, and now
+cuts at the nearest packet.</li>
+<li><strong>When the cut applies.</strong> It applies when a <em>copied, compressed</em> stream's first packet is before the
+format's start, by more than 1 µs (<code>SoundCut::starts_early</code>). It applies even when nothing would be
+dropped, as with <code>small_clip.mp4</code>, so that no AVI job hands avienc a negative audio timestamp at any frame
+rate. PCM never starts early, and a stream replaced by the restored track is not copied.</li>
+<li><strong>One decision.</strong> <code>sound_cut_applies</code> is <code>needs_sound_cut</code> (a trim, unchanged) or
+<code>may_cut_sound_head</code> plus the probe. A failed probe is a warning, never a refusal.</li>
+<li><strong>Not covered here:</strong> TS sources already carry the priming in their video start offset, which is the
+trimmed cut. AVI sources store no negative timestamps.</li>
+</ul>
+
+<h2>Tests</h2>
+<p>Rust:</p>
+<ul>
+<li><code>the_cut_probe_reads_a_primed_head</code>: captured ffprobe output for AAC/MKV, MP3/MP4, AC-3/MKV, PCM, an AVI
+without pts, a late TS, and a restored track.</li>
+<li><code>only_an_untrimmed_copy_into_avi_may_cut_its_head</code>.</li>
+<li><code>an_untrimmed_copy_into_avi_cuts_a_primed_head</code>: the arguments, the controls, and the trimmed case.</li>
+<li><code>a_sound_cut_changes_nothing_outside_a_seeked_copy_into_avi</code>, extended to a primed cut: byte for byte
+everywhere else.</li>
+<li>The trim within half a packet of 0, which now takes <code>-itsoffset</code>.</li>
+</ul>
+<p>Heavy (<code>integration_video_start_offset_test.dart</code>, group "a primed sound copied untrimmed into AVI (task
+#43)"):</p>
+<ul>
+<li><code>primed_aac.mkv</code> and <code>primed_mp3.mp4</code> store 100 frames, the first pictures are at 0 and 0.04,
+and the sound is in sync within 1 / 1.5 ms. The job log names the cut.</li>
+<li>Trimmed 30..89, they store 60 frames and are in sync.</li>
+<li>Into MKV, they are in sync.</li>
+<li><code>small_clip.mp4</code> stores 3151 frames.</li>
+</ul>
+<p>With the head cut disabled, both primed cases fail on 101 stored frames.</p>
+
+<h2>Reproduce</h2>
+<pre>(cd worker &amp;&amp; cargo build)
+VAPOURBOX_DEPS_DIR=&lt;deps bundle&gt; [BEFORE_WORKER=&lt;worker built from 929383f&gt;] \
+  docs/reports/2026-11-avi-copy-priming/scripts/run.sh</pre>
+</main>
+</body>
+</html>
