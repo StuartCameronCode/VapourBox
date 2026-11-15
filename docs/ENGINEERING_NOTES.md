@@ -4223,3 +4223,32 @@ Report: [docs/reports/2026-11-dvd-title-extraction](reports/2026-11-dvd-title-ex
   author them; none at hand). Synthetic unit tests cover the selection and
   the walk; the DSI offsets were checked against libdvdread 6.1.3's
   `nav_types.h`.
+
+### Stabilize's weave under-measured horizontal shake on 8-bit (task #32, 2026-11-15)
+
+Full evidence:
+[docs/reports/2026-11-depan-8-bit/](reports/2026-11-depan-8-bit/index.html).
+
+- Found from the nightly: the Stabilize parity cases failed on some platform
+  every night since the pass shipped. The fixture had no global motion, so
+  Depan estimated noise, and when the estimate was zero the pass returned the
+  source. The same 10-bit job also varied run to run (single-threaded it did
+  not): `DepanEstimate`'s `dx` flipped between ±0.011 px, a near-tie.
+- With a fixture carrying known ±2 px shake the parity check was
+  deterministic, and it failed honestly: 8 vs 10-bit was 9.66 levels apart.
+  MVTools' `frame_data2d` (`MVDepan.cpp`, master and v24) compares
+  `bytes_per_sample` with 8 and 32, as if it were bits. It is passed 1/2/4, so
+  only 16-bit integer is read correctly. 8-bit rows are read as 16-bit
+  samples: a clean 2 px horizontal shift measured 0.91–0.97 px (10/16-bit:
+  1.94), while vertical was right at every depth.
+- Fix: `stabilize.weave` is havsfunc's `Stab` with `DepanEstimate` run on a
+  16-bit copy (unless the clip is 16-bit integer already), compensating the
+  clip itself. 16-bit input gets exactly `Stab`. Parity 9.66 → 0.343.
+- The motion-free near-tie remains at every depth, and now at 8-bit too,
+  where the misread used to land on the same wrong answer every time. It
+  amounts to at most 5 levels inside the picture, plus an edge column with
+  `mirror=0`. It only appears when there is no shake to remove.
+- Also fixed in the same task (test-only): the field-order lossless checks
+  used `-fps_mode cfr` as their reference, which disagreed with #174's grid
+  on `interlaced_test.avi`'s null frames; and the add-ons widget test waited
+  a fixed 200 ms for an install.

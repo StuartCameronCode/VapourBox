@@ -2155,8 +2155,13 @@ if clip.format.color_family == vs.YUV:
 #
 # The signature is Stab(clp, dxmax, dymax, mirror) — there is no `range`
 # argument, whatever other Stab implementations take. `mirror` fills the edges
-# the shift exposes rather than leaving them black.
-clip = haf.Stab(
+# the shift exposes rather than leaving them black. stabilize.weave is Stab
+# with the motion measured at 16-bit: Depan misreads 8-bit samples and
+# under-measures horizontal shake by about half (task #32).
+import sys as _stab_sys
+_stab_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+from stabilize import weave as _stab_weave
+clip = _stab_weave(
     clip,
     dxmax={{STAB_DXMAX}},
     dymax={{STAB_DYMAX}},

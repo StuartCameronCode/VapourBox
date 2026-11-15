@@ -3,9 +3,9 @@ Stabilize - vertical pitch correction for VapourBox's Stabilize pass (issue #150
 
 The pass makes two independent corrections, in this order:
 
-1. Weave / shake: havsfunc ``Stab`` (``mv.DepanEstimate`` /
-   ``DepanCompensate`` against a temporal average), called directly from the
-   templates.
+1. Weave / shake: ``weave`` below, havsfunc's ``Stab`` (``mv.DepanEstimate``
+   / ``DepanCompensate`` against a temporal average) with its motion measured
+   on a 16-bit copy, since Depan misreads 8-bit samples (task #32).
 
 2. Vertical pitch ("frame height breathing"), this module: pull-through film
    scanners let the film slip in the gate, so from one frame to the next the
@@ -52,6 +52,44 @@ _NODE_CACHE_SIZE = 256
 # left above this is real content change. Measured on small_clip.mp4: steady
 # pairs align to < 0.01, pairs with fast motion stay above 0.02.
 _UNRELIABLE_DIFF = 3.0 / 255.0
+
+
+def weave(clip, dxmax=4, dymax=4, mirror=0):
+    """havsfunc ``Stab``, with the motion measured on a 16-bit copy.
+
+    MVTools' Depan reads its FFT window in ``frame_data2d``, which compares
+    ``bytes_per_sample`` with 8 and 32, as if it were bits. It is passed
+    ``bytesPerSample`` (1, 2 or 4), so only 16-bit integer input is read
+    right: an 8-bit row is read as 16-bit samples, which halves the
+    horizontal resolution of the correlation and runs past the window. On a
+    clean 2 px shift DepanEstimate measured 0.8-1.0 px at 8-bit and 1.93 px
+    at 10 and 16-bit; vertical shifts came out right at both (task #32, both
+    the MVTools master the Mac and Linux bundles build and the v24 Windows
+    ships).
+
+    So the estimate runs on a 16-bit integer copy unless the clip already is
+    one, and the clip itself is compensated: the picture keeps its own depth
+    and a 16-bit clip gets exactly havsfunc's ``Stab``. The averages are
+    built the same way as ``Stab`` builds them, at each depth.
+    """
+    import havsfunc as haf
+
+    def _interleaved(c):
+        temp = haf.AverageFrames(c, weights=[1] * 15, scenechange=25 / 255)
+        near = haf.AverageFrames(c, weights=[1] * 3, scenechange=25 / 255)
+        return core.std.Interleave([core.rgvs.Repair(temp, near, 1), c])
+
+    fmt = clip.format
+    inter = _interleaved(clip)
+    if fmt.sample_type == vs.INTEGER and fmt.bytes_per_sample == 2:
+        measured = inter
+    else:
+        deep = core.resize.Point(
+            clip, format=fmt.replace(sample_type=vs.INTEGER, bits_per_sample=16))
+        measured = _interleaved(deep)
+    mdata = core.mv.DepanEstimate(measured, trust=0, dxmax=dxmax, dymax=dymax)
+    out = core.mv.DepanCompensate(inter, data=mdata, offset=-1, mirror=mirror)
+    return out[::2]
 
 
 def _black(fmt):

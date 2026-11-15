@@ -4096,7 +4096,7 @@ fn test_107_stabilize() {
     run_job_and_verify(
         &job,
         "Stabilize",
-        &["haf.Stab(", "dxmax=6", "dymax=8", "mirror=3"],
+        &["_stab_weave(", "dxmax=6", "dymax=8", "mirror=3"],
     )
     .unwrap();
 }
@@ -4206,7 +4206,7 @@ fn test_110_new_passes_run_in_the_documented_order() {
     let flip = script.find("FlipHorizontal").expect("flip should be present");
     let aa = script.find("haf.daa(").expect("daa should be present");
     let sharp = script.find("core.cas.CAS(").expect("CAS should be present");
-    let stab = script.find("haf.Stab(").expect("Stab should be present");
+    let stab = script.find("_stab_weave(").expect("Stab should be present");
     let resize = script.find("height=target_h").expect("resize should be present");
     assert!(aa < sharp, "anti-aliasing must run before sharpening");
     assert!(aa < stab, "stabilisation runs after the detail passes");
@@ -7989,7 +7989,7 @@ fn test_211_stabilize_disabled_leaves_no_trace() {
     let job = stabilize_job("test_211_stabilize_off", StabilizeParameters::default());
     let (encode, preview) = generate_both_scripts(&job);
     for (label, script) in [("encode", &encode), ("preview", &preview)] {
-        for marker in ["haf.Stab(", "from stabilize import", "_stab_correct_pitch", "STABILIZE}}"] {
+        for marker in ["_stab_weave(", "from stabilize import", "_stab_correct_pitch", "STABILIZE}}"] {
             assert!(!script.contains(marker), "{}: unexpected '{}' in:\n{}", label, marker, script);
         }
         assert_no_stab_placeholders(label, script);
@@ -8000,7 +8000,8 @@ fn test_211_stabilize_disabled_leaves_no_trace() {
 fn test_212_stabilize_saved_before_pitch_is_unchanged() {
     // A pipeline saved before pitch correction existed has only
     // enabled/dxmax/dymax/mirror. It must deserialise to weave-only and get
-    // exactly the Stabilize block it always got, byte for byte.
+    // exactly the weave block, byte for byte (task #32 changed that block on
+    // purpose: Stab became stabilize.weave, which measures motion at 16-bit).
     create_output_dir();
     let stabilize: StabilizeParameters =
         serde_json::from_str(r#"{"enabled":true,"dxmax":6,"dymax":2,"mirror":3}"#).unwrap();
@@ -8015,8 +8016,13 @@ fn test_212_stabilize_saved_before_pitch_is_unchanged() {
 #\n\
 # The signature is Stab(clp, dxmax, dymax, mirror) — there is no `range`\n\
 # argument, whatever other Stab implementations take. `mirror` fills the edges\n\
-# the shift exposes rather than leaving them black.\n\
-clip = haf.Stab(\n    clip,\n    dxmax=6,\n    dymax=2,\n    mirror=3,\n)\n\
+# the shift exposes rather than leaving them black. stabilize.weave is Stab\n\
+# with the motion measured at 16-bit: Depan misreads 8-bit samples and\n\
+# under-measures horizontal shake by about half (task #32).\n\
+import sys as _stab_sys\n\
+_stab_sys.path.insert(0, r\"<templates>\")\n\
+from stabilize import weave as _stab_weave\n\
+clip = _stab_weave(\n    clip,\n    dxmax=6,\n    dymax=2,\n    mirror=3,\n)\n\
 \n\
 \n\
 # ============================================================================\n";
@@ -8024,7 +8030,12 @@ clip = haf.Stab(\n    clip,\n    dxmax=6,\n    dymax=2,\n    mirror=3,\n)\n\
     for (label, script) in [("encode", &encode), ("preview", &preview)] {
         let start = script.find("# PASS: STABILIZE").expect("stabilize section");
         let end = start + script[start..].find("# PASS: ROTATE / FLIP").expect("rotate section");
-        assert_eq!(&script[start..end], expected, "{}: Stabilize block changed", label);
+        // The templates directory is the machine's; everything else is pinned.
+        let block = &script[start..end];
+        let dir_start = block.find("path.insert(0, r\"").expect("templates dir") + "path.insert(0, r\"".len();
+        let dir_end = dir_start + block[dir_start..].find('"').unwrap();
+        let block = format!("{}<templates>{}", &block[..dir_start], &block[dir_end..]);
+        assert_eq!(block, expected, "{}: Stabilize block changed", label);
         assert_no_stab_placeholders(label, script);
     }
 }
@@ -8045,7 +8056,7 @@ fn test_213_stabilize_auto_pitch_is_in_both_scripts() {
     let (encode, preview) = generate_both_scripts(&job);
     for (label, script) in [("encode", &encode), ("preview", &preview)] {
         for expected in [
-            "haf.Stab(",
+            "_stab_weave(",
             "dxmax=6",
             "dymax=3",
             "from stabilize import correct_pitch as _stab_correct_pitch",
@@ -8062,7 +8073,7 @@ fn test_213_stabilize_auto_pitch_is_in_both_scripts() {
         // Weave, then pitch, both where the pass has always run: after colour
         // correction, before rotate / crop.
         let color = script.find("PASS 9: COLOR CORRECTION").unwrap();
-        let weave = script.find("clip = haf.Stab(").unwrap();
+        let weave = script.find("clip = _stab_weave(").unwrap();
         let pitch = script.find("clip = _stab_correct_pitch(").unwrap();
         let rotate = script.find("PASS: ROTATE / FLIP").unwrap();
         assert!(color < weave && weave < pitch && pitch < rotate, "{}: Stabilize is out of order", label);
@@ -8095,7 +8106,7 @@ fn test_214_stabilize_file_pitch_uses_source_frame_numbers() {
     let encode = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
     assert!(encode.contains("frame_offset=100"), "encode must start at the trim:\n{}", encode);
     assert!(encode.contains("mode=\"file\""));
-    assert!(!encode.contains("haf.Stab("), "weave is off");
+    assert!(!encode.contains("_stab_weave("), "weave is off");
     assert!(encode.contains("invert=True"));
     assert!(encode.contains("rate_num=1") && encode.contains("rate_den=1"));
     assert_no_stab_placeholders("encode", &encode);
