@@ -118,7 +118,7 @@ Future<List<String>> _frameMd5s(String path) async {
   final r = await Process.run(
     WorkerHarness.ffmpegPath,
     ['-v', 'error', '-i', path, '-map', '0:v:0',
-     '-vf', 'setpts=PTS-STARTPTS,fps=${_fps.toInt()}', '-frames:v', '$_frames',
+     '-vf', 'setpts=PTS-STARTPTS,fps=$_fps', '-frames:v', '$_frames',
      '-pix_fmt', 'yuv422p', '-f', 'framemd5', '-'],
     environment: WorkerHarness.ffmpegEnv,
   );
