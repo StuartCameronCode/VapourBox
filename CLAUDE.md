@@ -1377,7 +1377,9 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    field-flagged clip, which fails on most 4:2:0 heights. Keep the carrier
    (blank half-width chroma, source chroma put back); don't "simplify" it to
    one call or strip `_FieldBased`, which removed less scratch
-   (docs/reports/issue-29-descratch-420).
+   (docs/reports/issue-29-descratch-420). Blur Radius is clamped in the
+   script to `c.height // 2 - 1`, which the plugin refuses past (frames
+   under 402 lines; task #35, docs/reports/issue-35-descratch-blurlen).
 2. **The filter accepts the depth and misapplies 8-bit-unit parameters.** Every
    threshold/offset in the UI is expressed in 8-bit levels (0-255), so a filter
    working in the clip's own range is silently wrong by 4x at 10-bit, 256x at
