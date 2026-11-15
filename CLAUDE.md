@@ -399,8 +399,10 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 
 **8. VapourSynth Compatibility Guards**
 - If the plugin only supports 8-bit (or, like `LUTDeCrawl`, caps out at 10),
-  add a bit-depth conversion guard in the template and restore the source
-  format after — see "High Bit Depth Sources"
+  wrap the call in `_low_depth_change(clip, bits, filt)` in the template,
+  and first check at that depth, on a fixture with real low bits, that the
+  plugin leaves the samples it doesn't change exact — see "High Bit Depth
+  Sources"
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**
   (which is how the UI presents them), scale it to `clip.format` *in the script*.
   A filter working in the clip's own range is silently wrong on a 10-bit source
@@ -1436,15 +1438,20 @@ the dropped ground-truth frames, slot alignment and preview = encode.
 A >8-bit source is read natively off the pipe. Two ways this breaks after that:
 
 1. **The filter rejects the depth** and vspipe dies. Known 8-bit-only cases
-   (`vivtc.VFM`, `descratch.DeScratch`) and 10-bit-max cases (`havsfunc.LUTDeCrawl`)
-   are guarded in the template: convert down, run the filter, restore the
-   source format.
-   **DeScratch applies only its change at full depth** (task #34):
-   `src + up(result8) - up(src8)`, so every sample it left alone stays
-   bit-exact. Up-converting its whole 8-bit result quantised every sample of
-   the source. Test a guard like this on a fixture with real sub-8-bit
-   content: one converted from an 8-bit master has zero low bits and passes
-   either way (docs/reports/issue-34-descratch-high-bit-depth).
+   (`vivtc.VFM`, `descratch.DeScratch`, `dedot.Dedot`, `bifrost.Bifrost`) and
+   10-bit-max cases (`havsfunc.LUTDeCrawl`, `LUTDeRainbow`) are guarded in
+   the template. VFM takes metrics from an 8-bit copy (`clip2`); every
+   other guard **applies only the filter's change at full depth**:
+   `src + up(filt(low)) - up(low)`, so every sample it left alone stays
+   bit-exact. DeScratch does this inline (task #34); the Chroma Fixes four go
+   through the template's `_low_depth_change(clip, bits, filt)` (task #37),
+   which new guards should use. **Never up-convert a filter's whole low-depth
+   result**: it quantised 78% of samples at 10-bit and 99.6% at 16-bit, in
+   planes the filter never touches. Test a guard like this on a fixture with
+   real sub-target-depth content: one converted from a shallower master has
+   zero low bits and passes either way
+   (docs/reports/issue-34-descratch-high-bit-depth,
+   docs/reports/issue-37-chroma-fixes-high-bit-depth).
    **DeScratch on 4:2:0 runs its luma on a 4:2:2 carrier** (task #29): the
    plugin's internal blur is a resize that zimg runs per field on a
    field-flagged clip, which fails on most 4:2:0 heights. Keep the carrier

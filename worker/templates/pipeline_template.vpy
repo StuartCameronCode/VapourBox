@@ -146,6 +146,21 @@ def _expr(clips, expr, **kwargs):
         return _akarin_expr(clips, expr, **kwargs)
     return core.std.Expr(clips, expr, **kwargs)
 
+def _low_depth_change(clip, bits, filt):
+    """Run filt on a copy of clip at `bits` (a plugin's depth limit) and add only
+    what it changed to the full-depth clip: src + up(filt(low)) - up(low).
+    Up-converting filt's whole result quantised every sample of a deeper source,
+    though these filters change a fraction of them; this way every sample filt
+    left alone stays bit-exact, and a changed one keeps the source's low bits
+    (within half a low-depth level of filt's result). Both up-conversions go
+    through zimg, as the down-conversion does, so the delta is right in full and
+    limited range. Frame properties are the source's (tasks #34/#37,
+    docs/reports/issue-37-chroma-fixes-high-bit-depth)."""
+    low = core.resize.Bilinear(clip, format=clip.format.replace(
+        bits_per_sample=bits, sample_type=vs.INTEGER).id)
+    up = lambda c: core.resize.Point(c, format=clip.format.id)
+    return _expr([clip, up(filt(low)), up(low)], "x y + z -")
+
 # ============================================================================
 # PASS 2: DEINTERLACING
 # ============================================================================
@@ -1659,10 +1674,6 @@ clip = core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})
 # ============================================================================
 {{#CHROMA_FIXES}}
 
-def _dedot_8bit_format(c):
-    """The clip's own layout at 8 bits — DeDot is 8-bit only."""
-    return core.get_video_format(c.format.id).replace(bits_per_sample=8).id
-
 {{#CF_AUTO_CHROMA}}
 # Measure the chroma misalignment and correct it, instead of asking the user to
 # guess it on the manual sliders below. Measured on real PAL footage it recovers
@@ -1691,20 +1702,22 @@ clip = _auto_chroma_fix(
 # Different geometries, so both are worth having.
 #
 # 8-bit only: "the input clip must be 8 bit YUV or Gray with constant format and
-# dimensions", measured failing at 10/12/16-bit on both 4:2:0 and 4:2:2. Same
-# convert-down-and-restore guard as DeScratch and BiFrost.
-_dedot_src_format = clip.format.id
+# dimensions", measured failing at 10/12/16-bit on both 4:2:0 and 4:2:2. On a
+# deeper source it runs on an 8-bit copy and only its change is applied at full
+# depth (_low_depth_change), so every sample it leaves alone stays bit-exact;
+# up-converting its whole 8-bit result (dithered) quantised them all (task #37).
+def _dedot(clip):
+    return core.dedot.Dedot(
+        clip,
+        luma_2d={{DEDOT_LUMA_2D}},
+        luma_t={{DEDOT_LUMA_T}},
+        chroma_t1={{DEDOT_CHROMA_T1}},
+        chroma_t2={{DEDOT_CHROMA_T2}},
+    )
 if clip.format.bits_per_sample != 8:
-    clip = core.resize.Bicubic(clip, format=_dedot_8bit_format(clip))
-clip = core.dedot.Dedot(
-    clip,
-    luma_2d={{DEDOT_LUMA_2D}},
-    luma_t={{DEDOT_LUMA_T}},
-    chroma_t1={{DEDOT_CHROMA_T1}},
-    chroma_t2={{DEDOT_CHROMA_T2}},
-)
-if clip.format.id != _dedot_src_format:
-    clip = core.resize.Bicubic(clip, format=_dedot_src_format, dither_type="error_diffusion")
+    clip = _low_depth_change(clip, 8, _dedot)
+else:
+    clip = _dedot(clip)
 {{/CF_DEDOT}}
 
 {{#CHROMA_SHIFT}}
@@ -1746,28 +1759,28 @@ clip = haf.FixChromaBleedingMod(
 # LUTDeCrawl - remove dot crawl artifacts.
 # havsfunc REJECTS anything above 10-bit outright ("LUTDeCrawl: This is not an
 # 8-10 bit YUV clip"), which failed the whole job on a 12-bit source such as
-# ProRes 4444 XQ. Run the pass at 10-bit and restore the source format after —
-# dot crawl is an analog artifact, so 10-bit is ample for the decision, and the
-# 8/10-bit path stays byte-for-byte what it was.
-_decrawl_orig_format = clip.format
-if clip.format.bits_per_sample > 10:
-    clip = core.resize.Bilinear(clip, format=clip.format.replace(
-        bits_per_sample=10, sample_type=vs.INTEGER).id)
-clip = haf.LUTDeCrawl(
-    clip,
+# ProRes 4444 XQ. Above 10-bit it runs on a 10-bit copy and only its change is
+# applied at full depth (_low_depth_change): dot crawl is an analog artifact, so
+# 10-bit is ample for the decision, every sample it leaves alone stays
+# bit-exact, and the 8/10-bit path stays byte-for-byte what it was.
+# Up-converting its whole 10-bit result quantised every sample (task #37).
+def _decrawl(clip):
+    return haf.LUTDeCrawl(
+        clip,
 {{#DECRAWL_YTHRESH}}
-    ythresh={{DECRAWL_YTHRESH}},
+        ythresh={{DECRAWL_YTHRESH}},
 {{/DECRAWL_YTHRESH}}
 {{#DECRAWL_CTHRESH}}
-    cthresh={{DECRAWL_CTHRESH}},
+        cthresh={{DECRAWL_CTHRESH}},
 {{/DECRAWL_CTHRESH}}
 {{#DECRAWL_MAXDIFF}}
-    maxdiff={{DECRAWL_MAXDIFF}},
+        maxdiff={{DECRAWL_MAXDIFF}},
 {{/DECRAWL_MAXDIFF}}
-)
-if _decrawl_orig_format.bits_per_sample > 10:
-    clip = core.resize.Bilinear(clip, format=_decrawl_orig_format.id,
-                               dither_type="error_diffusion")
+    )
+if clip.format.bits_per_sample > 10:
+    clip = _low_depth_change(clip, 10, _decrawl)
+else:
+    clip = _decrawl(clip)
 {{/CHROMA_DECRAWL}}
 
 {{#CHROMA_DERAINBOW}}
@@ -1777,31 +1790,30 @@ if _decrawl_orig_format.bits_per_sample > 10:
 #
 # Same 8-10 bit limit as LUTDeCrawl and the same treatment: havsfunc rejects
 # anything above 10-bit outright ("LUTDeRainbow: This is not an 8-10 bit YUV or
-# YCoCg clip"), verified against the bundle, so run at 10-bit and restore the
-# source format after. Rainbowing is an analog artifact; 10-bit is ample for the
-# decision and the 8/10-bit path is byte-for-byte unchanged.
-_derainbow_orig_format = clip.format
-if clip.format.bits_per_sample > 10:
-    clip = core.resize.Bilinear(clip, format=clip.format.replace(
-        bits_per_sample=10, sample_type=vs.INTEGER).id)
-clip = haf.LUTDeRainbow(
-    clip,
+# YCoCg clip"), verified against the bundle, so above 10-bit it runs on a
+# 10-bit copy and only its change is applied at full depth (_low_depth_change,
+# task #37). Rainbowing is an analog artifact; 10-bit is ample for the decision,
+# and the 8/10-bit path is byte-for-byte unchanged.
+def _derainbow(clip):
+    return haf.LUTDeRainbow(
+        clip,
 {{#DERAINBOW_CTHRESH}}
-    cthresh={{DERAINBOW_CTHRESH}},
+        cthresh={{DERAINBOW_CTHRESH}},
 {{/DERAINBOW_CTHRESH}}
 {{#DERAINBOW_YTHRESH}}
-    ythresh={{DERAINBOW_YTHRESH}},
+        ythresh={{DERAINBOW_YTHRESH}},
 {{/DERAINBOW_YTHRESH}}
 {{#DERAINBOW_Y}}
-    y={{DERAINBOW_Y}},
+        y={{DERAINBOW_Y}},
 {{/DERAINBOW_Y}}
 {{#DERAINBOW_LINKUV}}
-    linkUV={{DERAINBOW_LINKUV}},
+        linkUV={{DERAINBOW_LINKUV}},
 {{/DERAINBOW_LINKUV}}
-)
-if _derainbow_orig_format.bits_per_sample > 10:
-    clip = core.resize.Bilinear(clip, format=_derainbow_orig_format.id,
-                               dither_type="error_diffusion")
+    )
+if clip.format.bits_per_sample > 10:
+    clip = _low_depth_change(clip, 10, _derainbow)
+else:
+    clip = _derainbow(clip)
 {{/CHROMA_DERAINBOW}}
 
 {{#CHROMA_BIFROST}}
@@ -1811,22 +1823,22 @@ if _derainbow_orig_format.bits_per_sample > 10:
 # chroma clip: frame-to-frame chroma swing halved.
 #
 # 8-BIT ONLY: "Bifrost: Only constant format 8 bit integer YUV input supported",
-# verified against the bundle at 10/12/16-bit and 4:2:2. Same treatment as
-# DeScratch — run the pass at 8-bit and restore the source format after. In
-# practice the sources this targets (VHS, Video8, DV captures) are 8-bit anyway.
-_bifrost_src_format = clip.format
+# verified against the bundle at 10/12/16-bit and 4:2:2. On a deeper source
+# (a 10-bit ProRes capture of the same tape) it runs on an 8-bit copy and only
+# its change is applied at full depth (_low_depth_change), so every sample it
+# leaves alone, luma included, stays bit-exact. Up-converting its whole 8-bit
+# result, dithered, quantised and noised every sample (task #37).
+def _bifrost(clip):
+    return core.bifrost.Bifrost(
+        clip,
+        luma_thresh={{BIFROST_LUMA_THRESH}},
+        variation={{BIFROST_VARIATION}},
+        interlaced={{BIFROST_INTERLACED}},
+    )
 if clip.format.bits_per_sample != 8:
-    clip = core.resize.Bilinear(clip, format=clip.format.replace(
-        bits_per_sample=8, sample_type=vs.INTEGER).id)
-clip = core.bifrost.Bifrost(
-    clip,
-    luma_thresh={{BIFROST_LUMA_THRESH}},
-    variation={{BIFROST_VARIATION}},
-    interlaced={{BIFROST_INTERLACED}},
-)
-if _bifrost_src_format.bits_per_sample != 8:
-    clip = core.resize.Bilinear(clip, format=_bifrost_src_format.id,
-                               dither_type="error_diffusion")
+    clip = _low_depth_change(clip, 8, _bifrost)
+else:
+    clip = _bifrost(clip)
 {{/CHROMA_BIFROST}}
 
 {{#CHROMA_VINVERSE}}
