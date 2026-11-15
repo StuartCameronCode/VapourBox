@@ -8699,3 +8699,67 @@ fn test_228_unblend_preview_pad_and_origin() {
     let pad = preview.find("clip = clip[0] * _unb_pad + clip").expect("pad");
     assert!(pad < preview.find("clip = _unb.unblend(").unwrap(), "padding must come before the pass");
 }
+
+#[test]
+fn test_242_descratch_any_subsampling() {
+    // Task #29: DeScratch's internal blur is a field-aware resize that fails
+    // on most interlaced 4:2:0 heights. Both
+    // scripts run 4:2:0 luma on a 4:2:2 carrier with blank chroma and
+    // put the source's chroma back; the chroma gets its own call only when a
+    // chroma mode is on. One DeScratch call site, so every path takes the
+    // same parameters.
+    create_output_dir();
+    for (mode_u, mode_v, chroma_call) in [(0, 0, false), (3, 0, true), (0, 1, true)] {
+        let mut job = create_base_job("test_242_descratch_any_subsampling");
+        job.input_pixel_format = Some("yuv420p".to_string());
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters {
+                enabled: false,
+                ..QTGMCParameters::default()
+            },
+            descratch: DeScratchParameters {
+                enabled: true,
+                mode_u,
+                mode_v,
+                ..DeScratchParameters::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        let (encode, preview) = generate_both_scripts(&job);
+        for (label, script) in [("encode", &encode), ("preview", &preview)] {
+            let ctx = format!("{} modeu={} modev={}", label, mode_u, mode_v);
+            assert_eq!(
+                script.matches("core.descratch.DeScratch(").count(),
+                1,
+                "{}: one DeScratch call site",
+                ctx
+            );
+            assert!(
+                script.contains(
+                    "_ds_luma = _descratch(core.std.ShufflePlanes([clip, _ds_blank, _ds_blank], [0, 0, 0], vs.YUV))"
+                ),
+                "{}: luma must run on the 4:2:2 carrier",
+                ctx
+            );
+            assert!(
+                script.contains("clip = core.std.ShufflePlanes([_ds_luma, _ds_chroma], [0, 1, 2], vs.YUV)"),
+                "{}: chroma must be put back",
+                ctx
+            );
+            assert_eq!(
+                script.contains("_ds_chroma = _descratch(core.std.RemoveFrameProps(clip, props=\"_FieldBased\"))"),
+                chroma_call,
+                "{}: chroma call only with a chroma mode on",
+                ctx
+            );
+            assert!(!script.contains("DESCRATCH_CHROMA_MODES"), "{}: tags left behind", ctx);
+            assert!(
+                !script.contains("{{DESCRATCH") && !script.contains("{{#DESCRATCH"),
+                "{}: unsubstituted placeholder",
+                ctx
+            );
+            // The 8-bit guard (test_88) is still around the whole block.
+            assert!(script.contains("_descratch_orig_format = clip.format"), "{}", ctx);
+        }
+    }
+}

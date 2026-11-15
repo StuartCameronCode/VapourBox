@@ -641,54 +641,75 @@ clip = _deflicker.reduce_flicker(clip, strength={{DEFLICKER_LOCAL_STRENGTH}}, ag
 _descratch_orig_format = clip.format
 if clip.format.bits_per_sample != 8:
     clip = core.resize.Bilinear(clip, format=clip.format.replace(bits_per_sample=8, sample_type=vs.INTEGER))
-clip = core.descratch.DeScratch(
-    clip,
+# DeScratch blurs each frame with an internal resize to height // (1 + blurlen)
+# rows, rounded to even. zimg resizes a field-based clip per field, where 4:2:0
+# chroma needs a multiple of 4, so the plugin failed on most interlaced 4:2:0
+# sources (288/480/1080 lines at the default blurlen, 486 always). Planes are
+# processed independently, so 4:2:0 luma runs on a 4:2:2 copy with blank
+# chroma: any height works, the analysis stays field-aware, and the luma is
+# bit-identical to the 4:2:0 call wherever that call works
+# (docs/reports/issue-29-descratch-420). Chroma is copied unless a chroma mode
+# is on. Keep this; stripping _FieldBased instead removed less scratch.
+def _descratch(c):
+    return core.descratch.DeScratch(
+        c,
 {{#DESCRATCH_MINDIF}}
-    mindif={{DESCRATCH_MINDIF}},
+        mindif={{DESCRATCH_MINDIF}},
 {{/DESCRATCH_MINDIF}}
 {{#DESCRATCH_ASYM}}
-    asym={{DESCRATCH_ASYM}},
+        asym={{DESCRATCH_ASYM}},
 {{/DESCRATCH_ASYM}}
 {{#DESCRATCH_MAXGAP}}
-    maxgap={{DESCRATCH_MAXGAP}},
+        maxgap={{DESCRATCH_MAXGAP}},
 {{/DESCRATCH_MAXGAP}}
 {{#DESCRATCH_MAXWIDTH}}
-    maxwidth={{DESCRATCH_MAXWIDTH}},
+        maxwidth={{DESCRATCH_MAXWIDTH}},
 {{/DESCRATCH_MAXWIDTH}}
 {{#DESCRATCH_MINWIDTH}}
-    minwidth={{DESCRATCH_MINWIDTH}},
+        minwidth={{DESCRATCH_MINWIDTH}},
 {{/DESCRATCH_MINWIDTH}}
 {{#DESCRATCH_MINLEN}}
-    minlen={{DESCRATCH_MINLEN}},
+        minlen={{DESCRATCH_MINLEN}},
 {{/DESCRATCH_MINLEN}}
 {{#DESCRATCH_MAXLEN}}
-    maxlen={{DESCRATCH_MAXLEN}},
+        maxlen={{DESCRATCH_MAXLEN}},
 {{/DESCRATCH_MAXLEN}}
 {{#DESCRATCH_MAXANGLE}}
-    maxangle={{DESCRATCH_MAXANGLE}},
+        maxangle={{DESCRATCH_MAXANGLE}},
 {{/DESCRATCH_MAXANGLE}}
 {{#DESCRATCH_BLURLEN}}
-    blurlen={{DESCRATCH_BLURLEN}},
+        blurlen={{DESCRATCH_BLURLEN}},
 {{/DESCRATCH_BLURLEN}}
 {{#DESCRATCH_KEEP}}
-    keep={{DESCRATCH_KEEP}},
+        keep={{DESCRATCH_KEEP}},
 {{/DESCRATCH_KEEP}}
 {{#DESCRATCH_BORDER}}
-    border={{DESCRATCH_BORDER}},
+        border={{DESCRATCH_BORDER}},
 {{/DESCRATCH_BORDER}}
 {{#DESCRATCH_MODEY}}
-    modey={{DESCRATCH_MODEY}},
+        modey={{DESCRATCH_MODEY}},
 {{/DESCRATCH_MODEY}}
 {{#DESCRATCH_MODEU}}
-    modeu={{DESCRATCH_MODEU}},
+        modeu={{DESCRATCH_MODEU}},
 {{/DESCRATCH_MODEU}}
 {{#DESCRATCH_MODEV}}
-    modev={{DESCRATCH_MODEV}},
+        modev={{DESCRATCH_MODEV}},
 {{/DESCRATCH_MODEV}}
 {{#DESCRATCH_MINDIFUV}}
-    mindifuv={{DESCRATCH_MINDIFUV}},
+        mindifuv={{DESCRATCH_MINDIFUV}},
 {{/DESCRATCH_MINDIFUV}}
-)
+    )
+if clip.format.subsampling_h == 0:
+    clip = _descratch(clip)
+else:
+    _ds_blank = core.std.BlankClip(clip, width=clip.width // 2, format=vs.GRAY8, color=128, keep=True)
+    _ds_luma = _descratch(core.std.ShufflePlanes([clip, _ds_blank, _ds_blank], [0, 0, 0], vs.YUV))
+    _ds_chroma = clip
+{{#DESCRATCH_CHROMA_MODES}}
+    # Chroma analysed as frames (no _FieldBased), which accepts every height.
+    _ds_chroma = _descratch(core.std.RemoveFrameProps(clip, props="_FieldBased"))
+{{/DESCRATCH_CHROMA_MODES}}
+    clip = core.std.ShufflePlanes([_ds_luma, _ds_chroma], [0, 1, 2], vs.YUV)
 # Restore original bit depth if we converted down
 if _descratch_orig_format.bits_per_sample != 8:
     clip = core.resize.Bilinear(clip, format=_descratch_orig_format)

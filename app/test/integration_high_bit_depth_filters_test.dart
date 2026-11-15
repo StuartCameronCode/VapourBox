@@ -228,6 +228,104 @@ VideoJob _job({
   );
 }
 
+/// The fixture at [pixFmt] with three dark vertical scratches drawn into the
+/// master's picture before the format conversion, so every format shares
+/// them (and the 4:2:0 and 4:2:2 copies share their luma). The plain fixture
+/// has nothing DeScratch removes.
+Future<String> _scratchedFixture(String pixFmt) async {
+  final path = '$_outDir/scratched_$pixFmt.mkv';
+  if (File(path).existsSync()) return path;
+  final master = await _master();
+  final result = await Process.run(
+    WorkerHarness.ffmpegPath,
+    [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', master,
+      '-vf', 'drawbox=x=71:y=0:w=2:h=ih:color=black@0.4:t=fill,'
+          'drawbox=x=170:y=20:w=1:h=240:color=black@0.5:t=fill,'
+          'drawbox=x=277:y=0:w=2:h=ih:color=black@0.35:t=fill,'
+          'setfield=tff',
+      '-c:v', 'ffv1', '-pix_fmt', pixFmt,
+      path,
+    ],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(result.exitCode, 0,
+      reason: 'scratched fixture generation failed for $pixFmt: '
+          '${result.stderr}');
+  return path;
+}
+
+/// Every frame of [path] decoded as raw [pixFmt] (no conversion when it is the
+/// file's own format), so planes can be compared byte for byte.
+Future<Uint8List> _rawFrames(String path, String pixFmt) async {
+  final result = await Process.run(
+    WorkerHarness.ffmpegPath,
+    ['-hide_banner', '-loglevel', 'error', '-i', path,
+     '-f', 'rawvideo', '-pix_fmt', pixFmt, '-'],
+    environment: WorkerHarness.ffmpegEnv,
+    stdoutEncoding: null,
+  );
+  expect(result.exitCode, 0, reason: 'raw decode failed: ${result.stderr}');
+  return Uint8List.fromList(result.stdout as List<int>);
+}
+
+/// The [plane] (0 = Y, 1 = U, 2 = V) of every 8-bit frame in [raw], laid out
+/// with chroma planes of [chromaW] x [chromaH], concatenated.
+Uint8List _planes(Uint8List raw, int plane, int chromaW, int chromaH,
+    {int width = _width, int height = _height}) {
+  final luma = width * height;
+  final chroma = chromaW * chromaH;
+  final frame = luma + 2 * chroma;
+  final start = plane == 0 ? 0 : luma + (plane - 1) * chroma;
+  final size = plane == 0 ? luma : chroma;
+  final out = BytesBuilder();
+  for (var f = 0; f + frame <= raw.length; f += frame) {
+    out.add(raw.sublist(f + start, f + start + size));
+  }
+  return out.takeBytes();
+}
+
+int _differing(Uint8List a, Uint8List b) {
+  expect(a.length, b.length, reason: 'plane sizes differ');
+  var n = 0;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) n++;
+  }
+  return n;
+}
+
+VideoJob _losslessJob({
+  required String fixture,
+  required String pixFmt,
+  required ProcessingPipeline pipeline,
+  required String outputName,
+  int width = _width,
+  int height = _height,
+  int frames = _frames,
+  double fps = _fps,
+}) {
+  return VideoJob(
+    id: const Uuid().v4(),
+    inputPath: fixture,
+    outputPath: '$_outDir/$outputName.mkv',
+    qtgmcParameters: pipeline.deinterlace,
+    processingPipeline: pipeline,
+    encodingSettings: const EncodingSettings(
+      codec: VideoCodec.ffv1,
+      container: ContainerFormat.mkv,
+      audioMode: AudioMode.none,
+      chromaSubsampling: ChromaSubsampling.original,
+    ),
+    detectedFieldOrder: FieldOrder.topFieldFirst,
+    totalFrames: frames,
+    inputFrameRate: fps,
+    inputWidth: width,
+    inputHeight: height,
+    inputPixelFormat: pixFmt,
+  );
+}
+
 // =============================================================================
 // THE PASS MATRIX
 // =============================================================================
@@ -907,10 +1005,16 @@ void main() {
   //    FFV1 film scans (decoded as 16-bit, task #23: QTGMC, santiag and
   //    Deblock QED all failed on it before); 16-bit is what the
   //    high-precision paths convert to internally, so a pass that rejects it
-  //    is a latent failure even for a 10-bit source.
+  //    is a latent failure even for a 10-bit source. yuv420p14le gives every
+  //    pass a field-flagged 4:2:0 source (DeScratch failed on it, task #29).
   // ===========================================================================
   group('preview runs on deeper formats', () {
-    for (final pixFmt in ['yuv444p12le', 'yuv422p14le', 'yuv422p16le']) {
+    for (final pixFmt in [
+      'yuv444p12le',
+      'yuv420p14le',
+      'yuv422p14le',
+      'yuv422p16le',
+    ]) {
       for (final pass in _passes()) {
         test('${pass.name} on $pixFmt', () async {
           if (await _skipWithoutDevice(pass)) return;
@@ -1099,6 +1203,128 @@ void main() {
         expect(result.success, isTrue, reason: '$pixFmt failed: $result');
       }, timeout: const Timeout(Duration(minutes: 4)));
     }
+  });
+
+  // ===========================================================================
+  // 3c. DeScratch on 4:2:0 (task #29). The plugin blurs with an internal
+  //     resize that zimg runs per field on a field-flagged clip, and 4:2:0
+  //     fields need a multiple of 4 rows: 288 lines at the default blurlen
+  //     failed, as did 480 and 1080i. The template runs the luma on a 4:2:2
+  //     carrier with blank chroma, so its luma must be exactly the 4:2:2
+  //     call's. The fixtures carry drawn scratches so the pass has work.
+  // ===========================================================================
+  group('DeScratch on 4:2:0 (task #29)', () {
+    const descratch = DeScratchParameters(enabled: true);
+    const withChroma = DeScratchParameters(enabled: true, modeU: 3, modeV: 3);
+
+    for (final pixFmt in ['yuv420p', 'yuv420p10le']) {
+      for (final (name, params) in [
+        ('default', descratch),
+        ('chroma modes on', withChroma),
+      ]) {
+        test('$name: preview and encode run on $pixFmt', () async {
+          final fixture = await _scratchedFixture(pixFmt);
+          final pipeline = _only(descratch: params);
+          final tag = '${pixFmt}_${name.replaceAll(' ', '_')}';
+          final preview = await WorkerHarness.runPreview(
+            _job(fixture: fixture, pixFmt: pixFmt, pipeline: pipeline).toJson(),
+            frame: _previewFrame,
+            label: 'ds_$tag',
+          );
+          expect(preview.success, isTrue,
+              reason: 'DeScratch preview failed on $pixFmt: $preview');
+          final result = await WorkerHarness.runJob(
+              _losslessJob(
+                      fixture: fixture,
+                      pixFmt: pixFmt,
+                      pipeline: pipeline,
+                      outputName: 'ds_$tag')
+                  .toJson(),
+              label: 'ds_$tag');
+          expect(result.success, isTrue,
+              reason: 'DeScratch encode failed on $pixFmt: ${result.error}');
+          final out = await WorkerHarness.firstStream(result.outputPath!,
+              selector: 'v:0',
+              entries: ['pix_fmt', 'nb_read_frames'],
+              countFrames: true);
+          expect(out!['pix_fmt'], pixFmt);
+          expect(int.parse('${out['nb_read_frames']}'), _frames);
+        }, timeout: const Timeout(Duration(minutes: 4)));
+      }
+    }
+
+    test('4:2:0 luma equals the 4:2:2 result; chroma is the source\'s',
+        () async {
+      final src420 = await _scratchedFixture('yuv420p');
+      final src422 = await _scratchedFixture('yuv422p');
+      const cw = _width ~/ 2;
+      final in420 = await _rawFrames(src420, 'yuv420p');
+      final in422 = await _rawFrames(src422, 'yuv422p');
+      // Both fixtures are lossless conversions of one master, so they share
+      // its luma; without that the comparison below would mean nothing.
+      expect(_differing(_planes(in420, 0, cw, _height ~/ 2),
+              _planes(in422, 0, cw, _height)), 0,
+          reason: 'the 4:2:0 and 4:2:2 fixtures must share their luma');
+
+      Future<Uint8List> encode(String fixture, String pixFmt) async {
+        final result = await WorkerHarness.runJob(
+            _losslessJob(
+                    fixture: fixture,
+                    pixFmt: pixFmt,
+                    pipeline: _only(descratch: descratch),
+                    outputName: 'ds_ref_$pixFmt')
+                .toJson(),
+            label: 'ds_ref_$pixFmt');
+        expect(result.success, isTrue, reason: result.error);
+        return _rawFrames(result.outputPath!, pixFmt);
+      }
+
+      final out420 = await encode(src420, 'yuv420p');
+      final out422 = await encode(src422, 'yuv422p');
+      final y420 = _planes(out420, 0, cw, _height ~/ 2);
+      final y422 = _planes(out422, 0, cw, _height);
+      final changed = _differing(y420, _planes(in420, 0, cw, _height ~/ 2));
+      print('  DeScratch changed $changed luma samples of ${y420.length}');
+      expect(changed, greaterThan(0),
+          reason: 'DeScratch changed nothing, so the comparison proves nothing');
+      expect(_differing(y420, y422), 0,
+          reason: 'the carrier\'s luma must equal the 4:2:2 call\'s');
+      for (final plane in [1, 2]) {
+        expect(
+            _differing(_planes(out420, plane, cw, _height ~/ 2),
+                _planes(in420, plane, cw, _height ~/ 2)),
+            0,
+            reason: 'plane $plane must be the source\'s with chroma modes off');
+      }
+    }, timeout: const Timeout(Duration(minutes: 6)));
+
+    test('Soft Telecine + DeScratch encodes an NTSC film DVD', () async {
+      // VDecimate alone keeps _FieldBased, and 240 lines at the default
+      // blurlen is a failing height: the most common film-DVD job.
+      final fixture =
+          '${WorkerHarness.repoRoot}/Tests/TestResources/soft_telecine_dvd.mkv';
+      final pipeline = _only(
+        deinterlace: const QTGMCParameters(
+            enabled: true, method: DeinterlaceMethod.softTelecine, tff: true),
+        descratch: descratch,
+      );
+      final result = await WorkerHarness.runJob(
+          _losslessJob(
+            fixture: fixture,
+            pixFmt: 'yuv420p',
+            pipeline: pipeline,
+            outputName: 'ds_soft_telecine',
+            width: 352,
+            height: 240,
+            frames: 120,
+            fps: 30000 / 1001,
+          ).toJson(),
+          label: 'ds_soft_telecine');
+      expect(result.success, isTrue, reason: result.error);
+      final out = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0', entries: ['pix_fmt', 'height']);
+      expect(out!['pix_fmt'], 'yuv420p');
+    }, timeout: const Timeout(Duration(minutes: 4)));
   });
 
   // ===========================================================================

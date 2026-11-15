@@ -1321,6 +1321,12 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    (`vivtc.VFM`, `descratch.DeScratch`) and 10-bit-max cases (`havsfunc.LUTDeCrawl`)
    are guarded in **both** templates: convert down, run the filter, restore the
    source format.
+   **DeScratch on 4:2:0 runs its luma on a 4:2:2 carrier** (task #29): the
+   plugin's internal blur is a resize that zimg runs per field on a
+   field-flagged clip, which fails on most 4:2:0 heights. Keep the carrier
+   (blank half-width chroma, source chroma put back); don't "simplify" it to
+   one call or strip `_FieldBased`, which removed less scratch
+   (docs/reports/issue-29-descratch-420).
 2. **The filter accepts the depth and misapplies 8-bit-unit parameters.** Every
    threshold/offset in the UI is expressed in 8-bit levels (0-255), so a filter
    working in the clip's own range is silently wrong by 4x at 10-bit, 256x at

@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DeScratch on 4:2:0</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>DeScratch failed on interlaced 4:2:0 sources</h1>
+<p class="meta">2026-11-15 · task #29 · deps 1.16.0 · measured on an Apple Silicon Mac (macOS arm64 bundle).
+The failure is in zimg's arithmetic, not CPU code, so it is the same on every platform; the nightly heavy run
+covers the others.</p>
+
+<div class="card">
+<p><strong>Outcome: built.</strong> The DeScratch pass failed with <em>"Resize error 1027: image dimensions must be
+divisible by subsampling factor"</em> on most field-flagged 4:2:0 sources, at any bit depth. Our own conversions
+around the call were not the cause. The failure is inside the plugin: its constructor builds the blurred clip it
+analyses (and corrects with) by resizing the frame to <code>height // (1 + blurlen)</code> rows, rounded to even.
+zimg resizes a field-flagged clip one field at a time, so 4:2:0 chroma then needs a multiple of 4.</p>
+<p>The templates now run 4:2:0 luma through DeScratch on a <strong>4:2:2 carrier</strong>: the clip's own luma
+plus a blank half-width chroma plane, assembled with <code>ShufflePlanes</code> (no resample). They then put the source's
+chroma back. The plugin processes planes independently and copies chroma by default, so the carrier gives
+<strong>bit-identical output</strong> wherever the native call works, and it works at every height. A chroma mode,
+which is off by default, gets a second call on a copy without <code>_FieldBased</code>.</p>
+</div>
+
+<h2>1. Where it fails</h2>
+<p>The plugin alone on field-flagged (TFF) BlankClips, 720 wide (<code>sweep.py</code>). Progressive clips, 4:2:2 and 4:4:4
+never fail.</p>
+<div class="scroll"><table>
+<tr><th>height</th><th>blurlen 15 (default)</th><th>5</th><th>30</th><th>50</th></tr>
+<tr><td>240 (NTSC DVD fields-as-frames, the Soft Telecine fixture)</td><td class="bad">fails</td><td>ok</td><td class="bad">fails</td><td>ok</td></tr>
+<tr><td>288 (the heavy test's fixture)</td><td class="bad">fails</td><td>ok</td><td>ok</td><td>ok</td></tr>
+<tr><td>480 (NTSC)</td><td class="bad">fails</td><td>ok</td><td class="bad">fails</td><td>ok</td></tr>
+<tr><td>486</td><td class="bad">fails</td><td class="bad">fails</td><td class="bad">fails</td><td class="bad">fails</td></tr>
+<tr><td>576 (PAL)</td><td>ok</td><td>ok</td><td class="bad">fails</td><td class="bad">fails</td></tr>
+<tr><td>1080i</td><td class="bad">fails</td><td>ok</td><td class="bad">fails</td><td>ok</td></tr>
+</table></div>
+<p>The encode and preview templates carry the same block, so both failed. These jobs reach DeScratch with
+<code>_FieldBased</code> set:</p>
+<ul>
+<li><strong>Deinterlacing off with a detected field order.</strong> The heavy test's case, and a film-on-tape capture's.</li>
+<li><strong>Soft Telecine.</strong> A bare <code>VDecimate</code> leaves <code>_FieldBased=2</code>, so an NTSC film DVD with Soft Telecine
+and DeScratch failed too. QTGMC, Bwdif and IVTC (VFM ± VDecimate) reset it to 0, which is why the existing encode
+test (QTGMC first) never caught this.</li>
+</ul>
+<div class="card correction"><p><strong>Correction to the plan.</strong> The plan said DeScratch also fails on NTSC DV (4:1:1), because the plugin
+refuses <code>YUV411P8</code> ("Video must be YV12, YV16 or YV24!"). That is true of the plugin, but no job reaches it with 4:1:1.
+Both templates convert 4:1:1 to 4:2:2 straight after the pipe, before any pass. The 4:1:1 branch was therefore
+dropped while implementing.</p></div>
+
+<h2>2. Which way of running it removes the most scratch</h2>
+<p>Probe: 24 frames of the committed real interlaced capture <code>Tests/TestResources/interlaced_test.avi</code>
+(720x576), with three dark vertical scratches drawn in by <code>drawbox</code>. Ground truth is the same frames
+unscratched. The measure is luma mean absolute difference from ground truth, in 8-bit levels, inside each scratch's
+14–16 px strip; lower is better. "Changes to clean clip" runs the same call on the unscratched frames and counts
+any change as a false positive (<code>quality.py</code>).</p>
+<div class="scroll"><table>
+<tr><th>variant (default parameters, 4:2:2 clip)</th><th class="num">strip 1</th><th class="num">strip 2</th><th class="num">strip 3</th><th class="num">full frame</th><th class="num">changes to clean clip</th></tr>
+<tr><td>scratched input</td><td class="num">6.883</td><td class="num">3.664</td><td class="num">6.595</td><td class="num">0.3618</td><td class="num">–</td></tr>
+<tr><td><strong>field-aware</strong> (what DeScratch does on every 4:2:2 source today)</td><td class="num good">1.754</td><td class="num good">3.600</td><td class="num good">1.666</td><td class="num">0.1714</td><td class="num">0.0203</td></tr>
+<tr><td>progressive (strip <code>_FieldBased</code> first)</td><td class="num">2.343</td><td class="num">3.664</td><td class="num">1.841</td><td class="num">0.1687</td><td class="num">0.0009</td></tr>
+<tr><td>per field (<code>SeparateFields</code>, upstream's advice for interlaced video)</td><td class="num">3.417</td><td class="num">3.664</td><td class="num">3.768</td><td class="num">0.2316</td><td class="num">–</td></tr>
+<tr><td>per field, lengths/angle/blur rescaled to field rows</td><td class="num">2.260</td><td class="num">3.664</td><td class="num">2.066</td><td class="num">0.1713</td><td class="num">–</td></tr>
+</table></div>
+<p>Field-aware analysis removes the most scratch. Stripping <code>_FieldBased</code> (the one-line fix) makes fewer false
+changes but leaves more scratch, and it would change the output of every 4:2:2 interlaced job that works today.
+Per-field processing is worst, and it cannot split a 486-line 4:2:0 frame at all. So the fix keeps field-aware
+analysis and makes it work on 4:2:0.</p>
+<p><strong>Limits of this measure:</strong> one clip; straight, synthetic, dark scratches of constant opacity; luma only;
+default parameters plus three variations. Real film scratches wander and vary in contrast. Scratch 2 (1 px wide,
+50%) is barely touched by any variant. This ranks the variants on one kind of scratch; it does not show how
+often DeScratch helps on real footage.</p>
+<p><a href="img/2_scratched.png"><img src="img/2_scratched.png" width="240" alt="scratched"></a>
+<a href="img/3_field_aware.png"><img src="img/3_field_aware.png" width="240" alt="field-aware"></a>
+<a href="img/4_progressive.png"><img src="img/4_progressive.png" width="240" alt="progressive"></a>
+<a href="img/5_per_field.png"><img src="img/5_per_field.png" width="240" alt="per field"></a></p>
+<p class="caption">Luma, frame 12, a 160x160 crop at (100, 200) shown 3x with nearest-neighbour scaling. Left to right:
+the scratched input, field-aware, progressive and per-field. Look at the vertical line at x = 150. Field-aware leaves the
+faintest trace and per-field the strongest. Unscratched reference: <a href="img/1_clean.png">1_clean.png</a>.</p>
+
+<h2>3. The carrier is bit-identical where the native call works</h2>
+<p>The same probe at 4:2:0 compared the native call with the carrier (<code>exact.py</code>). Both were run progressive,
+TFF and BFF, at blurlen 15, 5 and 30 and mindif 3. In <strong>every case where the native call works, 0 of 24
+frames differ in Y, U or V</strong>, and the carrier keeps <code>_FieldBased</code>. So no job that works today
+changes by a single sample. The carrier also works on field-flagged 4:2:0 at every height in section 1 at blurlen
+15, 30 and 50.</p>
+<div class="scroll"><table>
+<tr><th>4:2:0, field-flagged</th><th class="num">strip 1</th><th class="num">strip 2</th><th class="num">strip 3</th><th class="num">changes to clean clip</th></tr>
+<tr><td>native, defaults</td><td class="num">1.754</td><td class="num">3.600</td><td class="num">1.666</td><td class="num">0.0203</td></tr>
+<tr><td>carrier, defaults</td><td class="num">1.754</td><td class="num">3.600</td><td class="num">1.666</td><td class="num">0.0203</td></tr>
+<tr><td>native, blurlen 30</td><td colspan="4" class="bad">fails (1027)</td></tr>
+<tr><td>carrier, blurlen 30</td><td class="num">2.041</td><td class="num">3.469</td><td class="num">2.116</td><td class="num">0.0327</td></tr>
+<tr><td>progressive, blurlen 30</td><td class="num">2.075</td><td class="num">3.583</td><td class="num">1.761</td><td class="num">0.0008</td></tr>
+</table></div>
+<p>Why it is exact: DeScratch handles each plane independently. With <code>modeu = modev = 0</code> (the default) it copies the
+chroma planes unchanged. The luma result depends only on the luma plane and its luma blur, and zimg computes that
+the same whatever the chroma subsampling.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>Carrier, not stripping <code>_FieldBased</code>:</strong> it keeps today's output where today works, and it removes more
+scratch (section 2).</li>
+<li><strong>Chroma modes on (advanced, default off):</strong> U and V come from a second call on a copy without
+<code>_FieldBased</code>, which accepts every 4:2:0 height. For a progressive source this is today's output. For a field-flagged one
+at a height that happened to work, its chroma is now analysed as frames rather than as fields.</li>
+<li><strong>One call site</strong> (<code>_descratch()</code> in both templates), so every path gets the same parameters, and the
+8-bit guard stays around the whole block.</li>
+</ul>
+
+<h2>Tests</h2>
+<ul>
+<li><code>test_242_descratch_any_subsampling</code> (Rust): both scripts carry the carrier, exactly one call site, and
+the chroma call only with a chroma mode on.</li>
+<li><code>integration_high_bit_depth_filters_test.dart</code> (heavy):
+<ul>
+<li>preview and FFV1 encode on 8- and 10-bit 4:2:0, with chroma modes off and on;</li>
+<li>a 4:2:0 encode's luma equals a 4:2:2 encode's, sample for sample, and its chroma equals the source's (with
+78,675 luma samples changed, so the comparison is not vacuous);</li>
+<li>Soft Telecine + DeScratch on <code>soft_telecine_dvd.mkv</code>;</li>
+<li><code>yuv420p14le</code> added to the deeper-formats row, which gives every pass a field-flagged 4:2:0 source.</li>
+</ul>
+All six new tests fail with error 1027 on the previous templates.</li>
+</ul>
+
+<h2>Not tested / follow-ups</h2>
+<ul>
+<li>Real scratched film. There is no such fixture in the repo; the quality ranking rests on synthetic scratches.</li>
+<li>Soft Telecine leaves <code>_FieldBased</code> set on film frames, so every later zimg resize treats them as fields (task #33).
+Filed separately.</li>
+<li>DeScratch on a source deeper than 8-bit up-converts the whole 8-bit frame, so untouched pixels lose
+precision. Filed as task #34.</li>
+<li>Blur Radius allows 200, but the plugin refuses <code>height // (1 + blurlen) &lt; 2</code> (above 119 on 480 lines).
+Filed as task #35.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>SCRATCH=/some/scratch/dir DEPS=deps/macos-arm64 docs/reports/issue-29-descratch-420/scripts/reproduce.sh</pre>
+<p><code>sweep.py</code> (section 1) uses BlankClips only. <code>quality.py</code> and <code>exact.py</code> read raw frames made by
+<code>reproduce.sh</code> from the committed capture; they need no source plugin and no NumPy.</p>
+</main>
+</body>
+</html>
