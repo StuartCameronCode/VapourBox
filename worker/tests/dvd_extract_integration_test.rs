@@ -13,7 +13,7 @@
 //!
 //! Needs libdvdread and ffmpeg/ffprobe (the deps bundle in a debug build;
 //! every platform's bundle carries libdvdread). Skips, saying why, when the
-//! worker can't find libdvdread.
+//! worker can't find or load libdvdread.
 //!
 //! Run with: cargo test --test dvd_extract_integration_test -- --nocapture
 
@@ -97,7 +97,8 @@ fn frame_times(ffprobe: &Path, file: &Path) -> Vec<f64> {
 enum Outcome {
     Extracted(PathBuf),
     Failed(String),
-    NoLibDvdRead,
+    /// libdvdread is missing or will not load, with the worker's reason.
+    NoLibDvdRead(String),
 }
 
 fn extract(dir: &Path, name: &str, args: &[&str]) -> Outcome {
@@ -111,8 +112,11 @@ fn extract(dir: &Path, name: &str, args: &[&str]) -> Outcome {
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&r.stdout).to_string();
-    if stdout.contains("libdvdread not found") {
-        return Outcome::NoLibDvdRead;
+    // Missing, or present but unloadable: the published macOS arm64 bundle's
+    // libdvdread links Homebrew's libdvdcss by absolute path, so it loads
+    // only where Homebrew has libdvdcss (a bundle bug, filed separately).
+    if stdout.contains("libdvdread not found") || stdout.contains("Failed to load libdvdread") {
+        return Outcome::NoLibDvdRead(stdout);
     }
     if r.status.success() {
         assert!(out.exists(), "{stdout}");
@@ -145,8 +149,8 @@ fn each_title_and_chapter_range_is_extracted_alone() {
     for (name, args, expected) in cases {
         let file = match extract(&dir, name, args) {
             Outcome::Extracted(f) => f,
-            Outcome::NoLibDvdRead => {
-                eprintln!("SKIP: libdvdread not found (install the deps bundle)");
+            Outcome::NoLibDvdRead(log) => {
+                eprintln!("SKIP: the worker cannot load libdvdread: {log}");
                 let _ = std::fs::remove_dir_all(&dir);
                 return;
             }
