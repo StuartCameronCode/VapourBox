@@ -44,6 +44,7 @@ String get _outDir => p.join(WorkerHarness.outputDir, 'field_order');
 String get _source =>
     p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', 'interlaced_test.avi');
 const _frames = 10;
+const _fps = 25;
 
 Map<String, dynamic> _job(String name, VideoCodec codec, ContainerFormat container,
     FieldOrder order, {bool deinterlace = false}) {
@@ -106,14 +107,19 @@ Future<Set<(int, int)>> _frameFlags(String path) async {
 
 /// Per-frame MD5s of [path] decoded as yuv422p, on the constant-rate grid.
 ///
-/// `-fps_mode cfr` because the source AVI has null frames (stored frames
-/// 0, 5, 6, …): framemd5 alone would pass only the stored ones, while the
-/// worker's decode repeats into the gaps, exactly as `cfr` does here.
+/// The source AVI has null frames (stored frames 0, 5, 6, …): framemd5 alone
+/// would pass only the stored ones. The worker puts each stored frame in the
+/// slot its timestamp names and repeats the frame before into a gap (issue
+/// #174, `SourceGrid::filters`), so slots 0–4 are all stored frame 0. The
+/// `fps` filter places frames the same way, independently of the worker.
+/// Not `-fps_mode cfr`: its vsync emits a frame up to one slot early, which
+/// put stored frame 5 in slot 4.
 Future<List<String>> _frameMd5s(String path) async {
   final r = await Process.run(
     WorkerHarness.ffmpegPath,
-    ['-v', 'error', '-i', path, '-frames:v', '$_frames', '-map', '0:v:0',
-     '-fps_mode', 'cfr', '-pix_fmt', 'yuv422p', '-f', 'framemd5', '-'],
+    ['-v', 'error', '-i', path, '-map', '0:v:0',
+     '-vf', 'setpts=PTS-STARTPTS,fps=${_fps.toInt()}', '-frames:v', '$_frames',
+     '-pix_fmt', 'yuv422p', '-f', 'framemd5', '-'],
     environment: WorkerHarness.ffmpegEnv,
   );
   expect(r.exitCode, 0, reason: 'framemd5 $path: ${r.stderr}');
@@ -137,6 +143,10 @@ void main() {
     await Directory(_outDir).create(recursive: true);
     sourceMd5s = await _frameMd5s(_source);
     expect(sourceMd5s, hasLength(_frames));
+    // The four leading null frames repeat stored frame 0 (slots 0–4); a
+    // reference that puts stored frame 5 in slot 4 is the old cfr mistake.
+    expect(sourceMd5s.take(5).toSet(), hasLength(1),
+        reason: 'slots 0-4 of interlaced_test.avi are all stored frame 0');
   });
 
   group('container-flagged codecs', () {
