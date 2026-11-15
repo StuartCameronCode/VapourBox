@@ -539,11 +539,6 @@ void main() {
         border: true,
         precise: true,
         forceTr: 2,
-        str: 3.0,
-        amp: 0.125,
-        fastMa: true,
-        eSearchP: true,
-        refineMotion: true,
         opencl: true,
         device: 1,
       );
@@ -623,11 +618,6 @@ void main() {
       expect(restored.border, original.border);
       expect(restored.precise, original.precise);
       expect(restored.forceTr, original.forceTr);
-      expect(restored.str, original.str);
-      expect(restored.amp, original.amp);
-      expect(restored.fastMa, original.fastMa);
-      expect(restored.eSearchP, original.eSearchP);
-      expect(restored.refineMotion, original.refineMotion);
       expect(restored.opencl, original.opencl);
       expect(restored.device, original.device);
     });

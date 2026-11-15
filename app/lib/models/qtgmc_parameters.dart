@@ -232,11 +232,8 @@ class QTGMCParameters {
   final bool? border;
   final bool? precise;
   final int? forceTr;
-  final double? str;
-  final double? amp;
-  final bool? fastMa;
-  final bool? eSearchP;
-  final bool? refineMotion;
+  // str, amp, fastMa, eSearchP and refineMotion were here until task #42:
+  // havsfunc's QTGMC takes none of them, so setting one failed the encode.
 
   // === GPU Acceleration ===
   final bool? opencl;
@@ -355,11 +352,6 @@ class QTGMCParameters {
     this.border,
     this.precise,
     this.forceTr,
-    this.str,
-    this.amp,
-    this.fastMa,
-    this.eSearchP,
-    this.refineMotion,
     this.opencl,
     this.device,
     this.ivtcOrder,
@@ -454,11 +446,6 @@ class QTGMCParameters {
     bool? border,
     bool? precise,
     int? forceTr,
-    double? str,
-    double? amp,
-    bool? fastMa,
-    bool? eSearchP,
-    bool? refineMotion,
     bool? opencl,
     int? device,
     int? ivtcOrder,
@@ -549,11 +536,6 @@ class QTGMCParameters {
       border: border ?? this.border,
       precise: precise ?? this.precise,
       forceTr: forceTr ?? this.forceTr,
-      str: str ?? this.str,
-      amp: amp ?? this.amp,
-      fastMa: fastMa ?? this.fastMa,
-      eSearchP: eSearchP ?? this.eSearchP,
-      refineMotion: refineMotion ?? this.refineMotion,
       opencl: opencl ?? this.opencl,
       device: device ?? this.device,
       ivtcOrder: ivtcOrder ?? this.ivtcOrder,

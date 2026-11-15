@@ -101,11 +101,6 @@
         "border",
         "precise",
         "forceTr",
-        "str",
-        "amp",
-        "fastMa",
-        "eSearchP",
-        "refineMotion",
         "opencl",
         "device"
       ]
@@ -553,7 +548,7 @@
       "min": 4,
       "max": 32,
       "vapoursynth": {
-        "name": "Blocksize"
+        "name": "BlockSize"
       },
       "ui": {
         "label": "Block Size",
@@ -1642,101 +1637,6 @@
         }
       }
     },
-    "str": {
-      "type": "number",
-      "default": 2.0,
-      "optional": true,
-      "min": 0.0,
-      "max": 4.0,
-      "step": 0.25,
-      "vapoursynth": {
-        "name": "Str"
-      },
-      "ui": {
-        "label": "Strength",
-        "description": "Motion compensation strength",
-        "widget": "slider",
-        "precision": 2,
-        "visibleWhen": {
-          "method": [
-            "qtgmc"
-          ]
-        }
-      }
-    },
-    "amp": {
-      "type": "number",
-      "default": 0.0625,
-      "optional": true,
-      "min": 0.0,
-      "max": 1.0,
-      "step": 0.0625,
-      "vapoursynth": {
-        "name": "Amp"
-      },
-      "ui": {
-        "label": "Amp",
-        "description": "Amplification amount",
-        "widget": "slider",
-        "precision": 4,
-        "visibleWhen": {
-          "method": [
-            "qtgmc"
-          ]
-        }
-      }
-    },
-    "fastMa": {
-      "type": "boolean",
-      "default": false,
-      "optional": true,
-      "vapoursynth": {
-        "name": "FastMA"
-      },
-      "ui": {
-        "label": "Fast MA",
-        "description": "Fast motion analysis",
-        "visibleWhen": {
-          "method": [
-            "qtgmc"
-          ]
-        }
-      }
-    },
-    "eSearchP": {
-      "type": "boolean",
-      "default": false,
-      "optional": true,
-      "vapoursynth": {
-        "name": "ESearchP"
-      },
-      "ui": {
-        "label": "ESearchP",
-        "description": "Extended search pattern",
-        "visibleWhen": {
-          "method": [
-            "qtgmc"
-          ]
-        }
-      }
-    },
-    "refineMotion": {
-      "type": "boolean",
-      "default": false,
-      "optional": true,
-      "vapoursynth": {
-        "name": "RefineMotion"
-      },
-      "ui": {
-        "label": "Refine Motion",
-        "description": "Refine motion vectors",
-        "visibleWhen": {
-          "method": [
-            "qtgmc"
-          ]
-        }
-      }
-    },
     "opencl": {
       "type": "boolean",
       "default": false,
@@ -2280,12 +2180,7 @@
         "parameters": [
           "border",
           "precise",
-          "forceTr",
-          "str",
-          "amp",
-          "fastMa",
-          "eSearchP",
-          "refineMotion"
+          "forceTr"
         ],
         "expanded": false,
         "advancedOnly": true

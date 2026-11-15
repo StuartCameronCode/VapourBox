@@ -148,7 +148,7 @@ VapourBox/
 | `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args, including the NUT sound copy, the AVI copy cut (`SoundCut`, trimmed or a primed head: `sound_cut_applies`) and the encoder priming for Convert into AVI (`EncoderPriming`) (see "Audio Restoration", "Source Frame Size") |
 | `Tests/TestResources/audio_codec_containers.json` | Which Convert audio codec each container holds, and the refusal's wording; read by both sides (see "Convert audio: codec × container") |
 | `worker/src/avi_header.rs` | An AVI output's AAC block size raised to its largest packet after the encode (task #41; see "Source Frame Size") |
-| `worker/templates/pipeline_template.vpy` | VapourSynth script template |
+| `worker/templates/pipeline_template.vpy` | The one VapourSynth script template, for the encode and the preview (see "One script template") |
 | `worker/tests/filter_integration_test.rs` | Filter integration tests |
 
 ### Flutter App
@@ -360,9 +360,14 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 - Add to `PassType` enum + `display_name()` + `description()` + `Default` + `from_legacy()` + `enabled_passes()` + `enabled_pass_count()` + `is_pass_enabled()`
 
 **3. VapourSynth Templates & Script Generator**
-- Add template block to `worker/templates/pipeline_template.vpy`
-- Add template block to `worker/templates/preview_template.vpy`
+- Add template block to `worker/templates/pipeline_template.vpy` — the one
+  template, used by the encode and the preview alike (see "One script
+  template"); mark encode-only or preview-only lines, never copy a block
 - Add pass handling in `worker/src/script_generator.rs`
+- Every keyword argument must be one the called function takes, in the
+  bundle: `template_call_arguments_test.dart` checks each `haf.*` call against
+  havsfunc's signatures and each `core.<ns>.<fn>` call against the loaded
+  core's (task #42 found two QTGMC arguments that failed every encode)
 
 **4. Dart Model & Pipeline**
 - Create `app/lib/models/<filter>_parameters.dart` with `@JsonSerializable()`
@@ -394,7 +399,7 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 
 **8. VapourSynth Compatibility Guards**
 - If the plugin only supports 8-bit (or, like `LUTDeCrawl`, caps out at 10),
-  add a bit-depth conversion guard in **both** templates and restore the source
+  add a bit-depth conversion guard in the template and restore the source
   format after — see "High Bit Depth Sources"
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**
   (which is how the UI presents them), scale it to `clip.format` *in the script*.
@@ -403,7 +408,7 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 - Add the plugin's **namespace** to the required list in
   `app/test/vapoursynth_integration_test.dart`, or a deps bundle missing it will
   pass CI and fail at job time
-- If the plugin fails on field-based clips, note this — both templates set field-based via `{{#SET_FIELD_BASED}}`, emitted whenever `ScriptGenerator::field_based_for` returns a value (see "Field Order" below)
+- If the plugin fails on field-based clips, note this — the template sets field-based via `{{#SET_FIELD_BASED}}`, emitted whenever `ScriptGenerator::field_based_for` returns a value (see "Field Order" below)
 - **Probe the bundled plugin before wiring it up** — run it against `deps/` at
   8/10/12/16-bit, check its argument vocabulary matches the VapourSynth port (not
   the AviSynth one), and check its own defaults actually do something. A plugin
@@ -890,7 +895,7 @@ denoise-only anamorphic and rotated anamorphic jobs.
 
 ### Borders (issue #86)
 
-Two ways to add bars, sharing one step at the **very end of both templates**
+Two ways to add bars, sharing one step at the **very end of the template**
 (`{{#BORDERS}}`, after `CHROMA_CONVERT`): **Add Borders** (`padEnabled`/
 `padWidth`/`padHeight`) pads to a fixed canvas without rescaling, independent
 of Resize; **Pad to Fill** (`padToAspect`) pads to the resize target, and its
@@ -982,7 +987,7 @@ mirrors the script's fitting). Rules:
   test (`ProcessingPipeline.isSubtitleOnly`) reads that list, and a pass
   missing from it is skipped with the whole encode. `test_222`.
 - **R78's resizers let frame properties override `*_in_s` arguments**, so the
-  `{{#COLOR_709}}` block (both templates, right after `{{/RESIZE}}`) removes
+  `{{#COLOR_709}}` block (right after `{{/RESIZE}}`) removes
   `_Matrix`/`_Range` first. Any new block that converts colour with explicit
   `*_in_s` arguments needs the same.
 - `integration_bt709_conversion_test.dart` (heavy) checks the pixels: every
@@ -1432,7 +1437,7 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
 
 1. **The filter rejects the depth** and vspipe dies. Known 8-bit-only cases
    (`vivtc.VFM`, `descratch.DeScratch`) and 10-bit-max cases (`havsfunc.LUTDeCrawl`)
-   are guarded in **both** templates: convert down, run the filter, restore the
+   are guarded in the template: convert down, run the filter, restore the
    source format.
    **DeScratch applies only its change at full depth** (task #34):
    `src + up(result8) - up(src8)`, so every sample it left alone stays
@@ -1505,8 +1510,8 @@ failure with no error, the same trap as `Turn90`'s 4:4:0 case.
   High 4:2:2 / HEVC Rext) — deliberate, the user picks the format.
 - The 8-bit conversion **must dither** (`dither_type` left at its
   `"error_diffusion"`-capable default, not `"none"`) or shallow gradients band.
-- The block lives in **both** templates, or a preview never shows the output
-  format's banding. Add new formats in `ChromaSubsampling::vapoursynth_format`,
+- The block is shared by the encode and the preview, so a preview shows the
+  output format's banding. Add new formats in `ChromaSubsampling::vapoursynth_format`,
   not as a new match arm in `script_generator.rs`.
 
 Rust's serde names and Dart's `value` strings are the wire format
@@ -1514,10 +1519,34 @@ Rust's serde names and Dart's `value` strings are the wire format
 Dart enum's `outputBitDepth` drives the "your N-bit source will be output as
 M-bit" warning.
 
+### One script template (task #42)
+
+The encode and the preview are generated from **one** file,
+`worker/templates/pipeline_template.vpy`. The preview used to have its own
+copy, which drifted: it lost MCTemporalDenoise's `settings` (the preview
+denoised at havsfunc's default profile) and five QTGMC arguments, which hid
+that havsfunc's QTGMC takes none of them (setting one failed every encode).
+
+- **The few lines that genuinely differ** sit in `{{#ENCODE_ONLY}}` /
+  `{{#PREVIEW_ONLY}}` blocks: the pipe-source reads, Unblend's and the Frame
+  Rate pass's phase padding, DDColor's `preview=True`, IVTC's and Soft
+  Telecine's VDecimate (encode only), and the preview's final frame pick.
+  `script_generator::select_side` keeps one side and drops the other when the
+  file is **loaded**, before any substitution, so no other block ever sees the
+  side tags. Never nest them, and never write the tags anywhere else (the
+  docstring once did, and selection ate it). `test_248` checks the blocks and
+  that there is exactly one `.vpy`.
+- **A template keyword argument must exist in the bundle.**
+  `template_call_arguments_test.dart` (push gate) checks every `haf.*` call in
+  the template and its `.py` modules against havsfunc's `def` lines, and every
+  `core.<ns>.<fn>` call against the signatures the bundle's own core reports.
+  The Rust suite only inspects the generated text, and a default leaves most
+  optional arguments out, so nothing else catches a wrong name.
+
 ### VapourSynth Frame Cache (issue #107)
 
-**Neither template sets `core.max_cache_size` on its own.** VapourSynth sizes
-the cache from the machine's memory (8192 MB on a 16 GB Mac); both templates
+**The template does not set `core.max_cache_size` on its own.** VapourSynth sizes
+the cache from the machine's memory (8192 MB on a 16 GB Mac); the templates
 used to pin it to 1024, which starved QTGMC's threads on HD sources (1.9 fps
 instead of 14.7 at 1080i Very Slow). The only assignment is the
 `{{#MAX_CACHE_SIZE}}` block, emitted when the user ticks **Settings → Output →
@@ -1732,7 +1761,7 @@ time span `[t, t+1)`; the worker reports `sub_frame`, `sub_frames` and
   isn't a whole number (24 → 60) they generated frames at different moments.
   `ProcessingPipeline::preview_output` is the one derivation: it pads the
   Frame Rate pass's input with copies of the first frame (`{{PREVIEW_RATE_PAD}}`,
-  preview template only) back to a whole period from the in-point, which the
+  a `PREVIEW_ONLY` block) back to a whole period from the in-point, which the
   preview job therefore carries as `startFrame` (the preview uses it for
   nothing else). `integration_frame_mapping_test.dart` checks every output
   frame against a lossless encode, and fails by 13 levels without the pad.
@@ -1796,7 +1825,7 @@ rate is `FrameRateParameters.customFps` (a plain number, default 48).
   enforce the schema's bounds. The Dart enum carries no numbers.
 - **FlowFPS's length is set by the script, not MVTools.** macOS arm64 and
   Linux build MVTools `master` (`floor(n * ratio)` frames), Windows and macOS
-  x64 ship v24 (`floor((n - 1) * ratio) + 1`). Both templates trim or extend
+  x64 ship v24 (`floor((n - 1) * ratio) + 1`). The script trims or extends
   to `floor(n * ratio)` after the call (`test_184`); a frame-count assertion
   that passes on one platform proves nothing about the others.
 - **Don't check an NTSC output rate on an MKV.** Matroska's 1/1000 timebase
@@ -2116,7 +2145,7 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
 - **A pass declares its add-ons in `ProcessingPipeline::required_addons()`**
   (`AddonNeed { feature, ids }`); `ScriptGenerator::ensure_methods_ready`
   refuses the job via `addons::require` (naming them and Settings → Add-ons),
-  and emits the `{{#AI_RUNTIME}}` block (both templates) when one needs
+  and emits the `{{#AI_RUNTIME}}` block when one needs
   `ai-runtime`.
 - **The AI runtime (`ai-runtime`, python kind)** is ONNX Runtime + NumPy for
   the deps Python 3.12: onnxruntime 1.31.1 (macOS arm64, Linux),
@@ -2219,7 +2248,7 @@ model (`worker/templates/colorize.py`, on `ai_runtime`). Rules:
   `Tensor.repeat` and DDColor's einsum (`colorize_models_common.py`) — without
   that DDColor split into six partitions and ran 2.6x slower.
 - **Core ML compiles DDColor for 50-80 s per session** (every vspipe process;
-  DeOldify ~5 s). So the preview template passes `preview=True` and DDColor
+  DeOldify ~5 s). So the preview script passes `preview=True` (a `PREVIEW_ONLY` line) and DDColor
   previews on the CPU (`colorize.PREVIEW_ON_CPU`); outputs agree to <0.001
   CIELAB units. Don't add `ModelCacheDirectory` casually: its cache is ~900 MB
   per render size and the key is the model path, not the overridden shape.
@@ -2610,7 +2639,7 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
     refused.
 - **A pass that makes a still-interlaced clip progressive must be taught to
   `output_field_order`** (today: Stabilize pitch, Deblock mpeg2stinx, the
-  Frame Rate pass). `test_221` counts every `SetFieldBased(` in both templates
+  Frame Rate pass). `test_221` counts every `SetFieldBased(` in the template
   and fails on one it doesn't know.
 - **The stored format comes from the script, never from ffmpeg's
   `-pix_fmt`**, which blends interlaced 4:2:0 chroma across the fields; zimg
@@ -2736,7 +2765,7 @@ derivation both the encode and preview paths must use.
 
 Two **opt-in** QTGMC options wrap the deinterlace pass in a format conversion,
 restoring the source format after (`{{#DEINT_WORKING_FORMAT}}` /
-`{{#DEINT_RESTORE_FORMAT}}` in both templates), independent of each other:
+`{{#DEINT_RESTORE_FORMAT}}`), independent of each other:
 
 - **`chromaUpsampleFix`** (default off): convert 4:2:0 to 4:2:2 before
   deinterlacing (field-aware). ~30% throughput cost; no-op on 4:2:2/4:4:4.

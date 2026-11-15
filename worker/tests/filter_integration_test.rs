@@ -3467,7 +3467,7 @@ fn test_91_chroma_subsampling_serde_names_match_the_app() {
 fn test_92_templates_do_not_hardcode_an_nnedi3_implementation() {
     let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
 
-    for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+    for name in [vapourbox_worker::script_generator::TEMPLATE_FILE] {
         let path = templates_dir.join(name);
         // Normalise line endings: git checks these templates out CRLF on Windows,
         // and the blank-line search below is otherwise looking for "\n\n" in a
@@ -3580,7 +3580,7 @@ fn test_93_templates_do_not_call_std_expr_directly() {
     }
 
     // Normalise line endings throughout: git checks these out CRLF on Windows.
-    for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+    for name in [vapourbox_worker::script_generator::TEMPLATE_FILE] {
         let path = templates_dir.join(name);
         let body = std::fs::read_to_string(&path)
             .unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
@@ -8362,7 +8362,7 @@ fn test_221_template_field_based_sites_are_all_accounted_for() {
     // How many of each: the bare `clip, 0` line appears three times (fade fix,
     // mpeg2stinx, Stabilize pitch), AA twice (two SangNom blocks).
     let counts = [1usize, 1, 3, 1, 1, 1, 2];
-    for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+    for name in [vapourbox_worker::script_generator::TEMPLATE_FILE] {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates").join(name);
         let src = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n");
         let total = src.matches("SetFieldBased(").count();
@@ -9028,4 +9028,92 @@ fn test_246_av1_converts_to_420_in_the_script() {
     job.encoding_settings.codec = VideoCodec::H265;
     let (encode, _) = both_scripts_with(&generator, &job).unwrap();
     assert!(!encode.contains("target_format = "));
+}
+
+/// Task #42: the preview used to have a template of its own, which drifted
+/// from the encode's. It lost MCTemporalDenoise's `settings`, so the preview
+/// denoised at havsfunc's default profile whatever the user chose. It also
+/// lost QTGMC's Str, Amp, FastMA, ESearchP and RefineMotion, which hid that
+/// havsfunc's QTGMC takes none of them: setting one failed every encode with
+/// an unexpected keyword argument. Those five are gone from the model; both
+/// scripts come from one template and carry the profile.
+#[test]
+fn test_247_preview_and_encode_carry_the_same_arguments() {
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap();
+    let mut job = create_base_job("test_247_preview_parity");
+    let mut pipeline = ProcessingPipeline::default();
+    pipeline.deinterlace.enabled = true;
+    pipeline.deinterlace.tff = Some(true);
+    pipeline.noise_reduction.enabled = true;
+    pipeline.noise_reduction.method = NoiseReductionMethod::McTemporalDenoise;
+    pipeline.noise_reduction.mc_temporal_profile = "high".to_string();
+    job.qtgmc_parameters = pipeline.deinterlace.clone();
+    job.processing_pipeline = Some(pipeline);
+
+    // A job saved before task #42 with the removed keys still loads.
+    let mut json = serde_json::to_value(&job.qtgmc_parameters).unwrap();
+    for (k, v) in [("str", serde_json::json!(2.0)), ("amp", serde_json::json!(0.0625)),
+                   ("fastMa", serde_json::json!(true)), ("eSearchP", serde_json::json!(true)),
+                   ("refineMotion", serde_json::json!(true))] {
+        json.as_object_mut().unwrap().insert(k.to_string(), v);
+    }
+    let _: QTGMCParameters = serde_json::from_value(json).expect("old keys are ignored");
+
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("settings=\"high\","), "{name} script is missing the MCTD profile");
+        for arg in ["Str=", "Amp=", "FastMA=", "ESearchP="] {
+            assert!(!script.contains(arg), "{name} script passes `{arg}`, which QTGMC does not take");
+        }
+    }
+}
+
+/// Task #42: one template, and its encode-only / preview-only blocks are
+/// well-formed. A second `.vpy` in the templates directory is how the old
+/// duplicate drifted, so it fails here; so does a nested or unclosed side
+/// block, or a side tag that survives selection.
+#[test]
+fn test_248_one_template_with_well_formed_side_blocks() {
+    use vapourbox_worker::script_generator::{select_side, ScriptKind, TEMPLATE_FILE};
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let vpy: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .filter_map(|e| {
+            let p = e.ok()?.path();
+            (p.extension()? == "vpy").then(|| p.file_name().unwrap().to_string_lossy().into_owned())
+        })
+        .collect();
+    assert_eq!(vpy, vec![TEMPLATE_FILE.to_string()], "exactly one .vpy template");
+
+    let raw = std::fs::read_to_string(dir.join(TEMPLATE_FILE)).unwrap().replace("\r\n", "\n");
+    let mut open: Option<&str> = None;
+    let mut blocks = 0;
+    for (i, line) in raw.lines().enumerate() {
+        for side in ["ENCODE_ONLY", "PREVIEW_ONLY"] {
+            let (start, end) = (format!("{{{{#{side}}}}}"), format!("{{{{/{side}}}}}"));
+            if line.contains(&start) {
+                assert_eq!(line, start, "line {}: a side tag must be alone on its line", i + 1);
+                assert!(open.is_none(), "line {}: {side} opened inside {:?}", i + 1, open);
+                open = Some(side);
+                blocks += 1;
+            } else if line.contains(&end) {
+                assert_eq!(line, end, "line {}: a side tag must be alone on its line", i + 1);
+                assert_eq!(open, Some(side), "line {}: {side} closed without being opened", i + 1);
+                open = None;
+            }
+        }
+    }
+    assert!(open.is_none(), "{open:?} is never closed");
+    assert!(blocks > 0, "no side blocks: did selection move elsewhere?");
+
+    for kind in [ScriptKind::Encode, ScriptKind::Preview] {
+        let side = select_side(&raw, kind);
+        assert!(!side.contains("ENCODE_ONLY}}") && !side.contains("PREVIEW_ONLY}}"),
+            "{kind:?}: a side tag survived selection");
+    }
+    let preview = select_side(&raw, ScriptKind::Preview);
+    let encode = select_side(&raw, ScriptKind::Encode);
+    assert!(preview.contains("{{PREVIEW_OUTPUT_INDEX}}") && !encode.contains("{{PREVIEW_OUTPUT_INDEX}}"));
+    assert!(encode.contains("core.vivtc.VDecimate(") && !preview.contains("core.vivtc.VDecimate("));
 }

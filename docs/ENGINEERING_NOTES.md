@@ -4601,3 +4601,45 @@ Report: [docs/reports/2026-11-avi-copy-priming](reports/2026-11-avi-copy-priming
 - `sound_cut_input_args` now offsets (`-itsoffset`) whenever the threshold
   falls before the file's start, which also moves a trim within half a packet
   of 0 to the nearest packet (it cut at 0 before).
+
+### One script template; template arguments checked against the bundle (task #42, 2026-11-15)
+
+Task #42 asked why fixes kept arriving one after another. The plan
+(`.agentbob` artefact, summarised in CLAUDE.md "One script template") traced
+most of them to invariants kept by hand: the axes a bug can sit on exist only
+in prose, the logic is often written twice, and tests pick values rather than
+sweeping an axis. This change is the first step: the duplicated template.
+
+- **The two templates had drifted.** `preview_template.vpy` (2,874 lines) and
+  `pipeline_template.vpy` (2,924) differed in 27 places. Sorted: comments and
+  formatting; genuine side differences (pipe reads, Unblend and Frame Rate
+  phase padding, DDColor on the CPU, no VDecimate, the preview's frame pick);
+  and drift. The drift: the preview lost MCTemporalDenoise's `settings=`
+  (it previewed havsfunc's default profile whatever the user chose) and
+  QTGMC's `Str`, `Amp`, `FastMA`, `ESearchP`, `RefineMotion`.
+- **Those five were never valid.** havsfunc r31's `QTGMC` takes none of them
+  and has no `**kwargs` (`Str`/`Amp`/`RefineMotion` are SMDegrain's,
+  `FastMA`/`ESearchP` AviSynth QTGMC's), so ticking any in Deinterlace's
+  advanced settings failed every encode with an unexpected keyword argument
+  while the preview, by drift, worked. Removed from the schema, both models,
+  the converter and the template; a saved job or preset carrying them still
+  loads (both deserialisers ignore unknown keys; `test_247`).
+- **A checker then found a sixth.** The template passed `Blocksize=` to
+  QTGMC since January; havsfunc spells it `BlockSize`, and Python keywords
+  are case-sensitive, so QTGMC's Block Size setting failed every encode too.
+  `template_call_arguments_test.dart` now checks every `haf.*` call (template
+  and `.py` modules) against havsfunc's `def` lines and every
+  `core.<ns>.<fn>` call against the bundle core's own signatures (394 plugin
+  calls on macOS arm64, all valid; `vcm` is the one known absent namespace,
+  documented in `mclean.py`).
+- **Verification of the merge.** With the side blocks selected, the encode
+  text equals the old encode template except for its docstring and one
+  comment; the preview's code lines differ from the old preview template only
+  by the drift fixes, the 4:1:1 conversion now following the field flag (a
+  horizontal-only resample, identical either way), `INPUT_INFO` reading the
+  rate from the clip (the same numbers), and argument formatting.
+- **Found and not fixed here:** with IVTC (or Soft Telecine at 29.97), the
+  preview skips VDecimate but `ProcessingPipeline::preview_output` maps the
+  target through the decimation, so the preview picks window frame
+  `local * 4 / 5` of an undecimated clip: about `radius / 5` frames before
+  the target (at least one, `MIN_PREVIEW_RADIUS` 5). Filed as task #46.

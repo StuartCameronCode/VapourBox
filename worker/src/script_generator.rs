@@ -47,6 +47,32 @@ pub fn ctmf_opt() -> u8 {
     }
 }
 
+/// Which script a template is read for. There is one template file,
+/// `pipeline_template.vpy`; the few lines that differ between the two scripts
+/// sit in `{{#ENCODE_ONLY}}` / `{{#PREVIEW_ONLY}}` blocks, chosen when the
+/// file is loaded (`select_side`). Before task #42 the preview had a copy of
+/// its own, and the copy drifted: it lost five QTGMC arguments and
+/// MCTemporalDenoise's `settings`, so the preview ignored them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptKind {
+    Encode,
+    Preview,
+}
+
+/// The one template file both scripts are generated from.
+pub const TEMPLATE_FILE: &str = "pipeline_template.vpy";
+
+/// Keep `kind`'s side blocks and remove the other side's. Runs on the raw
+/// template, before any substitution, so no other block sees the side tags.
+pub fn select_side(template: &str, kind: ScriptKind) -> String {
+    let (keep, drop) = match kind {
+        ScriptKind::Encode => ("ENCODE_ONLY", "PREVIEW_ONLY"),
+        ScriptKind::Preview => ("PREVIEW_ONLY", "ENCODE_ONLY"),
+    };
+    let script = remove_block(&format!("{{{{#{}}}}}", drop), &format!("{{{{/{}}}}}", drop), template.to_string());
+    keep_block_lines(keep, script)
+}
+
 /// Generates VapourSynth scripts from templates.
 pub struct ScriptGenerator {
     template: String,
@@ -143,8 +169,9 @@ pub fn pipe_cache_frames(pipeline: &ProcessingPipeline) -> u32 {
 impl ScriptGenerator {
     /// Create a new script generator, loading the templates.
     pub fn new() -> Result<Self> {
-        let template = Self::load_template()?;
-        let preview_template = Self::load_preview_template()?;
+        let raw = Self::load_template_by_name(TEMPLATE_FILE)?;
+        let template = select_side(&raw, ScriptKind::Encode);
+        let preview_template = select_side(&raw, ScriptKind::Preview);
         Ok(Self {
             template,
             preview_template,
@@ -383,8 +410,8 @@ impl ScriptGenerator {
         // VFR_TIMELINE block turns them into `num_frames` slots.
         let piped = self.timeline.as_ref().map(|t| t.src_count as i32).unwrap_or(preview_params.num_frames);
         script = script.replace("{{TOTAL_FRAMES}}", &piped.to_string());
-        script = script.replace("{{FPS_NUM}}", &preview_params.fps_num.to_string());
-        script = script.replace("{{FPS_DEN}}", &preview_params.fps_den.to_string());
+        script = script.replace("{{INPUT_FPS_NUM}}", &preview_params.fps_num.to_string());
+        script = script.replace("{{INPUT_FPS_DEN}}", &preview_params.fps_den.to_string());
         script = script.replace("{{PREVIEW_OUTPUT_INDEX}}", &preview_params.output_index.to_string());
         script = script.replace("{{PREVIEW_RATE_PAD}}", &preview_params.rate_pad.to_string());
         script = script.replace("{{PREVIEW_UNBLEND_PAD}}", &preview_params.unblend_pad.to_string());
@@ -413,14 +440,11 @@ impl ScriptGenerator {
         Ok(script_path)
     }
 
-    /// Load the template from various locations.
-    fn load_template() -> Result<String> {
-        Self::load_template_by_name("pipeline_template.vpy")
-    }
-
-    /// Load the preview template from various locations.
-    fn load_preview_template() -> Result<String> {
-        Self::load_template_by_name("preview_template.vpy")
+    /// The template text `kind`'s script is generated from: the one template
+    /// file with that side's blocks selected. What tests that inspect "both
+    /// templates" read.
+    pub fn template_for(kind: ScriptKind) -> Result<String> {
+        Ok(select_side(&Self::load_template_by_name(TEMPLATE_FILE)?, kind))
     }
 
     /// Load a template by name from various locations.
@@ -929,11 +953,6 @@ impl ScriptGenerator {
                     script = process_optional_bool("BORDER", params.border, script);
                     script = process_optional_bool("PRECISE", params.precise, script);
                     script = process_optional_int("FORCE_TR", params.force_tr, script);
-                    script = process_optional_double("STR", params.str, script);
-                    script = process_optional_double("AMP", params.amp, script);
-                    script = process_optional_bool("FAST_MA", params.fast_ma, script);
-                    script = process_optional_bool("E_SEARCH_P", params.e_search_p, script);
-                    script = process_optional_bool("REFINE_MOTION", params.refine_motion, script);
 
                     // GPU — default to OpenCL on macOS where ZNEDI3/NNEDI3
                     // lack NEON optimisations and run pure scalar C.
@@ -2976,8 +2995,9 @@ mod tests {
     /// it imports the helper and sets it up from the substituted directory.
     #[test]
     fn ai_runtime_block_in_both_templates() {
-        for name in ["pipeline_template.vpy", "preview_template.vpy"] {
-            let t = ScriptGenerator::load_template_by_name(name).unwrap();
+        for kind in [ScriptKind::Encode, ScriptKind::Preview] {
+            let name = format!("{kind:?}");
+            let t = ScriptGenerator::template_for(kind).unwrap();
             assert_eq!(t.matches("{{#AI_RUNTIME}}").count(), 1, "{name}");
             let block_at = t.find("{{#AI_RUNTIME}}").unwrap();
             assert!(block_at > t.find("from pipe_source import").unwrap(), "{name}: after the pipe source");
@@ -3038,7 +3058,8 @@ mod tests {
         // checkout — and does so silently, leaving a plausible-looking script.
         // This assertion is the cheap counterpart to test_132, which only
         // catches it on the platform that has the problem.
-        for name in ["pipeline_template.vpy", "preview_template.vpy"] {
+        {
+            let name = TEMPLATE_FILE;
             let t = ScriptGenerator::load_template_by_name(name)
                 .unwrap_or_else(|e| panic!("load {name}: {e}"));
             assert!(

@@ -34,7 +34,6 @@ foreach ($required in @(
         "vapourbox.exe",
         "vapourbox-worker.exe",
         "templates\pipeline_template.vpy",
-        "templates\preview_template.vpy",
         "templates\pipe_source.py",
         "data\flutter_assets")) {
     if (-not (Test-Path (Join-Path $SourceDir $required))) {
