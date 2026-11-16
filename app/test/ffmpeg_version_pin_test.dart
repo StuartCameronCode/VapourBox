@@ -39,8 +39,8 @@ String _repoRoot() {
 /// The series each script pins, by the assignment it declares.
 ///
 /// Deliberately reads the *variable*, not the URL: the URLs differ per platform
-/// and per host (BtbN asset names, evermeet version paths, a martin-riedl
-/// redirect), and the variable is the single thing they are all built from.
+/// and per host (BtbN asset names, a martin-riedl build ID or redirect), and
+/// the variable is the single thing they are all built from.
 ({String script, String series}) _pin(String root, String file, RegExp pattern) {
   final text = File(p.join(root, 'Scripts', file)).readAsStringSync();
   final match = pattern.firstMatch(text);
@@ -93,19 +93,29 @@ void main() {
     });
 
     test("macOS's exact x64 pin lies within the shared series", () {
-      // evermeet publishes per-version URLs and retains them, so that arch pins
-      // a full version. It still has to be inside the series everyone else is
-      // on, or macOS x64 silently diverges from macOS arm64.
+      // martin-riedl.de keeps every build-ID URL (<id>_<version>), so the x64
+      // build is pinned exactly, with a SHA-256 per zip (task #45). It still
+      // has to be inside the series everyone else is on, or macOS x64 silently
+      // diverges from macOS arm64.
       final text = File(p.join(root, 'Scripts', 'download-deps-macos.sh')).readAsStringSync();
       final series = RegExp(r'^FFMPEG_SERIES="([^"]+)"', multiLine: true).firstMatch(text)!.group(1)!;
-      final exact = RegExp(r'^FFMPEG_MACOS_X64_VERSION="([^"]+)"', multiLine: true).firstMatch(text);
-      expect(exact, isNotNull, reason: 'download-deps-macos.sh no longer pins an exact x64 version');
+      final build = RegExp(r'^FFMPEG_MACOS_X64_BUILD="(\d+)_([^"]+)"', multiLine: true).firstMatch(text);
+      expect(build, isNotNull,
+          reason: 'download-deps-macos.sh no longer pins an exact x64 build '
+              '(FFMPEG_MACOS_X64_BUILD="<id>_<version>")');
       expect(
-        exact!.group(1)!,
+        build!.group(2)!,
         startsWith('$series.'),
-        reason: 'the pinned evermeet build ${exact.group(1)} is not in the '
+        reason: 'the pinned x64 build ${build.group(0)} is not in the '
             '$series series the other platforms use',
       );
+      for (final name in ['FFMPEG_MACOS_X64_FFMPEG_SHA256', 'FFMPEG_MACOS_X64_FFPROBE_SHA256']) {
+        expect(
+          RegExp('^$name="[0-9a-f]{64}"\$', multiLine: true).hasMatch(text),
+          isTrue,
+          reason: 'download-deps-macos.sh must pin $name as a SHA-256',
+        );
+      }
     });
 
     test('every script verifies what it actually installed', () {

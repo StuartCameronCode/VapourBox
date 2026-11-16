@@ -44,7 +44,7 @@ to the same standard as the others.
 
 | Tool | Platforms | Licence / price | QTGMC | IVTC | Classical restoration filters | AI upscaling | AI interpolation | Audio restoration | Speech-to-text subtitles | ProRes / FFV1 | AV1 | Hardware encoding | Before/after preview |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **VapourBox** | macOS, Win, Linux | GPL-3.0, free | ✅ | ✅ | ✅ broad | ✅ | ✅ RIFE | ✅ | ✅ Whisper | ✅ / ✅ | 🟡 SVT-AV1 (not Intel Macs yet) | ✅ | ✅ |
+| **VapourBox** | macOS, Win, Linux | GPL-3.0, free | ✅ | ✅ | ✅ broad | ✅ | ✅ RIFE | ✅ | ✅ Whisper | ✅ / ✅ | ✅ SVT-AV1 (1.8.0) | ✅ | ✅ |
 | HandBrake | macOS, Win, Linux | GPL-2.0, free | ❌ | ✅ | 🟡 a few | ❌ | ❌ | 🟡 in development | ❌ | ✅ / ✅ | ✅ | ✅ | 🟡 live preview |
 | FastFlix | macOS, Win, Linux | MIT, free | ❌ | ❓ | 🟡 a few | ❌ | ❌ | ❓ | ❓ | ❌ / ❌ | ✅ | ✅ | 🟡 thumbnail |
 | StaxRip | Win | MIT, free | ✅ | ✅ | ✅ broad (AviSynth/VapourSynth) | 🟡 NVIDIA VSR | ❓ | ❓ | ❓ | ❓ / ❓ | ✅ | ✅ | ✅ |
@@ -135,7 +135,7 @@ converter with some AI features.
 | Burn-in | ✅ | ✅ | ✅ | ✅ | ❓ | ✅ |
 | **Output** | | | | | | |
 | H.264 / H.265 | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
-| AV1 / VP9 | 🟡 SVT-AV1, not on Intel Macs yet / ❌ | ✅ / ✅ | ✅ / ✅ | ✅ / ❓ | ✅ / ✅ | ✅ / ✅ |
+| AV1 / VP9 | ✅ SVT-AV1 (1.8.0) / ❌ | ✅ / ✅ | ✅ / ✅ | ✅ / ❓ | ✅ / ✅ | ✅ / ✅ |
 | ProRes / FFV1 | ✅ Proxy–4444 XQ / ✅; also uncompressed v210 (1.8.0) | ✅ / ✅ | ❌ / ❌ | ❓ / ❓ | ✅ / ✅ | ✅ / ✅ |
 | Hardware encoders | NVENC, QSV, AMF, VideoToolbox | NVENC, QSV, AMF, VideoToolbox, MF, VAAPI | NVENC, QSV, AMF, VideoToolbox, VAAPI | NVENC, QSV, AMF | NVENC, QSV, AMF, VideoToolbox (ProRes) | NVENC, QSV, AMF, VideoToolbox, MF, VAAPI |
 | 10-bit | ✅ | ✅ | ✅ | ✅ | ❓ | ❓ |
@@ -198,7 +198,7 @@ Topaz Video is the commercial reference point.
 | Subtitles kept / speech-to-text | 🟡 / ✅ | ❓ / ❓ | ✅ / ❓ | ✅ / ❓ | ✅ / ❓ | ❌ / ❓ |
 | **Output** | | | | | | |
 | H.264 / H.265 | ✅ / ✅ | ✅ / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
-| AV1 / VP9 | 🟡 SVT-AV1, not on Intel Macs yet / ❌ | 🟡 Win, RTX 40 / Arc / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
+| AV1 / VP9 | ✅ SVT-AV1 (1.8.0) / ❌ | 🟡 Win, RTX 40 / Arc / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
 | ProRes / FFV1 | ✅ / ✅; also v210 (1.8.0) | ✅ / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
 | Hardware encoders | NVENC, QSV, AMF, VideoToolbox | 🟡 NVENC documented | ❓ | NVENC, AMF, QSV | NVENC, VAAPI | NVENC, AMF, QSV |
 | 10-bit output | ✅ | ✅ | 🟡 | ✅ | ✅ | ❌ |
@@ -349,9 +349,9 @@ archival workflow:
 
 These gaps are candidates for future work:
 
-- **No VP9 or hardware AV1 output, and no AV1 on Intel Macs.** AV1 is software
-  SVT-AV1 only (app 1.8.0), and the macOS x64 FFmpeg doesn't include it. See
-  the AV1 / VP9 rows above for the tools that offer them.
+- **No VP9 or hardware AV1 output.** AV1 is software SVT-AV1 only (app 1.8.0,
+  on every platform from deps 1.17.0). See the AV1 / VP9 rows above for the
+  tools that offer them.
 - **No Dolby Vision RPU or HDR10+ passthrough.** HandBrake, StaxRip and FastFlix
   (on some encoders) keep both. VapourBox keeps HDR10 static metadata only, and
   can't decode Dolby Vision profile 5.

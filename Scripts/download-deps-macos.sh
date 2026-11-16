@@ -103,7 +103,7 @@ fi
 # -mmacosx-version-min, meson's auto-detection, and CMake's CMAKE_OSX_DEPLOYMENT_TARGET
 # fallback) target this floor. Override with $MACOS_MIN_VERSION if needed.
 # NOTE: this does NOT retarget prebuilt artifacts the script merely copies
-# (Homebrew bottles, evermeet ffmpeg, python-build-standalone, Stefan-Olt plugins) —
+# (Homebrew bottles, martin-riedl ffmpeg, python-build-standalone, Stefan-Olt plugins) —
 # the minos verification guard near the end of this script reports those.
 if [ "$ARCH" = "x86_64" ]; then
     MACOS_MIN_VERSION="${MACOS_MIN_VERSION:-12.0}"   # Monterey
@@ -162,10 +162,14 @@ PYTHON_VERSION="3.12.8"
 # A per-OS FFmpeg is a per-OS encoder: the arguments in pipeline_executor.rs
 # would then mean subtly different things depending on where the job ran.
 FFMPEG_SERIES="9.0"
-# The exact evermeet build for x64. Full version rather than series because
-# evermeet publishes per-version URLs and keeps them reachable; must be within
-# $FFMPEG_SERIES, which assert_ffmpeg_series checks.
-FFMPEG_MACOS_X64_VERSION="9.0.1"
+# The exact martin-riedl.de build for x64, by build ID (<id>_<version>) and
+# SHA-256. The host keeps every build-ID URL reachable (verified back to its
+# 5.0 builds from 2022), so an exact pin is durable. The version after the
+# underscore must be within $FFMPEG_SERIES, which assert_ffmpeg_series checks
+# and app/test/ffmpeg_version_pin_test.dart reads.
+FFMPEG_MACOS_X64_BUILD="1789931006_9.0.2"
+FFMPEG_MACOS_X64_FFMPEG_SHA256="7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4"
+FFMPEG_MACOS_X64_FFPROBE_SHA256="2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd"
 
 # Fail the build if the FFmpeg we installed is not the series we pinned.
 # Without this, an upstream that moves `latest` onto a new series reintroduces
@@ -190,6 +194,28 @@ assert_ffmpeg_series() {
         exit 1
     fi
     echo "  FFmpeg $reported (matches the pinned $FFMPEG_SERIES series)"
+}
+
+# Fail the build if the installed FFmpeg lacks an encoder the app offers on
+# every platform. Task #45: deps <= 1.17.0-rc1 shipped evermeet's x64 FFmpeg,
+# which has no libsvtav1, so AV1 output was silently unavailable on Intel Macs.
+assert_ffmpeg_encoder() {
+    local bin="$1" encoder="$2"
+    if ! "$bin" -hide_banner -encoders 2>/dev/null | grep -qE "^ *V[^ ]* +${encoder} "; then
+        echo "  ERROR: $bin has no $encoder encoder." >&2
+        exit 1
+    fi
+    echo "  FFmpeg has the $encoder encoder"
+}
+
+# Download a URL and check it against a pinned SHA-256.
+fetch_sha256() {
+    local url="$1" out="$2" sha="$3"
+    curl -fsSL --retry 8 --retry-delay 30 --retry-max-time 600 "$url" -o "$out"
+    if ! echo "$sha  $out" | shasum -a 256 -c - >/dev/null; then
+        echo "  ERROR: $url does not match its pinned SHA-256 ($sha)." >&2
+        exit 1
+    fi
 }
 PYTHON_MAJOR_MINOR="3.12"
 
@@ -226,7 +252,7 @@ BREW_DEPS=(
     # absolute path (task #36). It is built from source below.
     fftw boost
     # FFmpeg (build-time convenience only; at runtime both arches ship static
-    # ffmpeg downloaded from evermeet.cx (x64) / martin-riedl.de (arm64))
+    # ffmpeg downloaded from martin-riedl.de)
     ffmpeg
 )
 
@@ -662,38 +688,36 @@ fi
 echo ""
 echo "=== Installing FFmpeg ==="
 if [ "$ARCH" = "x86_64" ]; then
-    # evermeet.cx ships static x86_64 ffmpeg/ffprobe that link only system
-    # frameworks (verified self-contained), so no dylib wrangling is needed.
-    # This is the canonical pre-built source for Intel macOS ffmpeg.
+    # martin-riedl.de's static x86_64 release build: links only system
+    # frameworks and /usr/lib, minos 12.0 (our floor), and has SVT-AV1, from the
+    # same build run as the arm64 binary below. Until deps 1.17.0-rc1 this was
+    # evermeet.cx's build, which has no libsvtav1, so AV1 output was unavailable
+    # on Intel Macs (task #45, docs/reports/task-45-macos-x64-ffmpeg-svtav1).
     #
-    # Pinned to an exact version rather than `getrelease`, which is whatever is
-    # newest and would silently drift onto a different series from the other
-    # platforms. evermeet keeps old versions reachable (verified: 7.1, 8.0 and
-    # 9.0.1 all still resolve), so a full-version pin is durable here — unlike
-    # BtbN, whose rolling tag garbage-collects old series.
-    #
-    # evermeet rate-limits GitHub's runner address range: on 2026-10-17 both x64
-    # jobs got HTTP 429 on two consecutive runs while the same URLs answered
-    # normally from elsewhere. curl treats 429 as transient under --retry and
-    # honours Retry-After, so back off rather than fail the whole deps build.
-    echo "  Downloading static x86_64 FFmpeg $FFMPEG_MACOS_X64_VERSION from evermeet.cx..."
-    EVERMEET_RETRY=(--retry 8 --retry-delay 30 --retry-max-time 600)
-    curl -fsSL "${EVERMEET_RETRY[@]}" "https://evermeet.cx/ffmpeg/ffmpeg-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffmpeg.zip"
-    curl -fsSL "${EVERMEET_RETRY[@]}" "https://evermeet.cx/ffmpeg/ffprobe-${FFMPEG_MACOS_X64_VERSION}.zip" -o "$BUILD_DIR/ffprobe.zip"
+    # Pinned by build ID and SHA-256 rather than `latest`: the host keeps every
+    # build-ID URL, and an exact pin means a rebuilt bundle gets the same FFmpeg.
+    # --retry: GitHub's runner range has been rate limited by FFmpeg hosts
+    # before (evermeet, HTTP 429 on 2026-10-17); curl backs off on 429.
+    echo "  Downloading static x86_64 FFmpeg $FFMPEG_MACOS_X64_BUILD from martin-riedl.de..."
+    FFMPEG_X64_BASE="https://ffmpeg.martin-riedl.de/download/macos/amd64/$FFMPEG_MACOS_X64_BUILD"
+    fetch_sha256 "$FFMPEG_X64_BASE/ffmpeg.zip" "$BUILD_DIR/ffmpeg.zip" "$FFMPEG_MACOS_X64_FFMPEG_SHA256"
+    fetch_sha256 "$FFMPEG_X64_BASE/ffprobe.zip" "$BUILD_DIR/ffprobe.zip" "$FFMPEG_MACOS_X64_FFPROBE_SHA256"
     unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
     unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
+    # Replaces the host's own (hardened-runtime) signature, as on arm64.
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffmpeg" 2>/dev/null || true
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffprobe" 2>/dev/null || true
     assert_ffmpeg_series "$DEPS_DIR/ffmpeg/ffmpeg"
-    echo "  Installed evermeet.cx FFmpeg"
+    assert_ffmpeg_encoder "$DEPS_DIR/ffmpeg/ffmpeg" libsvtav1
+    echo "  Installed martin-riedl.de FFmpeg (x86_64)"
 else
     # arm64: Homebrew's ffmpeg is dynamically linked against ~17 Homebrew dylibs
     # (/opt/homebrew/Cellar/ffmpeg/.../lib*, x264, x265, dav1d, openssl, ...), so
     # copying just the binary yields a bundle that won't run on users' Macs.
     # Use the static arm64 build from martin-riedl.de (links only system
     # frameworks, ~60 MB) - the same source the 1.3.0 deps shipped, and the
-    # arm64 analogue of the evermeet.cx static build used for x64 above.
+    # same host as the x64 build above.
     echo "  Downloading static arm64 FFmpeg from martin-riedl.de..."
     #
     # This host only publishes `latest` plus opaque build-id paths whose
@@ -709,6 +733,7 @@ else
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffmpeg" 2>/dev/null || true
     codesign -s - -f "$DEPS_DIR/ffmpeg/ffprobe" 2>/dev/null || true
     assert_ffmpeg_series "$DEPS_DIR/ffmpeg/ffmpeg"
+    assert_ffmpeg_encoder "$DEPS_DIR/ffmpeg/ffmpeg" libsvtav1
     echo "  Installed static arm64 FFmpeg from martin-riedl.de"
 fi
 
@@ -3170,7 +3195,7 @@ else
     echo "  - Homebrew bottles (zimg/fftw/boost): the macos-15 runner"
     echo "    installs Sequoia bottles. Build these from source with the target set,"
     echo "    or fetch older-OS bottles."
-    echo "  - ffmpeg (evermeet.cx / martin-riedl.de) and Python (python-build-standalone):"
+    echo "  - ffmpeg (martin-riedl.de) and Python (python-build-standalone):"
     echo "    pick a download whose minos is <= $MACOS_MIN_VERSION."
     echo "  - Stefan-Olt / yuygfgg prebuilt plugins: rebuild from source if too new."
     echo ""

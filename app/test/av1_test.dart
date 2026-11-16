@@ -237,7 +237,7 @@ void main() {
 
     test('unavailable when libsvtav1 is not in the listing', () {
       final detector = HardwareEncoderDetector.instance;
-      // The macOS x64 (evermeet) FFmpeg: libaom only.
+      // An FFmpeg built without SVT-AV1 (libaom only).
       detector.debugSetEncoderListing('''
  V....D libx264              libx264 H.264 / AVC / MPEG-4 AVC (codec h264)
  V....D libx265              libx265 H.265 / HEVC (codec hevc)
