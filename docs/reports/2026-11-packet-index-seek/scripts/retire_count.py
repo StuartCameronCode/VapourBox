@@ -12,12 +12,27 @@ Unit tests are counted apart: the `#[test]` functions in source_decode.rs
 that name an item (a test naming a retired and a kept item counts as kept).
 Dart twins are listed separately, since task #50 (R3b) deletes them whatever
 this decides. Writes data/retire.json.
+
+The sources are read as they were when the report was written (SOURCE_COMMIT,
+the main this branch started from): task #50 restructured source_decode.rs
+the same day, after these counts were taken.
 """
 import json
 import os
 import re
 
+import subprocess
+
 import pktlib as L
+
+SOURCE_COMMIT = '38bac59d6b567d4298d14ecd140a277f0d0b2d13'
+
+
+def read(path):
+    """A repository file's text at SOURCE_COMMIT."""
+    rel = os.path.relpath(os.path.abspath(path), L.REPO)
+    return subprocess.run(['git', '-C', L.REPO, 'show', f'{SOURCE_COMMIT}:{rel}'],
+                          check=True, capture_output=True, text=True).stdout
 
 R = os.path.join(L.REPO, 'worker', 'src')
 D = os.path.join(L.REPO, 'app', 'lib', 'services', 'field_order_detector.dart')
@@ -140,7 +155,7 @@ def ident(decl):
 
 def rust_tests(path, idents, kept):
     """#[test] fns in `path` naming any of `idents` and none of `kept`."""
-    src = open(path).read().splitlines()
+    src = read(path).splitlines()
     tstart = next(i for i, l in enumerate(src) if l.strip() == '#[cfg(test)]')
     total = 0
     names = []
@@ -164,7 +179,7 @@ def main():
     files = {}
     for f, decl, c, verdict, why in RUST:
         path = os.path.join(R, f)
-        lines = files.setdefault(path, open(path).read().splitlines())
+        lines = files.setdefault(path, read(path).splitlines())
         i = find(lines, decl)
         a, b = span(lines, i)
         out['rust'].append(dict(file=f, item=decl, correction=c, verdict=verdict, why=why, lines=b - a + 1,
@@ -174,7 +189,7 @@ def main():
     kept = [k for k in kept if k not in ('SeekPlan', 'DecoderSeek', 'decode_start', 'decoder_seek')]
     t, names = rust_tests(os.path.join(R, 'source_decode.rs'), retired, kept)
     out['tests'] = dict(lines=t, names=names)
-    dl = open(D).read().splitlines()
+    dl = read(D).splitlines()
     for decl, c in DART:
         i = find(dl, decl)
         a, b = span(dl, i)
@@ -182,7 +197,7 @@ def main():
     for name, c, verdict in VECTORS:
         p = L.resource(name)
         out['vectors'].append(dict(file=name, correction=c, verdict=verdict,
-                                   lines=len(open(p).read().splitlines())))
+                                   lines=len(read(p).splitlines())))
     py = open(os.path.join(L.HERE, 'pktlib.py')).read().splitlines()
     for what, fn, factor in NEW:
         i = find(py, f'def {fn}(')
@@ -198,7 +213,7 @@ def main():
     plan_fill = next(r['lines'] for r in out['rust'] if r['item'] == 'fn fill_seek_plan')
     out['new'].append(dict(what='fill + carry the index (as fill_seek_plan + SeekPlan do today)',
                            python_lines=None, rust_estimate=plan_fill + 13))
-    md = open(os.path.join(L.REPO, 'CLAUDE.md')).read().splitlines()
+    md = read(os.path.join(L.REPO, 'CLAUDE.md')).splitlines()
     i = find(md, '- **MPEG-TS/PS seek a GOP early and trim to the frame (issue #169).**')
     j = find(md, '- **An AVI lands on frame N too (issue #173).**')
     out['claude_md'] = dict(rule='MPEG-TS/PS seek a GOP early (issue #169)', lines=j - i, verdict='rewritten')

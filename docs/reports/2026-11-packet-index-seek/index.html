@@ -308,6 +308,11 @@ larger GOPs.</p>
 <h2>6. What it would retire (D)</h2>
 <p>From <code>scripts/retire_count.py</code> (each item measured with its doc comment; classed by §4,
 not by intent; full list in <code>data/retire.json</code>).</p>
+<div class="card correction"><strong>Note, added at merge.</strong> Task #50 (one source model
+owned by the worker) merged the same day and restructured <code>source_decode.rs</code>, so the line
+numbers below are of the code as it was when this was measured (main at <code>38bac59</code>), which
+<code>retire_count.py</code> reads with <code>git show</code>. The control
+(<code>check_today.py</code>) still agrees with the merged code; the verdicts are unchanged.</div>
 <div class="scroll"><table>
 <tr><th>What</th><th class="num">Lines</th><th>Detail</th></tr>
 <tr><td>Rust retired</td><td class="num">103</td><td>SEEK_PROBE_ARGS/SECONDS, SEEK_PREROLL_MARGIN/MIN, <code>seek_plan_from_probe</code>, <code>probe_seek_plan</code> (source_decode.rs); <code>fill_seek_plan</code> (main.rs)</td></tr>
