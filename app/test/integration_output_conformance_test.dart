@@ -43,9 +43,6 @@ import 'support/worker_harness.dart';
 String _resource(String name) =>
     p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', name);
 
-/// The task that owns the off-grid join (task #58, filed by task #49).
-const _offGridJoin = 'off-grid reset join, task #58';
-
 final _outDir = p.join(Directory.systemTemp.path, 'vapourbox_output_conformance');
 
 /// One source as the app analyses it.
@@ -419,25 +416,30 @@ void main() {
   // picture's grid (2.0 s of MP2 is 83.3 frames) is joined with its second
   // part's picture 16 ms late, so ffprobe reads 125 fps and the app analyses
   // 493 pictures. Known failure: fails while the fault is there.
+  // The first part's sound runs 16 ms past its last picture (a DVD cell's
+  // may). ffmpeg's own correction joined at the sound's end, so every later
+  // picture sat 16 ms off the grid and ffprobe read 125 fps; the picture now
+  // decides the join, and the overhanging sound packet goes (task #58).
   test('a reset whose sound ends off the picture grid joins on the grid', () async {
-    Object? failure;
-    try {
-      final service = TimestampContinuityService(
-          workerPath: WorkerHarness.workerPath, environment: WorkerHarness.workerEnv);
-      final r = await service.prepare(_resource('conf_reset_offgrid.mpg'), const Uuid().v4());
-      expect(r.error, isNull);
-      expect(r.scan!.videoResetPictures, [50]);
-      addTearDown(r.proxy!.delete);
-      final info = await FieldOrderDetector()
-          .getVideoInfo(r.proxy!.path, await WorkerHarness.sourceModel(r.proxy!.path));
-      expect(info!.frameRate, 25, reason: 'the copy\'s rate');
-      expect(info.frameCount, matrixPictures, reason: 'the copy\'s pictures');
-    } catch (e) {
-      failure = e;
+    final service = TimestampContinuityService(
+        workerPath: WorkerHarness.workerPath, environment: WorkerHarness.workerEnv);
+    final r = await service.prepare(_resource('conf_reset_offgrid.mpg'), const Uuid().v4());
+    expect(r.error, isNull);
+    expect(r.scan!.videoResetPictures, [50]);
+    addTearDown(r.proxy!.delete);
+    final info = await FieldOrderDetector()
+        .getVideoInfo(r.proxy!.path, await WorkerHarness.sourceModel(r.proxy!.path));
+    expect(info!.frameRate, 25, reason: 'the copy\'s rate');
+    expect(info.frameCount, matrixPictures, reason: 'the copy\'s pictures');
+    // Every picture one frame after the last, and each click on its flash.
+    final e = await events(r.proxy!.path);
+    expect(e.flashes, hasLength(matrixFlashes.length), reason: 'white frames at ${e.flashes}');
+    for (var i = 0; i < matrixFlashes.length; i++) {
+      expect(e.flashes[i] - e.flashes[0], closeTo((matrixFlashes[i] - matrixFlashes[0]) / matrixFps, 0.002),
+          reason: 'flash $i on the grid');
+      final near = e.beeps.map((b) => (b - e.flashes[i]).abs()).reduce((a, b) => a < b ? a : b);
+      expect(near, lessThan(0.013), reason: 'the click for flash $i within half a sound packet');
     }
-    expect(failure, isNotNull,
-        reason: 'a known failure ($_offGridJoin) now passes: make this an ordinary test');
-    print('  known failure ($_offGridJoin): $failure');
   });
 
   test('a copy the container cannot hold is refused before any work (task #49)', () async {

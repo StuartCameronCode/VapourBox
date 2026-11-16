@@ -27,9 +27,19 @@ Future<({List<double> flashes, List<double> beeps, double videoStart})> events(
     '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'frame=pts_time',
     '-of', 'json', path,
   ]);
-  final pts = [
-    for (final f in vf['frames'] as List) double.parse('${f['pts_time']}'),
-  ];
+  // A program stream leaves a picture untimed now and then (a B picture
+  // whose packet has no PTS): it is one step after the picture before it.
+  final pts = <double>[];
+  for (final f in vf['frames'] as List) {
+    final t = double.tryParse('${f['pts_time']}');
+    if (t != null) {
+      pts.add(t);
+    } else if (pts.length >= 2) {
+      pts.add(pts.last + (pts.last - pts[pts.length - 2]));
+    } else {
+      pts.add(pts.isEmpty ? 0 : pts.last);
+    }
+  }
   final luma = await Process.run(
     WorkerHarness.ffmpegPath,
     ['-v', 'quiet', '-i', path, '-map', '0:v:0', '-fps_mode', 'passthrough',
