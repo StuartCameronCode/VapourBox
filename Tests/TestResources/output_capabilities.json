@@ -1,0 +1,741 @@
+{
+  "_comment": "What each output container (ContainerFormat) holds and how it times it: the one statement, read by both sides (task #49, widening task #39's audio table). worker/build.rs compiles it into the worker (src/models/output_capabilities.rs); app/tool/generate_output_capabilities.dart writes app/lib/models/output_capabilities_table.dart from it. output_capabilities_test.dart muxes every video, audioConvert and audioCopy row with the bundled FFmpeg, both ways. See CLAUDE.md, 'Output capabilities: one table'.",
+  "_traits": {
+    "storesStreamStart": "the container records where each stream starts (an edit list, Matroska block times); AVI plays everything from 0, so a late picture, a copy pre-roll and encoder priming all land at 0",
+    "videoTimeBase": "'frame': one tick per frame (AVI; a late picture became a 1/600 time base with null frames, task #30); 'timestamps': per-packet timestamps",
+    "fieldFlag": "the container can say a picture is interlaced and which field is first (MOV/MP4 fiel atom, Matroska FieldOrder); a codec without a flag of its own goes out unflagged where this is false",
+    "audioPacketTiming": "'blockAlign': players time a VBR audio chunk by nBlockAlign (AVI, task #41); 'timestamps': per-packet timestamps",
+    "restoredPassthrough": "the codec (ffmpeg name) of a restored track under Passthrough, unless the video is an editing intermediate (always pcm_s24le)",
+    "subtitles": "'copy': SRT muxed as is; 'movText': converted to mov_text; 'none': the container takes no subtitle stream",
+    "isoMedia": "an ISO base media file (MP4/MOV): -movflags +faststart and the hvc1 tag apply",
+    "verdict": "'offered': the app offers it; 'notOffered': FFmpeg writes it but the app keeps it off (the worker runs it with a warning: a hand-written job, or a test that needs it, e.g. HuffYUV's MOV fiel atom); 'refused': the worker refuses it with the row's message, because FFmpeg cannot write it or (ffmpegWrites: true) writes a file few players read. muxEncoder: the encoder the mux check uses in place of one a CI runner lacks (same codec id)"
+  },
+  "containers": [
+    {
+      "container": "mp4",
+      "storesStreamStart": true,
+      "videoTimeBase": "timestamps",
+      "fieldFlag": true,
+      "audioPacketTiming": "timestamps",
+      "restoredPassthrough": "aac",
+      "subtitles": "movText",
+      "isoMedia": true
+    },
+    {
+      "container": "mov",
+      "storesStreamStart": true,
+      "videoTimeBase": "timestamps",
+      "fieldFlag": true,
+      "audioPacketTiming": "timestamps",
+      "restoredPassthrough": "aac",
+      "subtitles": "movText",
+      "isoMedia": true
+    },
+    {
+      "container": "mkv",
+      "storesStreamStart": true,
+      "videoTimeBase": "timestamps",
+      "fieldFlag": true,
+      "audioPacketTiming": "timestamps",
+      "restoredPassthrough": "flac",
+      "subtitles": "copy",
+      "isoMedia": false
+    },
+    {
+      "container": "avi",
+      "storesStreamStart": false,
+      "videoTimeBase": "frame",
+      "fieldFlag": false,
+      "audioPacketTiming": "blockAlign",
+      "restoredPassthrough": "pcm_s24le",
+      "subtitles": "none",
+      "isoMedia": false
+    }
+  ],
+  "video": [
+    {
+      "codec": "libx264",
+      "container": "mp4",
+      "verdict": "offered"
+    },
+    {
+      "codec": "libx264",
+      "container": "mov",
+      "verdict": "offered"
+    },
+    {
+      "codec": "libx264",
+      "container": "mkv",
+      "verdict": "offered"
+    },
+    {
+      "codec": "libx264",
+      "container": "avi",
+      "verdict": "offered"
+    },
+    {
+      "codec": "libx265",
+      "container": "mp4",
+      "verdict": "offered"
+    },
+    {
+      "codec": "libx265",
+      "container": "mov",
+      "verdict": "offered"
+    },
+    {
+      "codec": "libx265",
+      "container": "mkv",
+      "verdict": "offered"
+    },
+    {
+      "codec": "libx265",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "H.265 (HEVC) is not offered in AVI: few players or editors read it there. The app offers it in MP4, MOV or MKV."
+    },
+    {
+      "codec": "libsvtav1",
+      "container": "mp4",
+      "verdict": "offered"
+    },
+    {
+      "codec": "libsvtav1",
+      "container": "mov",
+      "verdict": "refused",
+      "message": "AV1 (SVT-AV1) cannot be written to QuickTime MOV: FFmpeg can't store it there. Choose MP4 or MKV."
+    },
+    {
+      "codec": "libsvtav1",
+      "container": "mkv",
+      "verdict": "offered"
+    },
+    {
+      "codec": "libsvtav1",
+      "container": "avi",
+      "verdict": "refused",
+      "message": "AV1 (SVT-AV1) cannot be written to AVI: AVI has no standard AV1 tag, and few players read FFmpeg's. Choose MP4 or MKV.",
+      "ffmpegWrites": true
+    },
+    {
+      "codec": "h264_nvenc",
+      "container": "mp4",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_nvenc",
+      "container": "mov",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_nvenc",
+      "container": "mkv",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_nvenc",
+      "container": "avi",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "hevc_nvenc",
+      "container": "mp4",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_nvenc",
+      "container": "mov",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_nvenc",
+      "container": "mkv",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_nvenc",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "H.265 (NVENC) is not offered in AVI: few players or editors read it there. The app offers it in MP4, MOV or MKV.",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "h264_qsv",
+      "container": "mp4",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_qsv",
+      "container": "mov",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_qsv",
+      "container": "mkv",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_qsv",
+      "container": "avi",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "hevc_qsv",
+      "container": "mp4",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_qsv",
+      "container": "mov",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_qsv",
+      "container": "mkv",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_qsv",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "H.265 (Intel QSV) is not offered in AVI: few players or editors read it there. The app offers it in MP4, MOV or MKV.",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "h264_videotoolbox",
+      "container": "mp4",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_videotoolbox",
+      "container": "mov",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_videotoolbox",
+      "container": "mkv",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_videotoolbox",
+      "container": "avi",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "hevc_videotoolbox",
+      "container": "mp4",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_videotoolbox",
+      "container": "mov",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_videotoolbox",
+      "container": "mkv",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_videotoolbox",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "H.265 (VideoToolbox) is not offered in AVI: few players or editors read it there. The app offers it in MP4, MOV or MKV.",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "h264_amf",
+      "container": "mp4",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_amf",
+      "container": "mov",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_amf",
+      "container": "mkv",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "h264_amf",
+      "container": "avi",
+      "verdict": "offered",
+      "muxEncoder": "libx264"
+    },
+    {
+      "codec": "hevc_amf",
+      "container": "mp4",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_amf",
+      "container": "mov",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_amf",
+      "container": "mkv",
+      "verdict": "offered",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "hevc_amf",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "H.265 (AMD AMF) is not offered in AVI: few players or editors read it there. The app offers it in MP4, MOV or MKV.",
+      "muxEncoder": "libx265"
+    },
+    {
+      "codec": "ffv1",
+      "container": "mp4",
+      "verdict": "notOffered",
+      "message": "FFV1 (Lossless) is not offered in MP4: few players or editors read it there. The app offers it in MKV or AVI."
+    },
+    {
+      "codec": "ffv1",
+      "container": "mov",
+      "verdict": "notOffered",
+      "message": "FFV1 (Lossless) is not offered in QuickTime MOV: few players or editors read it there. The app offers it in MKV or AVI."
+    },
+    {
+      "codec": "ffv1",
+      "container": "mkv",
+      "verdict": "offered"
+    },
+    {
+      "codec": "ffv1",
+      "container": "avi",
+      "verdict": "offered"
+    },
+    {
+      "codec": "huffyuv",
+      "container": "mp4",
+      "verdict": "refused",
+      "message": "HuffYUV (Lossless) cannot be written to MP4: FFmpeg can't store it there. Choose MKV or AVI."
+    },
+    {
+      "codec": "huffyuv",
+      "container": "mov",
+      "verdict": "notOffered",
+      "message": "HuffYUV (Lossless) is not offered in QuickTime MOV: few players or editors read it there. The app offers it in MKV or AVI."
+    },
+    {
+      "codec": "huffyuv",
+      "container": "mkv",
+      "verdict": "offered"
+    },
+    {
+      "codec": "huffyuv",
+      "container": "avi",
+      "verdict": "offered"
+    },
+    {
+      "codec": "ffvhuff",
+      "container": "mp4",
+      "verdict": "refused",
+      "message": "FFVHuff (Lossless) cannot be written to MP4: FFmpeg can't store it there. Choose MKV or AVI."
+    },
+    {
+      "codec": "ffvhuff",
+      "container": "mov",
+      "verdict": "notOffered",
+      "message": "FFVHuff (Lossless) is not offered in QuickTime MOV: few players or editors read it there. The app offers it in MKV or AVI."
+    },
+    {
+      "codec": "ffvhuff",
+      "container": "mkv",
+      "verdict": "offered"
+    },
+    {
+      "codec": "ffvhuff",
+      "container": "avi",
+      "verdict": "offered"
+    },
+    {
+      "codec": "prores_ks -profile:v 0",
+      "container": "mp4",
+      "verdict": "refused",
+      "message": "ProRes Proxy cannot be written to MP4: FFmpeg can't store it there. Choose MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 0",
+      "container": "mov",
+      "verdict": "offered"
+    },
+    {
+      "codec": "prores_ks -profile:v 0",
+      "container": "mkv",
+      "verdict": "notOffered",
+      "message": "ProRes Proxy is not offered in Matroska MKV: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 0",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "ProRes Proxy is not offered in AVI: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 1",
+      "container": "mp4",
+      "verdict": "refused",
+      "message": "ProRes LT cannot be written to MP4: FFmpeg can't store it there. Choose MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 1",
+      "container": "mov",
+      "verdict": "offered"
+    },
+    {
+      "codec": "prores_ks -profile:v 1",
+      "container": "mkv",
+      "verdict": "notOffered",
+      "message": "ProRes LT is not offered in Matroska MKV: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 1",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "ProRes LT is not offered in AVI: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 2",
+      "container": "mp4",
+      "verdict": "refused",
+      "message": "ProRes 422 cannot be written to MP4: FFmpeg can't store it there. Choose MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 2",
+      "container": "mov",
+      "verdict": "offered"
+    },
+    {
+      "codec": "prores_ks -profile:v 2",
+      "container": "mkv",
+      "verdict": "notOffered",
+      "message": "ProRes 422 is not offered in Matroska MKV: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 2",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "ProRes 422 is not offered in AVI: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 3",
+      "container": "mp4",
+      "verdict": "refused",
+      "message": "ProRes 422 HQ cannot be written to MP4: FFmpeg can't store it there. Choose MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 3",
+      "container": "mov",
+      "verdict": "offered"
+    },
+    {
+      "codec": "prores_ks -profile:v 3",
+      "container": "mkv",
+      "verdict": "notOffered",
+      "message": "ProRes 422 HQ is not offered in Matroska MKV: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 3",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "ProRes 422 HQ is not offered in AVI: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 4",
+      "container": "mp4",
+      "verdict": "refused",
+      "message": "ProRes 4444 cannot be written to MP4: FFmpeg can't store it there. Choose MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 4",
+      "container": "mov",
+      "verdict": "offered"
+    },
+    {
+      "codec": "prores_ks -profile:v 4",
+      "container": "mkv",
+      "verdict": "notOffered",
+      "message": "ProRes 4444 is not offered in Matroska MKV: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 4",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "ProRes 4444 is not offered in AVI: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 5",
+      "container": "mp4",
+      "verdict": "refused",
+      "message": "ProRes 4444 XQ cannot be written to MP4: FFmpeg can't store it there. Choose MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 5",
+      "container": "mov",
+      "verdict": "offered"
+    },
+    {
+      "codec": "prores_ks -profile:v 5",
+      "container": "mkv",
+      "verdict": "notOffered",
+      "message": "ProRes 4444 XQ is not offered in Matroska MKV: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "prores_ks -profile:v 5",
+      "container": "avi",
+      "verdict": "notOffered",
+      "message": "ProRes 4444 XQ is not offered in AVI: few players or editors read it there. The app offers it in MOV."
+    },
+    {
+      "codec": "v210",
+      "container": "mp4",
+      "verdict": "refused",
+      "message": "Uncompressed 10-bit 4:2:2 (v210) cannot be written to MP4: FFmpeg can't store it there. Choose MOV, MKV or AVI."
+    },
+    {
+      "codec": "v210",
+      "container": "mov",
+      "verdict": "offered"
+    },
+    {
+      "codec": "v210",
+      "container": "mkv",
+      "verdict": "offered"
+    },
+    {
+      "codec": "v210",
+      "container": "avi",
+      "verdict": "offered"
+    }
+  ],
+  "audioConvert": [
+    {
+      "codec": "aac",
+      "container": "mp4",
+      "supported": true
+    },
+    {
+      "codec": "aac",
+      "container": "mov",
+      "supported": true
+    },
+    {
+      "codec": "aac",
+      "container": "mkv",
+      "supported": true
+    },
+    {
+      "codec": "aac",
+      "container": "avi",
+      "supported": true
+    },
+    {
+      "codec": "libmp3lame",
+      "container": "mp4",
+      "supported": true
+    },
+    {
+      "codec": "libmp3lame",
+      "container": "mov",
+      "supported": true
+    },
+    {
+      "codec": "libmp3lame",
+      "container": "mkv",
+      "supported": true
+    },
+    {
+      "codec": "libmp3lame",
+      "container": "avi",
+      "supported": true
+    },
+    {
+      "codec": "ac3",
+      "container": "mp4",
+      "supported": true
+    },
+    {
+      "codec": "ac3",
+      "container": "mov",
+      "supported": true
+    },
+    {
+      "codec": "ac3",
+      "container": "mkv",
+      "supported": true
+    },
+    {
+      "codec": "ac3",
+      "container": "avi",
+      "supported": true
+    },
+    {
+      "codec": "flac",
+      "container": "mp4",
+      "supported": true
+    },
+    {
+      "codec": "flac",
+      "container": "mov",
+      "supported": false,
+      "message": "FLAC audio can't be stored in MOV files. Choose AAC, MP3, AC-3 or PCM in Settings → Audio, or save as MP4, MKV or AVI."
+    },
+    {
+      "codec": "flac",
+      "container": "mkv",
+      "supported": true
+    },
+    {
+      "codec": "flac",
+      "container": "avi",
+      "supported": true
+    },
+    {
+      "codec": "libopus",
+      "container": "mp4",
+      "supported": true
+    },
+    {
+      "codec": "libopus",
+      "container": "mov",
+      "supported": false,
+      "message": "Opus audio can't be stored in MOV files. Choose AAC, MP3, AC-3 or PCM in Settings → Audio, or save as MP4 or MKV."
+    },
+    {
+      "codec": "libopus",
+      "container": "mkv",
+      "supported": true
+    },
+    {
+      "codec": "libopus",
+      "container": "avi",
+      "supported": false,
+      "message": "Opus audio can't be stored in AVI files. Choose AAC, MP3, AC-3, FLAC or PCM in Settings → Audio, or save as MP4 or MKV."
+    },
+    {
+      "codec": "pcm_s16le",
+      "container": "mp4",
+      "supported": true
+    },
+    {
+      "codec": "pcm_s16le",
+      "container": "mov",
+      "supported": true
+    },
+    {
+      "codec": "pcm_s16le",
+      "container": "mkv",
+      "supported": true
+    },
+    {
+      "codec": "pcm_s16le",
+      "container": "avi",
+      "supported": true
+    }
+  ],
+  "audioCopy": {
+    "mp4": [
+      "aac",
+      "mp2",
+      "mp3",
+      "ac3",
+      "eac3",
+      "dts",
+      "alac",
+      "flac",
+      "opus",
+      "vorbis",
+      "pcm_s16le",
+      "pcm_s24le",
+      "pcm_s32le",
+      "pcm_f32le",
+      "pcm_s16be",
+      "pcm_s24be"
+    ],
+    "mov": [
+      "aac",
+      "mp2",
+      "mp3",
+      "ac3",
+      "eac3",
+      "dts",
+      "alac",
+      "vorbis",
+      "pcm_s16le",
+      "pcm_s24le",
+      "pcm_s32le",
+      "pcm_f32le",
+      "pcm_s16be",
+      "pcm_s24be",
+      "pcm_u8"
+    ],
+    "mkv": [
+      "aac",
+      "mp2",
+      "mp3",
+      "ac3",
+      "eac3",
+      "dts",
+      "truehd",
+      "alac",
+      "flac",
+      "opus",
+      "vorbis",
+      "pcm_s16le",
+      "pcm_s24le",
+      "pcm_s32le",
+      "pcm_f32le",
+      "pcm_s16be",
+      "pcm_s24be",
+      "pcm_u8",
+      "wavpack"
+    ],
+    "avi": [
+      "aac",
+      "mp2",
+      "mp3",
+      "ac3",
+      "eac3",
+      "dts",
+      "flac",
+      "vorbis",
+      "pcm_s16le",
+      "pcm_s24le",
+      "pcm_s32le",
+      "pcm_f32le",
+      "pcm_u8"
+    ]
+  },
+  "audioCopyMessage": "{codec} audio can't be copied into {container} files. Choose Convert in Settings → Audio, or save as {containers}."
+}

@@ -922,6 +922,13 @@ impl RestoredTrackCodec {
         }
     }
 
+    /// The codec whose `ffmpeg_name` is `name`.
+    pub fn from_ffmpeg_name(name: &str) -> Option<RestoredTrackCodec> {
+        [RestoredTrackCodec::Aac, RestoredTrackCodec::Flac, RestoredTrackCodec::Pcm24]
+            .into_iter()
+            .find(|c| c.ffmpeg_name() == name)
+    }
+
     /// Whether `-b:a` applies (the chosen audio quality).
     pub fn takes_bitrate(self) -> bool {
         match self {
@@ -948,16 +955,16 @@ impl RestoredTrackCodec {
 ///   PCM in either header form (report, F6). Convert → PCM still gives 16 bits
 ///   for a reader that needs them.
 /// - MP4/MOV otherwise get AAC.
-/// All three lossless forms decode to the same samples.
+/// All three lossless forms decode to the same samples. The per-container
+/// choice is the table's `restoredPassthrough` (task #49); the editing
+/// intermediates' override is a property of the video codec and stays here.
 pub fn restored_passthrough_codec(container: ContainerFormat, video: VideoCodec) -> RestoredTrackCodec {
     if video.is_editing_intermediate() {
         return RestoredTrackCodec::Pcm24;
     }
-    match container {
-        ContainerFormat::Mkv => RestoredTrackCodec::Flac,
-        ContainerFormat::Mp4 | ContainerFormat::Mov => RestoredTrackCodec::Aac,
-        ContainerFormat::Avi => RestoredTrackCodec::Pcm24,
-    }
+    let name = container.traits().restored_passthrough.as_str();
+    RestoredTrackCodec::from_ffmpeg_name(name)
+        .unwrap_or_else(|| panic!("output_capabilities.json: {container:?} restores to {name}, not a RestoredTrackCodec"))
 }
 
 // ---------------------------------------------------------------------------

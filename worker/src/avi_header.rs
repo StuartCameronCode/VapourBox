@@ -31,7 +31,7 @@ use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use crate::models::{AudioMode, ContainerFormat, VideoJob};
+use crate::models::{AudioMode, AudioPacketTiming, VideoJob};
 
 /// AAC's `wFormatTag` as avienc writes it (`WAVE_FORMAT_RAW_AAC1`).
 pub const WAVE_FORMAT_AAC: u16 = 0x00FF;
@@ -63,10 +63,12 @@ impl BlockAlignFix {
     }
 }
 
-/// Whether the encode's output gets [`fix_aac_block_align`]: AVI with sound,
-/// whether copied or converted.
+/// Whether the encode's output gets [`fix_aac_block_align`]: a container whose
+/// players time VBR audio by `nBlockAlign` (AVI; the table's
+/// `audioPacketTiming`) with sound, whether copied or converted.
 pub fn checks_block_align(job: &VideoJob) -> bool {
-    job.encoding_settings.container == ContainerFormat::Avi && job.encoding_settings.audio_mode != AudioMode::None
+    job.encoding_settings.container.traits().audio_packet_timing == AudioPacketTiming::BlockAlign
+        && job.encoding_settings.audio_mode != AudioMode::None
 }
 
 fn u16_at(data: &[u8], at: usize) -> Option<u16> {
@@ -184,6 +186,7 @@ pub fn fix_aac_block_align(path: &Path) -> Result<Vec<BlockAlignFix>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ContainerFormat;
 
     fn chunk(fourcc: &[u8; 4], body: &[u8]) -> Vec<u8> {
         let mut out = fourcc.to_vec();

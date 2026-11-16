@@ -231,7 +231,7 @@ use crate::comment_metadata::{self, CommentFile};
 use crate::gpu_plugin::GpuPlugin;
 use crate::hdr_metadata::HdrMetadata;
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AspectDeclaration, ContainerFormat, DeinterlaceMethod, EncoderFamily, FieldOrderSignal, LogLevel, ProcessingPipeline, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
+use crate::models::{AspectDeclaration, DeinterlaceMethod, EncoderFamily, FieldOrderSignal, LogLevel, ProcessingPipeline, ProgressInfo, SubtitleForm, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
 use crate::source_decode;
 use crate::vspipe_failure::{self, Blame};
@@ -321,8 +321,7 @@ pub fn field_order_note(job: &VideoJob) -> Option<String> {
         )),
         // FFV1 writes the field order in its own bitstream, so AVI keeps it.
         FieldOrderSignal::Container
-            if job.encoding_settings.container == ContainerFormat::Avi
-                && codec != VideoCodec::FFV1 =>
+            if !job.encoding_settings.container.traits().field_flag && codec != VideoCodec::FFV1 =>
         {
             Some(format!(
                 "The picture is still interlaced, but AVI cannot record its field order, so \
@@ -334,19 +333,15 @@ pub fn field_order_note(job: &VideoJob) -> Option<String> {
     }
 }
 
-/// The job error for a codec the chosen container cannot hold, or `None`.
-/// The app only offers allowed pairs (`supportsContainer`); this catches a
-/// hand-written or imported job config before ffmpeg fails with "Could not
-/// write header".
+/// The job error for a codec the chosen container doesn't hold, or `None`:
+/// a refused pair of the output capability table (FFmpeg can't write it, or
+/// AV1 in AVI), in the table's words (task #49). The app only offers allowed pairs
+/// (`supportsContainer`); this catches a hand-written or imported job config
+/// before ffmpeg fails with "Could not write header". `run_worker` asks it
+/// before any work; `execute` again, for callers that skip `run_worker`.
 pub fn container_problem(job: &VideoJob) -> Option<String> {
     let s = &job.encoding_settings;
-    (!s.codec.allows_container(s.container)).then(|| {
-        format!(
-            "{} cannot be written to {}. Choose MP4 or MKV.",
-            s.codec.display_name(),
-            s.container.display_name()
-        )
-    })
+    s.codec.container_problem(s.container).map(str::to_string)
 }
 
 /// The job error when the bundled FFmpeg lacks the codec's encoder, or `None`.
@@ -1212,12 +1207,12 @@ impl PipelineExecutor {
         // Preserve existing subtitle streams from source (? = optional, no error if none)
         let subtitle_embed_pending = job.subtitle_settings.as_ref()
             .is_some_and(|s| s.enabled && !matches!(s.output, SubtitleOutput::SrtFile));
-        match settings.container {
-            ContainerFormat::Mkv => {
+        match settings.container.traits().subtitles {
+            SubtitleForm::Copy => {
                 args.extend(["-map".to_string(), "1:s?".to_string()]);
                 args.extend(["-c:s".to_string(), "copy".to_string()]);
             }
-            ContainerFormat::Mp4 | ContainerFormat::Mov if !subtitle_embed_pending => {
+            SubtitleForm::MovText if !subtitle_embed_pending => {
                 // mov_text only holds text subtitles. Image-based subs (PGS/VobSub
                 // from DVD/Blu-ray rips) cannot be transcoded to mov_text — ffmpeg
                 // does NOT skip them, it aborts the whole encode with
@@ -1238,7 +1233,7 @@ impl PipelineExecutor {
                 // If probing fails, map no subtitles — a missing subtitle track must
                 // never fail the encode.
             }
-            _ => {} // AVI and others: skip subtitle mapping
+            _ => {} // AVI: no subtitle stream
         }
 
         // Video codec
@@ -1278,7 +1273,7 @@ impl PipelineExecutor {
         // with the default `hev1` sample-entry; force `hvc1` so the output is
         // playable. Also move the moov atom to the front (+faststart) for web
         // playback, except for editing intermediates. Both are no-ops for MKV/AVI.
-        if matches!(settings.container, ContainerFormat::Mp4 | ContainerFormat::Mov) {
+        if settings.container.is_iso_media() {
             if settings.codec.is_h265() {
                 args.extend(["-tag:v".to_string(), "hvc1".to_string()]);
             }
@@ -2079,7 +2074,7 @@ pub fn sound_copy_input_args(job: &VideoJob, copy: Option<&SoundCopy>, priming: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AudioCodec, AudioMode, AudioQuality, ChromaSubsampling, EncodingSettings, ProResQuantMat, QTGMCParameters, VideoCodec};
+    use crate::models::{AudioCodec, AudioMode, AudioQuality, ChromaSubsampling, ContainerFormat, EncodingSettings, ProResQuantMat, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
 
     /// The two codes that have actually cost debugging time must be named in
@@ -3039,7 +3034,7 @@ mod tests {
 
         // MP4/MOV container fixups (mirrors build_ffmpeg_args): hvc1 tag for HEVC
         // so Apple players accept it, plus +faststart (not for intermediates).
-        if matches!(settings.container, ContainerFormat::Mp4 | ContainerFormat::Mov) {
+        if settings.container.is_iso_media() {
             if settings.codec.is_h265() {
                 args.extend(["-tag:v".to_string(), "hvc1".to_string()]);
             }

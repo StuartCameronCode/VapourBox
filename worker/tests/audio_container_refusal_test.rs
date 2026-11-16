@@ -70,3 +70,40 @@ fn unsupported_convert_pairs_are_refused_before_any_work() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// Task #49: a video codec FFmpeg can't write to the container (HuffYUV,
+/// ProRes or v210 in MP4; AV1 in MOV) or AV1 in AVI is refused the same way,
+/// in the table's words.
+#[test]
+fn video_pairs_ffmpeg_cannot_write_are_refused_before_any_work() {
+    for (video, container) in [
+        (VideoCodec::Huffyuv, ContainerFormat::Mp4),
+        (VideoCodec::ProResHQ, ContainerFormat::Mp4),
+        (VideoCodec::V210, ContainerFormat::Mp4),
+        (VideoCodec::Av1, ContainerFormat::Mov),
+        (VideoCodec::Av1, ContainerFormat::Avi),
+    ] {
+        let dir = std::env::temp_dir().join(format!("vb_video_refusal_{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut j = job(&dir, AudioCodec::Aac, container);
+        j.encoding_settings.codec = video;
+        let config = dir.join("job.json");
+        std::fs::write(&config, serde_json::to_string(&j).unwrap()).unwrap();
+        let out = Command::new(env!("CARGO_BIN_EXE_vapourbox-worker"))
+            .arg("--config")
+            .arg(&config)
+            .env("TMPDIR", &dir)
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.status.code(), Some(1), "{video:?}/{container:?}: {stdout}");
+        let error = stdout
+            .lines()
+            .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+            .find(|m| m["type"] == "error")
+            .unwrap_or_else(|| panic!("no error message: {stdout}"));
+        assert_eq!(error["message"], video.container_problem(container).unwrap());
+        assert!(!stdout.contains("Generating VapourSynth script"), "{stdout}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

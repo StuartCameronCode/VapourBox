@@ -2,6 +2,7 @@
 //! These must serialize to/from JSON compatibly with the Dart equivalents.
 
 mod video_job;
+mod output_capabilities;
 mod color_metadata;
 mod qtgmc_parameters;
 mod progress_info;
@@ -33,6 +34,7 @@ mod processing_pipeline;
 mod dvd_info;
 
 pub use video_job::*;
+pub use output_capabilities::*;
 pub use color_metadata::*;
 pub use qtgmc_parameters::*;
 pub use progress_info::*;
