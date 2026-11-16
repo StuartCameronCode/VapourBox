@@ -39,7 +39,8 @@ String _repoRoot() {
 /// The series each script pins, by the assignment it declares.
 ///
 /// Deliberately reads the *variable*, not the URL: the URLs differ per platform
-/// and per host (BtbN asset names, a martin-riedl build ID or redirect), and the variable is the single thing they are all built from.
+/// and per host (BtbN asset names, a martin-riedl build ID or redirect), and
+/// the variable is the single thing they are all built from.
 ({String script, String series}) _pin(String root, String file, RegExp pattern) {
   final text = File(p.join(root, 'Scripts', file)).readAsStringSync();
   final match = pattern.firstMatch(text);
