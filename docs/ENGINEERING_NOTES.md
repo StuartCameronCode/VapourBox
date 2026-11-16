@@ -5112,3 +5112,33 @@ position by a frame count outside `frame_math.dart`);
 shown frames, first/last picture against `select=eq(n,F)` of the source, no
 repeated last picture). Its small_clip cases skip until task #54 makes the
 model's count 3151.
+
+### The timestamp-reset scan no longer blocks analysis (task #55, 2026-11-17)
+
+Report: [docs/reports/task-55-deferred-reset-scan](reports/task-55-deferred-reset-scan/index.html).
+
+- **The wait.** Since task #50, analysis awaited `--probe-source`, whose
+  reset scan reads every byte of a TS/PS: 17.3 s/GB on an SMB share (#51),
+  77 s for a 2 h DVD title before Video Info or frame 0 showed. A source
+  with a reset was read in full three times (the scan, `--make-continuous`
+  scanning again, the copy).
+- **Seeks can't be let through early.** The task asked to block only seeks
+  past a reset. #21's report already showed a seek *before* the reset (140
+  on `seek_reset_h264.ts`) landing in the second segment: libavformat
+  bisects by bytes over timestamps that occur once per segment. So until
+  the whole scan answers, only decodes from the start without `-copyts` run
+  (frame 0, its processed preview, the soft-telecine flags, idet with a
+  frame-count trim instead of `-ss 2`). Thumbnails, scrubbing, in/out
+  points, detectors and jobs wait; the provisional alternative (show, redo
+  on a reset) was rejected because it shows wrong frames on exactly the
+  files #21 fixed.
+- **Built.** `--probe-source --defer-scan` (`continuityDeferred`), then
+  `--complete-source` after analysis, one source at a time, streamed with
+  `pos`-based progress, cancellable (ffprobe dies on SIGPIPE when the worker
+  is killed). `--make-continuous --source <model>` reuses the scan: the
+  2 GB reset file joined in 2.7 s instead of 4.2 s on the SSD. On a 1 GB PS
+  on the SSD, the wait before anything shows fell from 0.98 s to 0.35 s.
+- **Not measured: the share.** It was unmounted before the measurement
+  ran; `analysis_probe.py share` is ready. The expectation (a few seconds of
+  head/tail reads instead of 77 s) is stated as such in the report.
+
