@@ -138,7 +138,7 @@ VapourBox/
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
 | `worker/src/dvd_reader.rs` | DVD import: IFO parsing for the title picker, `title_cells` (a title's cells for a chapter range and angle), the copy plan, the NAV walk for interleaved cells, and the libdvdread copy (see "DVD Import") |
-| `worker/src/source_model.rs` | `SourceModel` and `--probe-source`: every fact about a source a decoder needs, probed once (the frame-count rules included); `VideoJob::apply_source_model` fills a job from it |
+| `worker/src/source_model.rs` | `SourceModel` and `--probe-source`: every fact about a source a decoder needs, probed once (the frame-count rules included, an MP4 edit list's discards too); `VideoJob::apply_source_model` fills a job from it, its frame count included |
 | `worker/src/source_continuity.rs` | Timestamp resets in an MPEG-PS/TS: the rule, `--scan-timestamps`, and the continuous same-container copy decoded instead (see "Source Frame Size") |
 | `worker/src/vspipe_failure.rs` | A failed encode's blame (encoder first, unless it only saw vspipe's empty pipe) and vspipe's stderr turned into the job error (see Debugging Tips #11) |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
@@ -1188,11 +1188,27 @@ the **single** builder of both decoders' arguments (encode + preview):
     misses a last picture whose packet has no PTS (DVD: 149 of 150), so the
     probe decodes the last 3 s and counts it as ffmpeg's decoder stamps it
     (previous frame + its duration; `untimed_last_picture`), never lowering
-    the count (task #26). A job **without** a count (CLI, tests) is still
-    counted by decoding (`-count_frames`, `resolve_source`): it is wrong on
-    AVI null frames, open GOPs and soft-telecine repeats but right on an
-    MP4 whose edit list discards pre-roll, where `nb_frames` (and so the
-    model) is 3 over (docs/reports/task-50-source-model).
+    the count (task #26).
+  - **An MP4/MOV edit list's discarded packets are not frames (task #54).**
+    The demuxer keeps an edit's pre-roll (and B pictures past its end) for
+    decoding and marks it discard (`D` in `packet=flags`); `nb_frames`
+    counts it (`small_clip.mp4`: 3154 stored, 3151 decoded). When the head
+    probe (`VIDEO_START_PROBE_ARGS`, now with `flags`,
+    `discards_from_probe`) or an MP4/MOV's tail probe (`probe_tail`, the
+    last 3 s, run with the others; `TailPictures`) sees one, the count is
+    the last **kept** picture's grid slot + 1. Never "packets not
+    discarded": a stream-copy cut leaves holes the grid fills
+    (`edit_list_bframes.mp4`: 146 stored, 125 kept, 128 slots). A file
+    whose discards are only mid-file (a multi-entry edit list) still counts
+    `nb_frames` (docs/reports/task-54-edit-list-count).
+  - **A job without a count takes the model's** (`apply_source_model`, over
+    its trim), as the app's always has. Only `VideoJob::counts_by_decoding`
+    (no model, or a raw MPEG-PS/TS whose timestamps reset in a job without
+    `continuity_checked`, whose model counts the last segment) is still
+    counted with `-count_frames` (`resolve_source`), which is wrong on AVI
+    null frames, open GOPs, soft-telecine repeats and holes. Audio
+    Restoration's drift reads the whole source's length the same way
+    (`model_frame_count`).
   - **The output keeps the source's layout: sound first, picture delayed.**
     `VideoJob::output_video_delay` is the one decision (0 when trimmed, when
     there is no sound, or with Audio Restoration's `startWithPicture`); the

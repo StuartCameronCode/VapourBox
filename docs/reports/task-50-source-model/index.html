@@ -89,6 +89,12 @@ replacing <code>-count_frames</code>. Two heavy AVI tests that send no count the
 small_clip to AVI 3154 vs 3151), and small_clip's row shows <code>-count_frames</code> is the right one there. A job
 without a count is counted by decoding again, as before, until the follow-up settles the model's count for edit lists.
 Jobs from the app always carry a count, so this affects only the CLI and tests.</p>
+<p><strong>Correction, task #54 (2026-11-17).</strong> The follow-up is done: the model now counts small_clip as
+3151, the last kept picture's grid slot + 1, read from the file's tail (counting packets not marked discard, as
+proposed above, is wrong on a stream-copy cut with timestamp holes). Jobs without a count take the model's again;
+for the DVB-T clip that is 128, which is right (two of its 128 slots repeat a picture at field-coding gaps; an app
+job always sent 128). See <a href="../task-54-edit-list-count/index.html">task-54-edit-list-count</a>.
+The table above is left as measured.</p>
 
 <h2>4. Time</h2>
 <p><code>scripts/timing.py</code>, median of 7 runs, milliseconds. <em>before</em>: the old worker's preview, which

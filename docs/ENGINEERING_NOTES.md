@@ -4766,10 +4766,41 @@ Full evidence:
   `-count_frames`, used for a job without a count, is wrong on AVI null
   frames, the DVB-T clip's leading pictures and soft-telecine repeats, but
   right on that MP4, so it is kept for such jobs until the follow-up.
+  *Fixed by task #54 (below): the model counts the edit list right, and
+  `-count_frames` is gone except for a raw reset TS/PS.*
 - **Time.** An app preview no longer probes the source: 157–214 ms against
   263–385 ms before on the fixtures (and no whole-file packet read per
   scrub on a VFR source).
 - Evidence: [docs/reports/task-50-source-model/](reports/task-50-source-model/index.html).
+
+### An MP4 edit list's discarded packets are not frames (task #54, 2026-11-17)
+
+- **Fault.** `nb_frames` of an MP4/MOV is the sample table's count, and an
+  edit list's pre-roll (kept for decoding, marked discard, never output) is
+  in it: `small_clip.mp4` stores 3154 and decodes 3151, so the app's
+  timeline ran 3 frames long and an untrimmed encode ended on 3 copies of
+  the last picture (`pipe_source` repeats it past EOF).
+- **"Packets not discarded" is wrong too.** A stream-copy cut
+  (`edit_list_bframes.mp4`, `generate_edit_list_test.sh`) stores 146,
+  discards 21 and keeps 125 (so does `-count_frames`), but the copy's `-t`
+  dropped the last B pictures and the grid decode fills those holes: 128.
+  The count is the last kept picture's grid slot + 1, Matroska's rule.
+- **Cheap.** Discards are seen by the head probe (64 packets, now with
+  `flags`) or an MP4/MOV's tail probe (last 3 s, run in parallel with the
+  others). On a 2 h MP4 (480 MB): tail 0.05 s, the whole `--probe-source`
+  0.13 s, a whole-file packet read 0.65 s warm (minutes on a NAS), and
+  `-count_frames` 20.7 s; all four counts agree (220 777). Every other
+  committed fixture's count is unchanged; the model now equals the grid
+  decode on every grid fixture but the raw reset files.
+- **Jobs without a count take the model's** (`apply_source_model`); only no
+  model, or a raw reset TS/PS outside the app (`counts_by_decoding`), still
+  decodes to count. A CLI job on the DVB-T clip now encodes its 128 slots
+  (126 pictures, two repeated at field-coding gaps), as an app job always
+  did.
+- **Not covered**: discards only mid-file (a multi-entry edit list) keep
+  `nb_frames`; nothing cheap detects them.
+- Evidence: [docs/reports/task-54-edit-list-count/](reports/task-54-edit-list-count/index.html).
+
 ### Plugin format limits probed from the bundle; one `run_within` (task #48, 2026-11-16)
 
 Task #42's plan, R2b. Report: [docs/reports/task-48-plugin-format-contracts](reports/task-48-plugin-format-contracts/index.html).
