@@ -932,12 +932,14 @@ fn resolve_source(
             }
         }
     }
+    let decode_count = count_frames && job.total_frames.is_none() && job.counts_by_decoding();
     job.apply_source_model();
-    // A job without a count (the app always sends one) is counted by
-    // decoding, as before: the model's count and the decoded one disagree
-    // on some sources (task #50 report). Only the encode and the audio plan
-    // need it (`count_frames`); a preview or a detector never did.
-    if count_frames && job.total_frames.is_none() {
+    // A job without a count (the app always sends one) takes the model's
+    // (`apply_source_model`, task #54). Only a source whose model can't
+    // stand for its decode (`counts_by_decoding`: none at all, or a raw
+    // MPEG-PS/TS whose timestamps reset) is still counted by decoding, and
+    // only for the encode and the audio plan (`count_frames`).
+    if decode_count {
         if let Some(full) = deps.and_then(|d| d.probe_frame_count(&job.input_path)) {
             let effective = match (job.start_frame, job.end_frame) {
                 (Some(s), Some(e)) => (e - s + 1).max(0),
