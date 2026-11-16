@@ -54,11 +54,9 @@ void main() {
       };
       // FFmpeg refuses AV1 in MOV; AVI has no standard AV1 tag.
       expect(supported, {ContainerFormat.mp4, ContainerFormat.mkv});
-      final rust = _workerSource('models/video_job.rs');
-      expect(
-          rust,
-          contains(
-              'matches!(container, ContainerFormat::Mp4 | ContainerFormat::Mkv)'));
+      // The worker refuses the other two, from the same table (task #49).
+      expect(VideoCodec.av1.containerVerdict(ContainerFormat.mov), ContainerVerdict.refused);
+      expect(VideoCodec.av1.containerVerdict(ContainerFormat.avi), ContainerVerdict.refused);
     });
 
     test('presets and default agree with the worker', () {

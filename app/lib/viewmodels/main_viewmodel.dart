@@ -2227,18 +2227,7 @@ class MainViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  String _getOutputExtension() {
-    switch (_encodingSettings.container) {
-      case ContainerFormat.mp4:
-        return '.mp4';
-      case ContainerFormat.mkv:
-        return '.mkv';
-      case ContainerFormat.mov:
-        return '.mov';
-      case ContainerFormat.avi:
-        return '.avi';
-    }
-  }
+  String _getOutputExtension() => '.${_encodingSettings.container.extension}';
 
   /// Generates the output path based on encoding settings and input path.
   String _generateOutputPath(String inputPath) {

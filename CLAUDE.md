@@ -158,7 +158,7 @@ VapourBox/
 | `worker/src/crop_detect.rs` | `--detect-crop`: black borders, blanking, letterbox bars and the head-switching band, for Crop & Resize's Detect (see "Crop Detection"); also the detectors' shared sampling and decode (`decode_samples`) |
 | `worker/src/noise_halo.rs` | `--detect-noise-halo`: a source's noise sigma and halo score, for the pass list's suggestions (see "Noise and Halo Scores") |
 | `worker/src/audio_restoration.rs` | Audio restoration: probes, the one `AudioPlan` (every `-af` filter, in order), the render before the encode, and the encoder's audio map/codec args, including the NUT sound copy, the AVI copy cut (`SoundCut`, trimmed or a primed head: `sound_cut_applies`) and the encoder priming for Convert into AVI (`EncoderPriming`) (see "Audio Restoration", "Source Frame Size") |
-| `Tests/TestResources/audio_codec_containers.json` | Which Convert audio codec each container holds, and the refusal's wording; read by both sides (see "Convert audio: codec × container") |
+| `Tests/TestResources/output_capabilities.json` | What each container holds and how it times it: video codec verdicts, Convert and copied audio codecs, the container traits; compiled into the worker (`worker/src/models/output_capabilities.rs`) and generated into the app (`app/lib/models/output_capabilities_table.dart`) (see "Output capabilities: one table") |
 | `worker/src/avi_header.rs` | An AVI output's AAC block size raised to its largest packet after the encode (task #41; see "Source Frame Size") |
 | `worker/templates/pipeline_template.vpy` | The one VapourSynth script template, for the encode and the preview (see "One script template") |
 | `worker/templates/gauss_blur.py` | TCanny's Gaussian blur (`mode=-1`) on `std.Convolution`; never call `tcanny.TCanny` from a template (see "One script template") |
@@ -2333,29 +2333,75 @@ model (`worker/templates/colorize.py`, on `ai_runtime`). Rules:
 and on a colour source), strength 0 = input, both models, and preview = encode.
 See docs/ENGINEERING_NOTES.md (2026-11-08) and docs/reports/2026-11-colourisation.
 
-### Convert audio: codec × container (task #39)
+### Output capabilities: one table (task #49)
 
-The bundled FFmpeg cannot mux Opus into AVI or MOV, nor FLAC into MOV (no
-option fixes it; the encode died at "Could not write header"). Rules:
+`Tests/TestResources/output_capabilities.json` is the one statement of what
+each output container holds and how it times it. It widened task #39's Convert
+table. Rules:
 
-- **One table, two sides**: `AudioCodec::supports_container` /
-  `container_problem` (Rust, exhaustive match) and
-  `AudioCodec.supportsContainer` / `containerProblem` (Dart), both pinned to
-  `Tests/TestResources/audio_codec_containers.json`, message included. The
-  push-gate `audio_compatibility_test.dart` encodes every codec into every
-  container with the real binary, both ways; the Convert table must agree
-  with the Passthrough one (`audio_codec_container_test.dart`).
-- **The app offers only what fits**: the Codec dropdown lists
-  `audioCodecChoices` (the container's codecs, plus a saved unsupported one so
-  the dropdown keeps its value, shown with the error); the container switch is
-  `EncodingSettings.withContainer`, which applies `fallbackFor` (lossless →
-  PCM, lossy → AAC, never lossless → lossy). A preset that still pairs them
-  gets a "Use <fallback>" dialog before the queue runs.
-- **The worker refuses before any work**:
-  `EncodingSettings::audio_container_problem` in `run_worker`, right after the
-  config is parsed. Under Convert the restored track is encoded with the
-  chosen codec, so the one check covers it; under Passthrough it is
-  `restored_passthrough_codec`, asserted to fit every container.
+- **Both sides read the file; nothing restates it.** `worker/build.rs` checks
+  its shape (a malformed table fails the build) and compiles it in;
+  `models::output_capabilities` reads it (`ContainerFormat::traits`,
+  `VideoCodec::container_verdict`, `AudioCodec::supports_container`,
+  `audio_copy_allowed`). The app reads
+  `app/lib/models/output_capabilities_table.dart`, **generated and committed**:
+  after editing the JSON run `dart run tool/generate_output_capabilities.dart`
+  in `app/` (and don't `dart format` it). `output_capabilities_table_test.dart`
+  fails when it is stale.
+- **Container traits** (`containers`): `storesStreamStart` (AVI: no, so a late
+  picture, a copy's pre-roll and encoder priming all land at 0 — read by
+  `stores_stream_start` and so by `output_video_delay`, `needs_sound_cut`,
+  `may_cut_sound_head`, `needs_priming_shift`), `videoTimeBase` (AVI one tick
+  per frame), `fieldFlag` (AVI none: `field_order_note`), `audioPacketTiming`
+  (AVI `blockAlign`: `avi_header::checks_block_align`), `restoredPassthrough`
+  (`restored_passthrough_codec`, after the editing intermediates' PCM
+  override), `subtitles` (copy / mov_text / none) and `isoMedia` (faststart,
+  `hvc1`). **No code outside the table module compares or matches on a
+  container**: `no_container_is_compared_outside_the_table` (Rust) and its
+  Dart twin fail on `== ContainerFormat::…` / `case ContainerFormat.…`. A new
+  container fact is a new column, not a boolean.
+- **Video: three verdicts per codec × container** (`video`), measured against
+  the bundled FFmpeg (docs/reports/task-49-output-conformance): `offered`
+  (the app offers it: `supportsContainer`), `notOffered` (FFmpeg writes it,
+  the app keeps it off, the worker runs it with the row's note — the
+  field-order test needs HuffYUV in MOV), `refused` (HuffYUV, FFVHuff, ProRes
+  and v210 in MP4 and AV1 in MOV, which FFmpeg can't write; AV1 in AVI, which
+  it writes with a non-standard tag, `ffmpegWrites: true`). The worker refuses
+  a refused pair in `run_worker` before any work, with the row's message; the
+  app's pre-run check offers the codec's own container
+  (`EncodingSettings.videoContainerProblem`).
+- **Audio**: `audioConvert` is #39's table (Opus into AVI/MOV and FLAC into
+  MOV refused; the Codec dropdown lists `audioCodecChoices`, the container
+  switch applies `fallbackFor`, a preset that still pairs them gets a "Use
+  <fallback>" dialog, the worker refuses via `audio_container_problem`).
+  `audioCopy` is the Passthrough copy table (issue #118), which the worker now
+  checks too: one ffprobe of the source's audio codecs, refused with
+  `audioCopyMessage` (`audio_copy_problem`, Dart
+  `AudioCompatibilityService.copyProblem`); a stream Audio Restoration
+  re-encodes is not checked.
+- **Checked against FFmpeg both ways** in the push gate
+  (`output_capabilities_test.dart`): every video row muxed (hardware encoders
+  through their software twin, `muxEncoder`), every Convert codec, every
+  copied codec. The table is self-consistent (`the_table_is_consistent`: the
+  restored track is a codec its container copies, every codec's preferred
+  container is offered, the container switch lands on offered pairs).
+- **The output conformance matrix** (`integration_output_conformance_test.dart`,
+  heavy) encodes every container × audio mode (Passthrough, Convert × each
+  codec the container takes, Restore, Restore + Convert AAC) × source class
+  (plain MP4, late-video TS, delayed AVI, reset PS through the continuity
+  copy) × trim (none, from frame 2, from frame 40), plus ProRes/MOV and
+  AV1/MP4 rows, from `generate_output_conformance.sh`'s flash/click sources:
+  ~440 cases, generated from the enums and the table
+  (`test/support/output_matrix.dart`, which also holds the oracle; the push
+  gate's `output_matrix_cases_test.dart` checks the cases). Each checks the
+  header, picture count and first picture, no null frames, every flash's
+  click within one audio packet, packet timing, and lossless paths sample-
+  or byte-exact. **A new container fact or source rule gets a case here, not
+  another one-cell heavy test.** Cases that fail today are `knownFailures`
+  (id → task); they still run and fail when they pass. One case:
+  `flutter test --tags heavy test/integration_output_conformance_test.dart
+  --plain-name 'avi/convert-aac/delayed-avi/near-start'`. The shared
+  measuring helpers are `test/support/av_sync.dart`.
 
 ### Audio Restoration
 
@@ -2423,7 +2469,8 @@ Rules, from docs/reports/2026-11-audio-restoration:
   codec and in any container beside an editing intermediate, ProRes or v210
   (`restored_passthrough_codec`, which returns its own `RestoredTrackCodec`:
   `AudioCodec::Pcm` is the user's Convert choice and stays `pcm_s16le` on the
-  wire). No restored track is 16-bit. The render is f32; ffmpeg's FLAC from it
+  wire; the per-container choice is the table's `restoredPassthrough`, see
+  "Output capabilities"). No restored track is 16-bit. The render is f32; ffmpeg's FLAC from it
   is already 24-bit, and the same render as FLAC/MKV and 24-bit PCM in
   MOV/MKV/AVI decodes bit-identical. 24-bit PCM in AVI can only be
   `WAVE_FORMAT_EXTENSIBLE`; Video for Windows, DirectShow, Media Foundation
