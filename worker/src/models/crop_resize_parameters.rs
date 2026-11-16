@@ -830,7 +830,10 @@ impl CropResizeParameters {
                 }
                 if self.pads_to_aspect() {
                     w = w.max(f64::from(self.target_width.unwrap_or(0)));
-                    h = h.max(f64::from(self.target_height.unwrap_or(0)));
+                    // The script's box is `_height(target_h)`: stepped too.
+                    let box_h = self.target_height.unwrap_or(0);
+                    let box_h = if step > 2 && box_h > 0 { stepped(f64::from(box_h)) } else { f64::from(box_h) };
+                    h = h.max(box_h);
                 }
             }
         }
@@ -1241,6 +1244,9 @@ mod tests {
         assert_eq!(explicit.output_size_stepped(720, 480, 1.0, 4), (720, 484));
         // ... and left exactly as typed otherwise.
         assert_eq!(explicit.output_size_stepped(720, 480, 1.0, 2), (720, 486));
+        // Pad to Fill's box is the script's `_height(target_h)`: stepped too.
+        let boxed = CropResizeParameters { pad_to_aspect: true, maintain_aspect: true, ..explicit.clone() };
+        assert_eq!(boxed.output_size_stepped(720, 480, 1.0, 4), (720, 484));
         // Never below one step.
         let tiny = CropResizeParameters { target_width: Some(4), ..r.clone() };
         assert_eq!(tiny.output_size_stepped(720, 480, 1.0, 4).1, 4);

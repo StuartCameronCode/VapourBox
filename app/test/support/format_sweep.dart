@@ -751,7 +751,6 @@ class KnownFailure {
       rows(row);
 }
 
-
 /// The one task the sweep's findings are filed as.
 const knownFailuresTask = 56;
 
