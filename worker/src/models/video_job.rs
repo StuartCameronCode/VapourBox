@@ -155,8 +155,8 @@ impl VideoJob {
     /// (task #50). A value the job carries is never touched, as the old
     /// `fill_*` probes never touched one: the projection only replaces them.
     /// `total_frames` is the model's count over the trim (task #54: the
-    /// model counts what the decoders produce, an MP4 edit list's discarded
-    /// pre-roll included). `resolve_source` replaces it by a decoded count
+    /// model counts what the decoders produce, so an MP4 edit list's discarded
+    /// pre-roll is left out). `resolve_source` replaces it by a decoded count
     /// only where [`Self::counts_by_decoding`].
     ///
     /// [`SourceModel`]: crate::source_model::SourceModel
