@@ -649,6 +649,11 @@ final inertOnFixture = <String, String>{
       'protection keeps nearly every pixel, by design (CLAUDE.md, "Descale")',
   'frame_rate/duplicate': 'drops or repeats whole source frames: a preview of '
       'a source frame is that frame, unchanged',
+  for (final id in ['deinterlace/ivtc', 'deinterlace/soft_telecine'])
+    id: 'the fixture has no pulldown, so field matching keeps every frame '
+        'and decimation drops whole frames; since task #46 the preview shows '
+        'the encode\'s frame for its source frame, which is that frame, '
+        'unchanged',
 };
 
 /// What a delta-only pass promises about the samples it leaves alone.
@@ -658,7 +663,7 @@ sealed class DeltaOnly {
 }
 
 /// The plugin runs at [workDepth] and only its change is applied at full
-/// depth (`_low_depth_change`, task #37; DeScratch's inline twin, task #34).
+/// depth (`plugin_formats.run_within`, task #48; formerly tasks #34/#37).
 class WorkDepth extends DeltaOnly {
   const WorkDepth(this.workDepth, super.reason);
   final int workDepth;
