@@ -5,6 +5,9 @@ name: Nightly Integration Tests
 # end-to-end through `vspipe | ffmpeg` for every pipeline pass and verify real
 # output properties (codecs, field order, audio streams, pixel format, trimming,
 # subtitles). Same 4-platform matrix and deps/whisper provisioning as ci-test.yml.
+# Every bundle runs two legs: `heavy` (minus `sweep`) and the generated format
+# sweep (`sweep`, integration_format_sweep_test.dart, task #47), whose
+# per-row results are uploaded as an artifact.
 
 on:
   schedule:
@@ -47,17 +50,18 @@ jobs:
         # x64 runs both CPU-tier bundles (issue #92). The runner is a v3 CPU, so
         # the v2 run proves the v2 bundle is functionally equivalent — not that
         # it runs on an older CPU; that is build-deps-macos.yml's static gate.
+        # Each bundle runs twice, side by side: the heavy suite and the
+        # generated format sweep (task #47, tag `sweep`), so neither lengthens
+        # the other.
         include:
-          - arch: arm64
-            runner: macos-15
-            asset: macos-arm64
-          - arch: x64
-            runner: macos-15-intel  # last native Intel image, available until ~Aug 2027
-            asset: macos-x64
-          - arch: x64
-            runner: macos-15-intel
-            asset: macos-x64-v2
-    name: macos (${{ matrix.asset }})
+          - {arch: arm64, runner: macos-15, asset: macos-arm64, suite: heavy}
+          - {arch: arm64, runner: macos-15, asset: macos-arm64, suite: sweep}
+          # macos-15-intel: last native Intel image, available until ~Aug 2027
+          - {arch: x64, runner: macos-15-intel, asset: macos-x64, suite: heavy}
+          - {arch: x64, runner: macos-15-intel, asset: macos-x64, suite: sweep}
+          - {arch: x64, runner: macos-15-intel, asset: macos-x64-v2, suite: heavy}
+          - {arch: x64, runner: macos-15-intel, asset: macos-x64-v2, suite: sweep}
+    name: macos (${{ matrix.asset }}, ${{ matrix.suite }})
     runs-on: ${{ matrix.runner }}
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-${{ matrix.arch }}
@@ -122,7 +126,7 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-      - name: Heavy integration tests
+      - name: Heavy integration tests (${{ matrix.suite }})
         # ToolLocator resolves the worker relative to the running executable,
         # which under `flutter test` is the test runner, not the app bundle. The
         # tests that drive WorkerManager for real therefore need this pointed at
@@ -131,7 +135,20 @@ jobs:
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
         # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
-        run: cd app && flutter test --tags heavy --exclude-tags gpu
+        # `sweep` tests are also `heavy`; each leg takes its own.
+        run: >-
+          cd app && flutter test
+          ${{ matrix.suite == 'sweep' && '--tags sweep --exclude-tags gpu' || '--tags heavy --exclude-tags gpu,sweep' }}
+
+      - name: Format sweep results
+        # Every row's outcome, time and differences (integration_format_sweep_test.dart).
+        if: ${{ always() && matrix.suite == 'sweep' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: format-sweep-${{ matrix.asset }}
+          path: Tests/TestOutput/format_sweep/results-*.json
+          if-no-files-found: ignore
+
 
       - name: Crash reports (on failure)
         # A plugin that segfaults in vspipe shows only "signal 11" in the test
@@ -146,7 +163,9 @@ jobs:
       fail-fast: false
       matrix:
         asset: [windows-x64, windows-x64-v2]
-    name: windows (${{ matrix.asset }})
+        # The heavy suite and the format sweep (task #47), side by side.
+        suite: [heavy, sweep]
+    name: windows (${{ matrix.asset }}, ${{ matrix.suite }})
     runs-on: windows-latest
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/windows-x64
@@ -209,13 +228,26 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-      - name: Heavy integration tests
+      - name: Heavy integration tests (${{ matrix.suite }})
         # See the macOS job: ToolLocator needs the worker path under
         # `flutter test`, where the running executable is the test runner.
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}\worker\target\debug\vapourbox-worker.exe
         # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
-        run: cd app && flutter test --tags heavy --exclude-tags gpu
+        # `sweep` tests are also `heavy`; each leg takes its own.
+        run: >-
+          cd app && flutter test
+          ${{ matrix.suite == 'sweep' && '--tags sweep --exclude-tags gpu' || '--tags heavy --exclude-tags gpu,sweep' }}
+
+      - name: Format sweep results
+        # Every row's outcome, time and differences (integration_format_sweep_test.dart).
+        if: ${{ always() && matrix.suite == 'sweep' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: format-sweep-${{ matrix.asset }}
+          path: Tests/TestOutput/format_sweep/results-*.json
+          if-no-files-found: ignore
+
 
   linux:
     if: ${{ github.event_name == 'schedule' || inputs.platform == 'all' || inputs.platform == 'linux' }}
@@ -224,7 +256,9 @@ jobs:
       fail-fast: false
       matrix:
         asset: [linux-x64, linux-x64-v2]
-    name: linux (${{ matrix.asset }})
+        # The heavy suite and the format sweep (task #47), side by side.
+        suite: [heavy, sweep]
+    name: linux (${{ matrix.asset }}, ${{ matrix.suite }})
     runs-on: ubuntu-24.04  # must match the deps-build runner (glibc)
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/linux-x64
@@ -294,7 +328,7 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
-      - name: Heavy integration tests
+      - name: Heavy integration tests (${{ matrix.suite }})
         # ToolLocator resolves the worker relative to the running executable,
         # which under `flutter test` is the test runner, not the app bundle. The
         # tests that drive WorkerManager for real therefore need this pointed at
@@ -303,4 +337,16 @@ jobs:
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
         # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
-        run: cd app && flutter test --tags heavy --exclude-tags gpu
+        # `sweep` tests are also `heavy`; each leg takes its own.
+        run: >-
+          cd app && flutter test
+          ${{ matrix.suite == 'sweep' && '--tags sweep --exclude-tags gpu' || '--tags heavy --exclude-tags gpu,sweep' }}
+
+      - name: Format sweep results
+        # Every row's outcome, time and differences (integration_format_sweep_test.dart).
+        if: ${{ always() && matrix.suite == 'sweep' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: format-sweep-${{ matrix.asset }}
+          path: Tests/TestOutput/format_sweep/results-*.json
+          if-no-files-found: ignore

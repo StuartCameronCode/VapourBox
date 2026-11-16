@@ -16,3 +16,8 @@ tags:
     # Full-encode integration tests — run nightly, excluded from the push gate.
   gpu:
     # Needs a Vulkan device (RIFE, AI upscaling) — excluded on the GPU-less CI runners.
+  sweep:
+    # The generated format sweep's full product (integration_format_sweep_test.dart,
+    # task #47). Every sweep test is also `heavy`; nightly runs it as its own
+    # job (`--tags sweep --exclude-tags gpu`) and the heavy job excludes it.
+    # Its push-gate rows are untagged.

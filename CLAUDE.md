@@ -447,6 +447,14 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   (assert the new pass's call + key params appear in the generated `.vpy`), and a
   full-encode smoke test for the new pass in `integration_new_passes_test.dart`
   (or another `@Tags(['heavy'])` file). These now run in CI.
+- The generated format sweep (`integration_format_sweep_test.dart`, see
+  "High Bit Depth Sources") picks a new pass, method or `implementation`
+  entry up by itself: update its count in `expectedVariantCounts`
+  (`format_sweep_cases_test.dart`), classify a new `PassType` in
+  `sweepClassOf`, add an `actuationOverrides` entry only if the pass is inert
+  at its defaults (the sweep fails "changed nothing" otherwise), and a
+  `deltaOnly` row if it wraps a low-depth plugin (`WorkDepth`) or promises
+  untouched planes.
 
 **10. Plugin Binaries**
 - Add a download/build block to each `Scripts/download-deps-*` script (deps
@@ -1511,11 +1519,34 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
 **Test this class of bug with a reference, not an expected value** — a
 correctly-scaled filter produces the same picture at 10-bit as at 8-bit, to
 within rounding. `app/test/integration_high_bit_depth_filters_test.dart` (heavy)
-runs every pass on identical 8/10-bit fixtures and diffs the preview frames; it
-also runs 9/12/14/16-bit to check the depth-rejection guards, and compares a
-9-bit source with the 10-bit one and a 14-bit source with the 16-bit one they
-are decoded as. A >8-bit preview PNG
-comes out `rgb48be`, not `rgb24` — that's expected, don't force 8-bit.
+compares every pass at 8 and 10-bit with hand-tuned parameters at 352x288,
+and compares a 9-bit source with the 10-bit one and a 14-bit source with the
+16-bit one they are decoded as. A >8-bit preview PNG comes out `rgb48be`, not
+`rgb24` — that's expected, don't force 8-bit.
+
+**The generated format sweep (task #47) is what checks every pass runs on
+every format.** `app/test/support/format_sweep.dart` builds the cases from
+the code, never from a list: every `PassType` (classified by a switch with
+no `default`), every schema `methods` entry or `implementation` `activeWhen`,
+three enum axes (QTGMC presets, rotation, pitch mode), through the app's own
+`ParameterConverter`; × depth {8, 9, 10, 12, 14, 16} × {4:2:0, 4:2:2, 4:4:4}
+plus every other `NATIVE_FORMATS` entry (parsed from `pixel_format.rs`) ×
+{progressive, TFF} × {96x64, 98x64 (chroma width odd), 720x480}. Fixtures are
+one degraded 8-bit master per size, the deeper depths derived from it by a
+chain with real sub-8-bit content (`chainSample`). Per row
+`integration_format_sweep_test.dart` checks the preview **runs**, keeps the
+source's **depth** (PNG bit depth), the variant **acts** on some row, and
+(nightly) 8-bit vs deeper **parity** above the passthrough's own difference
+(swscale converts 8-bit 4:2:0 to RGB without chroma interpolation: ~4.5
+levels at passthrough). Passes declared in `deltaOnly` also get an FFV1
+encode whose untouched samples must be bit-exact. A failing row is either
+fixed or listed in `knownFailures` with the text it must fail with and its
+task; a listed row that starts passing fails the test.
+`format_sweep_cases_test.dart` (push gate, no worker) pins the variant count
+per filter, each `*Method` enum against its schema both ways, and the hand
+tables' keys. Rows run in parallel (`VAPOURBOX_SWEEP_JOBS`, default half the
+cores) with the cache capped at 512 MB a job: uncapped, 7 concurrent SD
+previews took 26.5 s each instead of 1.4.
 
 ### Output Colour Format
 
@@ -2948,9 +2979,13 @@ Headless Dart-VM tests. Three groups:
   end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy ones
   are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy,gpu`
   (script-only: `integration_filter_parameters_test`,
-  `integration_qtgmc_parameters_test`); **nightly.yml** runs `--tags heavy
-  --exclude-tags gpu`. Tests that need a Vulkan device are tagged `gpu` and
-  run on no CI runner (see "GPU Plugins: RIFE and AI Upscaling").
+  `integration_qtgmc_parameters_test`, and the format sweep's untagged
+  rotating rows, ~500 tiny previews); **nightly.yml** runs two legs per
+  bundle: `--tags heavy --exclude-tags gpu,sweep` and the format sweep's full
+  product, `--tags sweep --exclude-tags gpu` (every `sweep` test is also
+  `heavy`; its per-row results are uploaded as an artifact). Tests that need
+  a Vulkan device are tagged `gpu` and run on no CI runner (see "GPU
+  Plugins: RIFE and AI Upscaling").
   `grep -l "Tags(\['heavy'\])" app/test/*.dart` is the authority for which files
   those are.
 
@@ -3002,8 +3037,9 @@ including the subtitle integration test, excluding the heavy full-encode
 integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 (`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). The heavy
 full-encode integration tests run separately in `.github/workflows/nightly.yml`
-(cron + `workflow_dispatch`) via `flutter test --tags heavy --exclude-tags gpu` on the same
-4-platform matrix, running each x64 platform against **both** CPU-tier bundles.
+(cron + `workflow_dispatch`) via `flutter test --tags heavy --exclude-tags gpu,sweep` on the same
+4-platform matrix, running each x64 platform against **both** CPU-tier bundles,
+with the format sweep (`--tags sweep`) as a parallel leg of each.
 Fixtures (`small_clip.mp4`, telecine/interlaced clips) are
 committed under `Tests/TestResources/`.
 
