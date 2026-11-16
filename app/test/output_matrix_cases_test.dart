@@ -19,12 +19,13 @@ void main() {
       final rows = 1 + AudioCodec.values.where((c) => c.supportsContainer(k)).length + 2;
       final sources = SourceClass.values.length;
       final copied = SourceClass.values.where((s) => k.copies(s.audioCodec)).length;
-      expected += ((rows - 1) * sources + copied) * MatrixTrim.values.length;
+      expected += ((rows - 1) * sources + copied) * MatrixTrim.everyCase.length;
     }
     for (final (k, _) in extraVideoRows) {
       final copied = SourceClass.values.where((s) => k.copies(s.audioCodec)).length;
-      expected += (SourceClass.values.length + copied) * MatrixTrim.values.length;
+      expected += (SourceClass.values.length + copied) * MatrixTrim.everyCase.length;
     }
+    expected += tailCases.length;
     expect(cases, hasLength(expected));
     print('${cases.length} cases');
   });
@@ -48,6 +49,25 @@ void main() {
       }
       expect(c.container.copies(c.expectedAudioCodec), isTrue, reason: c.id);
     }
+  });
+
+  test('the tail trims are the primed Convert codecs into AVI (task #58)', () {
+    final tail = cases.where((c) => c.trim == MatrixTrim.tail).toList();
+    expect(tail.map((c) => c.id), [
+      'avi/convert-aac/plain/tail',
+      'avi/convert-libmp3lame/plain/tail',
+      'avi/convert-ac3/plain/tail',
+      'avi/restore-convert-aac/plain/tail',
+    ]);
+    expect(tail.first.expectedPictures, 50);
+    expect(tail.first.trim.flashes, [55, 80]);
+  });
+
+  test('a restore of MP2 is checked against the float decode (task #58)', () {
+    MatrixCase find(String id) => cases.singleWhere((c) => c.id == id);
+    expect(find('mkv/restore/late-video/mid').referenceDecoder, 'mp2float');
+    expect(find('mkv/convert-flac/late-video/mid').referenceDecoder, isNull);
+    expect(find('mkv/restore/plain/mid').referenceDecoder, isNull);
   });
 
   test('every known failure names a real case', () {

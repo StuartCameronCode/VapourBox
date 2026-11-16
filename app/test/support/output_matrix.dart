@@ -61,7 +61,15 @@ enum SourceClass {
 enum MatrixTrim {
   untrimmed('untrimmed', null, null),
   nearStart('near-start', 2, 51),
-  mid('mid', 40, 89);
+  mid('mid', 40, 89),
+
+  /// To the source's last picture, where its sound ends with the window too.
+  /// Only in [tailCases]: a Convert into AVI reads its sound late by the
+  /// encoder's priming, and `-shortest` cut the last picture (task #58).
+  tail('tail', 50, 99);
+
+  /// The trims every container × audio mode × source runs.
+  static const everyCase = [untrimmed, nearStart, mid];
 
   const MatrixTrim(this.id, this.start, this.end);
   final String id;
@@ -241,7 +249,7 @@ List<MatrixCase> matrixCases() {
   void add(ContainerFormat k, VideoCodec v, AudioKind a, [AudioCodec? c]) {
     for (final s in SourceClass.values) {
       if ((a == AudioKind.passthrough) && !k.copies(s.audioCodec)) continue;
-      for (final t in MatrixTrim.values) {
+      for (final t in MatrixTrim.everyCase) {
         cases.add(MatrixCase(container: k, video: v, audio: a, audioCodec: c, source: s, trim: t));
       }
     }
@@ -260,7 +268,21 @@ List<MatrixCase> matrixCases() {
     add(k, v, AudioKind.passthrough);
     add(k, v, AudioKind.restore);
   }
-  return cases;
+  return [...cases, ...tailCases];
+}
+
+/// Trims to the last picture: where an encoder priming meets a sound that
+/// ends with the window (task #58). AVI, each Convert codec with a priming
+/// (and Restore + Convert AAC), the plain source.
+List<MatrixCase> get tailCases {
+  const k = ContainerFormat.avi;
+  final v = MatrixCase.defaultVideo(k);
+  MatrixCase c(AudioKind a, [AudioCodec? codec]) => MatrixCase(
+      container: k, video: v, audio: a, audioCodec: codec, source: SourceClass.plain, trim: MatrixTrim.tail);
+  return [
+    for (final codec in [AudioCodec.aac, AudioCodec.mp3, AudioCodec.ac3]) c(AudioKind.convert, codec),
+    c(AudioKind.restoreConvert),
+  ];
 }
 
 /// Cases that fail today, by id, with the task that owns the fault. They
