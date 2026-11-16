@@ -216,6 +216,19 @@ pub fn scan(
     let json: serde_json::Value =
         serde_json::from_slice(&out.stdout).context("ffprobe's stream list is not JSON")?;
     let (format, types) = streams_from_probe(&json);
+    scan_packets(ffprobe, env, input, format, &types)
+}
+
+/// [`scan`] once the stream probe is done (`format` and `types` from
+/// [`streams_from_probe`], which reads any `-show_streams -show_format`
+/// answer): the source model's probe already has them.
+pub fn scan_packets(
+    ffprobe: &Path,
+    env: &HashMap<String, String>,
+    input: &str,
+    format: String,
+    types: &HashMap<u32, String>,
+) -> Result<ContinuityScan> {
     if !applies_to(&format) {
         return Ok(ContinuityScan { format, applies: false, resets: vec![], video_packets: 0 });
     }
@@ -229,7 +242,7 @@ pub fn scan(
     if !out.status.success() {
         bail!("ffprobe could not list the packets of {}", input);
     }
-    let (resets, video_packets) = resets_from_packets(&String::from_utf8_lossy(&out.stdout), &types);
+    let (resets, video_packets) = resets_from_packets(&String::from_utf8_lossy(&out.stdout), types);
     Ok(ContinuityScan { format, applies: true, resets, video_packets })
 }
 

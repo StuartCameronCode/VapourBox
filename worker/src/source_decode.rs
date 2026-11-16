@@ -50,7 +50,7 @@
 //!    so.** An input `-ss` is measured from the *container's* start,
 //!    which is the earliest stream's: on a broadcast capture that is the
 //!    audio, 1.3 s before the first picture. [`seek_time`] adds the job's
-//!    `video_start_offset` ([`probe_video_start`]: the first presented
+//!    `video_start_offset` (`source_model::probe_source`: the first presented
 //!    picture's PTS minus the container start) to every seek. A decoder that
 //!    does not seek still resets PTS when the offset is non-zero, which drops
 //!    the copies of the first picture that ffmpeg's constant-rate output would
@@ -237,16 +237,6 @@ pub fn video_start_from_probe(json: &serde_json::Value) -> f64 {
     }
 }
 
-/// [`video_start_from_probe`] for a file. `None` when ffprobe could not read
-/// it (the caller then treats the offset as 0, today's behaviour).
-pub fn probe_video_start(
-    ffprobe: &std::path::Path,
-    env: &std::collections::HashMap<String, String>,
-    input: &str,
-) -> Option<f64> {
-    probe_json(ffprobe, env, &VIDEO_START_PROBE_ARGS, input).map(|j| video_start_from_probe(&j))
-}
-
 /// ffprobe's JSON answer to `args` for a file, `None` on any failure.
 pub fn probe_json(
     ffprobe: &std::path::Path,
@@ -328,46 +318,6 @@ pub fn decoder_delay_from_probe(json: &serde_json::Value, video_start: f64) -> u
     } else {
         0
     }
-}
-
-/// [`video_start_from_probe`] and, for a source that [`stores_decode_order`],
-/// [`decoder_delay_from_probe`], for a file. `None` when ffprobe could not
-/// read it (offset and delay then count as 0, the old behaviour).
-pub fn probe_video_timing(
-    ffprobe: &std::path::Path,
-    env: &std::collections::HashMap<String, String>,
-    input: &str,
-) -> Option<(f64, u32)> {
-    let json = probe_json(ffprobe, env, &VIDEO_START_PROBE_ARGS, input)?;
-    let offset = video_start_from_probe(&json);
-    let delay = if stores_decode_order(&json) {
-        probe_json(ffprobe, env, &DECODER_DELAY_PROBE_ARGS, input)
-            .map_or(0, |j| decoder_delay_from_probe(&j, offset))
-    } else {
-        0
-    };
-    Some((offset, delay))
-}
-
-/// Whether the file has an audio stream. Asked only when the video starts
-/// late: the gap is kept in the output only to keep sound and picture in
-/// step, so with no sound there is nothing to keep (a DVB recording stripped
-/// of its audio can still start with a teletext or data stream). `None` when
-/// ffprobe could not answer.
-pub fn probe_has_audio(
-    ffprobe: &std::path::Path,
-    env: &std::collections::HashMap<String, String>,
-    input: &str,
-) -> Option<bool> {
-    let out = std::process::Command::new(ffprobe)
-        .args(["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", input])
-        .envs(env)
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    out.status
-        .success()
-        .then(|| !String::from_utf8_lossy(&out.stdout).trim().is_empty())
 }
 
 /// The input `-ss` that makes source frame `frame` the first one decoded, or
@@ -758,27 +708,6 @@ pub fn grid_from_probe(json: &serde_json::Value, job_fps: f64) -> Option<SourceG
         origin,
     };
     grid.is_valid().then_some(grid)
-}
-
-/// [`grid_from_probe`] for a file, or `None` (no grid: today's decode).
-pub fn probe_source_grid(
-    ffprobe: &std::path::Path,
-    env: &std::collections::HashMap<String, String>,
-    input: &str,
-    job_fps: f64,
-) -> Option<SourceGrid> {
-    let out = std::process::Command::new(ffprobe)
-        .args(VIDEO_START_PROBE_ARGS)
-        .arg(input)
-        .envs(env)
-        .stderr(std::process::Stdio::null())
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let json: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
-    grid_from_probe(&json, job_fps)
 }
 
 /// How one constant-rate decoder starts at source frame `frame`: its input
