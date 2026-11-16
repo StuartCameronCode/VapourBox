@@ -1703,12 +1703,11 @@ mod tests {
 
     /// The source frame the encode shows for source frame `t`: the frame
     /// itself if VDecimate kept it, else the kept frame before it.
-    fn encode_shows(p: &ProcessingPipeline, cycle: usize, src_len: u64, origin: u64, end: u64, t: u64) -> u64 {
+    fn encode_shows(p: &ProcessingPipeline, cycle: usize, origin: u64, end: u64, t: u64) -> u64 {
         let decoded: Vec<u64> = (origin..end).collect();
         let piped = p.pipe_frames(decoded.len() as i32) as usize;
         let mut clip = decoded.clone();
         clip.resize(piped, *decoded.last().unwrap());
-        let _ = src_len;
         let kept = model_vdecimate(&clip, cycle);
         let mut shown = clip[kept[0]];
         for &i in &kept {
@@ -1738,10 +1737,9 @@ mod tests {
             clip.resize(d.len as usize, last);
         }
         let kept = model_vdecimate(&clip, d.cycle as usize);
-        let tagged: Vec<usize> = kept.clone();
         let (tc, c) = (d.target as usize, d.cycle as usize);
         let j = tc / c * (c - 1) + tc % c;
-        let corr = tc % c == c - 1 || j >= tagged.len() || tagged[j] != tc;
+        let corr = tc % c == c - 1 || j >= kept.len() || kept[j] != tc;
         let index = if corr { d.after_drop.0 } else { out.local_index } as usize;
         (clip[kept[index.min(kept.len() - 1)]], out)
     }
@@ -1773,7 +1771,7 @@ mod tests {
                         continue;
                     }
                     for t in origin..end {
-                        let want = encode_shows(&p, cycle as usize, SRC, origin, end, t);
+                        let want = encode_shows(&p, cycle as usize, origin, end, t);
                         let (got, out) = preview_shows(&p, SRC, origin, end, t);
                         assert_eq!(
                             got, want,
