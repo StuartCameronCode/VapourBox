@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Output conformance</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #49: one output capability table, and the output conformance matrix</h1>
+<p class="meta">2026-11-16 &middot; macOS arm64, bundled FFmpeg 9.0.2 &middot; task #49 (from task #42's plan, R4)</p>
+
+<div class="card">
+<p><strong>Built.</strong> <code>Tests/TestResources/output_capabilities.json</code> is now the one statement of what each output container holds (video codec verdicts, Convert and copied audio codecs) and how it times it (stream start, video time base, field flag, audio packet timing, the restored track's codec, subtitles, ISO media). The worker compiles it in (<code>build.rs</code>, <code>models::output_capabilities</code>); the app reads a generated, committed twin (<code>app/lib/models/output_capabilities_table.dart</code>). One generated heavy test, <code>integration_output_conformance_test.dart</code>, encodes 444 cases from it.</p>
+<p><strong>Found.</strong> 425 of 446 tests pass. 19 cases fail on every run (three faults), and one or two more fail intermittently each run (a fourth fault). All four are filed as <strong>task #58</strong>, with a fifth found while building the fixtures (an off-grid timestamp-reset join).</p>
+</div>
+
+<h2>1. Which video codec FFmpeg can write to which container</h2>
+<p>Each encoder muxed into each container by the bundled FFmpeg (<a href="scripts/mux_probe.sh"><code>scripts/mux_probe.sh</code></a>, output <a href="mux_probe_macos-arm64.txt"><code>mux_probe_macos-arm64.txt</code></a>). A FAIL is a <code>refused</code> row of the table. AV1 in AVI writes, but with the non-standard <code>AV01</code> tag, so it is refused too (<code>ffmpegWrites: true</code>).</p>
+<table>
+<tr><th>encoder</th><th>MP4</th><th>MOV</th><th>MKV</th><th>AVI</th></tr>
+<tr><td>libx264, libx265, FFV1</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td></tr>
+<tr><td>libsvtav1</td><td class="good">ok</td><td class="bad">FAIL</td><td class="good">ok</td><td class="warn">ok (AV01 tag)</td></tr>
+<tr><td>HuffYUV, FFVHuff, ProRes (0, 4), v210</td><td class="bad">FAIL</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td></tr>
+</table>
+<p>A pair FFmpeg writes but the app doesn't offer (FFV1 in MP4/MOV, H.265 in AVI, ProRes in MKV/AVI&hellip;) is <code>notOffered</code>: the worker runs it with a log note, because tests and hand-written jobs use some (the field-order test's HuffYUV in MOV). Field flag: MOV and MKV record HuffYUV's field order from <code>-top</code>, MP4 writes a <code>fiel</code> atom (<code>0209</code>), AVI records nothing.</p>
+<p>Limits: probed on macOS arm64's FFmpeg only; the push-gate test <code>output_capabilities_test.dart</code> repeats the check on every CI platform, both ways (hardware encoders through their software twin).</p>
+
+<h2>2. The matrix</h2>
+<p>Cases are generated from the enums and the table (<code>app/test/support/output_matrix.dart</code>): every container &times; audio mode (Passthrough where the container copies the source's codec; Convert &times; each codec the container takes; Restore; Restore + Convert AAC) &times; source class &times; trim (none, 2..51, 40..89), plus ProRes Proxy/MOV and AV1/MP4 rows for Passthrough and Restore. The sources (<code>generate_output_conformance.sh</code>) share one content: 160x120 testsrc2 at 25 fps, 100 pictures, white at 5, 30, 55, 80, each with a 20 ms click on a quiet tone.</p>
+<table>
+<tr><th>source class</th><th>file</th><th>what it exercises</th></tr>
+<tr><td>plain</td><td><code>conf_plain.mp4</code></td><td>H.264 + primed AAC, together</td></tr>
+<tr><td>late video</td><td><code>conf_late_video.ts</code></td><td>H.264 + MP2 in TS, picture 1 s after the sound</td></tr>
+<tr><td>delayed AVI</td><td><code>conf_delayed.avi</code></td><td>MPEG-4 ASP with B-frames + MP3: decode-order timestamps</td></tr>
+<tr><td>reset PS</td><td><code>conf_reset.mpg</code></td><td>MPEG-2 + MP2, clock reset at picture 51, read through the app's joined copy</td></tr>
+</table>
+<p>Each case checks: (1) the header writes with the expected audio codec; (2) picture count and first picture time (AVI: stored frames and rate); (3) no empty video packets, pictures one frame apart; (4) each white frame's click within one audio packet; (5) audio packets follow on, plus task #41's AAC block size in AVI; (6) lossless paths: a copy is a run of the source's payload bytes, FLAC/PCM are the source's samples to the output's depth.</p>
+
+<h3>Corrections to the oracle (review, 2026-11-16)</h3>
+<p>The first full run failed 109 cases; most were the oracle's, not the product's, and are left here so the numbers can be traced:</p>
+<ul>
+<li><strong>The sample check aligned on the first match.</strong> The tone between clicks repeats, so a trimmed output's first 4,800 samples matched the source a whole number of periods early, and every click then &ldquo;differed&rdquo;. It now compares each matching offset in full and keeps the best (on <code>mp4/convert-flac/plain/mid</code>: offset 30720 with 16,458 differing samples &rarr; 76800 with none).</li>
+<li><strong>AVI gives its first audio chunk no duration</strong> (and FLAC chunks none at all), which the packet check read as 0: 27 AVI cases reported packet 1 one packet late. A missing duration is now the stream's usual one; with none, only order is checked.</li>
+<li><strong>ffprobe names MP2 in MP4 <code>mp3</code> or <code>mp2</code></strong>, depending on how much it parses (MP4 shares one object type for both layers). Either is accepted for MP4.</li>
+</ul>
+
+<h3>Result</h3>
+<p>425 of 446 pass (444 cases, plus the off-grid join test and the copy-refusal test). Full list: <a href="matrix_macos-arm64.txt"><code>matrix_macos-arm64.txt</code></a>, made by <a href="scripts/run_matrix.sh"><code>scripts/run_matrix.sh</code></a>.</p>
+<table>
+<tr><th>finding (task #58)</th><th class="num">cases</th><th>every run?</th></tr>
+<tr><td>Restore + Convert AAC into AVI, trimmed: 49 pictures for 50</td><td class="num">8</td><td>yes</td></tr>
+<tr><td>Restore of an MP2 source whose sound is seeked: up to 2<sup>&minus;15</sup> off the source decode (Convert to FLAC/PCM of the same seek is exact)</td><td class="num">10</td><td>yes</td></tr>
+<tr><td>Delayed AVI's MP3 copied into AVI from picture 2: click 31 ms late (one packet is 25 ms)</td><td class="num">1</td><td>yes</td></tr>
+<tr><td><code>pipe_source</code> returns an evicted frame as the last one: pictures 3&ndash;7 come out as picture 99</td><td class="num">1&ndash;3</td><td>no, varies</td></tr>
+<tr><td>A reset whose sound ends off the picture grid joins 16 ms late (125 fps, 493 pictures)</td><td class="num">1 test</td><td>yes</td></tr>
+</table>
+<p>The deterministic 19 are <code>knownFailures</code>: they run, and fail the suite if they start passing. The <code>pipe_source</code> fault cannot be listed, so the matrix fails intermittently until #58 fixes it; it writes wrong pictures into a user's file, so that is the right pressure.</p>
+<p>Limits: one platform (macOS arm64), one picture size and rate (25 fps, so a frame is exactly 1,920 samples at 48 kHz and every trim lands on a sample), one content. &ldquo;Within one audio packet&rdquo; is the bound the task asked for, not a measure of how close each case is.</p>
+</main>
+</body>
+</html>

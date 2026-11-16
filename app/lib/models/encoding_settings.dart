@@ -1,6 +1,7 @@
 import 'package:json_annotation/json_annotation.dart';
 
 import '../utils/pixel_format.dart';
+import 'output_capabilities_table.dart';
 import 'video_job.dart';
 
 part 'encoding_settings.g.dart';
@@ -60,20 +61,12 @@ enum AudioCodec {
 
   /// Whether the bundled FFmpeg can mux this codec into [container] (task
   /// #39). MOV takes neither FLAC nor Opus and AVI has no Opus tag; no option
-  /// changes that. Twin of the worker's `AudioCodec::supports_container`,
-  /// both pinned by `Tests/TestResources/audio_codec_containers.json`, and
-  /// checked against the real muxers by `audio_compatibility_test.dart`.
-  bool supportsContainer(ContainerFormat container) {
-    switch (container) {
-      case ContainerFormat.mp4:
-      case ContainerFormat.mkv:
-        return true;
-      case ContainerFormat.mov:
-        return this != AudioCodec.flac && this != AudioCodec.opus;
-      case ContainerFormat.avi:
-        return this != AudioCodec.opus;
-    }
-  }
+  /// changes that. Read from the output capability table
+  /// (`Tests/TestResources/output_capabilities.json`, task #49), as the
+  /// worker's `AudioCodec::supports_container` is; checked against the real
+  /// muxers by `output_capabilities_test.dart`.
+  bool supportsContainer(ContainerFormat container) =>
+      outputAudioConvertRows[(value, container.value)]!.$1;
 
   /// The codec to switch to when [container] can't hold this one: itself if
   /// it fits, else PCM for a lossless codec and AAC for a lossy one, so a
@@ -84,21 +77,14 @@ enum AudioCodec {
   }
 
   /// Why this codec can't go into [container], or null when it can. The same
-  /// words as the worker's refusal (`AudioCodec::container_problem`).
-  String? containerProblem(ContainerFormat container) {
-    if (supportsContainer(container)) return null;
-    final codecs = container.supportedAudioCodecs.map((c) => c.shortName);
-    final containers = ContainerFormat.values
-        .where((k) => k != container && supportsContainer(k))
-        .map((k) => k.shortName);
-    return '$shortName audio can\'t be stored in ${container.shortName} files. '
-        'Choose ${_joinOr(codecs)} in Settings \u2192 Audio, '
-        'or save as ${_joinOr(containers)}.';
-  }
+  /// words as the worker's refusal (`AudioCodec::container_problem`): the
+  /// table's message.
+  String? containerProblem(ContainerFormat container) =>
+      outputAudioConvertRows[(value, container.value)]!.$2;
 }
 
-/// "A", "A or B", "A, B or C".
-String _joinOr(Iterable<String> items) {
+/// "A", "A or B", "A, B or C". Twin of the worker's `join_or`.
+String joinOr(Iterable<String> items) {
   final list = items.toList();
   if (list.length <= 1) return list.join();
   return '${list.sublist(0, list.length - 1).join(', ')} or ${list.last}';
@@ -328,6 +314,15 @@ class EncodingSettings {
             : newContainer.supportedCodecs.first,
         container: newContainer,
       ).copyWith(audioCodec: audioCodec.fallbackFor(newContainer));
+
+  /// Why this job's video can't be written, or null (task #49): a pair the
+  /// worker refuses (FFmpeg can't write it, or AV1 in AVI). Only a preset or
+  /// an imported job can still pair them; the Settings list is filtered.
+  /// Twin of the worker's `pipeline_executor::container_problem`.
+  String? get videoContainerProblem =>
+      codec.containerVerdict(container) == ContainerVerdict.refused
+          ? codec.containerMessage(container)
+          : null;
 
   /// Why this job's audio can't be written, or null (task #39): only a
   /// Convert codec the container can't hold. Twin of the worker's

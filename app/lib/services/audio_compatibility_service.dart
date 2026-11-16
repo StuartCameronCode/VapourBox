@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/encoding_settings.dart';
+import '../models/output_capabilities_table.dart';
 import '../models/video_job.dart';
 import 'tool_locator.dart';
 
@@ -63,37 +64,32 @@ class AudioCompatibilityService {
 
   /// Audio codecs (ffprobe `codec_name`) each container's FFmpeg muxer accepts
   /// for `-c:a copy` — what the bundled FFmpeg actually does, not what a
-  /// player is guaranteed to open. Anything missing here is blocked before
-  /// the job starts (issue #118: `mp2` was missing everywhere, so VHS/DVD
-  /// MPEG audio could not be passed through at all).
-  ///
-  /// `audio_compatibility_test.dart` checks every entry, both ways, against
-  /// the bundled FFmpeg. A codec added here must be added to its matrix.
-  static const Map<ContainerFormat, Set<String>> _containerCodecSupport = {
-    ContainerFormat.mp4: {
-      'aac', 'mp2', 'mp3', 'ac3', 'eac3', 'dts', 'alac', 'flac', 'opus',
-      'vorbis', 'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le',
-      'pcm_s16be', 'pcm_s24be',
-    },
-    ContainerFormat.mkv: {
-      'aac', 'mp2', 'mp3', 'ac3', 'eac3', 'dts', 'truehd', 'alac', 'flac',
-      'opus', 'vorbis', 'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le',
-      'pcm_s16be', 'pcm_s24be', 'pcm_u8', 'wavpack',
-    },
-    ContainerFormat.mov: {
-      'aac', 'mp2', 'mp3', 'ac3', 'eac3', 'dts', 'alac', 'vorbis',
-      'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le',
-      'pcm_s16be', 'pcm_s24be', 'pcm_u8',
-    },
-    ContainerFormat.avi: {
-      'aac', 'mp2', 'mp3', 'ac3', 'eac3', 'dts', 'flac', 'vorbis',
-      'pcm_s16le', 'pcm_s24le', 'pcm_s32le', 'pcm_f32le', 'pcm_u8',
-    },
-  };
+  /// player is guaranteed to open — from the output capability table
+  /// (`audioCopy` in `Tests/TestResources/output_capabilities.json`, task
+  /// #49), which the worker reads too and refuses the same copies with.
+  /// Anything missing is blocked before the job starts (issue #118: `mp2`
+  /// was missing everywhere, so VHS/DVD MPEG audio could not be passed
+  /// through at all). `output_capabilities_test.dart` checks every entry,
+  /// both ways, against the bundled FFmpeg.
 
   /// Every codec any container accepts — the set the test sweeps.
   static Set<String> get knownCodecs =>
-      {for (final codecs in _containerCodecSupport.values) ...codecs};
+      {for (final codecs in outputAudioCopy.values) ...codecs};
+
+  /// Why a copy of [codec] can't go into [container], or null when it can.
+  /// The same words as the worker's refusal (`audio_copy_problem`).
+  static String? copyProblem(String codec, ContainerFormat container) {
+    if (container.copies(codec)) return null;
+    final others = ContainerFormat.values
+        .where((k) => k != container && k.copies(codec))
+        .map((k) => k.shortName);
+    final message = outputAudioCopyMessage
+        .replaceAll('{codec}', codec.toUpperCase())
+        .replaceAll('{container}', container.shortName);
+    return others.isEmpty
+        ? message.replaceAll(', or save as {containers}', '')
+        : message.replaceAll('{containers}', joinOr(others));
+  }
 
   /// Suggested fallback codec for each container.
   static const Map<ContainerFormat, String> _fallbackCodecs = {
@@ -147,10 +143,8 @@ class AudioCompatibilityService {
   }
 
   /// Check if an audio codec is compatible with a container format.
-  bool isCodecCompatible(String codec, ContainerFormat container) {
-    final supported = _containerCodecSupport[container] ?? {};
-    return supported.contains(codec.toLowerCase());
-  }
+  bool isCodecCompatible(String codec, ContainerFormat container) =>
+      container.copies(codec);
 
   /// Get all containers that support the given audio codec.
   List<ContainerFormat> getCompatibleContainers(String codec) {
@@ -194,11 +188,7 @@ class AudioCompatibilityService {
     final isCompatible = isCodecCompatible(codec, outputContainer);
     final compatibleContainers = getCompatibleContainers(codec);
 
-    String? reason;
-    if (!isCompatible) {
-      reason = '${codec.toUpperCase()} audio is not supported in ${outputContainer.displayName} containers. '
-          'The audio must be re-encoded or you can choose a different container format.';
-    }
+    final reason = copyProblem(codec, outputContainer);
 
     return AudioCompatibilityResult(
       audioInfo: audioInfo,

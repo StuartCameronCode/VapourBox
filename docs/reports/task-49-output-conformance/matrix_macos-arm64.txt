@@ -1,0 +1,23 @@
+11:22 +425 -21: Some tests failed.
+failures (case :: first failed check):
+mkv/restore/late-video/near-start ::   6. the samples (24-bit): no run of the source matches the output's first 4800 samples
+mkv/restore/late-video/mid ::   6. the samples (24-bit): 18263 of 96000 samples differ (offset 110401)
+mkv/restore/reset-ps/mid ::   6. the samples (24-bit): no run of the source matches the output's first 4800 samples
+avi/passthrough/delayed-avi/near-start ::   4. the click for the flash at 0.1200 s is at 0.1511 (0.0311 s; one packet 0.0250 s)
+avi/convert-libmp3lame/reset-ps/near-start ::   4. white frames at [1.12]
+avi/restore/late-video/untrimmed ::   6. the samples (24-bit): 43310 of 126527 samples differ (offset 114241)
+avi/restore/late-video/near-start ::   6. the samples (24-bit): no run of the source matches the output's first 4800 samples
+avi/restore/late-video/mid ::   6. the samples (24-bit): 18263 of 96000 samples differ (offset 110401)
+avi/restore/reset-ps/mid ::   6. the samples (24-bit): no run of the source matches the output's first 4800 samples
+avi/restore-convert-aac/plain/near-start ::   2. pictures
+avi/restore-convert-aac/plain/mid ::   2. pictures
+avi/restore-convert-aac/late-video/near-start ::   2. pictures
+avi/restore-convert-aac/late-video/mid ::   2. pictures
+avi/restore-convert-aac/delayed-avi/near-start ::   2. pictures
+avi/restore-convert-aac/delayed-avi/mid ::   2. pictures
+avi/restore-convert-aac/reset-ps/untrimmed ::   4. white frames at [1.2, 2.2, 3.2]
+avi/restore-convert-aac/reset-ps/near-start ::   2. pictures
+avi/restore-convert-aac/reset-ps/mid ::   2. pictures
+mov+proresProxy/restore/late-video/near-start ::   6. the samples (24-bit): no run of the source matches the output's first 4800 samples
+mov+proresProxy/restore/late-video/mid ::   6. the samples (24-bit): 18263 of 96000 samples differ (offset 110401)
+mov+proresProxy/restore/reset-ps/mid ::   6. the samples (24-bit): no run of the source matches the output's first 4800 samples

@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import 'qtgmc_parameters.dart';
 import 'encoding_settings.dart';
+import 'output_capabilities_table.dart';
 import 'processing_pipeline.dart';
 import 'source_model.dart';
 import 'subtitle_parameters.dart';
@@ -407,30 +408,21 @@ enum VideoCodec {
     return ContainerFormat.mp4;
   }
 
-  /// Check if this codec is supported by the given container.
-  bool supportsContainer(ContainerFormat container) {
-    // AV1: FFmpeg refuses it in MOV ("av1 only supported in MP4 and AVIF"),
-    // and AVI has no standard AV1 tag. Mirrors `VideoCodec::allows_container`.
-    if (isAv1) {
-      return container == ContainerFormat.mp4 || container == ContainerFormat.mkv;
-    }
-    switch (container) {
-      case ContainerFormat.mp4:
-        // MP4 supports H.264, H.265 (software and hardware)
-        return isH264 || isH265;
-      case ContainerFormat.mov:
-        // MOV supports H.264, H.265, ProRes, v210
-        return isH264 || isH265 || isProRes || isUncompressed;
-      case ContainerFormat.mkv:
-        // MKV supports H.264, H.265, lossless (FFV1/HuffYUV/FFVHuff), v210
-        return isH264 || isH265 || isLossless || isUncompressed;
-      case ContainerFormat.avi:
-        // AVI supports lossless (FFV1/HuffYUV/FFVHuff), H.264 (uncommon) and
-        // v210 — though AVI cannot say whether the picture is interlaced.
-        // (MP4 has no tag for v210 at all: ffmpeg refuses the mux.)
-        return isLossless || isH264 || isUncompressed;
-    }
-  }
+  /// Whether [container] may hold this codec: the output capability
+  /// table's verdict (task #49, `Tests/TestResources/output_capabilities.json`).
+  ContainerVerdict containerVerdict(ContainerFormat container) =>
+      ContainerVerdict.fromValue(outputVideoRows[(value, container.value)]!.$1);
+
+  /// Whether the app offers this codec in [container]. The worker also runs
+  /// a pair the app doesn't offer (with a note) and refuses the rest
+  /// (`VideoCodec::allows_container`).
+  bool supportsContainer(ContainerFormat container) =>
+      containerVerdict(container) == ContainerVerdict.offered;
+
+  /// Why this codec is not offered in [container], or null when it is: the
+  /// worker's refusal (refused) or note (not offered), word for word.
+  String? containerMessage(ContainerFormat container) =>
+      outputVideoRows[(value, container.value)]!.$2;
 
   /// Available encoder presets for this codec family.
   List<String>? get availablePresets {
@@ -496,6 +488,25 @@ int v210BitsPerSecond(int width, int height, double fps) {
   return (lineBytes * height * 8 * fps).round();
 }
 
+/// Whether a video codec may be written to a container (task #49).
+enum ContainerVerdict {
+  /// The app offers it.
+  offered('offered'),
+
+  /// FFmpeg writes it, but the app keeps it off; the worker runs it with a note.
+  notOffered('notOffered'),
+
+  /// FFmpeg cannot write it (or, AV1 in AVI, writes a file few players read);
+  /// the worker refuses it.
+  refused('refused');
+
+  const ContainerVerdict(this.value);
+  final String value;
+
+  static ContainerVerdict fromValue(String v) =>
+      values.singleWhere((e) => e.value == v);
+}
+
 /// Output container formats.
 @JsonEnum(valueField: 'value')
 enum ContainerFormat {
@@ -520,20 +531,34 @@ enum ContainerFormat {
       .where((codec) => codec.supportsContainer(this))
       .toList();
 
+  Map<String, Object> get _traits => outputContainerTraits[value]!;
+
   /// Whether the container records where each stream starts (MP4/MOV with an
   /// edit list, Matroska). AVI does not: a picture that starts after its
   /// sound cannot be stored there, so the output starts both with the
-  /// picture. Twin of the worker's `ContainerFormat::stores_stream_start`.
-  bool get storesStreamStart {
-    switch (this) {
-      case ContainerFormat.mp4:
-      case ContainerFormat.mov:
-      case ContainerFormat.mkv:
-        return true;
-      case ContainerFormat.avi:
-        return false;
-    }
-  }
+  /// picture. Read from the output capability table, as the worker's
+  /// `ContainerFormat::stores_stream_start` is.
+  bool get storesStreamStart => _traits['storesStreamStart']! as bool;
+
+  /// Whether the container can flag an interlaced picture's field order.
+  bool get fieldFlag => _traits['fieldFlag']! as bool;
+
+  /// Whether the container times its video one tick per frame (AVI).
+  bool get timesVideoByFrame => _traits['videoTimeBase'] == 'frame';
+
+  /// Whether players time its VBR audio by `nBlockAlign` (AVI, task #41).
+  bool get timesAudioByBlockAlign => _traits['audioPacketTiming'] == 'blockAlign';
+
+  /// The restored track's codec (ffmpeg name) under Passthrough, unless the
+  /// video is an editing intermediate (always `pcm_s24le`).
+  String get restoredPassthrough => _traits['restoredPassthrough']! as String;
+
+  /// An ISO base media file (MP4/MOV): faststart and `hvc1` apply.
+  bool get isIsoMedia => _traits['isoMedia']! as bool;
+
+  /// Whether a Passthrough copy of [codec] (ffprobe `codec_name`) fits.
+  bool copies(String codec) =>
+      outputAudioCopy[value]!.contains(codec.toLowerCase());
 
   /// Get the list of codecs supported by this container.
   List<VideoCodec> get supportedCodecs {

@@ -1,8 +1,8 @@
 /// Convert's audio codec x container table (task #39): the model, its
 /// wording, the Settings choices and the container switch, pinned to the
-/// vector file the worker's `audio_codec_containers_match_the_vector_file`
-/// also reads. `audio_compatibility_test.dart` checks the table against the
-/// bundled FFmpeg's muxers.
+/// output capability table the worker also reads (task #49).
+/// `output_capabilities_test.dart` checks the table against the bundled
+/// FFmpeg's muxers.
 library;
 
 import 'dart:convert';
@@ -26,8 +26,8 @@ const probeName = {
 };
 
 void main() {
-  final rows = (jsonDecode(File('../Tests/TestResources/audio_codec_containers.json')
-          .readAsStringSync())['pairs'] as List)
+  final rows = (jsonDecode(File('../Tests/TestResources/output_capabilities.json')
+          .readAsStringSync())['audioConvert'] as List)
       .cast<Map<String, dynamic>>();
 
   test('every pair agrees with the vector file, message included', () {

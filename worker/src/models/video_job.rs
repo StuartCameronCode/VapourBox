@@ -873,61 +873,10 @@ impl AudioCodec {
         }
     }
 
-    /// Whether the bundled FFmpeg can mux this codec into the container
-    /// (task #39). MOV takes neither FLAC nor Opus ("only supported in MP4")
-    /// and AVI has no Opus tag; no option changes that, so Convert refuses
-    /// those pairs. Twin of Dart's `AudioCodec.supportsContainer`, both pinned
-    /// by `Tests/TestResources/audio_codec_containers.json` and checked
-    /// against the real muxers by `audio_compatibility_test.dart`.
-    pub fn supports_container(&self, container: ContainerFormat) -> bool {
-        match (self, container) {
-            (AudioCodec::Flac, ContainerFormat::Mov) => false,
-            (AudioCodec::Opus, ContainerFormat::Mov | ContainerFormat::Avi) => false,
-            (
-                AudioCodec::Aac
-                | AudioCodec::Mp3
-                | AudioCodec::Ac3
-                | AudioCodec::Flac
-                | AudioCodec::Opus
-                | AudioCodec::Pcm,
-                ContainerFormat::Mp4
-                | ContainerFormat::Mov
-                | ContainerFormat::Mkv
-                | ContainerFormat::Avi,
-            ) => true,
-        }
-    }
-
-    /// Why this codec can't go into the container, in the user's words, or
-    /// `None` when it can. Names the codecs the container does hold and the
-    /// containers that hold this codec, both from the table. Twin of Dart's
-    /// `AudioCodec.containerProblem`; the wording is pinned by the vector file.
-    pub fn container_problem(&self, container: ContainerFormat) -> Option<String> {
-        if self.supports_container(container) {
-            return None;
-        }
-        let codecs: Vec<&str> = AudioCodec::ALL
-            .iter()
-            .filter(|c| c.supports_container(container))
-            .map(|c| c.short_name())
-            .collect();
-        let containers: Vec<&str> = ContainerFormat::ALL
-            .iter()
-            .filter(|&&k| k != container && self.supports_container(k))
-            .map(|k| k.short_name())
-            .collect();
-        Some(format!(
-            "{} audio can't be stored in {} files. Choose {} in Settings \u{2192} Audio, or save as {}.",
-            self.short_name(),
-            container.short_name(),
-            join_or(&codecs),
-            join_or(&containers),
-        ))
-    }
 }
 
 /// "A", "A or B", "A, B or C".
-fn join_or(items: &[&str]) -> String {
+pub(crate) fn join_or(items: &[&str]) -> String {
     match items {
         [] => String::new(),
         [one] => (*one).to_string(),
@@ -1675,18 +1624,6 @@ impl VideoCodec {
         }
     }
 
-    /// Whether `container` can hold this codec. Only AV1 is restricted today:
-    /// FFmpeg refuses AV1 in MOV ("av1 only supported in MP4 and AVIF") and
-    /// writes AVI with a non-standard `AV01` fourcc few players read. Mirrors
-    /// `supportsContainer` in `app/lib/models/video_job.dart` for AV1.
-    pub fn allows_container(&self, container: ContainerFormat) -> bool {
-        if self.is_av1() {
-            matches!(container, ContainerFormat::Mp4 | ContainerFormat::Mkv)
-        } else {
-            true
-        }
-    }
-
     /// Whether this is a hardware-accelerated encoder.
     pub fn is_hardware(&self) -> bool {
         !matches!(
@@ -1762,7 +1699,7 @@ impl VideoCodec {
 }
 
 /// Output container formats.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ContainerFormat {
     #[default]
@@ -1810,18 +1747,6 @@ impl ContainerFormat {
             ContainerFormat::Mov => "QuickTime MOV",
             ContainerFormat::Mkv => "Matroska MKV",
             ContainerFormat::Avi => "AVI",
-        }
-    }
-
-    /// Whether the container records where each stream starts. Matroska and
-    /// MP4/MOV (an edit list) do, so a stream copy's pre-roll before a trim's
-    /// in-point is stored as a later video start and stays in sync. AVI does
-    /// not: everything plays from 0, so the pre-roll would run the sound late
-    /// (`audio_restoration::needs_sound_cut`).
-    pub fn stores_stream_start(&self) -> bool {
-        match self {
-            ContainerFormat::Mp4 | ContainerFormat::Mov | ContainerFormat::Mkv => true,
-            ContainerFormat::Avi => false,
         }
     }
 }
@@ -1935,38 +1860,6 @@ mod frame_rate_progress_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Convert's codec x container table and its wording (task #39), from the
-    /// vector file the app's `audio_codec_container_test.dart` also reads.
-    #[test]
-    fn audio_codec_containers_match_the_vector_file() {
-        let table: serde_json::Value = serde_json::from_str(include_str!(
-            "../../../Tests/TestResources/audio_codec_containers.json"
-        ))
-        .unwrap();
-        let rows = table["pairs"].as_array().unwrap();
-        assert_eq!(rows.len(), AudioCodec::ALL.len() * ContainerFormat::ALL.len());
-        for row in rows {
-            let codec: AudioCodec = serde_json::from_value(row["codec"].clone()).unwrap();
-            let container: ContainerFormat =
-                serde_json::from_value(row["container"].clone()).unwrap();
-            let supported = row["supported"].as_bool().unwrap();
-            let message = row["message"].as_str();
-            assert_eq!(codec.supports_container(container), supported, "{codec:?} in {container:?}");
-            assert_eq!(message.is_none(), supported, "{codec:?} in {container:?}: message iff unsupported");
-            assert_eq!(codec.container_problem(container).as_deref(), message);
-
-            let mut settings = EncodingSettings::default();
-            settings.audio_codec = codec;
-            settings.container = container;
-            settings.audio_mode = AudioMode::Convert;
-            assert_eq!(settings.audio_container_problem().as_deref(), message);
-            for mode in [AudioMode::Passthrough, AudioMode::None] {
-                settings.audio_mode = mode;
-                assert_eq!(settings.audio_container_problem(), None, "{mode:?}");
-            }
-        }
-    }
 
     /// The app's fallback (AAC for lossy, PCM for lossless) needs both to fit
     /// every container.
@@ -2427,7 +2320,7 @@ mod tests {
         assert!(c.allows_container(ContainerFormat::Mkv));
         assert!(!c.allows_container(ContainerFormat::Mov));
         assert!(!c.allows_container(ContainerFormat::Avi));
-        for codec in VideoCodec::ALL.iter().copied().filter(|c| !c.is_av1()) {
+        for codec in VideoCodec::ALL.iter().copied().filter(|c| c.is_prores() || c.is_uncompressed()) {
             assert!(codec.allows_container(ContainerFormat::Mov), "{codec:?}");
         }
         let json = serde_json::to_string(&c).unwrap();

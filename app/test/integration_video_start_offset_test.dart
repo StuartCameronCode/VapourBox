@@ -36,6 +36,7 @@ import 'package:vapourbox/models/source_model.dart';
 import 'package:vapourbox/services/field_order_detector.dart';
 import 'package:vapourbox/services/preview_generator.dart';
 
+import 'support/av_sync.dart';
 import 'support/worker_harness.dart';
 
 String get _outDir => '${WorkerHarness.outputDir}/video_start_offset';
@@ -130,212 +131,10 @@ Future<void> _expectFrame(String what, Uint8List img, String video, int n,
   expect(diffs[n]!, lessThan(maxDiff), reason: '$what is not source frame $n ($table)');
 }
 
-/// Presentation times, on the file's own timeline, of its white frames and of
-/// the onsets of its beeps (loud after 5 ms of quiet; the first 5 ms never
-/// count, since a copied track can start inside a beep).
-Future<({List<double> flashes, List<double> beeps, double videoStart})> _events(
-    String path) async {
-  final vf = await WorkerHarness.ffprobeJson([
-    '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'frame=pts_time',
-    '-of', 'json', path,
-  ]);
-  final pts = [
-    for (final f in vf['frames'] as List) double.parse('${f['pts_time']}'),
-  ];
-  final luma = await Process.run(
-    WorkerHarness.ffmpegPath,
-    ['-v', 'quiet', '-i', path, '-map', '0:v:0', '-fps_mode', 'passthrough',
-     '-f', 'rawvideo', '-pix_fmt', 'gray', '-'],
-    stdoutEncoding: null,
-    environment: WorkerHarness.ffmpegEnv,
-  );
-  final y = luma.stdout as List<int>;
-  const n = 320 * 240;
-  final flashes = <double>[];
-  for (var i = 0; (i + 1) * n <= y.length && i < pts.length; i++) {
-    var sum = 0;
-    for (var k = i * n; k < (i + 1) * n; k += 97) {
-      sum += y[k];
-    }
-    if (sum / (n / 97).ceil() > 200) flashes.add(pts[i]);
-  }
-
-  final af = await WorkerHarness.ffprobeJson([
-    '-v', 'error', '-select_streams', 'a:0', '-show_entries',
-    'frame=pts_time,nb_samples:stream=sample_rate', '-of', 'json', path,
-  ]);
-  final rate = int.parse('${(af['streams'] as List).first['sample_rate']}');
-  final pcm = await Process.run(
-    WorkerHarness.ffmpegPath,
-    ['-v', 'quiet', '-i', path, '-map', '0:a:0', '-ac', '1', '-f', 'f32le', '-'],
-    stdoutEncoding: null,
-    environment: WorkerHarness.ffmpegEnv,
-  );
-  final bytes = Uint8List.fromList(pcm.stdout as List<int>);
-  final samples = bytes.buffer.asFloat32List(0, bytes.length ~/ 4);
-  final quiet = rate ~/ 200;
-  final beeps = <double>[];
-  var pos = 0;
-  var last = -10.0;
-  for (final f in af['frames'] as List) {
-    final count = int.parse('${f['nb_samples']}');
-    final t0 = double.parse('${f['pts_time']}');
-    for (var k = 0; k < count; k++) {
-      final i = pos + k;
-      if (i < quiet || i >= samples.length || samples[i].abs() <= 0.3) continue;
-      var loudBefore = false;
-      for (var j = i - quiet; j < i; j++) {
-        if (samples[j].abs() > 0.3) {
-          loudBefore = true;
-          break;
-        }
-      }
-      if (loudBefore) continue;
-      final t = t0 + k / rate;
-      if (t - last > 0.5) beeps.add(t);
-      last = t;
-    }
-    pos += count;
-  }
-  return (flashes: flashes, beeps: beeps, videoStart: pts.isEmpty ? double.nan : pts.first);
-}
-
-/// Each white frame has its beep: the first beep from 0.5 s before it to 1.5 s
-/// after (beeps are 2 s apart and the fault was late sound), within half a frame.
-Future<void> _expectInSync(String what, String path,
-    {required int flashes, double tolerance = _syncTolerance}) async {
-  final e = await _events(path);
-  expect(e.flashes, hasLength(flashes), reason: '$what: white frames at ${e.flashes}');
-  for (final f in e.flashes) {
-    final near = e.beeps.where((b) => b - f >= -0.5 && b - f <= 1.5).toList();
-    expect(near, isNotEmpty, reason: '$what: no beep for the flash at $f (beeps ${e.beeps})');
-    expect((near.first - f).abs(), lessThan(tolerance),
-        reason: '$what: the beep is ${(near.first - f).toStringAsFixed(4)} s from '
-            'the flash at $f');
-  }
-}
-
-/// Each audio stream's header in an AVI, as written: `wFormatTag`, channels,
-/// `nBlockAlign`, and `dwSuggestedBufferSize` (avienc's trailer puts the
-/// stream's largest chunk there). Walks the RIFF lists, as the worker does.
-Future<List<({int tag, int channels, int blockAlign, int largest})>> _aviAudioHeaders(
-    String path) async {
-  final raf = await File(path).open();
-  final data = await raf.read(1 << 16);
-  await raf.close();
-  final b = ByteData.sublistView(data);
-  String fourcc(int at) => String.fromCharCodes(data.sublist(at, at + 4));
-  Iterable<(String, int, int)> chunks(int start, int end) sync* {
-    var i = start;
-    while (i + 8 <= end) {
-      final size = b.getUint32(i + 4, Endian.little);
-      yield (fourcc(i), i + 8, size);
-      i += 8 + size + (size & 1);
-    }
-  }
-
-  final out = <({int tag, int channels, int blockAlign, int largest})>[];
-  for (final (c, o, s) in chunks(12, data.length)) {
-    if (c != 'LIST' || fourcc(o) != 'hdrl') continue;
-    for (final (c2, o2, s2) in chunks(o + 4, o + s)) {
-      if (c2 != 'LIST' || fourcc(o2) != 'strl') continue;
-      int? strh, strf;
-      for (final (c3, o3, _) in chunks(o2 + 4, o2 + s2)) {
-        if (c3 == 'strh') strh = o3;
-        if (c3 == 'strf') strf = o3;
-      }
-      if (strh == null || strf == null || fourcc(strh) != 'auds') continue;
-      out.add((
-        tag: b.getUint16(strf, Endian.little),
-        channels: b.getUint16(strf + 2, Endian.little),
-        blockAlign: b.getUint16(strf + 12, Endian.little),
-        largest: b.getUint32(strh + 36, Endian.little),
-      ));
-    }
-  }
-  return out;
-}
-
-/// The first audio stream's packets as ffmpeg's AVI demuxer reads them: their
-/// sizes and timestamps (in the stream's time base, one AAC packet per tick).
-Future<({List<int> sizes, List<int> pts})> _audioPackets(String path) async {
-  final a = await WorkerHarness.ffprobeJson([
-    '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'packet=pts,size',
-    '-of', 'json', path,
-  ]);
-  final packets = a['packets'] as List;
-  return (
-    sizes: [for (final pk in packets) int.parse('${pk['size']}')],
-    pts: [for (final pk in packets) int.parse('${pk['pts']}')],
-  );
-}
-
-/// Task #41: an AAC stream in AVI declares a block size no packet exceeds,
-/// so a reader times every packet as one: the header's `nBlockAlign` is
-/// avienc's 768 per channel, or the largest packet when one is bigger, and
-/// the packets' timestamps follow on with no gap. Returns how many packets
-/// were over 768 per channel.
-Future<int> _expectAacTimedOnce(String what, String path) async {
-  final headers = await _aviAudioHeaders(path);
-  expect(headers, isNotEmpty, reason: '$what: no audio stream header');
-  final h = headers.first;
-  expect(h.tag, 0x00FF, reason: '$what: AAC');
-  final packets = await _audioPackets(path);
-  final largest = packets.sizes.reduce((a, b) => a > b ? a : b);
-  expect(h.largest, largest, reason: '$what: dwSuggestedBufferSize is the largest packet');
-  final declared = 768 * h.channels;
-  expect(h.blockAlign, largest > declared ? largest : declared,
-      reason: '$what: nBlockAlign (largest packet $largest)');
-  final gaps = [
-    for (var i = 1; i < packets.pts.length; i++)
-      if (packets.pts[i] != packets.pts[i - 1] + 1) i,
-  ];
-  expect(gaps, isEmpty, reason: '$what: audio packets timed as more than one');
-  return packets.sizes.where((s) => s > declared).length;
-}
-
 Future<String> _encode(VideoJob job, String label) async {
   final r = await WorkerHarness.runJob(job.toJson(), label: label);
   expect(r.success, isTrue, reason: r.error);
   return r.outputPath!;
-}
-
-Future<int> _countFrames(String path) async {
-  final s = await WorkerHarness.firstStream(path,
-      selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
-  return int.parse('${s!['nb_read_frames']}');
-}
-
-/// The video stream of an AVI as stored: its average rate, the frame count
-/// in its header (null frames included: the 600 fps trap of task #30, which
-/// `nb_read_frames` hides) and the first frames' times.
-Future<({String rate, int stored, List<double> pts})> _aviVideo(String path) async {
-  final v = await WorkerHarness.ffprobeJson([
-    '-v', 'error', '-select_streams', 'v:0', '-show_entries',
-    'stream=avg_frame_rate,time_base,nb_frames', '-read_intervals', '%+#3',
-    '-show_entries', 'frame=pts_time', '-of', 'json', path,
-  ]);
-  final s = (v['streams'] as List).first as Map<String, dynamic>;
-  return (
-    rate: '${s['avg_frame_rate']}',
-    stored: int.parse('${s['nb_frames']}'),
-    pts: [for (final f in v['frames'] as List) double.parse('${f['pts_time']}')],
-  );
-}
-
-/// Half the longest of the source's first audio packets, seconds: how far a
-/// copied compressed sound cut at a packet may sit from the first picture.
-Future<double> _halfPacket(String video) async {
-  final a = await WorkerHarness.ffprobeJson([
-    '-v', 'error', '-select_streams', 'a:0', '-read_intervals', '%+#32',
-    '-show_entries', 'packet=duration_time', '-of', 'json', video,
-  ]);
-  var longest = 0.0;
-  for (final pk in a['packets'] as List) {
-    final d = double.tryParse('${pk['duration_time']}') ?? 0;
-    if (d > longest && d < 1) longest = d;
-  }
-  return longest / 2;
 }
 
 void main() {
@@ -380,7 +179,7 @@ void main() {
       test('a trim of $_trimStart..$_trimEnd is exactly those frames', () async {
         final out = await _encode(
             _job(video, 'trim_$stem', start: _trimStart, end: _trimEnd), 'vstart_trim');
-        expect(await _countFrames(out), _trimEnd - _trimStart + 1);
+        expect(await countFrames(out), _trimEnd - _trimStart + 1);
         for (final i in [0, 1, _trimEnd - _trimStart]) {
           await _expectFrame('output frame $i of the trim',
               await WorkerHarness.frameRgb24(out, i, label: 'trim'), video, _trimStart + i);
@@ -389,7 +188,7 @@ void main() {
 
       test('an untrimmed encode is every picture once, from the first', () async {
         final out = await _encode(_job(video, 'full_$stem'), 'vstart_full');
-        expect(await _countFrames(out), _frames);
+        expect(await countFrames(out), _frames);
         for (final i in [0, 1, _frames - 1]) {
           await _expectFrame('output frame $i',
               await WorkerHarness.frameRgb24(out, i, label: 'full'), video, i);
@@ -399,8 +198,8 @@ void main() {
       test('untrimmed, sound copied: in sync, the picture joining 1 s in', () async {
         final out = await _encode(
             _job(video, 'sync_copy_$stem', audio: AudioMode.passthrough), 'vstart_sync_copy');
-        await _expectInSync('copied', out, flashes: 2);
-        final e = await _events(out);
+        await expectInSync('copied', out, flashes: 2);
+        final e = await events(out);
         expect(e.videoStart, closeTo(model.videoStartOffset, _syncTolerance),
             reason: 'the output keeps the source\'s layout');
       });
@@ -412,8 +211,8 @@ void main() {
                 audioPass: const AudioRestorationParameters(
                     enabled: true, startWithPicture: true)),
             'vstart_sync_start');
-        await _expectInSync('start with the picture', out, flashes: 2);
-        final e = await _events(out);
+        await expectInSync('start with the picture', out, flashes: 2);
+        final e = await events(out);
         expect(e.videoStart, closeTo(0, _syncTolerance));
         final a = await WorkerHarness.firstStream(out,
             selector: 'a:0', entries: ['duration', 'start_time']);
@@ -432,7 +231,7 @@ void main() {
               _job(video, 'avi_${codec.value}_$stem',
                   audio: AudioMode.passthrough, container: ContainerFormat.avi, codec: codec),
               'vstart_avi');
-          final v = await _aviVideo(out);
+          final v = await aviVideo(out);
           expect(v.rate, '25/1');
           expect(v.stored, _frames, reason: 'stored frames, null frames included');
           expect(v.pts.take(2).toList(), [0.0, 0.04]);
@@ -447,14 +246,14 @@ void main() {
 
       test('untrimmed to AVI: in sync from the first picture, copied and restored',
           () async {
-        final half = await _halfPacket(video);
+        final half = await halfPacket(video);
         final copied = await _encode(
             _job(video, 'avi_sync_copy_$stem',
                 audio: AudioMode.passthrough, container: ContainerFormat.avi),
             'vstart_avi_sync_copy');
         // PCM is re-written to the sample; a compressed copy is cut at the
         // packet nearest the first picture.
-        await _expectInSync('AVI, copied', copied, flashes: 2, tolerance: half + 0.001);
+        await expectInSync('AVI, copied', copied, flashes: 2, tolerance: half + 0.001);
         for (final (label, job) in [
           ('restored', _job(video, 'avi_sync_restored_$stem',
               audio: AudioMode.passthrough,
@@ -462,8 +261,8 @@ void main() {
               audioPass: const AudioRestorationParameters(enabled: true, limiter: true))),
         ]) {
           final out = await _encode(job, 'vstart_avi_sync_$label');
-          await _expectInSync('AVI, $label', out, flashes: 2, tolerance: 0.001);
-          final e = await _events(out);
+          await expectInSync('AVI, $label', out, flashes: 2, tolerance: 0.001);
+          final e = await events(out);
           expect(e.flashes.first, closeTo(1.0, 0.001), reason: 'frame 25 at 1 s');
           final a = await WorkerHarness.firstStream(out, selector: 'a:0', entries: ['duration']);
           final d = double.tryParse('${a?['duration']}');
@@ -488,12 +287,12 @@ void main() {
                   audioCodec: ac,
                   container: ContainerFormat.avi),
               'vstart_avi_convert_${ac.name}');
-          final v = await _aviVideo(out);
+          final v = await aviVideo(out);
           expect(v.stored, _frames, reason: '${ac.value}: stored frames, null frames included');
           expect(v.pts.take(2).toList(), [0.0, 0.04], reason: ac.value);
-          await _expectInSync('AVI, Convert ${ac.value}', out, flashes: 2, tolerance: 0.001);
-          if (ac == AudioCodec.aac) await _expectAacTimedOnce('AVI, Convert aac', out);
-          final e = await _events(out);
+          await expectInSync('AVI, Convert ${ac.value}', out, flashes: 2, tolerance: 0.001);
+          if (ac == AudioCodec.aac) await expectAacTimedOnce('AVI, Convert aac', out);
+          final e = await events(out);
           expect(e.flashes.first, closeTo(1.0, 0.001), reason: '${ac.value}: frame 25 at 1 s');
         }
       });
@@ -512,12 +311,12 @@ void main() {
         ]) {
           final out = await _encode(job, 'vstart_avi_convert_$label');
           final pictures = label == 'trimmed' ? 89 - _trimStart + 1 : _frames;
-          final v = await _aviVideo(out);
+          final v = await aviVideo(out);
           expect(v.stored, pictures, reason: '$label: stored frames, null frames included');
           expect(v.pts.take(2).toList(), [0.0, 0.04], reason: label);
-          await _expectInSync('AVI, Convert AAC, $label', out,
+          await expectInSync('AVI, Convert AAC, $label', out,
               flashes: label == 'trimmed' ? 1 : 2, tolerance: 0.001);
-          await _expectAacTimedOnce('AVI, Convert AAC, $label', out);
+          await expectAacTimedOnce('AVI, Convert AAC, $label', out);
         }
       });
 
@@ -526,7 +325,7 @@ void main() {
             _job(video, 'sync_trim_copy_$stem',
                 start: _trimStart, end: 89, audio: AudioMode.passthrough),
             'vstart_sync_trim_copy');
-        await _expectInSync('trimmed, copied', copied, flashes: 1);
+        await expectInSync('trimmed, copied', copied, flashes: 1);
         final restored = await _encode(
             _job(video, 'sync_trim_restored_$stem',
                 start: _trimStart,
@@ -534,7 +333,7 @@ void main() {
                 audio: AudioMode.passthrough,
                 audioPass: const AudioRestorationParameters(enabled: true, limiter: true)),
             'vstart_sync_trim_restored');
-        await _expectInSync('trimmed, restored', restored, flashes: 1);
+        await expectInSync('trimmed, restored', restored, flashes: 1);
       });
     });
   }
@@ -554,7 +353,7 @@ void main() {
       ),
       inputFrameRate: _fps,
     );
-    final v = await _aviVideo(await _encode(job, 'vstart_dvbt_avi'));
+    final v = await aviVideo(await _encode(job, 'vstart_dvbt_avi'));
     expect(v.rate, '25/1');
     expect(v.stored, 126, reason: 'every picture once, no null frames');
     expect(v.pts.take(2).toList(), [0.0, 0.04]);
@@ -580,9 +379,9 @@ void main() {
       totalFrames: 50,
     );
     final out = await _encode(job, 'vstart_small_clip_convert');
-    final v = await _aviVideo(out);
+    final v = await aviVideo(out);
     // Stereo at High: 96 kbps a channel, no packet over 1536, header untouched.
-    expect(await _expectAacTimedOnce('small_clip, Convert AAC', out), 0);
+    expect(await expectAacTimedOnce('small_clip, Convert AAC', out), 0);
     expect(v.stored, 50, reason: 'stored frames, null frames included');
     expect(v.pts.first, 0.0);
   });
@@ -604,7 +403,7 @@ void main() {
       inputFrameRate: 30000 / 1001,
     );
     final out = await _encode(job, 'vstart_control');
-    final e = await _events(out);
+    final e = await events(out);
     expect(e.videoStart, 0);
   });
 
@@ -652,7 +451,7 @@ void main() {
       final r = await WorkerHarness.runJob(j.toJson(), label: 'aac_overshoot');
       expect(r.success, isTrue, reason: r.error);
       final out = r.outputPath!;
-      final over = await _expectAacTimedOnce(what, out);
+      final over = await expectAacTimedOnce(what, out);
       if (mustOvershoot) {
         expect(over, greaterThan(0),
             reason: '$what: no packet over 768 bytes was written, so this case tests nothing');
@@ -662,13 +461,13 @@ void main() {
       final trimmed = j.startFrame != null;
       // The first beep is 0.8 s in or later; a noise burst at the very start
       // can pass the detector's level once it has been through the encoder.
-      final beeps = (await _events(out)).beeps.where((b) => b > 0.5).toList();
+      final beeps = (await events(out)).beeps.where((b) => b > 0.5).toList();
       expect(beeps, hasLength(trimmed ? 3 : 4), reason: '$what: beeps at $beeps');
       for (var i = 1; i < beeps.length; i++) {
         expect(beeps[i] - beeps[0], closeTo(2.0 * i, 0.001),
             reason: '$what: beep $i drifted (beeps at $beeps)');
       }
-      if (inSync) await _expectInSync(what, out, flashes: trimmed ? 3 : 4, tolerance: 0.001);
+      if (inSync) await expectInSync(what, out, flashes: trimmed ? 3 : 4, tolerance: 0.001);
     }
 
     test('converted at High and Very High, untrimmed and trimmed: every beep on its flash',
@@ -733,11 +532,11 @@ void main() {
             label: 'vstart_avi_primed_copy');
         expect(r.success, isTrue, reason: r.error);
         final out = r.outputPath!;
-        final v = await _aviVideo(out);
+        final v = await aviVideo(out);
         expect(v.stored, _frames, reason: '$file: stored frames, null frames included');
         expect(v.pts.take(2).toList(), [0.0, 0.04], reason: file);
-        await _expectInSync('AVI, copied $file', out, flashes: 2, tolerance: tolerance);
-        final e = await _events(out);
+        await expectInSync('AVI, copied $file', out, flashes: 2, tolerance: tolerance);
+        final e = await events(out);
         expect(e.flashes.first, closeTo(1.0, 0.001), reason: '$file: frame 25 at 1 s');
         expect(r.logs.any((l) => l.contains('copied from the packet nearest the first picture')), isTrue,
             reason: '$file: the job log says the head was cut');
@@ -750,16 +549,16 @@ void main() {
                 audio: AudioMode.passthrough,
                 container: ContainerFormat.avi),
             'vstart_avi_primed_copy_trim');
-        final tv = await _aviVideo(trimmed);
+        final tv = await aviVideo(trimmed);
         expect(tv.stored, 60, reason: '$file trimmed: stored frames');
-        await _expectInSync('AVI, copied $file, trimmed', trimmed,
-            flashes: 1, tolerance: await _halfPacket(video) + 0.001);
+        await expectInSync('AVI, copied $file, trimmed', trimmed,
+            flashes: 1, tolerance: await halfPacket(video) + 0.001);
 
         // MKV stores where a stream starts: nothing to cut, in sync.
         final mkv = await _encode(
             _job(video, 'mkv_primed_copy_$stem', audio: AudioMode.passthrough),
             'vstart_mkv_primed_copy');
-        await _expectInSync('MKV, copied $file', mkv, flashes: 2, tolerance: 0.001);
+        await expectInSync('MKV, copied $file', mkv, flashes: 2, tolerance: 0.001);
       });
     }
 
@@ -780,7 +579,7 @@ void main() {
         ),
         inputFrameRate: 2997 / 100,
       );
-      final v = await _aviVideo(await _encode(job, 'vstart_small_clip_copy'));
+      final v = await aviVideo(await _encode(job, 'vstart_small_clip_copy'));
       expect(v.stored, 3151, reason: 'stored frames, null frames included');
       expect(v.pts.first, 0.0);
     });

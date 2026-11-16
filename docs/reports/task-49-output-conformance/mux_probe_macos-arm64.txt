@@ -1,0 +1,18 @@
+ffmpeg version 9.0.2-https://www.martin-riedl.de Copyright (c) 2000-2026 the FFmpeg developers
+encoder                 mp4   mov   mkv   avi   
+libx264                 ok    ok    ok    ok    
+libx265                 ok    ok    ok    ok    
+libsvtav1               ok    FAIL  ok    ok    
+ffv1                    ok    ok    ok    ok    
+huffyuv                 FAIL  ok    ok    ok    
+ffvhuff                 FAIL  ok    ok    ok    
+prores_ks -profile:v 0  FAIL  ok    ok    ok    
+prores_ks -profile:v 4  FAIL  ok    ok    ok    
+v210                    FAIL  ok    ok    ok    
+
+field flag: -top 1 on the Y4M input, HuffYUV (no flag of its own)
+mp4: huffyuv refused
+mov huffyuv field_order=tb
+mkv huffyuv field_order=tb
+avi huffyuv field_order=unknown
+mp4 ffv1 fiel atom: 0209

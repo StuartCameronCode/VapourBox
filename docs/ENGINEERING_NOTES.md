@@ -4843,3 +4843,30 @@ Full evidence:
   download. martin-riedl's amd64 *snapshot* channel stopped in 2026-01 while
   release builds continue; the build-ID pin works regardless, but a future
   FFmpeg series may need another source.
+
+### One output capability table; the output conformance matrix (task #49, 2026-11-16)
+
+Report: [docs/reports/task-49-output-conformance](reports/task-49-output-conformance/index.html).
+
+- **The table** (`Tests/TestResources/output_capabilities.json`) widened
+  task #39's Convert table to video codec × container verdicts (measured:
+  FFmpeg can't write HuffYUV, FFVHuff, ProRes or v210 into MP4, nor AV1
+  into MOV; AV1 into AVI writes a non-standard `AV01` tag), the Passthrough
+  copy table (issue #118's, now also refused by the worker) and each
+  container's timing traits. Every container decision in the worker and app
+  reads it; a lint on both sides fails on a new `== ContainerFormat::…`.
+- **The matrix** encodes 444 cases (container × audio mode × source class
+  × trim, plus ProRes and AV1 rows) from one flash/click content. Its first
+  full run failed 109 cases, mostly the oracle's own: the repeating tone made
+  the sample check align a whole tone period off; AVI reports no duration for
+  its first audio chunk; ffprobe names MP2 in MP4 `mp3` or `mp2`. After
+  those, 425 of 446 pass.
+- **Found (task #58):** Restore + Convert AAC into AVI, trimmed, stores one
+  picture short (8 cases); Audio Restoration of a seeked MP2 source is up to
+  2^-15 off the source decode while Convert to FLAC/PCM of the same seek is
+  exact (10); a delayed AVI's MP3 copied into AVI from picture 2 has its
+  click 31 ms late (1); and, intermittently, `pipe_source` serves an evicted
+  frame as the last one (pictures 3–7 came out as picture 99), which writes
+  wrong pictures with no error. Plus an off-grid reset join (16 ms late,
+  read as 125 fps). The deterministic cases are `knownFailures`; the
+  `pipe_source` one cannot be, so the matrix fails intermittently until #58.

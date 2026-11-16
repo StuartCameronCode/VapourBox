@@ -1037,6 +1037,25 @@ fn source_timeline(
     )
 }
 
+/// Why the source's sound can't be copied into the job's container, or
+/// `None`. Only under Passthrough; a stream Audio Restoration re-encodes is
+/// not copied. Read from the source model's audio streams; with no model (a
+/// failed probe) it says nothing, and ffmpeg's own error still comes.
+fn audio_copy_problem(job: &VideoJob) -> Option<String> {
+    if job.encoding_settings.audio_mode != models::AudioMode::Passthrough || job.source_has_audio == Some(false) {
+        return None;
+    }
+    let streams = &job.source.as_ref()?.audio_streams;
+    let audio = job.effective_pipeline().audio;
+    let restored = (audio.enabled && audio.has_effect()).then_some(audio.stream_index as usize);
+    streams
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| Some(*i) != restored)
+        .filter_map(|(_, s)| s.codec.as_deref())
+        .find_map(|codec| models::audio_copy_problem(codec, job.encoding_settings.container))
+}
+
 fn run_worker(
     config_path: &PathBuf,
     source_file: Option<&Path>,
@@ -1067,6 +1086,14 @@ fn run_worker(
     if let Some(problem) = job.encoding_settings.audio_container_problem() {
         anyhow::bail!(problem);
     }
+    // Likewise a video codec FFmpeg can't write to the container (task #49);
+    // a pair the app doesn't offer runs, with a note.
+    if let Some(problem) = pipeline_executor::container_problem(&job) {
+        anyhow::bail!(problem);
+    }
+    if let Some(note) = job.encoding_settings.codec.container_note(job.encoding_settings.container) {
+        reporter.send_log(models::LogLevel::Warning, note);
+    }
 
     reporter.send_log(
         models::LogLevel::Debug,
@@ -1085,6 +1112,11 @@ fn run_worker(
     resolve_source(&mut job, deps.as_ref(), source_file, true, |msg| {
         reporter.send_log(models::LogLevel::Info, msg)
     });
+    // A Passthrough copy the container can't hold (Opus into AVI) fails the
+    // header write after all the work; refuse it now (task #49).
+    if let Some(problem) = audio_copy_problem(&job) {
+        anyhow::bail!(problem);
+    }
     // An MPEG-TS/PS's clock may reset mid-file (source_continuity), which the
     // app handles before it sends a job; a hand-written job only gets a warning.
     if job.seek_plan.is_some() {

@@ -1242,6 +1242,34 @@ class MainWindow extends StatelessWidget {
       }
     }
 
+    // Likewise a video codec FFmpeg can't write to the container (task #49):
+    // offer the codec's own container rather than a refusal per item.
+    final videoProblem = viewModel.encodingSettings.videoContainerProblem;
+    if (videoProblem != null) {
+      if (!context.mounted) return;
+      final settings = viewModel.encodingSettings;
+      final target = settings.codec.preferredContainer;
+      final useTarget = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Container not supported'),
+          content: Text(videoProblem),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text('Save as ${target.shortName}'),
+            ),
+          ],
+        ),
+      );
+      if (useTarget != true) return;
+      viewModel.updateEncodingSettings(settings.withContainer(target));
+    }
+
     // A Convert codec the container can't hold (task #39) — only a preset can
     // still pair them, since the Settings list is filtered. Offer the
     // fallback rather than let the worker refuse every queued item in turn.
