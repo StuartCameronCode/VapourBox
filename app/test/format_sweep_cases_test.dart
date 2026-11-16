@@ -318,7 +318,7 @@ void main() {
       }
       for (final key in inertOnFixture.keys) {
         // An allowlisted variant that no longer exists must go too.
-        expect(key.split('/').first, isIn(filterIds), reason: key);
+        expect(ids, contains(key), reason: key);
       }
       for (final key in deltaOnly.keys) {
         expect(ids, contains(key));

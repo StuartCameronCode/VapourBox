@@ -844,6 +844,16 @@ Future<void> _ffmpeg(List<String> args, String what) async {
   if (r.exitCode != 0) throw StateError('$what failed: ${r.stderr}');
 }
 
+/// Run [write] on a temporary name beside [path], then rename it into place,
+/// so a run killed mid-write never leaves a partial fixture that the
+/// `existsSync` cache check would take for a finished one.
+Future<String> _writeAtomically(String path, Future<void> Function(String tmp) write) async {
+  final tmp = '$path.part${p.extension(path)}';
+  await write(tmp);
+  await File(tmp).rename(path);
+  return path;
+}
+
 final _masterFutures = <SweepSize, Future<String>>{};
 
 /// One degraded 8-bit 4:4:4 master per size, so most passes find work:
@@ -883,7 +893,7 @@ Future<String> _master(SweepSize size) => _masterFutures[size] ??= () async {
           ":enable='eq(mod(n\\,5)\\,0)',"
           "drawbox=x=${w * 7 ~/ 10}:y=${h * 6 ~/ 10}:w=$spot:h=$spot:color=black:t=fill"
           ":enable='eq(mod(n\\,5)\\,2)'";
-      await _ffmpeg([
+      await _writeAtomically(path, (out) => _ffmpeg([
         '-i', mpeg,
         '-filter_complex',
         '[0:v]$moving,split[a][b];'
@@ -896,8 +906,8 @@ Future<String> _master(SweepSize size) => _masterFutures[size] ??= () async {
             '[a][still]overlay=0:0:shortest=1,format=yuv444p[out]',
         '-map', '[out]', '-frames:v', '$sweepFrames',
         '-c:v', 'ffv1', '-pix_fmt', 'yuv444p',
-        path,
-      ], 'master ($w x $h)');
+        out,
+      ], 'master ($w x $h)'));
       await File(mpeg).delete();
       return path;
     }();
@@ -916,14 +926,14 @@ Future<String> _eightBit(SweepSize size, String layout, SweepField field) {
     final crawl = "if(lt(X\\,W/4)*lt(Y\\,H/2)\\,clip(lum(X\\,Y)+4*(2*mod(X+Y+N\\,2)-1)\\,0\\,255)\\,lum(X\\,Y))";
     String chroma(String plane, int sign) =>
         "if(lt(X\\,W/4)*lt(Y\\,H/2)\\,clip($plane(X\\,Y)${sign > 0 ? '+' : '-'}8*(2*mod(X+N\\,2)-1)\\,0\\,255)\\,$plane(X\\,Y))";
-    await _ffmpeg([
-      '-i', await _master(size),
+    final master = await _master(size);
+    return _writeAtomically(path, (out) => _ffmpeg([
+      '-i', master,
       '-vf', "format=$layout,geq=lum='$crawl':cb='${chroma('cb', 1)}'"
           ":cr='${chroma('cr', -1)}',setfield=${field.setfield}",
       '-c:v', 'ffv1', '-pix_fmt', layout,
-      path,
-    ], '8-bit fixture $key');
-    return path;
+      out,
+    ], '8-bit fixture $key'));
   }();
 }
 
@@ -1012,13 +1022,13 @@ Future<String> _makeFixture(SweepRow row) async {
       (s, x, y, n, plane) => chainSample(s, f.depth, x, y, n, plane));
   final raw = File('$path.raw');
   await raw.writeAsBytes(Uint16List.fromList(deep).buffer.asUint8List());
-  await _ffmpeg([
+  await _writeAtomically(path, (out) => _ffmpeg([
     '-f', 'rawvideo', '-pix_fmt', f.name, '-s', '${size.width}x${size.height}',
     '-r', '$sweepFpsNum/$sweepFpsDen', '-i', raw.path,
     '-vf', 'setfield=${row.field.setfield}',
     '-c:v', 'ffv1', '-pix_fmt', f.name,
-    path,
-  ], 'fixture ${row.key}');
+    out,
+  ], 'fixture ${row.key}'));
   await raw.delete();
   return path;
 }

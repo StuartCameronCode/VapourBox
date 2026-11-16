@@ -65,16 +65,23 @@ class _Pool {
 
   Future<T> run<T>(Future<T> Function() task) async {
     if (_running >= size) {
+      // The finishing task hands its slot straight over, so a new caller
+      // arriving between the hand-over and the waiter resuming can't take it
+      // too and run size + 1 at once.
       final c = Completer<void>();
       _waiting.add(c);
       await c.future;
+    } else {
+      _running++;
     }
-    _running++;
     try {
       return await task();
     } finally {
-      _running--;
-      if (_waiting.isNotEmpty) _waiting.removeFirst().complete();
+      if (_waiting.isNotEmpty) {
+        _waiting.removeFirst().complete();
+      } else {
+        _running--;
+      }
     }
   }
 }
@@ -585,7 +592,10 @@ void main() {
     for (final MapEntry(key: id, value: decl) in deltaOnly.entries) {
       final v = sweepVariants.firstWhere((v) => v.id == id);
       test('$id (${decl.reason})', () async {
-        if (v.gpu != null) return;
+        if (v.gpu != null) {
+          markTestSkipped('${v.id} needs a GPU; the GPU group covers it');
+          return;
+        }
         for (final a in v.addons) {
           await _ensureAddon(a);
         }
