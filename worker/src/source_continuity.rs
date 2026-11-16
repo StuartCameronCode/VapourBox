@@ -51,12 +51,15 @@ pub const STREAMS_PROBE_ARGS: [&str; 6] = [
     "-of", "json",
 ];
 
-/// ffprobe's arguments (before the input) for every packet's stream and DTS,
-/// one `stream_index,dts_time` line each: the whole file is read, so the
-/// output is kept to what the rule needs (~0.7 s for 90k packets).
+/// ffprobe's arguments (before the input) for every packet's stream, DTS and
+/// byte position, one `stream_index,dts_time,pos` line each (ffprobe's own
+/// field order, whatever order they are asked in): the whole file is read,
+/// so the output is kept to what the rule needs, plus the position, which is
+/// how far through the file the scan is (task #55: on a network share the
+/// read takes minutes, and the app shows it).
 pub const PACKETS_PROBE_ARGS: [&str; 6] = [
     "-v", "error",
-    "-show_entries", "packet=stream_index,dts_time",
+    "-show_entries", "packet=stream_index,dts_time,pos",
     "-of", "csv=p=0",
 ];
 
@@ -121,43 +124,81 @@ pub fn applies_to(format_name: &str) -> bool {
         .any(|n| TIMESTAMP_SEARCH_FORMATS.contains(&n.trim()))
 }
 
-/// The resets in a packet list (`stream_index,dts_time` lines, in file
-/// order), for the audio and video streams in `types` (index -> codec type).
+/// The resets in a packet list (`stream_index,dts_time[,pos]` lines, in
+/// file order), for the audio and video streams in `types` (index -> codec
+/// type): [`ResetScanner`] over the whole list.
+pub fn resets_from_packets(csv: &str, types: &HashMap<u32, String>) -> (Vec<Reset>, u64) {
+    let mut scanner = ResetScanner::new(types);
+    for line in csv.lines() {
+        scanner.push(line);
+    }
+    scanner.finish()
+}
+
+/// The reset rule, one packet line at a time, so a scan can follow ffprobe's
+/// output as it arrives (task #55) instead of holding all of it.
+///
 /// Per stream, in decode order: a DTS more than [`RESET_BACKWARD_SECS`]
 /// behind the stream's last, or more than [`RESET_FORWARD_SECS`] ahead.
 /// Packets without a DTS are skipped (a program stream leaves some out). A
 /// 33-bit wrap never shows: the demuxer unwraps it before ffprobe prints.
-pub fn resets_from_packets(csv: &str, types: &HashMap<u32, String>) -> (Vec<Reset>, u64) {
-    let mut last: HashMap<u32, f64> = HashMap::new();
-    let mut counts: HashMap<u32, u64> = HashMap::new();
-    let mut resets = Vec::new();
-    let mut video_packets = 0u64;
-    for line in csv.lines() {
+pub struct ResetScanner<'a> {
+    types: &'a HashMap<u32, String>,
+    last: HashMap<u32, f64>,
+    counts: HashMap<u32, u64>,
+    resets: Vec<Reset>,
+    video_packets: u64,
+    position: Option<u64>,
+}
+
+impl<'a> ResetScanner<'a> {
+    pub fn new(types: &'a HashMap<u32, String>) -> Self {
+        Self {
+            types,
+            last: HashMap::new(),
+            counts: HashMap::new(),
+            resets: Vec::new(),
+            video_packets: 0,
+            position: None,
+        }
+    }
+
+    /// The furthest byte position a packet line has given so far (any
+    /// stream: a program stream leaves many packets without one).
+    pub fn position(&self) -> Option<u64> {
+        self.position
+    }
+
+    /// One `stream_index,dts_time[,pos]` line.
+    pub fn push(&mut self, line: &str) {
         let mut fields = line.split(',');
         let Some(stream) = fields.next().and_then(|s| s.trim().parse::<u32>().ok()) else {
-            continue;
+            return;
         };
-        let Some(kind) = types.get(&stream) else { continue };
-        if kind != "video" && kind != "audio" {
-            continue;
+        let dts = fields.next();
+        if let Some(pos) = fields.next().and_then(|s| s.trim().parse::<u64>().ok()) {
+            self.position = Some(self.position.map_or(pos, |p| p.max(pos)));
         }
-        let count = counts.entry(stream).or_insert(0);
+        let Some(kind) = self.types.get(&stream) else { return };
+        if kind != "video" && kind != "audio" {
+            return;
+        }
+        let count = self.counts.entry(stream).or_insert(0);
         let packet = *count;
         *count += 1;
         if kind == "video" {
-            video_packets += 1;
+            self.video_packets += 1;
         }
-        let Some(dts) = fields
-            .next()
+        let Some(dts) = dts
             .and_then(|s| s.trim().parse::<f64>().ok())
             .filter(|t| t.is_finite())
         else {
-            continue;
+            return;
         };
-        if let Some(&prev) = last.get(&stream) {
+        if let Some(&prev) = self.last.get(&stream) {
             let step = dts - prev;
             if step < -RESET_BACKWARD_SECS || step > RESET_FORWARD_SECS {
-                resets.push(Reset {
+                self.resets.push(Reset {
                     stream,
                     codec_type: kind.clone(),
                     packet,
@@ -166,9 +207,13 @@ pub fn resets_from_packets(csv: &str, types: &HashMap<u32, String>) -> (Vec<Rese
                 });
             }
         }
-        last.insert(stream, dts);
+        self.last.insert(stream, dts);
     }
-    (resets, video_packets)
+
+    /// The resets found and the video packets counted.
+    pub fn finish(self) -> (Vec<Reset>, u64) {
+        (self.resets, self.video_packets)
+    }
 }
 
 /// The stream types and format name from ffprobe's answer to
@@ -199,6 +244,16 @@ pub fn scan(
     env: &HashMap<String, String>,
     input: &str,
 ) -> Result<ContinuityScan> {
+    scan_with_progress(ffprobe, env, input, |_| {})
+}
+
+/// [`scan`], reporting the fraction of the file read (0..1) as it goes.
+pub fn scan_with_progress(
+    ffprobe: &Path,
+    env: &HashMap<String, String>,
+    input: &str,
+    progress: impl FnMut(f64),
+) -> Result<ContinuityScan> {
     let out = Command::new(ffprobe)
         .args(STREAMS_PROBE_ARGS)
         .arg(input)
@@ -216,7 +271,7 @@ pub fn scan(
     let json: serde_json::Value =
         serde_json::from_slice(&out.stdout).context("ffprobe's stream list is not JSON")?;
     let (format, types) = streams_from_probe(&json);
-    scan_packets(ffprobe, env, input, format, &types)
+    scan_packets_with_progress(ffprobe, env, input, format, &types, progress)
 }
 
 /// [`scan`] once the stream probe is done (`format` and `types` from
@@ -229,20 +284,65 @@ pub fn scan_packets(
     format: String,
     types: &HashMap<u32, String>,
 ) -> Result<ContinuityScan> {
+    scan_packets_with_progress(ffprobe, env, input, format, types, |_| {})
+}
+
+/// How much further (a fraction of the file) a scan must get before it
+/// reports progress again.
+const PROGRESS_STEP: f64 = 0.005;
+
+/// [`scan_packets`], following ffprobe's output line by line and reporting
+/// the fraction of the file's bytes read (from the packets' positions) as it
+/// goes, then 1.0 at the end. If the caller is killed, ffprobe dies on its
+/// next write to the closed pipe.
+pub fn scan_packets_with_progress(
+    ffprobe: &Path,
+    env: &HashMap<String, String>,
+    input: &str,
+    format: String,
+    types: &HashMap<u32, String>,
+    mut progress: impl FnMut(f64),
+) -> Result<ContinuityScan> {
     if !applies_to(&format) {
         return Ok(ContinuityScan { format, applies: false, resets: vec![], video_packets: 0 });
     }
-    let out = Command::new(ffprobe)
+    let size = std::fs::metadata(input).map(|m| m.len()).unwrap_or(0);
+    let mut child = Command::new(ffprobe)
         .args(PACKETS_PROBE_ARGS)
         .arg(input)
         .envs(env)
+        .stdout(Stdio::piped())
         .stderr(Stdio::null())
-        .output()
+        .spawn()
         .context("failed to run ffprobe")?;
-    if !out.status.success() {
+    let mut scanner = ResetScanner::new(types);
+    if let Some(stdout) = child.stdout.take() {
+        use std::io::BufRead;
+        let mut reported = 0.0f64;
+        let mut reader = std::io::BufReader::with_capacity(1 << 16, stdout);
+        let mut line = Vec::new();
+        loop {
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Ok(0) | Err(_) => break,
+                Ok(_) => {}
+            }
+            scanner.push(&String::from_utf8_lossy(&line));
+            if let (Some(pos), true) = (scanner.position(), size > 0) {
+                let f = (pos as f64 / size as f64).min(1.0);
+                if f - reported >= PROGRESS_STEP {
+                    reported = f;
+                    progress(f);
+                }
+            }
+        }
+    }
+    let status = child.wait().context("ffprobe did not finish")?;
+    if !status.success() {
         bail!("ffprobe could not list the packets of {}", input);
     }
-    let (resets, video_packets) = resets_from_packets(&String::from_utf8_lossy(&out.stdout), types);
+    let (resets, video_packets) = scanner.finish();
+    progress(1.0);
     Ok(ContinuityScan { format, applies: true, resets, video_packets })
 }
 
@@ -484,6 +584,55 @@ mod tests {
         let csv = "1,0.0\n0,0.5\n1,0.6\n0,0.54\n1,1.2\n0,0.58\n";
         let (r, _) = resets_from_packets(csv, &types());
         assert!(r.is_empty(), "{r:?}");
+    }
+
+    #[test]
+    fn the_position_column_is_read_and_never_goes_back() {
+        // ffprobe's own order: stream_index, dts_time, pos (a TS line can
+        // end in an empty field; a PS sound packet often has no position).
+        let csv = "1,0.529978,2062\n1,0.553978,N/A\n0,1.40,564,\n0,1.44,5076,\n2,9.0,99999\n0,1.48,4000\n";
+        let t = types();
+        let mut s = ResetScanner::new(&t);
+        let mut seen = Vec::new();
+        for line in csv.lines() {
+            s.push(line);
+            seen.push(s.position());
+        }
+        assert_eq!(
+            seen,
+            vec![Some(2062), Some(2062), Some(2062), Some(5076), Some(99999), Some(99999)],
+            "positions from every stream, the furthest kept"
+        );
+        let (r, n) = s.finish();
+        assert!(r.is_empty(), "{r:?}");
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn the_scanner_line_by_line_is_the_rule_over_the_whole_list() {
+        let cases = [
+            "0,0.50\n0,0.54\n0,6.46\n0,0.50\n0,0.54\n",
+            "0,1.0\n0,16.0\n0,16.04\n",
+            "0,6.0\n0,N/A\n0,0.5\n",
+            "1,6.5,10\n1,0.53,20\n2,9.0,30\n2,0.0,40\n3,9.0\n3,0.0\n0,0.5,50\n",
+        ];
+        let t = types();
+        for csv in cases {
+            let mut s = ResetScanner::new(&t);
+            csv.lines().for_each(|l| s.push(l));
+            assert_eq!(s.finish(), resets_from_packets(csv, &t), "{csv}");
+            // The old two-column lines and the new three-column lines agree.
+            let two: String = csv
+                .lines()
+                .map(|l| l.split(',').take(2).collect::<Vec<_>>().join(",") + "\n")
+                .collect();
+            assert_eq!(resets_from_packets(&two, &t), resets_from_packets(csv, &t), "{csv}");
+        }
+    }
+
+    #[test]
+    fn the_packet_probe_asks_for_the_position() {
+        assert!(PACKETS_PROBE_ARGS.join(" ").contains("packet=stream_index,dts_time,pos"));
     }
 
     #[test]

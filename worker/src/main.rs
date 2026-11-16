@@ -14,7 +14,13 @@
 //!
 //! Timestamp resets (MPEG-PS/TS, see source_continuity):
 //!   --scan-timestamps <path>: print the resets as JSON
-//!   --make-continuous <path> --output <path>: write the continuous copy
+//!   --make-continuous <path> --output <path> [--source <model>]: write the
+//!     continuous copy (with the model's scan, when it describes <path>)
+//!
+//! Source model (source_model, task #50):
+//!   --probe-source <path> [--defer-scan]: print the model (the reset scan
+//!     left for later with --defer-scan, task #55)
+//!   --complete-source <model>: run a deferred model's scan, with progress
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -120,6 +126,18 @@ struct Args {
     /// as one JSON line: everything every decoder of it needs to know.
     #[arg(long)]
     probe_source: Option<String>,
+
+    /// With `--probe-source`: leave an MPEG-PS/TS's timestamp-reset scan
+    /// (a read of the whole file) for `--complete-source`; the model says
+    /// `continuityDeferred` (task #55).
+    #[arg(long)]
+    defer_scan: bool,
+
+    /// Finish a deferred `SourceModel` file: run its timestamp-reset scan,
+    /// reporting progress as JSON lines (phase "scanning"), then print the
+    /// completed model as the last line (task #55).
+    #[arg(long)]
+    complete_source: Option<PathBuf>,
 
     /// A `SourceModel` file (from `--probe-source`) for the job in
     /// `--config`, when the job does not carry one inline: the worker then
@@ -237,7 +255,10 @@ fn main() -> ExitCode {
         return run_make_continuous(&args, input);
     }
     if let Some(ref input) = args.probe_source {
-        return run_probe_source(input);
+        return run_probe_source(input, args.defer_scan);
+    }
+    if let Some(ref model) = args.complete_source {
+        return run_complete_source(model);
     }
 
     // OpenCL probe mode: emit availability as JSON and exit (no progress stream).
@@ -767,7 +788,20 @@ fn run_make_continuous(args: &Args, input: &str) -> ExitCode {
     let result = (|| -> Result<source_continuity::ContinuityScan> {
         let d = dependency_locator::DependencyLocator::new()?;
         let (ffmpeg, ffprobe, env) = (d.ffmpeg_path()?, d.ffprobe_path()?, d.build_environment());
-        let scan = source_continuity::scan(&ffprobe, &env, input)?;
+        // The scan the app already has, from the source model it passes
+        // (`--source`), saves a second read of the whole file (task #55).
+        let known = args.source.as_deref().and_then(|p| {
+            let m: source_model::SourceModel =
+                serde_json::from_str(&std::fs::read_to_string(p).ok()?).ok()?;
+            if m.describes(input) { m.continuity } else { None }
+        });
+        let scan = match known {
+            Some(scan) => {
+                reporter.send_log(models::LogLevel::Info, "Using the source model's timestamp scan");
+                scan
+            }
+            None => source_continuity::scan(&ffprobe, &env, input)?,
+        };
         if !scan.needs_copy() {
             anyhow::bail!("{} has no timestamp reset to join", input);
         }
@@ -984,11 +1018,52 @@ fn resolve_source(
 
 /// `--probe-source`: print the source's model as one JSON line, or
 /// `{"error": ...}` when it could not be read.
-fn run_probe_source(input: &str) -> ExitCode {
+fn run_probe_source(input: &str, defer_scan: bool) -> ExitCode {
+    let mode = if defer_scan { source_model::ScanMode::Deferred } else { source_model::ScanMode::Now };
     let result = (|| -> anyhow::Result<source_model::SourceModel> {
         let deps = dependency_locator::DependencyLocator::new()?;
         let ffprobe = deps.ffprobe_path()?;
-        source_model::probe_source(&ffprobe, &deps.build_environment(), input, |m| eprintln!("{m}"))
+        source_model::probe_source_with(&ffprobe, &deps.build_environment(), input, mode, |m| eprintln!("{m}"))
+    })();
+    match result {
+        Ok(m) => {
+            println!("{}", serde_json::to_string(&m).unwrap_or_default());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({ "error": format!("{e:#}") }));
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// `--complete-source`: finish a deferred model (its reset scan), with
+/// progress lines while the file is read, then the model as the last line
+/// (`{"error": ...}` when it could not be read or probed).
+fn run_complete_source(model_path: &Path) -> ExitCode {
+    let reporter = ProgressReporter::new();
+    let result = (|| -> anyhow::Result<source_model::SourceModel> {
+        let text = std::fs::read_to_string(model_path)
+            .with_context(|| format!("could not read {}", model_path.display()))?;
+        let model: source_model::SourceModel =
+            serde_json::from_str(&text).context("the source model is not valid")?;
+        let deps = dependency_locator::DependencyLocator::new()?;
+        let ffprobe = deps.ffprobe_path()?;
+        let start = std::time::Instant::now();
+        source_model::complete_source(
+            &ffprobe,
+            &deps.build_environment(),
+            model,
+            |f| {
+                let elapsed = start.elapsed().as_secs_f64();
+                let eta = if f > 0.0 { elapsed / f - elapsed } else { 0.0 };
+                reporter.send_progress_phase(
+                    &models::ProgressInfo::new((f * 1000.0) as i32, 1000, 0.0, eta),
+                    "scanning",
+                );
+            },
+            |m| eprintln!("{m}"),
+        )
     })();
     match result {
         Ok(m) => {
