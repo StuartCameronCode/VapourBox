@@ -1,0 +1,146 @@
+[
+ {
+  "fixture": "small_clip.mp4",
+  "decoded": 3151,
+  "packets": 3154,
+  "packets_without_pts": 0,
+  "index_count": 3151,
+  "how": "last slot + 1",
+  "agrees": true
+ },
+ {
+  "fixture": "seek_timebase_2997.mov",
+  "decoded": 90,
+  "packets": 90,
+  "packets_without_pts": 0,
+  "index_count": 90,
+  "how": "last slot + 1",
+  "agrees": true
+ },
+ {
+  "fixture": "face_restore_test.mp4",
+  "decoded": 150,
+  "packets": 150,
+  "packets_without_pts": 0,
+  "index_count": 150,
+  "how": "last slot + 1",
+  "agrees": true
+ },
+ {
+  "fixture": "seek_dvd_pal.mpg",
+  "decoded": 150,
+  "packets": 150,
+  "packets_without_pts": 9,
+  "index_count": 150,
+  "how": "packets",
+  "agrees": true
+ },
+ {
+  "fixture": "seek_gop_late_video.ts",
+  "decoded": 150,
+  "packets": 150,
+  "packets_without_pts": 0,
+  "index_count": 150,
+  "how": "last slot + 1",
+  "agrees": true
+ },
+ {
+  "fixture": "pal-dvbt-fieldcoded-25i.ts",
+  "decoded": 128,
+  "packets": 252,
+  "packets_without_pts": 0,
+  "index_count": 129,
+  "how": "last slot + 1",
+  "agrees": false
+ },
+ {
+  "fixture": "hard_telecine_test.avi",
+  "decoded": 90,
+  "packets": 90,
+  "packets_without_pts": 31,
+  "index_count": 90,
+  "how": "packets",
+  "agrees": true
+ },
+ {
+  "fixture": "avi_h264_bframes.avi",
+  "decoded": 90,
+  "packets": 90,
+  "packets_without_pts": 90,
+  "index_count": 90,
+  "how": "packets",
+  "agrees": true
+ },
+ {
+  "fixture": "avi_ntsc_intra.avi",
+  "decoded": 90,
+  "packets": 90,
+  "packets_without_pts": 0,
+  "index_count": 90,
+  "how": "last slot + 1",
+  "agrees": true
+ },
+ {
+  "fixture": "seek_reset_dvd_pal.mpg",
+  "decoded": 300,
+  "packets": 300,
+  "packets_without_pts": 22,
+  "index_count": 300,
+  "how": "packets",
+  "agrees": true
+ },
+ {
+  "fixture": "seek_reset_h264.ts",
+  "decoded": 300,
+  "packets": 300,
+  "packets_without_pts": 0,
+  "index_count": 150,
+  "how": "last slot + 1",
+  "agrees": false
+ },
+ {
+  "fixture": "interlaced_test.avi",
+  "decoded": 79,
+  "packets": 75,
+  "packets_without_pts": 0,
+  "index_count": 79,
+  "how": "last slot + 1",
+  "agrees": true
+ },
+ {
+  "fixture": "null_frames_mid.avi",
+  "decoded": 200,
+  "packets": 195,
+  "packets_without_pts": 0,
+  "index_count": 200,
+  "how": "last slot + 1",
+  "agrees": true
+ },
+ {
+  "fixture": "soft_telecine_test.mkv",
+  "decoded": 120,
+  "packets": 120,
+  "packets_without_pts": 0,
+  "index_count": 120,
+  "how": "last slot + 1",
+  "agrees": true
+ },
+ {
+  "fixture": "soft_telecine_dvd.vob",
+  "decoded": 149,
+  "packets": 120,
+  "packets_without_pts": 0,
+  "index_count": 149,
+  "how": "last slot + 1",
+  "agrees": true
+ },
+ {
+  "fixture": "soft_telecine_dvd.mkv",
+  "decoded": 150,
+  "packets": 120,
+  "packets_without_pts": 0,
+  "index_count": 150,
+  "how": "last slot + 1",
+  "agrees": true
+ }
+]

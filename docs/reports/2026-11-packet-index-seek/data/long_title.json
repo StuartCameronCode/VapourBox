@@ -1,0 +1,45 @@
+{
+ "input": "title.mpg",
+ "packets": 204418,
+ "rows": [
+  {
+   "frac": 0.1,
+   "frame": 20441,
+   "reference_found": true,
+   "today_exact": true,
+   "m2_exact": true,
+   "today_args": [
+    "-copyts",
+    "-ss",
+    "816.440000"
+   ],
+   "m2_key_packet": 20428
+  },
+  {
+   "frac": 0.5,
+   "frame": 102209,
+   "reference_found": true,
+   "today_exact": true,
+   "m2_exact": true,
+   "today_args": [
+    "-copyts",
+    "-ss",
+    "4087.160000"
+   ],
+   "m2_key_packet": 102195
+  },
+  {
+   "frac": 0.95,
+   "frame": 194197,
+   "reference_found": true,
+   "today_exact": true,
+   "m2_exact": true,
+   "today_args": [
+    "-copyts",
+    "-ss",
+    "7766.680000"
+   ],
+   "m2_key_packet": 194192
+  }
+ ]
+}

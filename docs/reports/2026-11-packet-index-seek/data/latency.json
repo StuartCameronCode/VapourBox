@@ -1,0 +1,440 @@
+[
+ {
+  "label": "2 h DVD title (MPEG-PS), internal SSD",
+  "cold": false,
+  "index_secs": 8.040359791019,
+  "packets": 204418,
+  "rows": [
+   {
+    "frac": 0.1,
+    "frame": 20441,
+    "methods": {
+     "today": {
+      "secs": 0.07844037504401058,
+      "cpu_secs": 0.07945800000000003,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "816.440000"
+      ],
+      "load": 103.7080078125
+     },
+     "M2 (byte start, I-full)": {
+      "secs": 0.05873437493573874,
+      "cpu_secs": 0.051246000000000125,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "398499854"
+      ],
+      "load": 103.7080078125
+     },
+     "I-window + M2": {
+      "secs": 0.10369779192842543,
+      "cpu_secs": 0.05344900000000008,
+      "probe_secs": 0.03573975001927465,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "398499854"
+      ],
+      "load": 103.7080078125
+     },
+     "M1 (time seek to K, I-full)": {
+      "secs": 0.09324150008615106,
+      "cpu_secs": 0.06384600000000007,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "817.199999"
+      ],
+      "load": 103.7080078125
+     }
+    }
+   },
+   {
+    "frac": 0.5,
+    "frame": 102209,
+    "methods": {
+     "today": {
+      "secs": 0.07916229194961488,
+      "cpu_secs": 0.07515099999999997,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4087.160000"
+      ],
+      "load": 103.7080078125
+     },
+     "M2 (byte start, I-full)": {
+      "secs": 0.07101383409462869,
+      "cpu_secs": 0.058943999999999885,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "2255017998"
+      ],
+      "load": 103.7080078125
+     },
+     "I-window + M2": {
+      "secs": 0.13712295796722174,
+      "cpu_secs": 0.06226300000000062,
+      "probe_secs": 0.0386818329570815,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "2255017998"
+      ],
+      "load": 103.7080078125
+     },
+     "M1 (time seek to K, I-full)": {
+      "secs": 0.07992729102261364,
+      "cpu_secs": 0.08223500000000006,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4087.879999"
+      ],
+      "load": 103.7080078125
+     }
+    }
+   },
+   {
+    "frac": 0.95,
+    "frame": 194197,
+    "methods": {
+     "today": {
+      "secs": 0.09822579100728035,
+      "cpu_secs": 0.0939880000000004,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "7766.680000"
+      ],
+      "load": 98.84619140625
+     },
+     "M2 (byte start, I-full)": {
+      "secs": 0.07301466702483594,
+      "cpu_secs": 0.057179000000000535,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "4250144782"
+      ],
+      "load": 98.84619140625
+     },
+     "I-window + M2": {
+      "secs": 0.11859437497332692,
+      "cpu_secs": 0.07372500000000048,
+      "probe_secs": 0.0349283330142498,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "4249782286"
+      ],
+      "load": 98.84619140625
+     },
+     "M1 (time seek to K, I-full)": {
+      "secs": 0.07962920889258385,
+      "cpu_secs": 0.07842800000000061,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "7767.759999"
+      ],
+      "load": 98.84619140625
+     }
+    }
+   }
+  ]
+ },
+ {
+  "label": "the same title as MKV, internal SSD",
+  "cold": false,
+  "index_secs": 3.747684667003341,
+  "packets": 204418,
+  "rows": [
+   {
+    "frac": 0.1,
+    "frame": 20441,
+    "methods": {
+     "today": {
+      "secs": 0.08467079210095108,
+      "cpu_secs": 0.08481599999999989,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "817.300000"
+      ],
+      "load": 95.5751953125
+     },
+     "M1 (time seek to K, I-full)": {
+      "secs": 0.0981416660360992,
+      "cpu_secs": 0.0779310000000002,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "817.200000"
+      ],
+      "load": 95.5751953125
+     }
+    }
+   },
+   {
+    "frac": 0.5,
+    "frame": 102209,
+    "methods": {
+     "today": {
+      "secs": 0.08629683300387114,
+      "cpu_secs": 0.0833029999999999,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4088.020000"
+      ],
+      "load": 95.5751953125
+     },
+     "M1 (time seek to K, I-full)": {
+      "secs": 0.09248129092156887,
+      "cpu_secs": 0.07636600000000038,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4088.360000"
+      ],
+      "load": 95.5751953125
+     }
+    }
+   },
+   {
+    "frac": 0.95,
+    "frame": 194197,
+    "methods": {
+     "today": {
+      "secs": 0.08204120898153633,
+      "cpu_secs": 0.06844700000000015,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "7767.540000"
+      ],
+      "load": 95.5751953125
+     },
+     "M1 (time seek to K, I-full)": {
+      "secs": 0.08593187504447997,
+      "cpu_secs": 0.07684499999999983,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "7767.760000"
+      ],
+      "load": 93.04638671875
+     }
+    }
+   }
+  ]
+ },
+ {
+  "label": "2 h DVD title (VOB set) on the NAS",
+  "cold": false,
+  "index_secs": 76.18511724995915,
+  "packets": 204418,
+  "rows": [
+   {
+    "frac": 0.1,
+    "frame": 20441,
+    "methods": {
+     "today": {
+      "secs": 0.15996499999891967,
+      "cpu_secs": 0.08698100000000009,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "816.440000"
+      ],
+      "load": 120.24365234375
+     },
+     "M2 (byte start, I-full)": {
+      "secs": 0.14221766707487404,
+      "cpu_secs": 0.06789200000000029,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "398499854"
+      ],
+      "load": 120.24365234375
+     },
+     "I-window + M2": {
+      "secs": 0.2454280419042334,
+      "cpu_secs": 0.06325399999999992,
+      "probe_secs": 0.10114400007296354,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "398499854"
+      ],
+      "load": 120.24365234375
+     },
+     "M1 (time seek to K, I-full)": {
+      "secs": 0.16362566698808223,
+      "cpu_secs": 0.07989999999999986,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "817.199999"
+      ],
+      "load": 121.82568359375
+     }
+    }
+   },
+   {
+    "frac": 0.5,
+    "frame": 102209,
+    "methods": {
+     "today": {
+      "secs": 0.1554961659712717,
+      "cpu_secs": 0.08469200000000043,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4087.160000"
+      ],
+      "load": 121.82568359375
+     },
+     "M2 (byte start, I-full)": {
+      "secs": 0.16286112496163696,
+      "cpu_secs": 0.07443700000000075,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "2255017998"
+      ],
+      "load": 121.82568359375
+     },
+     "I-window + M2": {
+      "secs": 0.27443466696422547,
+      "cpu_secs": 0.07056000000000062,
+      "probe_secs": 0.09912450006231666,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "2255017998"
+      ],
+      "load": 121.82568359375
+     },
+     "M1 (time seek to K, I-full)": {
+      "secs": 0.16195354098454118,
+      "cpu_secs": 0.08282199999999995,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4087.879999"
+      ],
+      "load": 121.82568359375
+     }
+    }
+   },
+   {
+    "frac": 0.95,
+    "frame": 194197,
+    "methods": {
+     "today": {
+      "secs": 0.2003410829929635,
+      "cpu_secs": 0.09721299999999977,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "7766.680000"
+      ],
+      "load": 124.40185546875
+     },
+     "M2 (byte start, I-full)": {
+      "secs": 0.15599604207091033,
+      "cpu_secs": 0.05714100000000011,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "4250144782"
+      ],
+      "load": 124.40185546875
+     },
+     "I-window + M2": {
+      "secs": 0.26915125001687557,
+      "cpu_secs": 0.07012099999999988,
+      "probe_secs": 0.11087774997577071,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "4249782286"
+      ],
+      "load": 124.40185546875
+     },
+     "M1 (time seek to K, I-full)": {
+      "secs": 0.1543187079951167,
+      "cpu_secs": 0.06838700000000042,
+      "probe_secs": 0.0,
+      "same_as_today": true,
+      "args": [
+       "-copyts",
+       "-ss",
+       "7767.759999"
+      ],
+      "load": 124.40185546875
+     }
+    }
+   }
+  ]
+ }
+]

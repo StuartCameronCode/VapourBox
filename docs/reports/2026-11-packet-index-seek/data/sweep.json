@@ -1,0 +1,6702 @@
+[
+ {
+  "fixture": "small_clip.mp4",
+  "frames": 3151,
+  "fps": 29.97,
+  "offset": 0.0,
+  "delay": 0,
+  "plan": null,
+  "grid": {
+   "num": 2997,
+   "den": 100,
+   "origin": 0.0
+  },
+  "fmt": "mov,mp4,m4a,3gp,3g2,mj2",
+  "packets": 3154,
+  "keys": 264,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 3151,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 3142
+   },
+   "M1": {
+    "exact": 3151,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 3142
+   }
+  }
+ },
+ {
+  "fixture": "seek_timebase_2997.mov",
+  "frames": 90,
+  "fps": 29.97,
+  "offset": 0.0,
+  "delay": 0,
+  "plan": null,
+  "grid": {
+   "num": 2997,
+   "den": 100,
+   "origin": 0.0
+  },
+  "fmt": "mov,mp4,m4a,3gp,3g2,mj2",
+  "packets": 90,
+  "keys": 3,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 90,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 81
+   },
+   "M1": {
+    "exact": 90,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 60
+   }
+  }
+ },
+ {
+  "fixture": "face_restore_test.mp4",
+  "frames": 150,
+  "fps": 29.97002997002997,
+  "offset": 0.0,
+  "delay": 0,
+  "plan": null,
+  "grid": {
+   "num": 30000,
+   "den": 1001,
+   "origin": 0.0
+  },
+  "fmt": "mov,mp4,m4a,3gp,3g2,mj2",
+  "packets": 150,
+  "keys": 1,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 141
+   },
+   "M1": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 0
+   }
+  }
+ },
+ {
+  "fixture": "seek_dvd_pal.mpg",
+  "frames": 150,
+  "fps": 25.0,
+  "offset": 0.010022000000000086,
+  "delay": 0,
+  "plan": {
+   "preroll": 1.2200000000000002,
+   "container_start": 0.529978
+  },
+  "grid": null,
+  "fmt": "mpeg",
+  "packets": 150,
+  "keys": 13,
+  "keys_without_pts": 3,
+  "packets_without_pts": 9,
+  "placed_agrees": null,
+  "methods": {
+   "today": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 119
+   },
+   "M1-trim": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 137
+   },
+   "M2-trim": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 137
+   }
+  }
+ },
+ {
+  "fixture": "seek_gop_late_video.ts",
+  "frames": 150,
+  "fps": 25.0,
+  "offset": 1.0100220000000002,
+  "delay": 0,
+  "plan": {
+   "preroll": 1.6600000000000001,
+   "container_start": 1.4
+  },
+  "grid": {
+   "num": 25,
+   "den": 1,
+   "origin": 2.410022
+  },
+  "fmt": "mpegts",
+  "packets": 150,
+  "keys": 6,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 125
+   },
+   "M1": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 125
+   },
+   "M2": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 125
+   }
+  }
+ },
+ {
+  "fixture": "pal-dvbt-fieldcoded-25i.ts",
+  "frames": 128,
+  "fps": 25.0,
+  "offset": 1.202022,
+  "delay": 0,
+  "plan": {
+   "preroll": 1.8200000000000003,
+   "container_start": 1.4
+  },
+  "grid": {
+   "num": 25,
+   "den": 1,
+   "origin": 2.602022
+  },
+  "fmt": "mpegts",
+  "packets": 252,
+  "keys": 5,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 128,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 104
+   },
+   "M1": {
+    "exact": 40,
+    "wrong": 88,
+    "bad": [
+     {
+      "n": 31,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 32,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 33,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 34,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 35,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 36,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 37,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 38,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 39,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 40,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 41,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 42,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 43,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 44,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 45,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 46,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 47,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 48,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 49,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 50,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 51,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 52,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 53,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 54,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 55,
+      "got": [
+       56,
+       57,
+       58
+      ],
+      "key": 56,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.442022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 59,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 60,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 61,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 62,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 63,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 64,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 65,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 66,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 67,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 68,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 69,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 70,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 71,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 72,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 73,
+      "got": [
+       84,
+       85,
+       86
+      ],
+      "key": 112,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.562022"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 97
+   },
+   "M2": {
+    "exact": 128,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 97
+   }
+  }
+ },
+ {
+  "fixture": "hard_telecine_test.avi",
+  "frames": 90,
+  "fps": 29.97002997002997,
+  "offset": 0.0,
+  "delay": 1,
+  "plan": null,
+  "grid": null,
+  "fmt": "avi",
+  "packets": 90,
+  "keys": 7,
+  "keys_without_pts": 7,
+  "packets_without_pts": 31,
+  "placed_agrees": null,
+  "methods": {
+   "today": {
+    "exact": 90,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 75
+   },
+   "count": {
+    "exact": 13,
+    "wrong": 77,
+    "bad": [
+     {
+      "n": 13,
+      "got": [
+       15,
+       16,
+       17
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 14,
+      "got": [
+       16,
+       17,
+       18
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 15,
+      "got": [
+       17,
+       18,
+       19
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 16,
+      "got": [
+       18,
+       19,
+       20
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 17,
+      "got": [
+       19,
+       20,
+       21
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 18,
+      "got": [
+       20,
+       21,
+       22
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 19,
+      "got": [
+       21,
+       22,
+       23
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 20,
+      "got": [
+       22,
+       23,
+       24
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 21,
+      "got": [
+       23,
+       24,
+       25
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 22,
+      "got": [
+       24,
+       25,
+       26
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 23,
+      "got": [
+       25,
+       26,
+       27
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 24,
+      "got": [
+       26,
+       27,
+       28
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 25,
+      "got": [
+       27,
+       28,
+       29
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 26,
+      "got": [
+       28,
+       29,
+       30
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 27,
+      "got": [
+       29,
+       30,
+       31
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.564201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 28,
+      "got": [
+       30,
+       31,
+       32
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 29,
+      "got": [
+       31,
+       32,
+       33
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 30,
+      "got": [
+       32,
+       33,
+       34
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 31,
+      "got": [
+       33,
+       34,
+       35
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 32,
+      "got": [
+       34,
+       35,
+       36
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 33,
+      "got": [
+       35,
+       36,
+       37
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 34,
+      "got": [
+       36,
+       37,
+       38
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 35,
+      "got": [
+       37,
+       38,
+       39
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 36,
+      "got": [
+       38,
+       39,
+       40
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 37,
+      "got": [
+       39,
+       40,
+       41
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 38,
+      "got": [
+       40,
+       41,
+       42
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 39,
+      "got": [
+       41,
+       42,
+       43
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 40,
+      "got": [
+       42,
+       43,
+       44
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 41,
+      "got": [
+       43,
+       44,
+       45
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 42,
+      "got": [
+       44,
+       45,
+       46
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.064701"
+      ],
+      "err": ""
+     },
+     {
+      "n": 43,
+      "got": [
+       45,
+       46,
+       47
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 44,
+      "got": [
+       46,
+       47,
+       48
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 45,
+      "got": [
+       47,
+       48,
+       49
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 46,
+      "got": [
+       48,
+       49,
+       50
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 47,
+      "got": [
+       49,
+       50,
+       51
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 48,
+      "got": [
+       50,
+       51,
+       52
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 49,
+      "got": [
+       51,
+       52,
+       53
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 50,
+      "got": [
+       52,
+       53,
+       54
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 51,
+      "got": [
+       53,
+       54,
+       55
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     },
+     {
+      "n": 52,
+      "got": [
+       54,
+       55,
+       56
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.565201"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 77
+   },
+   "count-raw": {
+    "exact": 13,
+    "wrong": 77,
+    "bad": [
+     {
+      "n": 13,
+      "got": [
+       0,
+       1,
+       2
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 14,
+      "got": [
+       1,
+       2,
+       3
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 15,
+      "got": [
+       2,
+       3,
+       4
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 16,
+      "got": [
+       3,
+       4,
+       5
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 17,
+      "got": [
+       4,
+       5,
+       6
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 18,
+      "got": [
+       5,
+       6,
+       7
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 19,
+      "got": [
+       6,
+       7,
+       8
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 20,
+      "got": [
+       7,
+       8,
+       9
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 21,
+      "got": [
+       8,
+       9,
+       10
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 22,
+      "got": [
+       9,
+       10,
+       11
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 23,
+      "got": [
+       10,
+       11,
+       12
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 24,
+      "got": [
+       11,
+       12,
+       13
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 25,
+      "got": [
+       12,
+       13,
+       14
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 26,
+      "got": [
+       13,
+       14,
+       15
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 27,
+      "got": [
+       14,
+       15,
+       16
+      ],
+      "key": 13,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.433767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 28,
+      "got": [
+       15,
+       16,
+       17
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 29,
+      "got": [
+       16,
+       17,
+       18
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 30,
+      "got": [
+       17,
+       18,
+       19
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 31,
+      "got": [
+       18,
+       19,
+       20
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 32,
+      "got": [
+       19,
+       20,
+       21
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 33,
+      "got": [
+       20,
+       21,
+       22
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 34,
+      "got": [
+       21,
+       22,
+       23
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 35,
+      "got": [
+       22,
+       23,
+       24
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 36,
+      "got": [
+       23,
+       24,
+       25
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 37,
+      "got": [
+       24,
+       25,
+       26
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 38,
+      "got": [
+       25,
+       26,
+       27
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 39,
+      "got": [
+       26,
+       27,
+       28
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 40,
+      "got": [
+       27,
+       28,
+       29
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 41,
+      "got": [
+       28,
+       29,
+       30
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 42,
+      "got": [
+       29,
+       30,
+       31
+      ],
+      "key": 28,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "0.934267"
+      ],
+      "err": ""
+     },
+     {
+      "n": 43,
+      "got": [
+       30,
+       31,
+       32
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 44,
+      "got": [
+       31,
+       32,
+       33
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 45,
+      "got": [
+       32,
+       33,
+       34
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 46,
+      "got": [
+       33,
+       34,
+       35
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 47,
+      "got": [
+       34,
+       35,
+       36
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 48,
+      "got": [
+       35,
+       36,
+       37
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 49,
+      "got": [
+       36,
+       37,
+       38
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 50,
+      "got": [
+       37,
+       38,
+       39
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 51,
+      "got": [
+       38,
+       39,
+       40
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     },
+     {
+      "n": 52,
+      "got": [
+       39,
+       40,
+       41
+      ],
+      "key": 43,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.434767"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 77
+   }
+  }
+ },
+ {
+  "fixture": "avi_h264_bframes.avi",
+  "frames": 90,
+  "fps": 29.97002997002997,
+  "offset": 0.0,
+  "delay": 2,
+  "plan": null,
+  "grid": null,
+  "fmt": "avi",
+  "packets": 90,
+  "keys": 3,
+  "keys_without_pts": 3,
+  "packets_without_pts": 90,
+  "placed_agrees": null,
+  "methods": {
+   "today": {
+    "exact": 90,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 76
+   },
+   "count": {
+    "exact": 90,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 60
+   },
+   "count-raw": {
+    "exact": 30,
+    "wrong": 60,
+    "bad": [
+     {
+      "n": 30,
+      "got": [
+       0,
+       1,
+       2
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 31,
+      "got": [
+       1,
+       2,
+       3
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 32,
+      "got": [
+       2,
+       3,
+       4
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 33,
+      "got": [
+       3,
+       4,
+       5
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 34,
+      "got": [
+       4,
+       5,
+       6
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 35,
+      "got": [
+       5,
+       6,
+       7
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 36,
+      "got": [
+       6,
+       7,
+       8
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 37,
+      "got": [
+       7,
+       8,
+       9
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 38,
+      "got": [
+       8,
+       9,
+       10
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 39,
+      "got": [
+       9,
+       10,
+       11
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 40,
+      "got": [
+       10,
+       11,
+       12
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 41,
+      "got": [
+       11,
+       12,
+       13
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 42,
+      "got": [
+       12,
+       13,
+       14
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 43,
+      "got": [
+       13,
+       14,
+       15
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 44,
+      "got": [
+       14,
+       15,
+       16
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 45,
+      "got": [
+       15,
+       16,
+       17
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 46,
+      "got": [
+       16,
+       17,
+       18
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 47,
+      "got": [
+       17,
+       18,
+       19
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 48,
+      "got": [
+       18,
+       19,
+       20
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 49,
+      "got": [
+       19,
+       20,
+       21
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 50,
+      "got": [
+       20,
+       21,
+       22
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 51,
+      "got": [
+       21,
+       22,
+       23
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 52,
+      "got": [
+       22,
+       23,
+       24
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 53,
+      "got": [
+       23,
+       24,
+       25
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 54,
+      "got": [
+       24,
+       25,
+       26
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 55,
+      "got": [
+       25,
+       26,
+       27
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 56,
+      "got": [
+       26,
+       27,
+       28
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 57,
+      "got": [
+       27,
+       28,
+       29
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 58,
+      "got": [
+       28,
+       29,
+       30
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 59,
+      "got": [
+       29,
+       30,
+       31
+      ],
+      "key": 30,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "1.001000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 60,
+      "got": [
+       30,
+       31,
+       32
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 61,
+      "got": [
+       31,
+       32,
+       33
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 62,
+      "got": [
+       32,
+       33,
+       34
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 63,
+      "got": [
+       33,
+       34,
+       35
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 64,
+      "got": [
+       34,
+       35,
+       36
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 65,
+      "got": [
+       35,
+       36,
+       37
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 66,
+      "got": [
+       36,
+       37,
+       38
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 67,
+      "got": [
+       37,
+       38,
+       39
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 68,
+      "got": [
+       38,
+       39,
+       40
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     },
+     {
+      "n": 69,
+      "got": [
+       39,
+       40,
+       41
+      ],
+      "key": 60,
+      "args": [
+       "-noaccurate_seek",
+       "-ss",
+       "2.002000"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 60
+   }
+  }
+ },
+ {
+  "fixture": "avi_ntsc_intra.avi",
+  "frames": 90,
+  "fps": 29.97002997002997,
+  "offset": 0.0,
+  "delay": 0,
+  "plan": null,
+  "grid": {
+   "num": 30000,
+   "den": 1001,
+   "origin": 0.0
+  },
+  "fmt": "avi",
+  "packets": 90,
+  "keys": 6,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 90,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 81
+   },
+   "M1": {
+    "exact": 90,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 75
+   }
+  }
+ },
+ {
+  "fixture": "seek_reset_dvd_pal.mpg (joined copy)",
+  "frames": 300,
+  "fps": 25.0,
+  "offset": 0.010022000000000086,
+  "delay": 0,
+  "plan": {
+   "preroll": 1.2200000000000024,
+   "container_start": 0.529978
+  },
+  "grid": null,
+  "fmt": "mpeg",
+  "packets": 300,
+  "keys": 26,
+  "keys_without_pts": 9,
+  "packets_without_pts": 28,
+  "placed_agrees": null,
+  "methods": {
+   "today": {
+    "exact": 300,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 269
+   },
+   "M1-trim": {
+    "exact": 300,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 287
+   },
+   "M2-trim": {
+    "exact": 300,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 287
+   }
+  }
+ },
+ {
+  "fixture": "seek_reset_dvd_pal.mpg (raw, as the file is)",
+  "frames": 300,
+  "fps": 25.0,
+  "offset": 0.010022000000000086,
+  "delay": 0,
+  "plan": {
+   "preroll": 1.2200000000000002,
+   "container_start": 0.529978
+  },
+  "grid": null,
+  "fmt": "mpeg",
+  "packets": 300,
+  "keys": 26,
+  "keys_without_pts": 5,
+  "packets_without_pts": 22,
+  "placed_agrees": null,
+  "methods": {
+   "today": {
+    "exact": 104,
+    "wrong": 196,
+    "bad": [
+     {
+      "n": 104,
+      "got": [
+       254,
+       255,
+       256
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.930022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 105,
+      "got": [
+       255,
+       256,
+       257
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "2.970022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 106,
+      "got": [
+       256,
+       257,
+       258
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 107,
+      "got": [
+       257,
+       258,
+       259
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.050022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 108,
+      "got": [
+       258,
+       259,
+       260
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.090022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 109,
+      "got": [
+       259,
+       260,
+       261
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.130022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 110,
+      "got": [
+       260,
+       261,
+       262
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.170022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 111,
+      "got": [
+       261,
+       262,
+       263
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.210022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 112,
+      "got": [
+       262,
+       263,
+       264
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.250022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 113,
+      "got": [
+       263,
+       264,
+       265
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.290022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 114,
+      "got": [
+       264,
+       265,
+       266
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 115,
+      "got": [
+       265,
+       266,
+       267
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 116,
+      "got": [
+       266,
+       267,
+       268
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.410022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 117,
+      "got": [
+       267,
+       268,
+       269
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.450022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 118,
+      "got": [
+       268,
+       269,
+       270
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.490022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 119,
+      "got": [
+       269,
+       270,
+       271
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.530022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 120,
+      "got": [
+       270,
+       271,
+       272
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.570022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 121,
+      "got": [
+       271,
+       272,
+       273
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.610022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 122,
+      "got": [
+       272,
+       273,
+       274
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.650022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 123,
+      "got": [
+       273,
+       274,
+       275
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.690022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 124,
+      "got": [
+       274,
+       275,
+       276
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.730022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 125,
+      "got": [
+       275,
+       276,
+       277
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.770022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 126,
+      "got": [
+       276,
+       277,
+       278
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.810022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 127,
+      "got": [
+       277,
+       278,
+       279
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 128,
+      "got": [
+       278,
+       279,
+       280
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.890022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 129,
+      "got": [
+       279,
+       280,
+       281
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.930022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 130,
+      "got": [
+       280,
+       281,
+       282
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.970022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 131,
+      "got": [
+       281,
+       282,
+       283
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 132,
+      "got": [
+       282,
+       283,
+       284
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.050022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 133,
+      "got": [
+       283,
+       284,
+       285
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.090022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 134,
+      "got": [
+       284,
+       285,
+       286
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.130022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 135,
+      "got": [
+       285,
+       286,
+       287
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.170022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 136,
+      "got": [
+       286,
+       287,
+       288
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.210022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 137,
+      "got": [
+       287,
+       288,
+       289
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.250022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 138,
+      "got": [
+       288,
+       289,
+       290
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.290022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 139,
+      "got": [
+       289,
+       290,
+       291
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 140,
+      "got": [
+       290,
+       291,
+       292
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 141,
+      "got": [
+       291,
+       292,
+       293
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.410022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 142,
+      "got": [
+       292,
+       293,
+       294
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.450022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 143,
+      "got": [
+       293,
+       294,
+       295
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.490022"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 269
+   },
+   "M1-trim": {
+    "exact": 85,
+    "wrong": 215,
+    "bad": [
+     {
+      "n": 85,
+      "got": [
+       235,
+       236,
+       237
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 86,
+      "got": [
+       236,
+       237,
+       238
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 87,
+      "got": [
+       237,
+       238,
+       239
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 88,
+      "got": [
+       238,
+       239,
+       240
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 89,
+      "got": [
+       239,
+       240,
+       241
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 90,
+      "got": [
+       240,
+       241,
+       242
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 91,
+      "got": [
+       241,
+       242,
+       243
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 92,
+      "got": [
+       242,
+       243,
+       244
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 93,
+      "got": [
+       243,
+       244,
+       245
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 94,
+      "got": [
+       244,
+       245,
+       246
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 95,
+      "got": [
+       245,
+       246,
+       247
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 96,
+      "got": [
+       246,
+       247,
+       248
+      ],
+      "key": 232,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 97,
+      "got": [
+       247,
+       248,
+       249
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 98,
+      "got": [
+       248,
+       249,
+       250
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 99,
+      "got": [
+       249,
+       250,
+       251
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 100,
+      "got": [
+       250,
+       251,
+       252
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 101,
+      "got": [
+       251,
+       252,
+       253
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 102,
+      "got": [
+       252,
+       253,
+       254
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 103,
+      "got": [
+       253,
+       254,
+       255
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 104,
+      "got": [
+       254,
+       255,
+       256
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 105,
+      "got": [
+       255,
+       256,
+       257
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 106,
+      "got": [
+       256,
+       257,
+       258
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 107,
+      "got": [
+       257,
+       258,
+       259
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 108,
+      "got": [
+       258,
+       259,
+       260
+      ],
+      "key": 244,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 109,
+      "got": [
+       259,
+       260,
+       261
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 110,
+      "got": [
+       260,
+       261,
+       262
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 111,
+      "got": [
+       261,
+       262,
+       263
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 112,
+      "got": [
+       262,
+       263,
+       264
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 113,
+      "got": [
+       263,
+       264,
+       265
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 114,
+      "got": [
+       264,
+       265,
+       266
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 115,
+      "got": [
+       265,
+       266,
+       267
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 116,
+      "got": [
+       266,
+       267,
+       268
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 117,
+      "got": [
+       267,
+       268,
+       269
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 118,
+      "got": [
+       268,
+       269,
+       270
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 119,
+      "got": [
+       269,
+       270,
+       271
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 120,
+      "got": [
+       270,
+       271,
+       272
+      ],
+      "key": 256,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 121,
+      "got": [
+       271,
+       272,
+       273
+      ],
+      "key": 268,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.810022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 122,
+      "got": [
+       272,
+       273,
+       274
+      ],
+      "key": 268,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.810022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 123,
+      "got": [
+       273,
+       274,
+       275
+      ],
+      "key": 268,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.810022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 124,
+      "got": [
+       274,
+       275,
+       276
+      ],
+      "key": 268,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.810022"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 299
+   },
+   "M2-trim": {
+    "exact": 1,
+    "wrong": 299,
+    "bad": [
+     {
+      "n": 1,
+      "got": [
+       151,
+       152,
+       153
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 2,
+      "got": [
+       152,
+       153,
+       154
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 3,
+      "got": [
+       153,
+       154,
+       155
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 4,
+      "got": [
+       154,
+       155,
+       156
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 5,
+      "got": [
+       155,
+       156,
+       157
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 6,
+      "got": [
+       156,
+       157,
+       158
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 7,
+      "got": [
+       157,
+       158,
+       159
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 8,
+      "got": [
+       158,
+       159,
+       160
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 9,
+      "got": [
+       159,
+       160,
+       161
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 10,
+      "got": [
+       160,
+       161,
+       162
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 11,
+      "got": [
+       161,
+       162,
+       163
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 12,
+      "got": [
+       162,
+       163,
+       164
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "622624"
+      ],
+      "err": ""
+     },
+     {
+      "n": 13,
+      "got": [
+       163,
+       164,
+       165
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 14,
+      "got": [
+       164,
+       165,
+       166
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 15,
+      "got": [
+       165,
+       166,
+       167
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 16,
+      "got": [
+       166,
+       167,
+       168
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 17,
+      "got": [
+       167,
+       168,
+       169
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 18,
+      "got": [
+       168,
+       169,
+       170
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 19,
+      "got": [
+       169,
+       170,
+       171
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 20,
+      "got": [
+       170,
+       171,
+       172
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 21,
+      "got": [
+       171,
+       172,
+       173
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 22,
+      "got": [
+       172,
+       173,
+       174
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 23,
+      "got": [
+       173,
+       174,
+       175
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 24,
+      "got": [
+       174,
+       175,
+       176
+      ],
+      "key": 160,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "729102"
+      ],
+      "err": ""
+     },
+     {
+      "n": 25,
+      "got": [
+       175,
+       176,
+       177
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 26,
+      "got": [
+       176,
+       177,
+       178
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 27,
+      "got": [
+       177,
+       178,
+       179
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 28,
+      "got": [
+       178,
+       179,
+       180
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 29,
+      "got": [
+       179,
+       180,
+       181
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 30,
+      "got": [
+       180,
+       181,
+       182
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 31,
+      "got": [
+       181,
+       182,
+       183
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 32,
+      "got": [
+       182,
+       183,
+       184
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 33,
+      "got": [
+       183,
+       184,
+       185
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 34,
+      "got": [
+       184,
+       185,
+       186
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 35,
+      "got": [
+       185,
+       186,
+       187
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 36,
+      "got": [
+       186,
+       187,
+       188
+      ],
+      "key": 172,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "811022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 37,
+      "got": [
+       187,
+       188,
+       189
+      ],
+      "key": 184,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "862222"
+      ],
+      "err": ""
+     },
+     {
+      "n": 38,
+      "got": [
+       188,
+       189,
+       190
+      ],
+      "key": 184,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "862222"
+      ],
+      "err": ""
+     },
+     {
+      "n": 39,
+      "got": [
+       189,
+       190,
+       191
+      ],
+      "key": 184,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "862222"
+      ],
+      "err": ""
+     },
+     {
+      "n": 40,
+      "got": [
+       190,
+       191,
+       192
+      ],
+      "key": 184,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "862222"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 299
+   },
+   "M2-seg": {
+    "exact": 297,
+    "wrong": 3,
+    "bad": [
+     {
+      "n": 147,
+      "got": [
+       147,
+       148,
+       297
+      ],
+      "key": 130,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "546830"
+      ],
+      "err": ""
+     },
+     {
+      "n": 148,
+      "got": [
+       148,
+       298,
+       299
+      ],
+      "key": 130,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "546830"
+      ],
+      "err": ""
+     },
+     {
+      "n": 149,
+      "got": [
+       299
+      ],
+      "key": 130,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "546830"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 287
+   }
+  }
+ },
+ {
+  "fixture": "seek_reset_h264.ts (joined copy)",
+  "frames": 300,
+  "fps": 25.0,
+  "offset": 0.010021999999999975,
+  "delay": 0,
+  "plan": {
+   "preroll": 1.6600000000000006,
+   "container_start": 1.469978
+  },
+  "grid": {
+   "num": 25,
+   "den": 1,
+   "origin": 1.48
+  },
+  "fmt": "mpegts",
+  "packets": 300,
+  "keys": 12,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 300,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 250
+   },
+   "M1": {
+    "exact": 300,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 275
+   },
+   "M2": {
+    "exact": 300,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 275
+   }
+  }
+ },
+ {
+  "fixture": "seek_reset_h264.ts (raw, as the file is)",
+  "frames": 300,
+  "fps": 25.0,
+  "offset": 0.010021999999999975,
+  "delay": 0,
+  "plan": {
+   "preroll": 1.6600000000000006,
+   "container_start": 1.469978
+  },
+  "grid": {
+   "num": 25,
+   "den": 1,
+   "origin": 1.48
+  },
+  "fmt": "mpegts",
+  "packets": 300,
+  "keys": 12,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": false,
+  "methods": {
+   "today": {
+    "exact": 126,
+    "wrong": 174,
+    "bad": [
+     {
+      "n": 126,
+      "got": [
+       276,
+       277,
+       278
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.050022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 127,
+      "got": [
+       277,
+       278,
+       279
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.090022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 128,
+      "got": [
+       278,
+       279,
+       280
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.130022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 129,
+      "got": [
+       279,
+       280,
+       281
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.170022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 130,
+      "got": [
+       280,
+       281,
+       282
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.210022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 131,
+      "got": [
+       281,
+       282,
+       283
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.250022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 132,
+      "got": [
+       282,
+       283,
+       284
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.290022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 133,
+      "got": [
+       283,
+       284,
+       285
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.330022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 134,
+      "got": [
+       284,
+       285,
+       286
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.370022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 135,
+      "got": [
+       285,
+       286,
+       287
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.410022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 136,
+      "got": [
+       286,
+       287,
+       288
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.450022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 137,
+      "got": [
+       287,
+       288,
+       289
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.490022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 138,
+      "got": [
+       288,
+       289,
+       290
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.530022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 139,
+      "got": [
+       289,
+       290,
+       291
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.570022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 140,
+      "got": [
+       290,
+       291,
+       292
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.610022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 141,
+      "got": [
+       291,
+       292,
+       293
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.650022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 142,
+      "got": [
+       292,
+       293,
+       294
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.690022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 143,
+      "got": [
+       293,
+       294,
+       295
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.730022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 144,
+      "got": [
+       294,
+       295,
+       296
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.770022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 145,
+      "got": [
+       295,
+       296,
+       297
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.810022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 146,
+      "got": [
+       296,
+       297,
+       298
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.850022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 147,
+      "got": [
+       297,
+       298,
+       299
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.890022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 148,
+      "got": [
+       298,
+       299
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.930022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 149,
+      "got": [
+       299
+      ],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "3.970022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 150,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": "[h264 @ 0x1550076a0] co located POCs unavailable\n[h264 @ 0x155028660] mmco: unref short failure\n"
+     },
+     {
+      "n": 151,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.050022"
+      ],
+      "err": "[h264 @ 0x16001fa70] mmco: unref short failure\n"
+     },
+     {
+      "n": 152,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.090022"
+      ],
+      "err": "[h264 @ 0x13e30aa10] co located POCs unavailable\n[h264 @ 0x13e31b630] mmco: unref short failure\n"
+     },
+     {
+      "n": 153,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.130022"
+      ],
+      "err": "[h264 @ 0x14760fca0] mmco: unref short failure\n"
+     },
+     {
+      "n": 154,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.170022"
+      ],
+      "err": "[h264 @ 0x115706e20] co located POCs unavailable\n[h264 @ 0x11570f1c0] co located POCs unavailable\n"
+     },
+     {
+      "n": 155,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.210022"
+      ],
+      "err": "[h264 @ 0x14660b8a0] co located POCs unavailable\n"
+     },
+     {
+      "n": 156,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.250022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 157,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.290022"
+      ],
+      "err": "[h264 @ 0x13d806760] co located POCs unavailable\n[h264 @ 0x13d80eb00] co located POCs unavailable\n"
+     },
+     {
+      "n": 158,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.330022"
+      ],
+      "err": "[h264 @ 0x13860bb80] co located POCs unavailable\n[h264 @ 0x138624ca0] mmco: unref short failure\n"
+     },
+     {
+      "n": 159,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.370022"
+      ],
+      "err": "[h264 @ 0x146715bb0] mmco: unref short failure\n"
+     },
+     {
+      "n": 160,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.410022"
+      ],
+      "err": "[h264 @ 0x147e0bb80] co located POCs unavailable\n[h264 @ 0x147e14400] mmco: unref short failure\n[h264 @ 0x147e14400] co located POCs unavailable\n"
+     },
+     {
+      "n": 161,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.450022"
+      ],
+      "err": "[h264 @ 0x1470066b0] co located POCs unavailable\n[h264 @ 0x14701f190] mmco: unref short failure\n"
+     },
+     {
+      "n": 162,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.490022"
+      ],
+      "err": "[h264 @ 0x15361c7a0] mmco: unref short failure\n"
+     },
+     {
+      "n": 163,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.530022"
+      ],
+      "err": "[h264 @ 0x141e0bb80] co located POCs unavailable\n[h264 @ 0x141e14400] mmco: unref short failure\n[h264 @ 0x141e14400] co located POCs unavailable\n"
+     },
+     {
+      "n": 164,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.570022"
+      ],
+      "err": "[h264 @ 0x11ee0b220] co located POCs unavailable\n[h264 @ 0x11ee23d10] mmco: unref short failure\n"
+     },
+     {
+      "n": 165,
+      "got": [],
+      "key": null,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.610022"
+      ],
+      "err": "[h264 @ 0x121e18040] mmco: unref short failure\n"
+     }
+    ],
+    "seeks": 250
+   },
+   "M1": {
+    "exact": 100,
+    "wrong": 200,
+    "bad": [
+     {
+      "n": 100,
+      "got": [
+       250,
+       251,
+       252
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 101,
+      "got": [
+       251,
+       252,
+       253
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 102,
+      "got": [
+       252,
+       253,
+       254
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 103,
+      "got": [
+       253,
+       254,
+       255
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 104,
+      "got": [
+       254,
+       255,
+       256
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 105,
+      "got": [
+       255,
+       256,
+       257
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 106,
+      "got": [
+       256,
+       257,
+       258
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 107,
+      "got": [
+       257,
+       258,
+       259
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 108,
+      "got": [
+       258,
+       259,
+       260
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 109,
+      "got": [
+       259,
+       260,
+       261
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 110,
+      "got": [
+       260,
+       261,
+       262
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 111,
+      "got": [
+       261,
+       262,
+       263
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 112,
+      "got": [
+       262,
+       263,
+       264
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 113,
+      "got": [
+       263,
+       264,
+       265
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 114,
+      "got": [
+       264,
+       265,
+       266
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 115,
+      "got": [
+       265,
+       266,
+       267
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 116,
+      "got": [
+       266,
+       267,
+       268
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 117,
+      "got": [
+       267,
+       268,
+       269
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 118,
+      "got": [
+       268,
+       269,
+       270
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 119,
+      "got": [
+       269,
+       270,
+       271
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 120,
+      "got": [
+       270,
+       271,
+       272
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 121,
+      "got": [
+       271,
+       272,
+       273
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 122,
+      "got": [
+       272,
+       273,
+       274
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 123,
+      "got": [
+       273,
+       274,
+       275
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 124,
+      "got": [
+       274,
+       275,
+       276
+      ],
+      "key": 249,
+      "args": [
+       "-copyts",
+       "-ss",
+       "4.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 125,
+      "got": [
+       275,
+       276,
+       277
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 126,
+      "got": [
+       276,
+       277,
+       278
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 127,
+      "got": [
+       277,
+       278,
+       279
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 128,
+      "got": [
+       278,
+       279,
+       280
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 129,
+      "got": [
+       279,
+       280,
+       281
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 130,
+      "got": [
+       280,
+       281,
+       282
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 131,
+      "got": [
+       281,
+       282,
+       283
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 132,
+      "got": [
+       282,
+       283,
+       284
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 133,
+      "got": [
+       283,
+       284,
+       285
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 134,
+      "got": [
+       284,
+       285,
+       286
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 135,
+      "got": [
+       285,
+       286,
+       287
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 136,
+      "got": [
+       286,
+       287,
+       288
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 137,
+      "got": [
+       287,
+       288,
+       289
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 138,
+      "got": [
+       288,
+       289,
+       290
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     },
+     {
+      "n": 139,
+      "got": [
+       289,
+       290,
+       291
+      ],
+      "key": 275,
+      "args": [
+       "-copyts",
+       "-ss",
+       "5.010022"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 300
+   },
+   "M2": {
+    "exact": 0,
+    "wrong": 300,
+    "bad": [
+     {
+      "n": 0,
+      "got": [
+       150,
+       151,
+       152
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 1,
+      "got": [
+       151,
+       152,
+       153
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 2,
+      "got": [
+       152,
+       153,
+       154
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 3,
+      "got": [
+       153,
+       154,
+       155
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 4,
+      "got": [
+       154,
+       155,
+       156
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 5,
+      "got": [
+       155,
+       156,
+       157
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 6,
+      "got": [
+       156,
+       157,
+       158
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 7,
+      "got": [
+       157,
+       158,
+       159
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 8,
+      "got": [
+       158,
+       159,
+       160
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 9,
+      "got": [
+       159,
+       160,
+       161
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 10,
+      "got": [
+       160,
+       161,
+       162
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 11,
+      "got": [
+       161,
+       162,
+       163
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 12,
+      "got": [
+       162,
+       163,
+       164
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 13,
+      "got": [
+       163,
+       164,
+       165
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 14,
+      "got": [
+       164,
+       165,
+       166
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 15,
+      "got": [
+       165,
+       166,
+       167
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 16,
+      "got": [
+       166,
+       167,
+       168
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 17,
+      "got": [
+       167,
+       168,
+       169
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 18,
+      "got": [
+       168,
+       169,
+       170
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 19,
+      "got": [
+       169,
+       170,
+       171
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 20,
+      "got": [
+       170,
+       171,
+       172
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 21,
+      "got": [
+       171,
+       172,
+       173
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 22,
+      "got": [
+       172,
+       173,
+       174
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 23,
+      "got": [
+       173,
+       174,
+       175
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 24,
+      "got": [
+       174,
+       175,
+       176
+      ],
+      "key": 150,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "275984"
+      ],
+      "err": ""
+     },
+     {
+      "n": 25,
+      "got": [
+       175,
+       176,
+       177
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 26,
+      "got": [
+       176,
+       177,
+       178
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 27,
+      "got": [
+       177,
+       178,
+       179
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 28,
+      "got": [
+       178,
+       179,
+       180
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 29,
+      "got": [
+       179,
+       180,
+       181
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 30,
+      "got": [
+       180,
+       181,
+       182
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 31,
+      "got": [
+       181,
+       182,
+       183
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 32,
+      "got": [
+       182,
+       183,
+       184
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 33,
+      "got": [
+       183,
+       184,
+       185
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 34,
+      "got": [
+       184,
+       185,
+       186
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 35,
+      "got": [
+       185,
+       186,
+       187
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 36,
+      "got": [
+       186,
+       187,
+       188
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 37,
+      "got": [
+       187,
+       188,
+       189
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 38,
+      "got": [
+       188,
+       189,
+       190
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     },
+     {
+      "n": 39,
+      "got": [
+       189,
+       190,
+       191
+      ],
+      "key": 173,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "318284"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 300
+   },
+   "M2-seg": {
+    "exact": 297,
+    "wrong": 3,
+    "bad": [
+     {
+      "n": 147,
+      "got": [
+       147,
+       148,
+       299
+      ],
+      "key": 123,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "225788"
+      ],
+      "err": ""
+     },
+     {
+      "n": 148,
+      "got": [
+       148,
+       299
+      ],
+      "key": 123,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "225788"
+      ],
+      "err": ""
+     },
+     {
+      "n": 149,
+      "got": [
+       299
+      ],
+      "key": 123,
+      "args": [
+       "-copyts",
+       "-skip_initial_bytes",
+       "225788"
+      ],
+      "err": ""
+     }
+    ],
+    "seeks": 274
+   }
+  }
+ },
+ {
+  "fixture": "interlaced_test.avi",
+  "frames": 79,
+  "fps": 25.0,
+  "offset": 0.0,
+  "delay": 0,
+  "plan": null,
+  "grid": {
+   "num": 25,
+   "den": 1,
+   "origin": 0.0
+  },
+  "fmt": "avi",
+  "packets": 75,
+  "keys": 75,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 79,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 70
+   },
+   "M1": {
+    "exact": 79,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 74
+   }
+  }
+ },
+ {
+  "fixture": "null_frames_mid.avi",
+  "frames": 200,
+  "fps": 25.0,
+  "offset": 0.0,
+  "delay": 0,
+  "plan": null,
+  "grid": {
+   "num": 25,
+   "den": 1,
+   "origin": 0.0
+  },
+  "fmt": "avi",
+  "packets": 195,
+  "keys": 195,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 200,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 191
+   },
+   "M1": {
+    "exact": 200,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 199
+   }
+  }
+ },
+ {
+  "fixture": "soft_telecine_test.mkv",
+  "frames": 120,
+  "fps": 23.976023976023978,
+  "offset": 0.0,
+  "delay": 0,
+  "plan": null,
+  "grid": {
+   "num": 24000,
+   "den": 1001,
+   "origin": 0.0
+  },
+  "fmt": "matroska,webm",
+  "packets": 120,
+  "keys": 8,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 120,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 111
+   },
+   "M1": {
+    "exact": 120,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 105
+   }
+  }
+ },
+ {
+  "fixture": "soft_telecine_dvd.vob",
+  "frames": 149,
+  "fps": 29.97002997002997,
+  "offset": 0.0,
+  "delay": 0,
+  "plan": {
+   "preroll": 1.0505560000000007,
+   "container_start": 0.550056
+  },
+  "grid": {
+   "num": 30000,
+   "den": 1001,
+   "origin": 0.550056
+  },
+  "fmt": "mpeg",
+  "packets": 120,
+  "keys": 10,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 149,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 109
+   },
+   "M1": {
+    "exact": 149,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 134
+   },
+   "M2": {
+    "exact": 149,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 134
+   }
+  }
+ },
+ {
+  "fixture": "soft_telecine_dvd.mkv",
+  "frames": 150,
+  "fps": 29.97002997002997,
+  "offset": 0.0,
+  "delay": 0,
+  "plan": null,
+  "grid": {
+   "num": 30000,
+   "den": 1001,
+   "origin": 0.0
+  },
+  "fmt": "matroska,webm",
+  "packets": 120,
+  "keys": 10,
+  "keys_without_pts": 0,
+  "packets_without_pts": 0,
+  "placed_agrees": true,
+  "methods": {
+   "today": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 141
+   },
+   "M1": {
+    "exact": 150,
+    "wrong": 0,
+    "bad": [],
+    "seeks": 135
+   }
+  }
+ }
+]

@@ -1,0 +1,454 @@
+{
+ "rust": [
+  {
+   "file": "source_decode.rs",
+   "item": "pub const SEEK_PROBE_SECONDS",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "retired",
+   "why": "M2 (byte start at K) exact on every TS/PS start; replaces the GOP-sized preroll and its probe",
+   "lines": 2,
+   "at": 428
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub const SEEK_PROBE_ARGS",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "retired",
+   "why": "M2 (byte start at K) exact on every TS/PS start; replaces the GOP-sized preroll and its probe",
+   "lines": 9,
+   "at": 432
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub const SEEK_PREROLL_MARGIN",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "retired",
+   "why": "M2 (byte start at K) exact on every TS/PS start; replaces the GOP-sized preroll and its probe",
+   "lines": 3,
+   "at": 442
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub const SEEK_PREROLL_MIN",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "retired",
+   "why": "M2 (byte start at K) exact on every TS/PS start; replaces the GOP-sized preroll and its probe",
+   "lines": 2,
+   "at": 445
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn seek_plan_from_probe",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "retired",
+   "why": "M2 (byte start at K) exact on every TS/PS start; replaces the GOP-sized preroll and its probe",
+   "lines": 43,
+   "at": 479
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn probe_seek_plan",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "retired",
+   "why": "M2 (byte start at K) exact on every TS/PS start; replaces the GOP-sized preroll and its probe",
+   "lines": 20,
+   "at": 514
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub struct SeekPlan",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "simplified",
+   "why": "keeps container_start (the no-grid PS trim) and becomes \"this source starts by byte\"",
+   "lines": 13,
+   "at": 452
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "impl SeekPlan",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "unchanged",
+   "why": "validity check",
+   "lines": 6,
+   "at": 461
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn decoder_seek",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "simplified",
+   "why": "the preroll arithmetic becomes a byte offset",
+   "lines": 21,
+   "at": 580
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub const TIMESTAMP_SEARCH_FORMATS",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "unchanged",
+   "why": "still decides who starts by byte",
+   "lines": 5,
+   "at": 425
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn trim_filter",
+   "correction": "C3 microsecond round-up",
+   "verdict": "unchanged",
+   "why": "still formats seconds: delayed AVI seeks, the no-grid PS trim, and M1 itself (rounded down instead)",
+   "lines": 5,
+   "at": 398
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn seek_arg",
+   "correction": "C3 microsecond round-up",
+   "verdict": "unchanged",
+   "why": "still formats seconds: delayed AVI seeks, the no-grid PS trim, and M1 itself (rounded down instead)",
+   "lines": 12,
+   "at": 417
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn seek_time",
+   "correction": "C3 microsecond round-up",
+   "verdict": "unchanged",
+   "why": "every time-seeked source",
+   "lines": 16,
+   "at": 381
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn stores_decode_order",
+   "correction": "C2 AVI decoder delay",
+   "verdict": "unchanged",
+   "why": "needs display order; MPEG-2 in AVI stores its I/P packets without PTS and open GOPs drop leading Bs: count from K was 13/90",
+   "lines": 10,
+   "at": 275
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub const DECODER_DELAY_PROBE_ARGS",
+   "correction": "C2 AVI decoder delay",
+   "verdict": "unchanged",
+   "why": "needs display order; MPEG-2 in AVI stores its I/P packets without PTS and open GOPs drop leading Bs: count from K was 13/90",
+   "lines": 10,
+   "at": 284
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub const MAX_DECODER_DELAY",
+   "correction": "C2 AVI decoder delay",
+   "verdict": "unchanged",
+   "why": "needs display order; MPEG-2 in AVI stores its I/P packets without PTS and open GOPs drop leading Bs: count from K was 13/90",
+   "lines": 2,
+   "at": 293
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn decoder_delay_from_probe",
+   "correction": "C2 AVI decoder delay",
+   "verdict": "unchanged",
+   "why": "needs display order; MPEG-2 in AVI stores its I/P packets without PTS and open GOPs drop leading Bs: count from K was 13/90",
+   "lines": 37,
+   "at": 303
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn probe_video_timing",
+   "correction": "C2 AVI decoder delay",
+   "verdict": "unchanged",
+   "why": "needs display order; MPEG-2 in AVI stores its I/P packets without PTS and open GOPs drop leading Bs: count from K was 13/90",
+   "lines": 18,
+   "at": 336
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub struct DecoderSeek",
+   "correction": "C2 AVI decoder delay",
+   "verdict": "unchanged",
+   "why": "needs display order; MPEG-2 in AVI stores its I/P packets without PTS and open GOPs drop leading Bs: count from K was 13/90",
+   "lines": 15,
+   "at": 538
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "impl DecoderSeek",
+   "correction": "C2 AVI decoder delay",
+   "verdict": "unchanged",
+   "why": "needs display order; MPEG-2 in AVI stores its I/P packets without PTS and open GOPs drop leading Bs: count from K was 13/90",
+   "lines": 26,
+   "at": 549
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub const COUNT_SEEK_BELOW",
+   "correction": "C4 COUNT_SEEK_BELOW",
+   "verdict": "unchanged",
+   "why": "tied to C2: a delayed AVI still seeks by time",
+   "lines": 5,
+   "at": 602
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn trim_frames_filter",
+   "correction": "C4 COUNT_SEEK_BELOW",
+   "verdict": "unchanged",
+   "why": "tied to C2: a delayed AVI still seeks by time",
+   "lines": 5,
+   "at": 404
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn source_seek",
+   "correction": "C4 COUNT_SEEK_BELOW",
+   "verdict": "unchanged",
+   "why": "tied to C2: a delayed AVI still seeks by time",
+   "lines": 27,
+   "at": 612
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn sound_seek_fails",
+   "correction": "C4 COUNT_SEEK_BELOW",
+   "verdict": "unchanged",
+   "why": "the sound, not the picture (rule 9)",
+   "lines": 12,
+   "at": 897
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub enum SoundSeek",
+   "correction": "C4 COUNT_SEEK_BELOW",
+   "verdict": "unchanged",
+   "why": "the sound, not the picture (rule 9)",
+   "lines": 12,
+   "at": 904
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn sound_seek",
+   "correction": "C4 COUNT_SEEK_BELOW",
+   "verdict": "unchanged",
+   "why": "the sound, not the picture (rule 9)",
+   "lines": 10,
+   "at": 915
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub const GRID_LOOKBACK_SLOTS",
+   "correction": "C5 grid lookback",
+   "verdict": "unchanged",
+   "why": "M1 exact on every grid source, but only with an index of MP4/MOV/MKV/AVI too, a full read they do not pay today",
+   "lines": 5,
+   "at": 636
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn filters_from_first_picture",
+   "correction": "C6 frame-0 -copyts exception",
+   "verdict": "unchanged",
+   "why": "-copyts stops at a reset whatever starts the decode (byte or time)",
+   "lines": 9,
+   "at": 671
+  },
+  {
+   "file": "source_decode.rs",
+   "item": "pub fn decode_start",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "simplified",
+   "why": "the plan branch becomes a byte start",
+   "lines": 34,
+   "at": 855
+  },
+  {
+   "file": "source_continuity.rs",
+   "item": "pub const PACKETS_PROBE_ARGS",
+   "correction": "C7 joined copy",
+   "verdict": "simplified",
+   "why": "widened (pts, flags, pos) to carry the index: grows, not shrinks",
+   "lines": 8,
+   "at": 57
+  },
+  {
+   "file": "source_continuity.rs",
+   "item": "pub fn scan",
+   "correction": "C7 joined copy",
+   "verdict": "unchanged",
+   "why": "byte start reaches a later segment only within it; a decode across a reset still stops",
+   "lines": 41,
+   "at": 197
+  },
+  {
+   "file": "main.rs",
+   "item": "fn fill_seek_plan",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "retired",
+   "why": "replaced by filling the index (new code below)",
+   "lines": 24,
+   "at": 976
+  }
+ ],
+ "dart": [
+  {
+   "item": "static const seekProbeSeconds",
+   "correction": "C1 SeekPlan preroll",
+   "lines": 2,
+   "at": 802
+  },
+  {
+   "item": "static const seekPrerollMargin",
+   "correction": "C1 SeekPlan preroll",
+   "lines": 2,
+   "at": 805
+  },
+  {
+   "item": "static const seekPrerollMin",
+   "correction": "C1 SeekPlan preroll",
+   "lines": 2,
+   "at": 808
+  },
+  {
+   "item": "static const seekProbeArgs",
+   "correction": "C1 SeekPlan preroll",
+   "lines": 9,
+   "at": 812
+  },
+  {
+   "item": "static SeekPlan? seekPlanFromProbe",
+   "correction": "C1 SeekPlan preroll",
+   "lines": 41,
+   "at": 835
+  },
+  {
+   "item": "static Future<SeekPlan?> probeSeekPlan",
+   "correction": "C1 SeekPlan preroll",
+   "lines": 18,
+   "at": 873
+  },
+  {
+   "item": "static ({List<String> input, String? trim}) seekArgs",
+   "correction": "C1 SeekPlan preroll",
+   "lines": 18,
+   "at": 1086
+  },
+  {
+   "item": "static String formatSeek",
+   "correction": "C3 microsecond round-up",
+   "lines": 7,
+   "at": 1107
+  },
+  {
+   "item": "static const countSeekBelow",
+   "correction": "C4 COUNT_SEEK_BELOW",
+   "lines": 4,
+   "at": 1113
+  },
+  {
+   "item": "static ({List<String> input, String? trim})? frameSeekArgs",
+   "correction": "C4 COUNT_SEEK_BELOW",
+   "lines": 30,
+   "at": 1122
+  },
+  {
+   "item": "static const lookbackSlots",
+   "correction": "C5 grid lookback",
+   "lines": 3,
+   "at": 1178
+  },
+  {
+   "item": "static const decoderDelayProbeArgs",
+   "correction": "C2 AVI decoder delay",
+   "lines": 11,
+   "at": 954
+  },
+  {
+   "item": "static int decoderDelayFromProbe",
+   "correction": "C2 AVI decoder delay",
+   "lines": 35,
+   "at": 980
+  },
+  {
+   "item": "static Future<int> probeDecoderDelay",
+   "correction": "C2 AVI decoder delay",
+   "lines": 29,
+   "at": 1014
+  }
+ ],
+ "vectors": [
+  {
+   "file": "seek_probe_dvbt.json",
+   "correction": "C1 SeekPlan preroll",
+   "verdict": "retired",
+   "lines": 257
+  },
+  {
+   "file": "seek_arg_cases.json",
+   "correction": "C3 microsecond round-up",
+   "verdict": "unchanged",
+   "lines": 285
+  },
+  {
+   "file": "source_grid_vectors.json",
+   "correction": "C5 grid lookback",
+   "verdict": "unchanged",
+   "lines": 42
+  },
+  {
+   "file": "decoder_delay_probe_avi.json",
+   "correction": "C2 AVI decoder delay",
+   "verdict": "unchanged",
+   "lines": 156
+  }
+ ],
+ "new": [
+  {
+   "what": "index parse + store (I-key: key PTS + byte position)",
+   "python_lines": 10,
+   "rust_estimate": 20
+  },
+  {
+   "what": "K for a grid slot",
+   "python_lines": 9,
+   "rust_estimate": 18
+  },
+  {
+   "what": "fps-filter slot of a PTS",
+   "python_lines": 8,
+   "rust_estimate": 16
+  },
+  {
+   "what": "byte start",
+   "python_lines": 7,
+   "rust_estimate": 14
+  },
+  {
+   "what": "fill + carry the index (as fill_seek_plan + SeekPlan do today)",
+   "python_lines": null,
+   "rust_estimate": 37
+  }
+ ],
+ "claude_md": {
+  "rule": "MPEG-TS/PS seek a GOP early (issue #169)",
+  "lines": 28,
+  "verdict": "rewritten"
+ },
+ "tests": {
+  "lines": 38,
+  "names": [
+   "the_dvbt_plan_is_one_gop_plus_reorder_plus_margin",
+   "only_timestamp_searched_formats_get_a_plan",
+   "the_preroll_has_a_floor_and_a_fallback",
+   "the_seek_probe_reads_the_window_it_says"
+  ]
+ },
+ "summary": {
+  "rust_retired": 103,
+  "rust_simplified": 76,
+  "rust_unchanged": 288,
+  "rust_tests_retired": 38,
+  "dart_twins": 211,
+  "dart_twins_c1": 92,
+  "new_rust_estimate": 105
+ }
+}
