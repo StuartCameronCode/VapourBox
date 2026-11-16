@@ -376,11 +376,17 @@ garbage-collected, which 404'd the Linux deps build outright. All four now pin
 Pinning differs per host because their retention does, and that is deliberate:
 
 - **BtbN** (Windows, Linux) — series URL, rolls patches within 9.0.
-- **evermeet** (macOS x64) — an exact version, `FFMPEG_MACOS_X64_VERSION`. It
-  keeps old versions reachable (verified: 7.1, 8.0 and 9.0.1 all still resolve),
-  so a full-version pin is durable here.
+- **evermeet** (macOS x64 until deps 1.17.0-rc1) — an exact version,
+  `FFMPEG_MACOS_X64_VERSION`. It keeps old versions reachable (verified: 7.1,
+  8.0 and 9.0.1 all still resolve), so a full-version pin is durable here.
 - **martin-riedl** (macOS arm64) — only `latest` plus opaque build-id paths of
   unknown retention, so it takes latest and is **checked afterwards**.
+
+*Update (2026-11-16, task #45):* macOS x64 now takes martin-riedl's amd64
+build, pinned by build ID and SHA-256 (`FFMPEG_MACOS_X64_BUILD`): the build-ID
+paths turned out to be retained (the release history lists every build back
+to 5.0, and 2022 builds still download), so their retention is no longer
+unknown. arm64 still takes `latest`.
 
 Two guards, and both are needed. `assert_ffmpeg_series` in each script runs
 `ffmpeg -version` on what was actually installed and fails the build if it is
@@ -4485,6 +4491,9 @@ Full evidence:
 - `VideoCodec::Av1` (`libsvtav1`, `EncoderFamily::SvtAv1`), MP4/MKV only:
   FFmpeg refuses AV1 in MOV ("av1 only supported in MP4 and AVIF"), AVI muxes
   a non-standard `AV01` fourcc. The worker refuses either (`container_problem`).
+- *Update (2026-11-16, task #45): from deps 1.17.0-rc2 the macOS x64 FFmpeg is
+  martin-riedl's 9.0.2, with SVT-AV1, so the next bullet describes earlier
+  bundles; see the task #45 entry below.*
 - **The macOS x64 FFmpeg (evermeet 9.0.1) has no `libsvtav1`**, only libaom;
   arm64 (martin-riedl 9.0.2) has SVT-AV1 v4.2.0, libaom and rav1e. The app's
   encoder detector shows AV1 unavailable there and the worker refuses it up
@@ -4798,3 +4807,39 @@ Task #42's plan, R2b. Report: [docs/reports/task-48-plugin-format-contracts](rep
 - Limits: a cell is "ok" when a frame can be requested. A plugin that accepts
   a format and misreads it (Depan, #32) passes. Only the macOS arm64 bundle
   was measured; other platforms are held to its table by CI.
+
+### macOS x64 FFmpeg with SVT-AV1 (task #45, 2026-11-16)
+
+Full evidence:
+[docs/reports/task-45-macos-x64-ffmpeg-svtav1/](reports/task-45-macos-x64-ffmpeg-svtav1/index.html).
+
+- evermeet's static x64 FFmpeg (9.0.1, deps <= 1.17.0-rc1) has no
+  `libsvtav1`, so AV1 output (task #40) was unavailable on Intel Macs.
+  martin-riedl.de, the arm64 source, publishes a static **amd64** release
+  build from the same build run: 9.0.2, SVT-AV1 v4.2.0, minos **12.0** (our
+  floor), only `/System` frameworks and `/usr/lib` (`check-macho-refs.py`
+  clean). Deps 1.17.0-rc2 ships it, pinned by build ID `1789931006_9.0.2` and
+  SHA-256 per zip. `download-deps-macos.sh` now fails if either arch's FFmpeg
+  lacks `libsvtav1` (`assert_ffmpeg_encoder`), and the push-gate test lost its
+  macOS x64 exception.
+- **Nothing VapourBox produces changes, apart from encoder version strings.**
+  Native encoders (ProRes 0–4, FFV1, HuffYUV, FFVHuff, v210, AAC, AC-3, Opus,
+  FLAC, PCM) are byte-identical. x264, x265 and MP3 bitstreams differ only in
+  the encoder's version text (x264's SEI omits evermeet's `r3223 0480cb0`,
+  x265 reports `4.0+1` vs `4.2+37`, the LAME tag): the decoded pictures and
+  samples are identical on three real fixtures (3–14 bytes apart in size).
+  Every one of the 30 media fixtures decodes to identical frames, and the HDR
+  display tone-map and a subtitle burn-in give identical pixels.
+- **What the new build lacks** (and nothing here uses, checked by grep):
+  libgsm/libspeex/opencore-amr/vo-amrwbenc, libshine/libtwolame/libxvid/libxavs,
+  the rubberband/sofalizer/vidstab/zmq filters, the AviSynth and libmodplug
+  demuxers. Gains libsvtav1, librav1e, libvvenc.
+- **Limits.** Measured under Rosetta 2 (AVX2 paths), not on an Intel Mac; CI's
+  `macos-15-intel` runs the heavy suite on it. `check-load-time-simd.py` finds
+  no VEX in the initializers themselves (depth 0) of either build, but cannot
+  follow a 90 MB stripped static binary further (both builds flag
+  mis-symbolised chains), so pre-AVX Macs on the v2 tier rely on FFmpeg's and
+  its libraries' run-time SIMD dispatch, as they did with evermeet. +16 MB to
+  download. martin-riedl's amd64 *snapshot* channel stopped in 2026-01 while
+  release builds continue; the build-ID pin works regardless, but a future
+  FFmpeg series may need another source.
