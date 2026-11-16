@@ -815,6 +815,23 @@ final knownFailures = <KnownFailure>[
     task: knownFailuresTask,
     finding: 'F1: MCTemporalDenoise fails when the width is 2 mod 4 on 4:2:0/4:2:2',
   ),
+  // After F2, so F2's rows keep F2's match. Seen on the Linux x64 push gate
+  // (an AVX-512 runner), every row of these four presets; the others pass.
+  // Flaky: the hosted fleet is mixed for AVX-512, so a passing row on another
+  // draw proves nothing.
+  for (final preset in ['Very Fast', 'Super Fast', 'Ultra Fast', 'Draft'])
+    KnownFailure(
+      variant: 'deinterlace/qtgmc[preset=$preset]',
+      check: SweepCheck.runs,
+      rows: (r) => Platform.isLinux,
+      error: 'vspipe failed',
+      task: knownFailuresTask,
+      finding: 'F9: QTGMC $preset dies in vspipe on Linux x64 with no Python '
+          'error (likely a native crash). The four presets alone share '
+          'Overlap = blocksize/4 and SearchParam 1 (MVTools). The preview '
+          'path drops vspipe\'s exit status whenever stderr has a line',
+      flaky: true,
+    ),
 ];
 
 KnownFailure? knownFailureFor(String variantId, SweepRow row, SweepCheck check) {
