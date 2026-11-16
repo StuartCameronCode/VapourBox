@@ -4870,3 +4870,37 @@ Report: [docs/reports/task-49-output-conformance](reports/task-49-output-conform
   wrong pictures with no error. Plus an off-grid reset join (16 ms late,
   read as 125 fps). The deterministic cases are `knownFailures`; the
   `pipe_source` one cannot be, so the matrix fails intermittently until #58.
+### A packet index instead of time seeks: probed, not built (task #51, 2026-11-16)
+
+Full evidence:
+[docs/reports/2026-11-packet-index-seek/](reports/2026-11-packet-index-seek/index.html).
+
+- The idea (task #42's plan, R3c): list every video packet's PTS, key flag
+  and byte position at analysis, then start each decode at key packet K and
+  select by PTS, retiring the per-container seek corrections.
+- **Cost is fine where a whole-file pass already exists.** Folded into the
+  TS/PS reset scan's packet pass: 17.5 vs 17.3 s/GB cold on an SMB share
+  (both link-bound, `cat` 16.5), 1.10× the pass's CPU with integer
+  timestamps (1.26× printing seconds). Key packets only: 426 kB for a 2 h
+  DVD. For MP4/MOV/MKV/AVI it's all new: they have no scan today, and a
+  2.6 GB MKV on the share takes 45 s.
+- **Correctness:** a byte start (`-copyts -skip_initial_bytes pos(K)`) was
+  exact on every TS/PS start of every seek-suite and grid-suite fixture
+  (1 177) and at 10/50/95 % of a real 2 h DVD. A time seek to K was not, on
+  the DVB-T TS (40/128, #169's next-keyframe landing). On indexed containers
+  a time seek to K with K from the fps-filter slot was exact everywhere.
+- **It retires only C1, the SeekPlan preroll** (~103 Rust lines + 38 of
+  tests, for ~105 new). The AVI decoder delay stays: MPEG-2 in AVI stores
+  its I/P packets without PTS, shows the I picture 3 places after its decode
+  position, and a decode from K drops the open GOP's leading Bs (count from
+  K: 13/90; H.264 AVI 90/90). Seeking a delayed source by key needs +3/23 s
+  and `-noaccurate_seek` (ffmpeg's dts heuristic), or it lands a key early.
+  The µs round-up, the count near the start, the frame-0 `-copyts` exception
+  and the joined copy stay too: a segment-aware byte start reaches a later
+  segment but fails where a decode crosses the reset (297/300).
+- Reopen only for a TS/PS whose GOP grows after the 20 s the SeekPlan
+  measures (none found): there, a merged-pass index with M2 is the cheap form.
+- Found on the way: today's reset scan blocks analysis for the whole read,
+  77 s for that 4.48 GB title on the share (task #55). The real title had no
+  timestamp reset; its DVD PS packets often lack PTS (key packets too, in
+  the small fixture), so DVD PS gets no source grid.

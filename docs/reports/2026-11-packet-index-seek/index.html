@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Packet-index seeks</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --series-1: #2a78d6; --grid: #e6e5e0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --series-1: #3987e5; --grid: #2a2a27;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+    --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+    --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    --series-1: #3987e5; --grid: #2a2a27;
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+  svg text { fill: var(--text-secondary); font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  svg .val { fill: var(--text-primary); font-variant-numeric: tabular-nums; }
+  svg .bar { fill: var(--series-1); }
+  svg .bar:hover { opacity: .8; }
+  svg .gridline { stroke: var(--grid); stroke-width: 1; }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #51: position decodes by a packet index instead of time seeks?</h1>
+<p class="meta">2026-11-16 · probe R3c of task #42's plan · measured on an Apple M-series Mac (macOS
+arm64, 16 GB), deps 1.16.0 (FFmpeg 9.0.2), this branch's debug worker, a 2 h 16 min PAL DVD on an SMB
+share (≈ 60 MB/s) · the Mac was shared with another task's test run throughout (load average
+30–126), so wall times on the internal disk are noisy and CPU times are given beside them</p>
+
+<div class="card">
+<strong>Outcome: against, as a replacement for the per-container corrections.</strong> An index of
+every video packet (PTS, key flag, byte position) is cheap to add <em>where a whole-file pass
+already happens</em>: folded into today's timestamp-reset scan of a TS/PS it costs the same on a
+network share (17.5 vs 17.3 s/GB, both bound by the link) and 1.10× the scan's packet pass in CPU
+with integer timestamps. Starting the decoder at key packet K's <strong>byte position</strong> is
+<span class="good">exact on every start frame of every TS/PS fixture</span> (and at 10/50/95 % of
+the 2 h title), so it can replace the SeekPlan GOP preroll (C1). But that is the only
+correction it retires. <span class="bad">The AVI decoder delay (C2) and the count near the start
+(C4) survive</span>: an MPEG-2 AVI stores its I and P packets with no PTS and drops an open GOP's
+leading B pictures after a seek, so counting from K was right on 13 of 90 starts. The
+microsecond round-up (C3), the frame-0 exception (C6) and the joined copy (C7) survive too. The grid
+lookback (C5) would go only by indexing MP4/MOV/MKV/AVI, a whole-file read those formats do not
+pay today (45 s for a 2.6 GB MKV on the share). Net: about 103 lines of Rust and 38 of tests retired
+for about 105 new, against the criterion of C1 <em>and</em> C3/C4 retired with code removed.
+<br><br>
+<strong>Separately:</strong> today's reset scan of the 2 h title on the share reads the whole
+4.48 GB before analysis shows anything: <span class="warn">77 s</span>, at the link's speed. That is
+a live cost of the current code, not of the index; filed as its own task (see §9).
+</div>
+
+<h2>1. The question</h2>
+<p>Today a decoder reaches frame N with a <strong>time</strong> seek and then corrects for the
+container. Each correction was its own task. The idea (task #42's plan, R3c): at analysis,
+<code>ffprobe -show_packets</code> lists every video packet's PTS, DTS, key flag and byte position
+without decoding; frame N becomes "start decoding at key packet K, keep the picture whose PTS is
+p<sub>N</sub>". The decision criteria were fixed in the plan before measuring
+(<a href="#criteria">§7</a>).</p>
+
+<h2>2. The corrections, one verdict each</h2>
+<div class="scroll"><table>
+<tr><th>#</th><th>Correction (task)</th><th>Verdict</th><th>Why (evidence)</th></tr>
+<tr><td>C1</td><td>SeekPlan GOP preroll + absolute trim for TS/PS (#169)</td><td class="good">retired by M2</td>
+<td>A byte start at K (<code>-copyts -skip_initial_bytes pos(K)</code>) was exact on all 1 177 TS/PS
+starts (§4); a time seek to K (M1) was not on the DVB-T capture (40/128: it lands on the next
+keyframe, #169's fault). The no-grid PS keeps its absolute time trim.</td></tr>
+<tr><td>C2</td><td>AVI decoder delay (#173)</td><td class="bad">survives</td>
+<td>Counting pictures from K needs K's <em>display</em> index. H.264 in AVI (closed GOPs): 90/90.
+MPEG-2 in AVI: 13/90 — its I/P packets carry no PTS, the I picture is shown 3 places after its
+decode position, and a decode from K drops the open GOP's leading B pictures. Only a decoder
+knows either.</td></tr>
+<tr><td>C3</td><td>Microsecond round-up <code>seek_arg</code> (#173)</td><td class="bad">survives</td>
+<td>Still formats seconds: delayed-AVI seeks, the no-grid PS trim, and M1 itself (which needs the
+opposite rounding, down, so the accurate-seek drop never takes K).</td></tr>
+<tr><td>C4</td><td><code>COUNT_SEEK_BELOW</code> (#173, #22)</td><td class="bad">survives</td>
+<td>Tied to C2. The count method did fix ffmpeg's 3/23 s early start (seeking 3/23 s past K's
+DTS, no accurate seek: H.264 AVI 30/90 → 90/90), but only where counting works.</td></tr>
+<tr><td>C5</td><td>8-slot grid lookback (#174)</td><td class="warn">retirable, not worth it</td>
+<td>M1 with K = last key whose fps-filter slot ≤ N was exact on every grid source but the DVB-T TS (MP4, MOV, MKV,
+AVI, TS, PS: 4 629 starts; the DVB-T TS needs M2's byte start, as for C1). But it needs every key packet's PTS of an indexed container: a whole-file
+read MP4/MOV/MKV/AVI do not pay today. The per-seek window (I-window) avoids that only by
+guessing a window longer than the GOP — the guess C1 makes today.</td></tr>
+<tr><td>C6</td><td>Frame-0 no-<code>-copyts</code> exception (#174)</td><td class="bad">survives</td>
+<td><code>-copyts</code> stops at a reset however the decode starts.</td></tr>
+<tr><td>C7</td><td>Joined copy of a TS/PS whose clock resets (#21)</td><td class="bad">survives</td>
+<td>A segment-aware byte start reaches a later segment (297/300 on both raw reset fixtures), and
+fails exactly where the 3-picture window crosses the reset (147–149). Any decode across a reset,
+an untrimmed encode included, still stops.</td></tr>
+</table></div>
+
+<h2>3. Index cost (A)</h2>
+<p>Sources: a real 2 h 16 min PAL DVD title (VTS_01_1–5.VOB, 4.48 GB, 204 418 video packets,
+17 324 keyframes, <strong>no timestamp reset</strong> — the first real DVD measured for #21's
+question), read in place on the share; the same title joined with <code>cat</code> on the internal
+SSD; its MKV remux (the indexed control); and two other 1080p H.264 MKVs on the share. The share
+caches some reads and not others (a file read once came back cold later), so the cold runs rotate
+the four 1 GB VOBs: each probe reads a different part each round, 3 rounds, and any run faster than
+5 s/GB counts as cached (none did).</p>
+
+<figure>
+<svg viewBox="0 0 640 170" width="100%" role="img" aria-label="Cold read on the share, seconds per GB, median of 3">
+  <line class="gridline" x1="260" y1="20" x2="260" y2="150"/><line class="gridline" x1="352" y1="20" x2="352" y2="150"/>
+  <line class="gridline" x1="444" y1="20" x2="444" y2="150"/><line class="gridline" x1="536" y1="20" x2="536" y2="150"/>
+  <text x="260" y="165" text-anchor="middle">0</text><text x="352" y="165" text-anchor="middle">5</text>
+  <text x="444" y="165" text-anchor="middle">10</text><text x="536" y="165" text-anchor="middle">15</text>
+  <text x="250" y="40" text-anchor="end">read the file (cat)</text>
+  <rect class="bar" x="260" y="27" width="303.8" height="18" rx="4"><title>cat: 16.5 s/GB (16.3, 16.5, 17.1)</title></rect>
+  <text class="val" x="569" y="40">16.5</text>
+  <text x="250" y="70" text-anchor="end">reset scan today</text>
+  <rect class="bar" x="260" y="57" width="318.9" height="18" rx="4"><title>--scan-timestamps: 17.3 s/GB (17.2, 17.3, 17.4)</title></rect>
+  <text class="val" x="584" y="70">17.3</text>
+  <text x="250" y="100" text-anchor="end">scan pass + index fields</text>
+  <rect class="bar" x="260" y="87" width="321.3" height="18" rx="4"><title>merged index: 17.5 s/GB (17.1, 17.5, 17.5)</title></rect>
+  <text class="val" x="587" y="100">17.5</text>
+  <text x="250" y="130" text-anchor="end">index, video only</text>
+  <rect class="bar" x="260" y="117" width="315" height="18" rx="4"><title>video-only index: 17.1 s/GB (16.8, 17.1, 17.5)</title></rect>
+  <text class="val" x="581" y="130">17.1</text>
+</svg>
+<p class="caption">Figure 1. Cold, on the SMB share: seconds per GB, median of 3 runs on different
+1 GB parts of the DVD title (hover a bar for the runs). Every probe runs at the link's speed: on a
+share the index fields cost nothing measurable.</p>
+</figure>
+
+<figure>
+<svg viewBox="0 0 640 200" width="100%" role="img" aria-label="Warm, internal SSD: CPU seconds per GB, median of 5">
+  <line class="gridline" x1="260" y1="20" x2="260" y2="180"/><line class="gridline" x1="360" y1="20" x2="360" y2="180"/>
+  <line class="gridline" x1="460" y1="20" x2="460" y2="180"/><line class="gridline" x1="560" y1="20" x2="560" y2="180"/>
+  <text x="260" y="195" text-anchor="middle">0</text><text x="360" y="195" text-anchor="middle">0.5</text>
+  <text x="460" y="195" text-anchor="middle">1.0</text><text x="560" y="195" text-anchor="middle">1.5</text>
+  <text x="250" y="40" text-anchor="end">reset scan today, whole</text>
+  <rect class="bar" x="260" y="27" width="316" height="18" rx="4"><title>--scan-timestamps: 1.58 CPU s/GB (7.09 s for the title)</title></rect>
+  <text class="val" x="582" y="40">1.58</text>
+  <text x="250" y="70" text-anchor="end">its packet pass only</text>
+  <rect class="bar" x="260" y="57" width="220" height="18" rx="4"><title>packet pass: 1.10 CPU s/GB (4.90 s)</title></rect>
+  <text class="val" x="486" y="70">1.10</text>
+  <text x="250" y="100" text-anchor="end">pass + index, seconds</text>
+  <rect class="bar" x="260" y="87" width="276" height="18" rx="4"><title>merged index, formatted times: 1.38 CPU s/GB (6.18 s)</title></rect>
+  <text class="val" x="542" y="100">1.38</text>
+  <text x="250" y="130" text-anchor="end">pass + index, integer</text>
+  <rect class="bar" x="260" y="117" width="242" height="18" rx="4"><title>merged index, integer timestamps: 1.21 CPU s/GB (5.40 s)</title></rect>
+  <text class="val" x="508" y="130">1.21</text>
+  <text x="250" y="160" text-anchor="end">index, video only</text>
+  <rect class="bar" x="260" y="147" width="122" height="18" rx="4"><title>video-only index: 0.61 CPU s/GB (2.71 s)</title></rect>
+  <text class="val" x="388" y="160">0.61</text>
+</svg>
+<p class="caption">Figure 2. Warm, internal SSD, the 4.48 GB title: CPU seconds per GB (user + sys of
+ffprobe/the worker), median of 5. The machine was busy, so wall time was up to 2× CPU time on some
+runs; CPU is the comparable measure. The index rides on the scan's packet pass for 1.10× with
+integer timestamps, 1.26× printing seconds.</p>
+</figure>
+
+<div class="scroll"><table>
+<tr><th>Measure</th><th class="num">MPEG-PS title</th><th class="num">same, as MKV</th></tr>
+<tr><td>today's reset scan, wall / CPU (internal SSD)</td><td class="num">7.4 s / 7.1 s</td><td class="num">0.05 s (does not apply)</td></tr>
+<tr><td>index, video only, wall / CPU (internal SSD)</td><td class="num">2.9 s / 2.7 s</td><td class="num">4.0 s / 1.3 s</td></tr>
+<tr><td>index of the whole title on the share (as the latency probe built it)</td><td class="num">76 s</td><td class="num">—</td></tr>
+<tr><td>a 2.6 GB 1080p MKV on the share, video index, cold</td><td class="num">—</td><td class="num">44.8 s (17.4 s/GB)</td></tr>
+<tr><td>index size, every video packet (CSV)</td><td class="num">6.7 MB</td><td class="num">6.2 MB</td></tr>
+<tr><td>index size, key packets only (I-key: [pts, pos] JSON)</td><td class="num">426 kB (17 324)</td><td class="num">391 kB</td></tr>
+<tr><td>time to the first 1 000 packets, internal SSD / share</td><td class="num">0.06 s / 0.49 s</td><td class="num">0.04 s / 0.59 s †</td></tr>
+<tr><td>I-window, one 4 s window, internal SSD / share</td><td class="num">0.03–0.06 s / 0.32–0.49 s</td><td class="num">0.03–0.04 s / 0.21–0.25 s †</td></tr>
+<tr><td>key packets in a 4 s window</td><td class="num">9</td><td class="num">9 / 1 †</td></tr>
+</table></div>
+<p class="caption">† on the share: a different 5 GB 1080p MKV (Blu-ray GOPs; one key in 4 s). A
+window that holds no keyframe gives no K, so I-window needs a window longer than the source's
+longest GOP: the same unknown C1's 20 s probe estimates today.</p>
+
+<div class="card correction">
+<strong>Correction, left in place.</strong> The first cold pass (one run per probe, before the
+rotation) measured the merged index at <strong>39.5 s/GB</strong> and the video-only index at 37.0,
+against 20.4 for the scan: it looked as if the index doubled the cost on a share. It did not
+reproduce in 12 rotated runs (all 16.3–17.5 s/GB) nor on two other files (17.4, 16.0); the first
+pass coincided with the other task's load starting. Those four rows stay in
+<code>data/cost.json</code> marked <code>"round": "first"</code>.
+</div>
+
+<p><strong>Against the criterion</strong> (≤ 1.2× today's scan on TS/PS, SSD and share):
+<span class="good">met</span> — 1.00× on the share, 1.10× of the packet pass in CPU with integer
+timestamps (0.76× of the whole scan, which also runs a stream probe and parses its output). The
+index replaces the scan's pass rather than adding one. For MKV/MP4/MOV/AVI it is
+<span class="bad">all new cost</span>: they have no scan today, and the whole file is read.</p>
+
+<h2>4. Correctness (B)</h2>
+<p>Every start frame of every fixture of <code>integration_seek_alignment_test.dart</code> and
+<code>integration_source_grid_test.dart</code>, 3 pictures each, named by the MD5 of their luma
+against frame N as the app numbers it (the untrimmed decode, today's frame-0 arguments; on every
+grid source it equals issue #174's independent placement by timestamp, checked). The control is
+today's <code>decode_start</code>, rebuilt in Python (<code>today_args.py</code>) and checked against
+the 35 cases of <code>seek_arg_cases.json</code> and <code>source_grid_vectors.json</code> that the
+Rust and Dart unit tests pin, its constants and probe arguments against
+<code>source_decode.rs</code> itself.</p>
+<ul>
+<li><strong>M1</strong>: <code>-copyts -ss</code> K's PTS (floored to the µs), the grid filters to
+slot N. K = the last key packet whose own fps-filter slot is ≤ N, so the picture slot N shows has a
+PTS ≥ K's: it replaces the 8-slot lookback. No seek (M0) when K is the first key.</li>
+<li><strong>M2</strong> (TS/PS): the same with <code>-skip_initial_bytes pos(K)</code> instead of
+<code>-ss</code>. On a PS with no grid (packets without PTS, so no grid today: both DVD fixtures and
+the real title), K is the last key at or before frame N's time and today's absolute trim selects
+(M1-trim / M2-trim).</li>
+<li><strong>count</strong> (AVI that stores decode order): K by DTS, then drop N − k pictures.
+Seeks 3/23 s past K's DTS without accurate seek, because ffmpeg starts every seek of a file with a
+delayed stream 3/23 s early (<code>ffmpeg_demux.c</code>'s dts heuristic); <strong>count-raw</strong>
+omits that.</li>
+</ul>
+<div class="scroll"><table>
+<tr><th>Fixture</th><th>Container</th><th class="num">Starts</th><th class="num">Today</th><th class="num">M1</th><th class="num">M2</th><th class="num">Other</th></tr>
+<tr><td>small_clip.mp4</td><td>MP4 1/2997</td><td class="num">3 151</td><td class="num good">3 151</td><td class="num good">3 151</td><td></td><td></td></tr>
+<tr><td>seek_timebase_2997.mov</td><td>MOV 1/11988</td><td class="num">90</td><td class="num good">90</td><td class="num good">90</td><td></td><td></td></tr>
+<tr><td>face_restore_test.mp4</td><td>MP4 1/30000</td><td class="num">150</td><td class="num good">150</td><td class="num good">150</td><td></td><td></td></tr>
+<tr><td>seek_dvd_pal.mpg</td><td>PS, no grid</td><td class="num">150</td><td class="num good">150</td><td class="num">M1-trim <span class="good">150</span></td><td class="num">M2-trim <span class="good">150</span></td><td></td></tr>
+<tr><td>seek_gop_late_video.ts</td><td>TS, late video</td><td class="num">150</td><td class="num good">150</td><td class="num good">150</td><td class="num good">150</td><td></td></tr>
+<tr><td>pal-dvbt-fieldcoded-25i.ts</td><td>TS, field-coded</td><td class="num">128</td><td class="num good">128</td><td class="num bad">40</td><td class="num good">128</td><td></td></tr>
+<tr><td>hard_telecine_test.avi</td><td>AVI MPEG-2, delay 1</td><td class="num">90</td><td class="num good">90</td><td></td><td></td><td class="num">count <span class="bad">13</span>, raw <span class="bad">13</span></td></tr>
+<tr><td>avi_h264_bframes.avi</td><td>AVI H.264, delay 2</td><td class="num">90</td><td class="num good">90</td><td></td><td></td><td class="num">count <span class="good">90</span>, raw <span class="bad">30</span></td></tr>
+<tr><td>avi_ntsc_intra.avi</td><td>AVI MPEG-4, 29.97</td><td class="num">90</td><td class="num good">90</td><td class="num good">90</td><td></td><td></td></tr>
+<tr><td>seek_reset_dvd_pal.mpg, joined copy</td><td>PS, no grid</td><td class="num">300</td><td class="num good">300</td><td class="num">M1-trim <span class="good">300</span></td><td class="num">M2-trim <span class="good">300</span></td><td></td></tr>
+<tr><td>seek_reset_dvd_pal.mpg, raw</td><td>PS, reset at 150</td><td class="num">300</td><td class="num">104 ‡</td><td class="num">M1-trim 85</td><td class="num">M2-trim 1</td><td class="num">M2-seg <span class="warn">297</span></td></tr>
+<tr><td>seek_reset_h264.ts, joined copy</td><td>TS</td><td class="num">300</td><td class="num good">300</td><td class="num good">300</td><td class="num good">300</td><td></td></tr>
+<tr><td>seek_reset_h264.ts, raw</td><td>TS, reset at 150</td><td class="num">300</td><td class="num">126 ‡</td><td class="num">100</td><td class="num">0</td><td class="num">M2-seg <span class="warn">297</span></td></tr>
+<tr><td>interlaced_test.avi</td><td>AVI Lagarith, nulls</td><td class="num">79</td><td class="num good">79</td><td class="num good">79</td><td></td><td></td></tr>
+<tr><td>null_frames_mid.avi</td><td>AVI, null run</td><td class="num">200</td><td class="num good">200</td><td class="num good">200</td><td></td><td></td></tr>
+<tr><td>soft_telecine_test.mkv</td><td>MKV, repeat flags</td><td class="num">120</td><td class="num good">120</td><td class="num good">120</td><td></td><td></td></tr>
+<tr><td>soft_telecine_dvd.vob</td><td>PS with grid</td><td class="num">149</td><td class="num good">149</td><td class="num good">149</td><td class="num good">149</td><td></td></tr>
+<tr><td>soft_telecine_dvd.mkv</td><td>MKV</td><td class="num">150</td><td class="num good">150</td><td class="num good">150</td><td></td><td></td></tr>
+</table></div>
+<p class="caption">Exact starts (all 3 pictures right) per method. ‡ The app never decodes a raw reset
+file: it decodes the joined copy (C7), so these rows show what the index would face without it.
+M2-seg searches K inside the segment holding frame N and counts from that segment's first picture;
+its 3 misses on each are 147–149, where the window crosses the reset.</p>
+
+<h3>What the failures are</h3>
+<ul>
+<li><strong>M1 on the DVB-T TS</strong> (88 of 128 wrong): targets 31–55 all came out as 56, 57, 58, targets 59–73 as 84 … — the time search
+lands mid-GOP and decoding starts at the next keyframe, exactly #169's fault. On TS/PS only the
+byte start is safe. (M1-trim on the two small PS fixtures was exact; not relied on.)</li>
+<li><strong>count on the MPEG-2 AVI</strong>: always 2 late from the second GOP on (target 14 → 16).
+The packets show why: <code>N/A,13,330540,K</code> — K is decode picture 13, displayed as 16; the
+leading B pictures 14 and 15 of its open GOP need the previous GOP's P picture, and of them only one
+comes out. A packet list cannot say which picture a decode from K shows first.</li>
+<li><strong>count-raw</strong>: without the 3/23 s compensation, every seek lands a key early on
+any delayed source (H.264 AVI 30/90).</li>
+</ul>
+
+<h3>The 2 h title and the frame count</h3>
+<p>At frames 20 441, 102 209 and 194 197 (10/50/95 %), today's arguments and M2 both gave the
+5 pictures a separate decode from three keys earlier names by PTS (<code>-f framemd5</code>,
+first picture + N frames): <span class="good">exact, both</span>. The index's frame count (last
+picture's slot + 1 on a grid, packets otherwise) agreed with the decode on 14 of 16 fixtures; it
+said 129 for the DVB-T clip, which decodes 128 (field-coded: 252 packets, its last picture is an
+unpaired field that only a decoder drops), and 150 for the raw reset TS (the reset again). The app's
+count (tasks #24/#26) already handles both.</p>
+
+<h2>5. Per-start latency (C)</h2>
+<p>An 11-frame decode (the preview's window) from 10/50/95 % of the title, the index built once
+beforehand. Median of 5; the I-window time includes its probe. Every method gave today's pictures
+at every point.</p>
+<div class="scroll"><table>
+<tr><th>Where</th><th class="num">today</th><th class="num">M2 (byte)</th><th class="num">I-window + M2</th><th class="num">M1 (time to K)</th></tr>
+<tr><td>PS title, internal SSD, wall</td><td class="num">0.078–0.098 s</td><td class="num">0.059–0.073 s</td><td class="num">0.104–0.137 s</td><td class="num">0.080–0.093 s</td></tr>
+<tr><td>PS title, internal SSD, decoder CPU</td><td class="num">0.075–0.094 s</td><td class="num">0.051–0.059 s</td><td class="num">0.053–0.074 s</td><td class="num">0.064–0.082 s</td></tr>
+<tr><td>PS title on the share, wall</td><td class="num">0.155–0.200 s</td><td class="num">0.142–0.163 s</td><td class="num">0.245–0.274 s</td><td class="num">0.154–0.164 s</td></tr>
+<tr><td>MKV title, internal SSD, wall</td><td class="num">0.082–0.086 s</td><td></td><td></td><td class="num">0.086–0.098 s</td></tr>
+</table></div>
+<p class="caption">The byte start decodes from the key before the target instead of a whole GOP
+earlier, so it saves ~20–40 % of the decoder's CPU on a PAL DVD (12-frame GOPs); in wall time that is
+10–40 ms per preview, inside the run-to-run noise on this busy machine. A per-seek window costs more
+than it saves. No 1080i broadcast TS was available, where #169 measured the preroll's cost at
+larger GOPs.</p>
+
+<h2>6. What it would retire (D)</h2>
+<p>From <code>scripts/retire_count.py</code> (each item measured with its doc comment; classed by §4,
+not by intent; full list in <code>data/retire.json</code>).</p>
+<div class="scroll"><table>
+<tr><th>What</th><th class="num">Lines</th><th>Detail</th></tr>
+<tr><td>Rust retired</td><td class="num">103</td><td>SEEK_PROBE_ARGS/SECONDS, SEEK_PREROLL_MARGIN/MIN, <code>seek_plan_from_probe</code>, <code>probe_seek_plan</code> (source_decode.rs); <code>fill_seek_plan</code> (main.rs)</td></tr>
+<tr><td>Rust unit tests retired</td><td class="num">38</td><td>4 tests of the plan's arithmetic and probe</td></tr>
+<tr><td>Rust simplified</td><td class="num">76</td><td><code>SeekPlan</code>, <code>decoder_seek</code>, <code>decode_start</code> (preroll → byte offset); <code>PACKETS_PROBE_ARGS</code> (grows)</td></tr>
+<tr><td>Rust unchanged (C2–C7)</td><td class="num">288</td><td>decoder delay, <code>seek_arg</code>, <code>COUNT_SEEK_BELOW</code>, <code>source_seek</code>, <code>sound_seek</code>, the lookback, the frame-0 exception, the scan</td></tr>
+<tr><td>Vector file retired</td><td class="num">257</td><td><code>seek_probe_dvbt.json</code> (the other three stay)</td></tr>
+<tr><td>CLAUDE.md</td><td class="num">28</td><td>the #169 rule, rewritten (not removed)</td></tr>
+<tr><td>Dart twins of C1</td><td class="num">92</td><td>not credited: R3b (#50) deletes the twins whatever this decides</td></tr>
+<tr><td><strong>New Rust (estimate)</strong></td><td class="num"><strong>~105</strong></td><td>index parse/store, K for a slot, the fps slot, the byte start (2× this report's Python), and carrying the index to every decoder (as <code>fill_seek_plan</code> + <code>SeekPlan</code> do)</td></tr>
+</table></div>
+<p>Net: about zero. <code>source_decode.rs</code> has ~1 070 lines of code; a tenth would go, and as
+much would come back.</p>
+
+<h2 id="criteria">7. Recommendation</h2>
+<table>
+<tr><th>Criterion (fixed in the plan)</th><th>Result</th></tr>
+<tr><td>1. Cost on TS/PS ≤ 1.2× today's scan, SSD and share</td><td class="good">met (1.00×, 1.10× CPU)</td></tr>
+<tr><td>2. Exact wherever today is, no fixture worse</td><td class="good">met for M2 on TS/PS and M1 elsewhere</td> </tr>
+<tr><td>3. Retires C1 and C3/C4, net code removed</td><td class="bad">not met: C1 only, net ≈ 0</td></tr>
+</table>
+<p><strong>Don't build it.</strong> The index does what it promises where a whole-file pass already
+exists, but the corrections it was meant to replace are mostly not about position: C2/C4 are about
+display order, which only a decoder knows; C6/C7 are about <code>-copyts</code> and resets, which a
+byte start doesn't touch; C3 is about formatting seconds, which every remaining time seek still
+does. The one it removes (C1) is exact today on every fixture and the 2 h title.</p>
+<p><strong>Where it would be worth reopening:</strong> a TS/PS whose GOP later in the file is longer
+than the first 20 s show (the SeekPlan measures only those). A byte start doesn't care. No such
+source was found or built here; if one turns up, the cheap form is the merged pass (integer
+timestamps, key packets only, ~430 kB for 2 h) with M2, for TS/PS alone.</p>
+
+<h2>8. Limits</h2>
+<ul>
+<li>One Mac (Apple Silicon), FFmpeg 9.0.2 from the bundle, one share on one network (≈ 60 MB/s,
+cached reads detected by speed); no Windows client, no wired 1 Gbit or 10 Gbit link. On a faster link
+the share numbers fall toward the SSD's and the CPU ratio (1.10×) is what remains.</li>
+<li>The machine ran another task's heavy tests throughout (load average 30–126): wall times on the
+internal disk vary up to 2×, CPU times are the comparison.</li>
+<li>One real DVD title (no resets, no PTS-less key packets — the small PS fixture has 3) and one
+real 1080p MKV per role; the fixtures are synthetic. A 1080i broadcast TS was not available.</li>
+<li>"Exact" means the luma of 3 (5 on the title) pictures matches; it says nothing about colour.</li>
+<li>The new-code count is an estimate (2× the Python), the retired count is measured.</li>
+</ul>
+
+<h2>9. Not tested, and decisions</h2>
+<ul>
+<li><strong>Not tested:</strong> <code>subfile</code> instead of <code>-skip_initial_bytes</code>;
+a PTS wrap (33-bit) inside a capture — no fixture crosses one, and a byte start decoding with
+<code>-copyts</code> sees the raw PTS, so a grid origin before the wrap would need the index to unwrap;
+giving a no-grid PS a grid from the index (it would retire the PS time trim, and would change
+frame numbering checks #174 made); M2 for audio; a GOP that grows after 20 s.</li>
+<li><strong>Decision: the real DVD on the share, read-only</strong>, instead of the plan's synthetic
+2 h title written to the share: a real title answers more, and nothing was written there. The
+SSD copy was deleted afterwards.</li>
+<li><strong>Decision: no <code>sudo purge</code></strong>: cold-cache runs on the internal SSD were
+not measured (nobody to type the password); the share's cold runs carry the IO question and the
+SSD's CPU times the parse question.</li>
+<li><strong>Decision: I-key's size is measured, its build is not</strong>: ffprobe reads every
+packet whatever is printed, so I-key costs I-full's read; only the stored size differs (426 kB vs
+6.7 MB).</li>
+<li><strong>Filed separately:</strong> today's reset scan blocks analysis for the whole file's read:
+77 s for this title on the share (17.3 s/GB), 7 s on the SSD. Not this probe's question, but a
+measured cost of the current code: task #55.</li>
+</ul>
+
+<h2>10. Reproduce</h2>
+<pre>cd worker &amp;&amp; cargo build
+VAPOURBOX_DEPS_DIR=… PKTIDX_TITLE=/scratch/title.mpg \
+PKTIDX_VOBS="/share/VIDEO_TS/VTS_01_1.VOB /share/VIDEO_TS/VTS_01_2.VOB …" \
+PKTIDX_NAS_MKV="/share/a.mkv /share/b.mkv" \
+  docs/reports/2026-11-packet-index-seek/scripts/run.sh</pre>
+<p><code>check_today.py</code> (the control against the pinned vectors), <code>sweep_probe.py</code> (§4),
+<code>count_probe.py</code>, <code>long_title_check.py</code>, <code>cost_probe.py</code> (§3),
+<code>latency_probe.py</code> (§5), <code>retire_count.py</code> (§6); shared code in
+<code>pktlib.py</code> and <code>today_args.py</code>. Raw results in <code>data/</code>. The title
+itself is not in the repo.</p>
+</main>
+</body>
+</html>

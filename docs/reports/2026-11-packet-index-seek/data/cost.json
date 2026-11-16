@@ -1,0 +1,594 @@
+[
+ {
+  "kind": "cold",
+  "probe": "read (cat)",
+  "file": "VTS_01_1.VOB",
+  "gb": 1.073651712,
+  "secs": 18.157772707985714,
+  "s_per_gb": 16.912162952882912,
+  "ok": true,
+  "round": "first",
+  "cached": false
+ },
+ {
+  "kind": "cold",
+  "probe": "reset scan today (--scan-timestamps)",
+  "file": "VTS_01_2.VOB",
+  "gb": 1.073422336,
+  "secs": 21.856274124933407,
+  "s_per_gb": 20.361299920754963,
+  "ok": true,
+  "round": "first",
+  "cached": false
+ },
+ {
+  "kind": "cold",
+  "probe": "index merged into the scan pass",
+  "file": "VTS_01_3.VOB",
+  "gb": 1.073590272,
+  "secs": 42.37320837506559,
+  "s_per_gb": 39.46869628031204,
+  "ok": true,
+  "round": "first",
+  "cached": false
+ },
+ {
+  "kind": "cold",
+  "probe": "index, video only",
+  "file": "VTS_01_4.VOB",
+  "gb": 1.073680384,
+  "secs": 39.71405233396217,
+  "s_per_gb": 36.988709979041744,
+  "ok": true,
+  "round": "first",
+  "cached": false
+ },
+ {
+  "kind": "cold",
+  "round": 0,
+  "probe": "read (cat)",
+  "file": "VTS_01_1.VOB",
+  "gb": 1.073651712,
+  "secs": 17.72213762497995,
+  "s_per_gb": 16.5064121138196,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 0,
+  "probe": "reset scan today (--scan-timestamps)",
+  "file": "VTS_01_2.VOB",
+  "gb": 1.073422336,
+  "secs": 18.60294562508352,
+  "s_per_gb": 17.330499842592733,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 0,
+  "probe": "index merged into the scan pass",
+  "file": "VTS_01_3.VOB",
+  "gb": 1.073590272,
+  "secs": 18.3623897919897,
+  "s_per_gb": 17.10372222149727,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 0,
+  "probe": "index, video only",
+  "file": "VTS_01_4.VOB",
+  "gb": 1.073680384,
+  "secs": 17.984858583076857,
+  "s_per_gb": 16.75066328032762,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 1,
+  "probe": "read (cat)",
+  "file": "VTS_01_2.VOB",
+  "gb": 1.073422336,
+  "secs": 17.483014708966948,
+  "s_per_gb": 16.28717246011075,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 1,
+  "probe": "reset scan today (--scan-timestamps)",
+  "file": "VTS_01_3.VOB",
+  "gb": 1.073590272,
+  "secs": 18.501158458995633,
+  "s_per_gb": 17.232978857501827,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 1,
+  "probe": "index merged into the scan pass",
+  "file": "VTS_01_4.VOB",
+  "gb": 1.073680384,
+  "secs": 18.759406250086613,
+  "s_per_gb": 17.472058286282905,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 1,
+  "probe": "index, video only",
+  "file": "VTS_01_1.VOB",
+  "gb": 1.073651712,
+  "secs": 18.774353625020012,
+  "s_per_gb": 17.4864468758189,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 2,
+  "probe": "read (cat)",
+  "file": "VTS_01_3.VOB",
+  "gb": 1.073590272,
+  "secs": 18.31586604192853,
+  "s_per_gb": 17.060387486380403,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 2,
+  "probe": "reset scan today (--scan-timestamps)",
+  "file": "VTS_01_4.VOB",
+  "gb": 1.073680384,
+  "secs": 18.698663957999088,
+  "s_per_gb": 17.415484381243093,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 2,
+  "probe": "index merged into the scan pass",
+  "file": "VTS_01_1.VOB",
+  "gb": 1.073651712,
+  "secs": 18.743026292067952,
+  "s_per_gb": 17.457268574697668,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "cold",
+  "round": 2,
+  "probe": "index, video only",
+  "file": "VTS_01_2.VOB",
+  "gb": 1.073422336,
+  "secs": 18.37208424997516,
+  "s_per_gb": 17.115429438926043,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "warm",
+  "label": "2 h PAL DVD title, MPEG-PS, internal SSD",
+  "probe": "read (cat)",
+  "gb": 4.475604992,
+  "secs": 0.44322458398528397,
+  "runs": [
+   0.7845659999875352,
+   0.7007435000268742,
+   0.4246271669398993,
+   0.44020887510851026,
+   0.44322458398528397
+  ],
+  "s_per_gb": 0.0990312113731068,
+  "cpu_secs": 0.43254600000000015,
+  "cpu_runs": [
+   0.635293,
+   0.5728319999999999,
+   0.42186500000000005,
+   0.43254600000000015,
+   0.423904
+  ],
+  "cpu_s_per_gb": 0.09664525818814712,
+  "load": 30.54443359375
+ },
+ {
+  "kind": "warm",
+  "label": "2 h PAL DVD title, MPEG-PS, internal SSD",
+  "probe": "reset scan today (--scan-timestamps)",
+  "gb": 4.475604992,
+  "secs": 7.354608791996725,
+  "runs": [
+   6.3659551669843495,
+   7.354608791996725,
+   6.779918625019491,
+   9.456104750046507,
+   14.377126291044988
+  ],
+  "s_per_gb": 1.6432658389520192,
+  "cpu_secs": 7.090851000000001,
+  "cpu_runs": [
+   6.541404,
+   7.269719,
+   6.62772,
+   7.090851000000001,
+   8.426675999999999
+  ],
+  "cpu_s_per_gb": 1.5843335175187865,
+  "load": 31.36474609375
+ },
+ {
+  "kind": "warm",
+  "label": "2 h PAL DVD title, MPEG-PS, internal SSD",
+  "probe": "index merged into the scan pass",
+  "gb": 4.475604992,
+  "secs": 12.05554091592785,
+  "runs": [
+   12.05554091592785,
+   18.53384970803745,
+   14.142645000014454,
+   9.322173083084635,
+   9.550730042043142
+  ],
+  "s_per_gb": 2.6936114642549422,
+  "cpu_secs": 6.177244999999999,
+  "cpu_runs": [
+   5.937536,
+   6.261384999999999,
+   6.226813000000005,
+   6.177244999999999,
+   6.069804999999999
+  ],
+  "cpu_s_per_gb": 1.380203349277165,
+  "load": 48.2822265625
+ },
+ {
+  "kind": "warm",
+  "label": "2 h PAL DVD title, MPEG-PS, internal SSD",
+  "probe": "index, video only",
+  "gb": 4.475604992,
+  "secs": 2.9003638749709353,
+  "runs": [
+   2.6335918329423293,
+   2.7034646670799702,
+   2.9003638749709353,
+   3.266619374975562,
+   3.2651450840057805
+  ],
+  "s_per_gb": 0.6480383948438797,
+  "cpu_secs": 2.711400000000001,
+  "cpu_runs": [
+   2.5886659999999964,
+   2.6237180000000038,
+   2.711400000000001,
+   2.785244999999996,
+   2.910346000000004
+  ],
+  "cpu_s_per_gb": 0.6058175386001539,
+  "load": 41.53125
+ },
+ {
+  "kind": "warm",
+  "label": "2 h PAL DVD title, MPEG-PS, internal SSD",
+  "probe": "index merged, integer timestamps",
+  "gb": 4.475604992,
+  "secs": 5.644548292038962,
+  "runs": [
+   6.778872374910861,
+   6.493389624985866,
+   5.519069500034675,
+   5.644548292038962,
+   5.22297120897565
+  ],
+  "s_per_gb": 1.2611810698505366,
+  "cpu_secs": 5.403278,
+  "cpu_runs": [
+   5.606844999999996,
+   5.584314999999997,
+   5.3008850000000045,
+   5.403278,
+   5.1100819999999985
+  ],
+  "cpu_s_per_gb": 1.2072732087970646,
+  "load": 32.67529296875
+ },
+ {
+  "kind": "warm",
+  "label": "2 h PAL DVD title, MPEG-PS, internal SSD",
+  "probe": "reset scan packet pass only",
+  "gb": 4.475604992,
+  "secs": 4.9965414580656216,
+  "runs": [
+   4.9965414580656216,
+   4.698188291979022,
+   4.710768375080079,
+   8.514176374999806,
+   11.032683417084627
+  ],
+  "s_per_gb": 1.1163946476502682,
+  "cpu_secs": 4.904060999999999,
+  "cpu_runs": [
+   4.904060999999999,
+   4.6878090000000014,
+   4.698931999999999,
+   5.230966000000002,
+   5.443997000000003
+  ],
+  "cpu_s_per_gb": 1.0957314170410146,
+  "load": 31.2138671875
+ },
+ {
+  "kind": "size",
+  "label": "2 h PAL DVD title, MPEG-PS, internal SSD",
+  "gb": 4.475604992,
+  "duration": 8176.704,
+  "packets": 204418,
+  "keys": 17324,
+  "csv_bytes": 6738597,
+  "key_json_bytes": 426028,
+  "keys_without_pts": 0,
+  "first_1000_secs": 0.06085262494161725,
+  "window": {
+   "10%": {
+    "secs": 0.03960675001144409,
+    "keys": 9
+   },
+   "50%": {
+    "secs": 0.03449004190042615,
+    "keys": 9
+   },
+   "95%": {
+    "secs": 0.056899583083577454,
+    "keys": 9
+   }
+  }
+ },
+ {
+  "kind": "warm",
+  "label": "the same title remuxed to MKV, internal SSD",
+  "probe": "read (cat)",
+  "gb": 4.320185956,
+  "secs": 2.4554137920495123,
+  "runs": [
+   2.848623832920566,
+   2.4651260840473697,
+   2.4554137920495123,
+   2.028193459031172,
+   1.369378334027715
+  ],
+  "s_per_gb": 0.5683583570377015,
+  "cpu_secs": 0.963223,
+  "cpu_runs": [
+   0.9169579999999999,
+   0.965122,
+   0.9943909999999998,
+   0.963223,
+   0.8648680000000002
+  ],
+  "cpu_s_per_gb": 0.2229586896976617,
+  "load": 103.9052734375
+ },
+ {
+  "kind": "warm",
+  "label": "the same title remuxed to MKV, internal SSD",
+  "probe": "reset scan today (--scan-timestamps)",
+  "gb": 4.320185956,
+  "secs": 0.05108308407943696,
+  "runs": [
+   0.14417095901444554,
+   0.05108308407943696,
+   0.04728424991481006,
+   0.04592633293941617,
+   0.057817499968223274
+  ],
+  "s_per_gb": 0.01182427900088219,
+  "cpu_secs": 0.03881600000000046,
+  "cpu_runs": [
+   0.05355400000000014,
+   0.035700999999999705,
+   0.03881600000000046,
+   0.03549099999999952,
+   0.039267000000000135
+  ],
+  "cpu_s_per_gb": 0.008984798431209116,
+  "load": 103.9052734375
+ },
+ {
+  "kind": "cold",
+  "round": "single",
+  "probe": "index, video only",
+  "file": "1080p H.264 MKV A (2.6 GB)",
+  "gb": 2.567274227,
+  "secs": 44.75368783297017,
+  "s_per_gb": 17.43237530385186,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "warm",
+  "label": "the same title remuxed to MKV, internal SSD",
+  "probe": "index merged into the scan pass",
+  "gb": 4.320185956,
+  "secs": 15.990194958052598,
+  "runs": [
+   20.172129041980952,
+   14.841734666959383,
+   16.016253667068668,
+   15.990194958052598,
+   6.738793208030984
+  ],
+  "s_per_gb": 3.7012746953276277,
+  "cpu_secs": 5.065571,
+  "cpu_runs": [
+   5.244611,
+   5.065571,
+   5.474829000000001,
+   4.856985999999999,
+   4.050066000000001
+  ],
+  "cpu_s_per_gb": 1.1725354074087453,
+  "load": 126.8642578125
+ },
+ {
+  "kind": "warm",
+  "label": "the same title remuxed to MKV, internal SSD",
+  "probe": "index, video only",
+  "gb": 4.320185956,
+  "secs": 3.9518234580755234,
+  "runs": [
+   3.499753333046101,
+   2.8891540000913665,
+   3.9580502919852734,
+   6.475928958971053,
+   3.9518234580755234
+  ],
+  "s_per_gb": 0.9147345735400847,
+  "cpu_secs": 1.3182839999999985,
+  "cpu_runs": [
+   1.3460029999999996,
+   1.3182839999999985,
+   1.3028410000000026,
+   1.338277999999999,
+   1.266601999999999
+  ],
+  "cpu_s_per_gb": 0.30514519824525776,
+  "load": 127.611328125
+ },
+ {
+  "kind": "cold",
+  "round": "single",
+  "probe": "read (cat)",
+  "file": "1080p H.264 MKV B (3.2 GB)",
+  "gb": 3.242654151,
+  "secs": 51.890212041907944,
+  "s_per_gb": 16.002388668524997,
+  "cached": false,
+  "ok": true
+ },
+ {
+  "kind": "windows",
+  "label": "1080p H.264 MKV on the NAS (cold)",
+  "gb": 4.997264044,
+  "duration": 6443.488,
+  "first_1000_secs": 0.5906159580918029,
+  "window": {
+   "10%": {
+    "secs": 0.20657920802477747,
+    "keys": 1
+   },
+   "50%": {
+    "secs": 0.2474166670581326,
+    "keys": 1
+   },
+   "95%": {
+    "secs": 0.24230279098264873,
+    "keys": 1
+   }
+  }
+ },
+ {
+  "kind": "windows",
+  "label": "2 h DVD title (VOB set) on the NAS",
+  "gb": 4.475604992,
+  "duration": 8176.704,
+  "first_1000_secs": 0.4879066669382155,
+  "window": {
+   "10%": {
+    "secs": 0.41863175004255027,
+    "keys": 9
+   },
+   "50%": {
+    "secs": 0.4905383330769837,
+    "keys": 9
+   },
+   "95%": {
+    "secs": 0.31877120898570865,
+    "keys": 9
+   }
+  }
+ },
+ {
+  "kind": "warm",
+  "label": "the same title remuxed to MKV, internal SSD",
+  "probe": "index merged, integer timestamps",
+  "gb": 4.320185956,
+  "secs": 16.178605041932315,
+  "runs": [
+   15.702046666992828,
+   16.970042875036597,
+   16.178605041932315,
+   17.08289333304856,
+   13.374003625009209
+  ],
+  "s_per_gb": 3.7448862633940547,
+  "cpu_secs": 4.0352689999999996,
+  "cpu_runs": [
+   3.772342000000002,
+   3.981269000000001,
+   4.107462999999999,
+   4.0352689999999996,
+   4.147268999999998
+  ],
+  "cpu_s_per_gb": 0.9340498397749986,
+  "load": 143.3916015625
+ },
+ {
+  "kind": "warm",
+  "label": "the same title remuxed to MKV, internal SSD",
+  "probe": "reset scan packet pass only",
+  "gb": 4.320185956,
+  "secs": 10.659541624947451,
+  "runs": [
+   14.742996832937934,
+   8.024617625051178,
+   10.659541624947451,
+   11.370369417010807,
+   8.594453291036189
+  ],
+  "s_per_gb": 2.467380277958445,
+  "cpu_secs": 3.7798099999999977,
+  "cpu_runs": [
+   4.019126,
+   3.7798099999999977,
+   3.7984390000000054,
+   3.7123469999999976,
+   3.718097
+  ],
+  "cpu_s_per_gb": 0.8749183573337826,
+  "load": 113.6845703125
+ },
+ {
+  "kind": "size",
+  "label": "the same title remuxed to MKV, internal SSD",
+  "gb": 4.320185956,
+  "duration": 8176.72,
+  "packets": 204418,
+  "keys": 17324,
+  "csv_bytes": 6226370,
+  "key_json_bytes": 391428,
+  "keys_without_pts": 0,
+  "first_1000_secs": 0.03582566592376679,
+  "window": {
+   "10%": {
+    "secs": 0.034105416969396174,
+    "keys": 9
+   },
+   "50%": {
+    "secs": 0.03533970902208239,
+    "keys": 9
+   },
+   "95%": {
+    "secs": 0.03610666608437896,
+    "keys": 9
+   }
+  }
+ }
+]
