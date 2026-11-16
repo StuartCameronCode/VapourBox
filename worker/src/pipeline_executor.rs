@@ -334,9 +334,11 @@ pub fn container_problem(job: &VideoJob) -> Option<String> {
 }
 
 /// The job error when the bundled FFmpeg lacks the codec's encoder, or `None`.
-/// Only checked for AV1: `libsvtav1` is missing from the macOS x64 FFmpeg
-/// (evermeet), and every other software codec is in every build. A failed
-/// check says nothing, so ffmpeg's own error still reaches the user.
+/// Only checked for AV1: every bundled FFmpeg has had `libsvtav1` since deps
+/// 1.17.0-rc2 (before it, the macOS x64 build lacked it; task #45), but an
+/// FFmpeg without it can still be pointed at. Every other software codec is in
+/// every build. A failed check says nothing, so ffmpeg's own error still
+/// reaches the user.
 fn missing_encoder_problem(
     job: &VideoJob,
     ffmpeg: &Path,

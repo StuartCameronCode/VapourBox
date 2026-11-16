@@ -60,6 +60,13 @@ There the app shows AV1 as unavailable and the worker refuses it with a clear me
 release ships an x64 FFmpeg that has it.
 </div>
 
+<div class="card correction">
+<strong>Update (2026-11-16, task #45):</strong> deps 1.17.0-rc2 replaces the macOS x64 FFmpeg with
+martin-riedl.de's static 9.0.2 build, which has SVT-AV1 v4.2.0, so AV1 now works on Intel Macs too and
+the push-gate test's macOS x64 exception is gone. F1 below describes deps ≤ 1.17.0-rc1. Evidence:
+<a href="../task-45-macos-x64-ffmpeg-svtav1/index.html">macOS x64 FFmpeg with SVT-AV1</a>.
+</div>
+
 <h2>F1 · Which bundled FFmpeg can encode AV1</h2>
 <table>
 <tr><th>Bundle</th><th>FFmpeg</th><th>AV1 encoders</th><th>SVT-AV1</th></tr>

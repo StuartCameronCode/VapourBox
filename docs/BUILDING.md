@@ -110,7 +110,9 @@ Builds VapourSynth R73 and the plugins from source against an embedded Python
 
 **macOS (x64):** built natively on an Intel Mac — the same script (`uname -m`
 reports `x86_64`, so it targets `deps/macos-x64`). FFmpeg is sourced pre-built
-from [evermeet.cx](https://evermeet.cx/ffmpeg/) (static x86_64); most plugins
+from [martin-riedl.de](https://ffmpeg.martin-riedl.de) (static x86_64, pinned by
+build ID and SHA-256; evermeet.cx's build, used up to deps 1.17.0-rc1, has no
+SVT-AV1); most plugins
 come pre-built from
 [Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build), and
 `descratch`/`neo-f3kdb`/`nnedi3cl`/`vivtc` build from source, as does `fmtconv`

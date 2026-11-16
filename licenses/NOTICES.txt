@@ -650,8 +650,7 @@ FFmpeg — GPL-3.0-or-later (as built)
   binaries GPL-3.0-or-later. They also link, among others, x264 and x265
   (GPL-2.0-or-later), which is why the GPL configuration is used.
   Binaries are taken pre-built and unmodified from:
-    - macOS arm64: https://ffmpeg.martin-riedl.de
-    - macOS x64:   https://evermeet.cx/ffmpeg/
+    - macOS (arm64 and x64): https://ffmpeg.martin-riedl.de
     - Windows and Linux: https://github.com/BtbN/FFmpeg-Builds
   Run `ffmpeg -version` on the bundled binary for its exact configuration, and
   see https://ffmpeg.org/legal.html for source availability.

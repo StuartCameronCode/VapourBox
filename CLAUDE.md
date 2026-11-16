@@ -203,7 +203,7 @@ VapourBox/
 ./Scripts/download-deps-macos.sh
 
 # macOS x64 (native, on an Intel Mac): same script — uname -m reports x86_64 so
-# it targets deps/macos-x64. FFmpeg comes pre-built from evermeet.cx, most
+# it targets deps/macos-x64. FFmpeg comes pre-built from martin-riedl.de, most
 # plugins from Stefan-Olt; descratch/neo-f3kdb/nnedi3cl/vivtc/fmtconv build
 # from source.
 ./scripts/download-deps-macos.sh
@@ -2697,14 +2697,16 @@ AV1 through SVT-AV1, its own family (`EncoderFamily::SvtAv1`, Dart
 - **MP4 (default) and MKV only** (`VideoCodec::allows_container`, Dart
   `supportsContainer`). FFmpeg refuses AV1 in MOV; AVI's `AV01` fourcc is
   non-standard. The worker refuses either (`container_problem`).
-- **Not in every bundled FFmpeg.** The macOS x64 build (evermeet) has no
-  `libsvtav1`. `HardwareEncoderDetector` checks every codec with
+- **In every bundled FFmpeg, and asserted.** From deps 1.17.0-rc2 every
+  bundle has `libsvtav1` (task #45: macOS x64 moved from evermeet's FFmpeg,
+  which has none, to martin-riedl's). `download-deps-macos.sh` fails the build
+  without it (`assert_ffmpeg_encoder`, both arches), and
+  `vapoursynth_integration_test`'s `libsvtav1 is compiled in` checks every
+  bundle with no exception. The availability check stays for an FFmpeg
+  without it: `HardwareEncoderDetector` checks every codec with
   `needsAvailabilityCheck` (hardware + AV1) and the panel shows AV1
   unavailable; the worker refuses it before the pipeline starts
-  (`missing_encoder_problem`). `vapoursynth_integration_test`'s `libsvtav1 is
-  compiled in` checks every bundle, except macOS x64 (evermeet's FFmpeg, at
-  every deps version), and fails if that bundle gains it (drop the exception
-  then).
+  (`missing_encoder_problem`).
 - **4:2:0 at 8 or 10 bits, converted in the script.**
   `VideoJob::output_chroma_subsampling` is the one decision (script
   `CHROMA_CONVERT`, encode and preview, and `encoder_input_pix_fmt`):
@@ -3237,9 +3239,13 @@ bundle at 1.16.0 or older, the known skew.
   (docs/reports/2026-11-libdvdread-dvdcss).
 - Worker sets: `PYTHONHOME`, `PYTHONPATH`, `VAPOURSYNTH_CONF_PATH`, `DYLD_LIBRARY_PATH`
 - `vspipe` is a wrapper script that generates config dynamically.
-- **FFmpeg** is a pre-built static binary linking only system frameworks: x64
-  from evermeet.cx, arm64 from martin-riedl.de (Homebrew's arm64 build is
-  dynamically linked to Homebrew dylibs and can't be bundled).
+- **FFmpeg** is a pre-built static binary linking only system frameworks,
+  from martin-riedl.de on both arches (Homebrew's build is dynamically linked
+  to Homebrew dylibs and can't be bundled). x64 is pinned by build ID and
+  SHA-256 (`FFMPEG_MACOS_X64_BUILD`, minos 12.0); arm64 takes `latest` and is
+  series-checked. Both must have `libsvtav1`. x64 was evermeet.cx's build up
+  to deps 1.17.0-rc1, which has no SVT-AV1 (task #45,
+  docs/reports/task-45-macos-x64-ffmpeg-svtav1).
 - **x64 minimum macOS = 12.0 (Monterey), issue #39**: the only hosted Intel
   runner is `macos-15-intel`, so the x64 build exports
   `MACOSX_DEPLOYMENT_TARGET=12.0` and builds bundled support libs from source
@@ -3572,4 +3578,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.14.0 | 2026-10-25 | Adds **RIFE** 4.26 (`r9_mod_v33`, MIT) + its model in `vapoursynth/rife/`, and **VSNCNN** (vs-mlrt v15.16, GPL-3.0) + Real-ESRGAN / Real-CUGAN models in `vapoursynth/ncnn/`, on macos-arm64, windows-x64 and linux-x64, with **MoltenVK** 1.4.2 (Apache-2.0) in `vapoursynth/moltenvk/` on macOS. Not autoloaded; see "GPU Plugins". **BM3D** r12 (MIT) on every platform; it had been macOS arm64 only (see "BM3D and KNLMeans Noise Reduction"). **descale** r12 (MIT) on every platform, for the Descale pass. (AnimeJaNai's models, used by the same VSNCNN, are an app add-on, not in the bundle). Published as the tested `deps-v1.14.0-rc1` bundles with only the version changed; every other file is byte-identical |
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |
 | 1.16.0 | 2026-11-09 | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Published as the tested `deps-v1.16.0-rc2` bundles with only the version changed (`Scripts/promote-deps-rc.py`) |
-| 1.17.0 | rc1 2026-11-15 | **Task #36**: macOS arm64 libdvdread built from 6.1.3 source (patched to find a user's libdvdcss in `/opt/homebrew/lib`, `/usr/local/lib`, `/opt/local/lib`) instead of Homebrew's bottle, which linked `/opt/homebrew/opt/libdvdcss/…` and failed to load on Macs without it; macOS x64 gets the same patched build. Absolute build-machine rpaths stripped from libvapoursynth, vapoursynth.abi3.so, libfftw3f*, libboost_charconv, bm3d, dctfilter and mvtools (inert: nothing used `@rpath`). Windows and Linux binaries unchanged; libdvdread is now a required file on every platform |
+| 1.17.0 | rc1 2026-11-15, rc2 2026-11-16 | **Task #36**: macOS arm64 libdvdread built from 6.1.3 source (patched to find a user's libdvdcss in `/opt/homebrew/lib`, `/usr/local/lib`, `/opt/local/lib`) instead of Homebrew's bottle, which linked `/opt/homebrew/opt/libdvdcss/…` and failed to load on Macs without it; macOS x64 gets the same patched build. Absolute build-machine rpaths stripped from libvapoursynth, vapoursynth.abi3.so, libfftw3f*, libboost_charconv, bm3d, dctfilter and mvtools (inert: nothing used `@rpath`). Windows and Linux binaries unchanged; libdvdread is now a required file on every platform. **rc2** (task #45): macOS x64 FFmpeg evermeet 9.0.1 → martin-riedl 9.0.2 (build 1789931006, pinned by SHA-256), which has SVT-AV1, so AV1 output works on Intel Macs; x264/x265/MP3 bitstreams change there, native codecs byte-identical |

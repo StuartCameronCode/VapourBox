@@ -94,7 +94,7 @@ Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract
 
 | | |
 |---|---|
-| **Video** | H.264, H.265, AV1 (SVT-AV1, in MP4 or MKV, 8- or 10-bit 4:2:0; other formats are converted to fit, field by field; not yet on Intel Macs), ProRes (Proxy to 4444 XQ), uncompressed 10-bit 4:2:2 (v210, for Premiere and Resolve: MOV is the container to choose), FFV1, HuffYUV or FFVHuff (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF. ProRes and v210 store their own colour format (10-bit 4:2:2, or 4:4:4 for ProRes 4444), converted field by field from an interlaced source. A picture left interlaced is flagged with its field order by ProRes, v210, FFV1, HuffYUV and FFVHuff in MOV and MKV (in AVI only FFV1 keeps it), and H.264 codes it as interlaced; H.265, AV1 and the hardware encoders cannot, and the job log says so |
+| **Video** | H.264, H.265, AV1 (SVT-AV1, in MP4 or MKV, 8- or 10-bit 4:2:0; other formats are converted to fit, field by field), ProRes (Proxy to 4444 XQ), uncompressed 10-bit 4:2:2 (v210, for Premiere and Resolve: MOV is the container to choose), FFV1, HuffYUV or FFVHuff (lossless); hardware encoding via VideoToolbox, NVENC, Quick Sync or AMF. ProRes and v210 store their own colour format (10-bit 4:2:2, or 4:4:4 for ProRes 4444), converted field by field from an interlaced source. A picture left interlaced is flagged with its field order by ProRes, v210, FFV1, HuffYUV and FFVHuff in MOV and MKV (in AVI only FFV1 keeps it), and H.264 codes it as interlaced; H.265, AV1 and the hardware encoders cannot, and the job log says so |
 | **Audio** | Passthrough; AAC, MP3, AC-3, Opus, FLAC or uncompressed PCM (Opus can't go into AVI or MOV, nor FLAC into MOV); or none |
 | **Containers** | MKV, MP4, MOV, AVI |
 | **Reads** | `.dv` · `.mts` `.m2ts` · `.vob` `.m2v` `.mpg` `.mpeg` · `.mxf` · `.avi` `.mov` `.mp4` `.mkv` `.ts` `.wmv` `.webm` `.flv`, DVD discs and `VIDEO_TS` folders |
@@ -319,8 +319,7 @@ Components taken pre-built rather than compiled from source come unmodified from
 
 - **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — ARM64 VapourSynth plugins for macOS
 - **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins: most of the Intel Mac build's plugins, TemporalMedian and RemoveDirt on Apple Silicon, and RemoveDirt and LGhost on Linux x64
-- **[evermeet.cx](https://evermeet.cx/ffmpeg/)** — static FFmpeg for Intel Macs
-- **[ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de)** — static FFmpeg for Apple Silicon
+- **[ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de)** — static FFmpeg for Apple Silicon and Intel Macs
 - **[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)** — static FFmpeg for Windows and Linux
 - **[python-build-standalone](https://github.com/astral-sh/python-build-standalone)** — the relocatable Python used on macOS and Linux
 - **[python.org](https://www.python.org/downloads/windows/)** — the embeddable Python used on Windows
