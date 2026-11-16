@@ -61,7 +61,7 @@ echo ""
 
 echo "=== Step 4: Download FFmpeg ==="
 echo "Download a static FFmpeg build for macOS:"
-echo "  https://evermeet.cx/ffmpeg/"
+echo "  https://ffmpeg.martin-riedl.de"
 echo ""
 echo "Or build from source with required codecs."
 echo "Place ffmpeg and ffprobe in: $DEPS_DIR/FFmpeg/"

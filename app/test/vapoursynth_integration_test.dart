@@ -582,25 +582,16 @@ print("fmtconv r31 chroma placement OK")
   });
 
   // Task #40: AV1 output needs SVT-AV1 in the bundled FFmpeg. BtbN's builds
-  // (Windows, Linux) and martin-riedl's (macOS arm64) carry it; evermeet's
-  // macOS x64 build does not, which the app reports as unavailable. This is
-  // what proves the other bundles have it, on every CI runner.
+  // (Windows, Linux) and martin-riedl's (macOS arm64 and, from deps
+  // 1.17.0-rc2, x64; task #45) carry it. This proves every bundle has it, on
+  // every CI runner. Before rc2 the macOS x64 bundle shipped evermeet's FFmpeg,
+  // which has none, and this test made an exception for it.
   group('FFmpeg encoders', () {
     test('libsvtav1 is compiled in', () async {
       final result = await Process.run(ffmpegPath, ['-hide_banner', '-encoders']);
       expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
       final hasSvt = RegExp(r'^\s*V\S*\s+libsvtav1\s', multiLine: true)
           .hasMatch(result.stdout.toString());
-      if (depsPlatform == 'macos-x64') {
-        // The known gap, at every deps version (evermeet's static x64 build
-        // has no SVT-AV1). Flip this to an expectation when a deps release
-        // ships an x64 FFmpeg with SVT-AV1; until then this fails if one does.
-        expect(hasSvt, isFalse,
-            reason: 'macos-x64 now has libsvtav1: drop this exception');
-        markTestSkipped('macos-x64: evermeet FFmpeg has no libsvtav1, so AV1 '
-            'is offered as unavailable there');
-        return;
-      }
       expect(hasSvt, isTrue,
           reason: '$depsPlatform FFmpeg lacks libsvtav1; AV1 output would be '
               'unavailable');

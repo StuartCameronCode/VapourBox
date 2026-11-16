@@ -4,7 +4,7 @@ name: Build macOS Deps
 #
 #   - arm64 builds natively on macos-15 (Apple Silicon).
 #   - x64 builds natively on macos-15-intel (the last native Intel image,
-#     available until ~Aug 2027). FFmpeg comes pre-built from evermeet.cx and
+#     available until ~Aug 2027). FFmpeg comes pre-built from martin-riedl.de and
 #     most plugins from Stefan-Olt; see Scripts/download-deps-macos.sh.
 
 on:

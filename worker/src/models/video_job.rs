@@ -1176,8 +1176,9 @@ pub enum VideoCodec {
 
     /// AV1 through SVT-AV1 (task #40). 8- or 10-bit 4:2:0 only, in MP4 or
     /// MKV; the script converts anything else (`VideoJob::output_chroma_subsampling`).
-    /// Not in every bundled FFmpeg: the macOS x64 build (evermeet) has no
-    /// `libsvtav1`, so the app checks for it (`HardwareEncoderDetector`).
+    /// Every bundled FFmpeg has `libsvtav1` from deps 1.17.0-rc2 (task #45);
+    /// the app still checks for it (`HardwareEncoderDetector`), as an FFmpeg
+    /// without it shows AV1 unavailable rather than failing the encode.
     #[serde(rename = "libsvtav1")]
     Av1,
 
