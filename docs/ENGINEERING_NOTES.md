@@ -4761,3 +4761,40 @@ Full evidence:
   263–385 ms before on the fixtures (and no whole-file packet read per
   scrub on a VFR source).
 - Evidence: [docs/reports/task-50-source-model/](reports/task-50-source-model/index.html).
+### Plugin format limits probed from the bundle; one `run_within` (task #48, 2026-11-16)
+
+Task #42's plan, R2b. Report: [docs/reports/task-48-plugin-format-contracts](reports/task-48-plugin-format-contracts/index.html).
+
+- **Every limited plugin had its own guard, and they went wrong the same
+  ways**: the whole low-depth result up-converted (#34, #37), field-flagged
+  4:2:0 (#29), depth and size limits found by a job (#23, #31, #35).
+  `worker/templates/plugin_formats.py` now holds a `Contract` per limited
+  plugin (DeScratch, DeDot, Bifrost: 8-bit; LUTDeCrawl, LUTDeRainbow: 8–10)
+  and `run_within()`, which converts field-aware, runs the plugin, and adds
+  only its change (`src + back(fn(work)) - back(work)`). The five guards and
+  `_low_depth_change` are gone; `test_252` fails on a contracted plugin
+  called outside it.
+- **4:1:1 is converted once, at the top of the script**, before the VFR
+  placement; the four per-pass 4:1:1 guards (Frame Rate, VFR, Cnr4,
+  RemoveDirt) are gone. The old top-level conversion already ran before every
+  pass, so they were dead code.
+- **The limits are measured, not remembered.** `Scripts/probe-plugin-formats.py`
+  runs all 69 pass-level calls at {4:2:0, 4:2:2, 4:4:4} × {8, 10, 12, 16} ×
+  {progressive, BFF, TFF} plus a size axis to 1080 lines, into
+  `Tests/TestResources/plugin_format_table.json`. The push gate re-runs a
+  quick subset (about 3.5 minutes on an M1 Pro under load), and nightly runs
+  the whole probe.
+- **What it found beyond the five contracts**: 720x486 4:2:0 is refused by 11
+  calls when field-flagged and by QTGMC, Bifrost and MCTemporalDenoise even
+  when progressive (243 chroma rows); MCTemporalDenoise refuses a width of
+  2 mod 4 (#56 F1). Listed in `plugin_formats.KNOWN`, filed as task #57. Two
+  of the probe's own calls had wrong arguments on the first run (SmoothLevels
+  without `useDB=False`, Cnr4 with scalar `sense`/`str`); fixed before the
+  table was committed.
+- **No output changed**: 9 passes, every reachable format, progressive and
+  TFF, plus 4:1:1, lossless FFV1 before vs after, all identical except
+  RemoveDirt, which differs **run to run on either side** (same template,
+  same job). Also task #57.
+- Limits: a cell is "ok" when a frame can be requested. A plugin that accepts
+  a format and misreads it (Depan, #32) passes. Only the macOS arm64 bundle
+  was measured; other platforms are held to its table by CI.

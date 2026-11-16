@@ -3226,14 +3226,9 @@ fn test_86_decrawl_is_guarded_above_ten_bits() {
     let (encode, preview) = generate_both_scripts(&job);
     for (label, script) in [("encode", &encode), ("preview", &preview)] {
         assert!(
-            script.contains("if clip.format.bits_per_sample > 10:\n    clip = _low_depth_change(clip, 10, _decrawl)"),
-            "{}: de-crawl must run on a 10-bit copy only above 10 bits, script was:\n{}",
+            script.contains("clip = _pf.run_within(clip, 'havsfunc.LUTDeCrawl', _decrawl, label='LUTDeCrawl')"),
+            "{}: de-crawl must run within its contract (8-10 bit, task #48), script was:\n{}",
             label, script
-        );
-        assert!(
-            script.contains("else:\n    clip = _decrawl(clip)"),
-            "{}: de-crawl must run natively at 8-10 bits",
-            label
         );
     }
 }
@@ -3323,14 +3318,8 @@ fn test_88_ivtc_and_descratch_keep_their_eight_bit_guards() {
             label
         );
         assert!(
-            script.contains("_descratch_orig_format = clip.format")
-                && script.contains("if _descratch_orig_format.bits_per_sample != 8:"),
-            "{}: DeScratch must round-trip the source bit depth",
-            label
-        );
-        assert!(
-            script.contains("_descratch_src = clip") && script.contains("], \"x y + z -\")"),
-            "{}: DeScratch must restore the depth by applying its change to the source",
+            script.contains("clip = _pf.run_within(clip, 'descratch.DeScratch', _descratch_pass, label='DeScratch')"),
+            "{}: DeScratch must run within its 8-bit contract, applying only its change (task #48)",
             label
         );
     }
@@ -4158,9 +4147,9 @@ fn test_109_lut_derainbow_with_ten_bit_guard() {
             "haf.LUTDeRainbow(",
             "cthresh=12",
             "ythresh=14",
-            // Same 8-10 bit limit as LUTDeCrawl, verified against the bundle.
-            "bits_per_sample > 10",
-            "_low_depth_change(clip, 10, _derainbow)",
+            // Same 8-10 bit limit as LUTDeCrawl, verified against the bundle
+            // (plugin_formats.CONTRACTS, task #48).
+            "_pf.run_within(clip, 'havsfunc.LUTDeRainbow', _derainbow, label='LUTDeRainbow')",
         ],
     )
     .unwrap();
@@ -5014,8 +5003,7 @@ fn test_135_bifrost_with_its_eight_bit_guard() {
             "luma_thresh=12",
             "variation=3",
             "interlaced=False",
-            "_low_depth_change(clip, 8, _bifrost)",
-            "bits_per_sample != 8",
+            "_pf.run_within(clip, 'bifrost.Bifrost', _bifrost, label='Bifrost')",
         ],
     )
     .unwrap();
@@ -5237,9 +5225,10 @@ fn test_142_cnr4_is_preceded_by_scene_detection() {
         .expect("SCDetect must precede Cnr4 or every job fails");
     assert!(scd < cnr4);
     // 4:1:1 is NTSC DV and pipe_source maps it natively; Cnr4 rejects it.
+    // The top of the script converts it before any pass (task #48).
     assert!(
-        script[..cnr4].contains("subsampling_w == 2"),
-        "the 4:1:1 guard must run before Cnr4"
+        script[..cnr4].contains("if clip.format.subsampling_w > 1:"),
+        "the 4:1:1 normalisation must run before Cnr4"
     );
     // CCD must not also be emitted — one method runs, not both.
     assert!(!script.contains("zsmooth.CCD("));
@@ -8815,18 +8804,18 @@ fn test_242_descratch_any_subsampling() {
             );
             assert!(
                 script.contains(
-                    "_ds_luma = _descratch(core.std.ShufflePlanes([clip, _ds_blank, _ds_blank], [0, 0, 0], vs.YUV))"
+                    "_ds_luma = _descratch(core.std.ShufflePlanes([c, _ds_blank, _ds_blank], [0, 0, 0], vs.YUV))"
                 ),
                 "{}: luma must run on the 4:2:2 carrier",
                 ctx
             );
             assert!(
-                script.contains("clip = core.std.ShufflePlanes([_ds_luma, _ds_chroma], [0, 1, 2], vs.YUV)"),
+                script.contains("return core.std.ShufflePlanes([_ds_luma, _ds_chroma], [0, 1, 2], vs.YUV)"),
                 "{}: chroma must be put back",
                 ctx
             );
             assert_eq!(
-                script.contains("_ds_chroma = _descratch(core.std.RemoveFrameProps(clip, props=\"_FieldBased\"))"),
+                script.contains("_ds_chroma = _descratch(core.std.RemoveFrameProps(c, props=\"_FieldBased\"))"),
                 chroma_call,
                 "{}: chroma call only with a chroma mode on",
                 ctx
@@ -8837,8 +8826,8 @@ fn test_242_descratch_any_subsampling() {
                 "{}: unsubstituted placeholder",
                 ctx
             );
-            // The 8-bit guard (test_88) is still around the whole block.
-            assert!(script.contains("_descratch_orig_format = clip.format"), "{}", ctx);
+            // The 8-bit contract (test_88) is still around the whole pass.
+            assert!(script.contains("_pf.run_within(clip, 'descratch.DeScratch', _descratch_pass"), "{}", ctx);
         }
     }
 }
@@ -8861,21 +8850,17 @@ fn test_243_descratch_keeps_high_bit_depth_outside_scratches() {
 
     let (encode, preview) = generate_both_scripts(&job);
     for (label, script) in [("encode", &encode), ("preview", &preview)] {
+        // run_within (plugin_formats.py) adds only the plugin's change at
+        // full depth since task #48; its delta is checked on real low bits by
+        // plugin_format_contracts_test.dart.
         assert!(
-            script.contains("_descratch_in8 = clip"),
-            "{}: the 8-bit input must be kept for the delta",
-            label
-        );
-        assert!(
-            script.contains("core.resize.Point(clip, format=_descratch_orig_format)")
-                && script.contains("core.resize.Point(_descratch_in8, format=_descratch_orig_format)")
-                && script.contains("], \"x y + z -\")"),
+            script.contains("clip = _pf.run_within(clip, 'descratch.DeScratch', _descratch_pass, label='DeScratch')"),
             "{}: DeScratch must add only its change at full depth, script was:\n{}",
             label, script
         );
         assert!(
-            !script.contains("core.resize.Bilinear(clip, format=_descratch_orig_format)"),
-            "{}: the whole 8-bit result must not be up-converted (task #34)",
+            script.contains("import plugin_formats as _pf"),
+            "{}: plugin_formats must be imported",
             label
         );
     }
@@ -9164,18 +9149,17 @@ fn test_249_chroma_fixes_keep_high_bit_depth() {
 
     let (encode, preview) = generate_both_scripts(&job);
     for (label, script) in [("encode", &encode), ("preview", &preview)] {
-        assert!(
-            script.contains("def _low_depth_change(clip, bits, filt):")
-                && script.contains("up = lambda c: core.resize.Point(c, format=clip.format.id)")
-                && script.contains("return _expr([clip, up(filt(low)), up(low)], \"x y + z -\")"),
-            "{}: the helper must add only the filter's change, script was:\n{}",
-            label, script
-        );
-        for (depth, name) in [(8, "_dedot"), (10, "_decrawl"), (10, "_derainbow"), (8, "_bifrost")] {
-            let call = format!("clip = _low_depth_change(clip, {}, {})", depth, name);
+        // Since task #48 each goes through plugin_formats.run_within, whose
+        // contract holds the depth limit and which adds only the change.
+        assert!(!script.contains("_low_depth_change"), "{}: the old helper is back", label);
+        for (key, name, pass) in [
+            ("dedot.Dedot", "_dedot", "Dedot"),
+            ("havsfunc.LUTDeCrawl", "_decrawl", "LUTDeCrawl"),
+            ("havsfunc.LUTDeRainbow", "_derainbow", "LUTDeRainbow"),
+            ("bifrost.Bifrost", "_bifrost", "Bifrost"),
+        ] {
+            let call = format!("clip = _pf.run_within(clip, '{}', {}, label='{}')", key, name, pass);
             assert!(script.contains(&call), "{}: missing `{}`", label, call);
-            let native = format!("    clip = {}(clip)", name);
-            assert!(script.contains(&native), "{}: missing native path `{}`", label, native);
         }
         assert!(
             script.contains("luma_2d=31")
@@ -9330,4 +9314,153 @@ fn test_251_ivtc_and_soft_telecine_preview_decimates_in_the_encodes_phase() {
     let preview = std::fs::read_to_string(generator.generate_preview(&plain, &params).unwrap()).unwrap();
     assert!(preview.contains("min(10 if _dec_corr else 10,"));
     assert!(!preview.contains("core.vivtc.VDecimate("));
+}
+
+#[test]
+fn test_252_limited_plugins_are_called_within_run_within() {
+    // Task #48. A plugin that refuses part of what a pass can be handed has a
+    // Contract in templates/plugin_formats.py, measured against the bundle
+    // (Scripts/probe-plugin-formats.py, Tests/TestResources/
+    // plugin_format_table.json), and the template must call it through
+    // run_within(), which converts and adds back only the plugin's change.
+    // Each hand-written guard before it got something wrong once: a whole
+    // low-depth result up-converted (#34, #37), a field-flagged 4:2:0 refused
+    // (#29). So every call of a contracted plugin must sit inside a function
+    // that run_within() is handed with that plugin's key (directly, or
+    // through the functions that call it), and the few measure-only sites
+    // (plugin_formats.HANDLED) must be the ones listed below.
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let read = |name: &str| {
+        std::fs::read_to_string(templates_dir.join(name))
+            .unwrap_or_else(|e| panic!("read {name}: {e}"))
+            .replace("\r\n", "\n")
+    };
+    let formats = read("plugin_formats.py");
+
+    // The contracted keys, from `    'ns.Fn': Contract(` lines.
+    let contracted: Vec<String> = formats
+        .lines()
+        .filter_map(|l| {
+            let t = l.trim();
+            let rest = t.strip_prefix('\'')?;
+            let (key, tail) = rest.split_once('\'')?;
+            tail.trim_start().strip_prefix(": Contract(").map(|_| key.to_string())
+        })
+        .collect();
+    assert!(contracted.len() >= 5, "only {} contracts read from plugin_formats.py", contracted.len());
+
+    // How the template spells a call of a key.
+    let spelling = |key: &str| match key.strip_prefix("havsfunc.") {
+        Some(f) => format!("haf.{f}("),
+        None => format!("core.{key}("),
+    };
+
+    // Measure-only sites of HANDLED plugins: (file, line text, reason).
+    let allowed: &[(&str, &str, &str)] = &[(
+        "pipeline_template.vpy",
+        "clip = core.vivtc.VFM(_ivtc_metrics,",
+        "VFM decides on an 8-bit copy; the pixels come from clip2, the source",
+    )];
+    let handled_plugins = ["core.vivtc.VFM("];
+
+    let mut files: Vec<String> = std::fs::read_dir(&templates_dir)
+        .expect("read templates dir")
+        .filter_map(|e| {
+            let p = e.ok()?.path();
+            let ext = p.extension()?.to_str()?.to_string();
+            let name = p.file_name()?.to_str()?.to_string();
+            ((ext == "py" || ext == "vpy") && name != "plugin_formats.py").then_some(name)
+        })
+        .collect();
+    files.sort();
+
+    /// The function whose body holds line [at]: the nearest `def` above it
+    /// indented less than it.
+    fn enclosing_def(lines: &[&str], at: usize) -> Option<String> {
+        let indent = |l: &str| l.len() - l.trim_start().len();
+        let own = indent(lines[at]);
+        for l in lines[..at].iter().rev() {
+            let t = l.trim_start();
+            if let Some(rest) = t.strip_prefix("def ") {
+                if indent(l) < own {
+                    return rest.split('(').next().map(str::to_string);
+                }
+            }
+        }
+        None
+    }
+
+    let mut sites = 0;
+    let mut problems = Vec::new();
+    for file in &files {
+        let body = read(file);
+        let lines: Vec<&str> = body.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim_start().starts_with('#') {
+                continue;
+            }
+            for key in &contracted {
+                if !line.contains(&spelling(key)) {
+                    continue;
+                }
+                sites += 1;
+                // The function this call is in, or one that calls it (to three
+                // levels), must be handed to run_within with this key.
+                let mut names: Vec<String> = enclosing_def(&lines, i).into_iter().collect();
+                let mut ok = false;
+                for _ in 0..3 {
+                    if names.iter().any(|n| body.contains(&format!("run_within(clip, '{key}', {n},"))) {
+                        ok = true;
+                        break;
+                    }
+                    let mut callers = Vec::new();
+                    for n in &names {
+                        for (j, l) in lines.iter().enumerate() {
+                            if !l.trim_start().starts_with("def ") && l.contains(&format!("{n}(")) {
+                                callers.extend(enclosing_def(&lines, j));
+                            }
+                        }
+                    }
+                    names = callers;
+                }
+                if !ok {
+                    problems.push(format!(
+                        "{file}:{}: {key} called outside run_within(); wrap the call in a \
+                         function and pass it as plugin_formats.run_within(clip, '{key}', fn, label=...)",
+                        i + 1
+                    ));
+                }
+            }
+            for call in handled_plugins {
+                if line.contains(call)
+                    && !allowed.iter().any(|(f, text, _)| f == file && line.trim().starts_with(*text))
+                {
+                    problems.push(format!(
+                        "{file}:{}: {call} is outside its format; a new site must be measured like the \
+                         listed one or go through run_within",
+                        i + 1
+                    ));
+                }
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    assert!(sites >= 5, "the scan found only {sites} contracted call sites");
+    for (file, text, why) in allowed {
+        let n = read(file).lines().filter(|l| l.trim().starts_with(*text)).count();
+        assert_eq!(n, 1, "{file}: the allowed site `{text}` ({why}) should appear once");
+    }
+
+    // The template-side rules that make the contracts complete.
+    let template = read(vapourbox_worker::script_generator::TEMPLATE_FILE);
+    assert!(!template.contains("_low_depth_change"), "the pre-#48 helper is back");
+    assert!(template.contains("import plugin_formats as _pf"));
+    // 4:1:1 never reaches a pass, so no contract lists it: the normalisation
+    // must come before the VFR placement and every pass.
+    let norm = template.find("if clip.format.subsampling_w > 1:").expect("4:1:1 normalisation");
+    for later in ["{{#VFR_TIMELINE}}", "# PASS 2: DEINTERLACING"] {
+        let at = template.find(later).unwrap_or_else(|| panic!("{later} not found"));
+        assert!(norm < at, "the 4:1:1 normalisation must come before {later}");
+    }
+    assert_eq!(template.matches("subsampling_w > 1").count(), 1, "one 4:1:1 rule, at the top");
 }
