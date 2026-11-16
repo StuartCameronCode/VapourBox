@@ -117,7 +117,7 @@ VapourBox/
 |------|---------|
 | `worker/src/models/video_job.rs` | Job config, EncodingSettings, processing passes |
 | `worker/src/models/qtgmc_parameters.rs` | All 70+ QTGMC parameters (serde) |
-| `worker/src/models/processing_pipeline.rs` | Pipeline passes + `FrameMap` (source↔output frame mapping: `output_count` drives the progress total, `invert`/`total_radius` drive frame-accurate preview) |
+| `worker/src/models/processing_pipeline.rs` | Pipeline passes + `FrameMap` (source↔output frame mapping: `output_count` drives the progress total, `invert`/`total_radius`/`preview_output_in` drive frame-accurate preview, including a decimation's phase) |
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
@@ -1537,8 +1537,10 @@ that havsfunc's QTGMC takes none of them (setting one failed every encode).
 
 - **The few lines that genuinely differ** sit in `{{#ENCODE_ONLY}}` /
   `{{#PREVIEW_ONLY}}` blocks: the pipe-source reads, Unblend's and the Frame
-  Rate pass's phase padding, DDColor's `preview=True`, IVTC's and Soft
-  Telecine's VDecimate (encode only), and the preview's final frame pick.
+  Rate pass's phase padding, DDColor's `preview=True`, the arrangement of
+  IVTC's and Soft Telecine's VDecimate input and the read of its drop
+  (task #46: VDecimate itself runs on both sides), and the preview's final
+  frame pick.
   `script_generator::select_side` keeps one side and drops the other when the
   file is **loaded**, before any substitution, so no other block ever sees the
   side tags. Never nest them, and never write the tags anywhere else (the
@@ -1781,6 +1783,25 @@ time span `[t, t+1)`; the worker reports `sub_frame`, `sub_frames` and
   preview job therefore carries as `startFrame` (the preview uses it for
   nothing else). `integration_frame_mapping_test.dart` checks every output
   frame against a lossless encode, and fails by 13 levels without the pad.
+- **A decimation runs in the encode's phase too (task #46).** IVTC and Soft
+  Telecine at 29.97 run VDecimate in the preview, which used to skip it while
+  `preview_output` assumed it (the preview was `radius / 5` film frames
+  early). VDecimate counts cycles from its clip's first frame, reads the
+  frame before each cycle, and never drops a clip's frame 0, so
+  `preview_output_in` arranges its input as the encode's
+  (`DecimatePreview`): the window's frames before the in-point dropped (for
+  IVTC before VFM), `e0 mod cycle` copies of the first frame in front, and
+  the clip ended where the encode's ends (the preview job carries `endFrame`,
+  else the worker takes `totalFrames`; Soft Telecine's last cycle filled as
+  `pipe_frames` does). `FrameMap::Decimate` declares radius `cycle + 1`.
+  Which frame of the target's cycle goes depends on the picture: each frame
+  is tagged with its index, the script reads the tag where the target would
+  be, picks between the two outputs the walk computed (`after_drop`) and
+  prints `PREVIEW_DECIMATE:corr=N` for `PREVIEW_INFO`. Stabilize's pitch
+  lookup starts at `preview_source_offset` (`first + skip - pad`).
+  `integration_ivtc_preview_test.dart` (heavy) checks previews against a
+  lossless encode by the film frame they hold
+  (docs/reports/issue-46-ivtc-preview).
 - A source frame with no output of its own (down-conversion, decimation)
   shows the output just before it, as the preview always has.
 

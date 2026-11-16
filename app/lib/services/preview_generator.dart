@@ -446,6 +446,7 @@ class PreviewGenerator {
     required EncodingSettings encodingSettings,
     int subFrame = 0,
     int? startFrame,
+    int? endFrame,
     String? pitchFactorsPath,
     CancelToken? cancelToken,
   }) async {
@@ -501,9 +502,15 @@ class PreviewGenerator {
         inputColorRange: _colorRange,
         inputSar: _sar,
         // Not a trim: the worker's preview only uses it as the point the
-        // encode's retime starts from, so a generated frame is previewed at
-        // the moment the encode makes it.
+        // encode's retime and decimation start from, so a generated frame is
+        // previewed at the moment the encode makes it, and a decimated one
+        // is the frame the encode keeps (task #46).
         startFrame: startFrame,
+        // Not a trim either: where the encode's picture ends, so a
+        // decimation (IVTC, Soft Telecine) cuts its last cycle where the
+        // encode's is cut (task #46). Without it the worker takes the end
+        // of the source (`totalFrames`).
+        endFrame: endFrame,
         // The selected video's factor file for Stabilize's "From File" pitch
         // mode, so the preview corrects with the same factors as the encode.
         pitchFactorsPath: pitchFactorsPath,

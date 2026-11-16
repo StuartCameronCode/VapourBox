@@ -54,6 +54,41 @@ pub struct PreviewOutput {
     /// detector never reads frames before it, so the padding — and frames
     /// before an in-point — never feed a decision the encode doesn't make.
     pub unblend_origin: u64,
+    /// How the preview runs a decimation (IVTC, Soft Telecine at 29.97) in
+    /// the encode's phase, and the output to show if VDecimate dropped a
+    /// frame of the target's cycle at or before it (task #46).
+    pub decimate: Option<DecimatePreview>,
+}
+
+/// A decimation in the preview (task #46). VDecimate drops one frame of every
+/// `cycle`, counting cycles from its clip's first frame, and decides each
+/// cycle from that cycle's frames and the frame before it (a clip's frame 0
+/// gets a fixed metric instead). So the preview runs it on a clip arranged as
+/// the encode's: the window's frames before the in-point dropped, copies of
+/// the first frame in front to put the cycles in the encode's phase, and the
+/// clip ended where the encode's does. Which frame of the target's cycle goes
+/// depends on the picture, so the script reads it and picks between the two
+/// outputs `preview_output` computed (`corr` 0: the drop is after the target,
+/// 1: at or before it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DecimatePreview {
+    pub cycle: u64,
+    /// Window frames before the in-point, dropped before the pass.
+    pub skip: u64,
+    /// Copies of the (first kept) first frame put in front.
+    pub pad: u64,
+    /// The target's index in that clip.
+    pub target: u64,
+    /// How many of that clip's frames are real, when the encode ends inside
+    /// the window (0: it doesn't, keep them all).
+    pub real_len: u64,
+    /// The clip's length after its last cycle is filled with copies of its
+    /// last real frame, as the encode's pipe does for Soft Telecine
+    /// (`pipe_frames`); equal to `real_len` otherwise.
+    pub len: u64,
+    /// `local_index`, `sub_frame`, `sub_frames` and `generated` when the
+    /// target's cycle lost a frame at or before the target.
+    pub after_drop: (u64, u64, u64, bool),
 }
 
 /// How one pass relates its *input* clip to its *output* clip on the frame
@@ -142,7 +177,10 @@ impl FrameMap {
             FrameMap::Identity { radius }
             | FrameMap::Fanout { radius, .. }
             | FrameMap::Retime { radius, .. } => radius,
-            FrameMap::Decimate { .. } => 0,
+            // The preview runs the decimation on the target's whole cycle,
+            // the frame before it (VDecimate compares each frame with the
+            // previous one) and that frame's field-match neighbour (task #46).
+            FrameMap::Decimate { cycle, .. } => cycle + 1,
         }
     }
 }
@@ -944,7 +982,46 @@ impl ProcessingPipeline {
     /// local window's count, as before (double-rate deinterlacing gives two).
     /// A source frame a decimation or down-conversion leaves no output of
     /// its own shows the output just before it.
+    ///
+    /// A decimation (IVTC, Soft Telecine at 29.97) runs in the encode's phase
+    /// too; see [`DecimatePreview`] and [`Self::preview_output_in`], which the
+    /// worker uses so the preview's clip also ends where the encode's does.
     pub fn preview_output(&self, origin: u64, first: u64, target: u64, sub_frame: u64) -> PreviewOutput {
+        self.preview_output_in(origin, first, target, sub_frame, None)
+    }
+
+    /// [`Self::preview_output`] for a window of `ends.0` decoded frames, when
+    /// the encode's picture ends before source frame `ends.1` (its out-point
+    /// plus one, or the source's length). A decimation's last cycle is then
+    /// cut there, as the encode's is, instead of running on into frames the
+    /// encode never sees (task #46).
+    pub fn preview_output_in(
+        &self,
+        origin: u64,
+        first: u64,
+        target: u64,
+        sub_frame: u64,
+        ends: Option<(u64, u64)>,
+    ) -> PreviewOutput {
+        let mut out = self.preview_walk(origin, first, target, sub_frame, ends, 0);
+        if let Some(d) = out.decimate.as_mut() {
+            let dropped = self.preview_walk(origin, first, target, sub_frame, ends, 1);
+            d.after_drop = (dropped.local_index, dropped.sub_frame, dropped.sub_frames, dropped.generated);
+        }
+        out
+    }
+
+    /// One walk of `preview_output_in`, with `corr` frames of the target's
+    /// decimation cycle dropped at or before it (0 or 1).
+    fn preview_walk(
+        &self,
+        origin: u64,
+        first: u64,
+        target: u64,
+        sub_frame: u64,
+        ends: Option<(u64, u64)>,
+        corr: i64,
+    ) -> PreviewOutput {
         // Walk the passes in order, keeping
         //   e0: the encode's index (at this point in the pipeline) of the
         //       preview clip's frame 0 — negative when the window starts
@@ -954,7 +1031,8 @@ impl ProcessingPipeline {
         // the preview always has. A retime first gets padding that puts e0 on
         // a whole period of its ratio, so it runs in the encode's phase; its
         // span is then taken in encode terms, where outputs fall at
-        // ceil(p * num / den).
+        // ceil(p * num / den). A decimation is set up the same way, and the
+        // target's place after it depends on `corr`.
         let mut e0 = first as i64 - origin as i64;
         let local = target.saturating_sub(first) as i64;
         let (mut la, mut lb) = (local, local + 1);
@@ -966,6 +1044,7 @@ impl ProcessingPipeline {
             generated: false,
             unblend_pad: 0,
             unblend_origin: 0,
+            decimate: None,
         };
         let mut frame_rate_ratio: Option<(i64, i64, bool)> = None;
         for pass in self.enabled_passes() {
@@ -989,6 +1068,49 @@ impl ProcessingPipeline {
                     la = lo - e0;
                     lb = hi - e0;
                 }
+                FrameMap::Decimate { cycle, keep } => {
+                    let (cycle, keep) = (cycle as i64, keep as i64);
+                    // The window's frames before the in-point never reach the
+                    // encode's VDecimate, whose first cycle starts there (and
+                    // whose frame 0 has no frame before it to compare with).
+                    // A target before the in-point has no encode frame; it is
+                    // shown from the window as it is.
+                    let skip = if e0 < 0 && la >= -e0 { -e0 } else { 0 };
+                    e0 += skip;
+                    la -= skip;
+                    // Copies of the first frame put its cycles in the encode's.
+                    let pad = e0.rem_euclid(cycle);
+                    let t = pad + la;
+                    // Where the encode's clip ends, in this clip's frames.
+                    let (mut real_len, mut len) = (0i64, 0i64);
+                    if let Some((window_frames, end)) = ends {
+                        let in_clip = pad + window_frames as i64 - skip;
+                        let real = pad + (end as i64 - first as i64) - skip;
+                        if target < end && real < in_clip {
+                            real_len = real;
+                            len = if self.deinterlace.method == DeinterlaceMethod::SoftTelecine {
+                                // The encode's pipe fills Soft Telecine's last
+                                // cycle with copies of the last frame
+                                // (`pipe_frames`).
+                                (real + cycle - 1) / cycle * cycle
+                            } else {
+                                real
+                            };
+                        }
+                    }
+                    out.decimate = Some(DecimatePreview {
+                        cycle: cycle as u64,
+                        skip: skip as u64,
+                        pad: pad as u64,
+                        target: t.max(0) as u64,
+                        real_len: real_len as u64,
+                        len: len as u64,
+                        after_drop: (0, 0, 1, false),
+                    });
+                    e0 = (e0 - pad) / cycle * keep;
+                    la = (t / cycle * keep + t % cycle - corr).max(0);
+                    lb = la + 1;
+                }
                 map => {
                     let fwd = |n: i64| map.output_count(n.max(0) as u64) as i64;
                     e0 = if e0 >= 0 { fwd(e0) } else { -fwd(-e0) };
@@ -1009,6 +1131,20 @@ impl ProcessingPipeline {
             out.generated = synthesizes && ((m + e0) * den).rem_euclid(num) != 0;
         }
         out
+    }
+
+    /// Source frame number of frame 0 of the clip the Stabilize pass looks
+    /// its pitch factors up from, in a preview whose window starts at
+    /// `first`: `first` itself, unless a decimation ahead of it dropped the
+    /// frames before the in-point and padded the clip into the encode's phase
+    /// (task #46). Its clip index `n` is then encode index `n + e0`, a whole
+    /// number of cycles from the in-point, so `first + skip - pad` keeps the
+    /// encode's `offset + n * den / num` lookup exact.
+    pub fn preview_source_offset(out: &PreviewOutput, first: u64) -> u64 {
+        match out.decimate {
+            Some(d) => (first + d.skip).saturating_sub(d.pad),
+            None => first,
+        }
     }
 
     /// Conservative temporal padding (frames each side) a windowed preview
@@ -1527,5 +1663,198 @@ mod tests {
         assert_eq!(p.pipe_frames(149), 149, "nothing removed at the film rate");
         p.deinterlace.method = DeinterlaceMethod::Ivtc;
         assert_eq!(p.pipe_frames(149), 149);
+    }
+
+    // ----------------------------------------------------------------------
+    // Task #46: a decimation previews the frame the encode keeps.
+    // ----------------------------------------------------------------------
+
+    /// VDecimate, modelled on what the bundled vivtc does: cycles count from
+    /// the clip's first frame (a short last one included), each frame's
+    /// metric is its difference from the frame before it (a clip's frame 0
+    /// gets a fixed large one), and the frame with the smallest metric in a
+    /// cycle goes. Frames are source ids; the metric of two different ids is
+    /// a fixed pseudo-random 1..1000, so the drop depends on the picture as
+    /// it does for real, and a copy of a frame differs from it by 0.
+    fn model_vdecimate(clip: &[u64], cycle: usize) -> Vec<usize> {
+        let metric = |i: usize| -> u64 {
+            if i == 0 {
+                return u64::MAX;
+            }
+            let (a, b) = (clip[i - 1], clip[i]);
+            if a == b {
+                0
+            } else {
+                // splitmix64 of the pair
+                let mut z = (a << 32 | b).wrapping_add(0x9E37_79B9_7F4A_7C15);
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                (z ^ (z >> 31)) % 1000 + 1
+            }
+        };
+        let mut kept = Vec::new();
+        for cs in (0..clip.len()).step_by(cycle) {
+            let ce = (cs + cycle).min(clip.len());
+            let drop = (cs..ce).min_by_key(|&i| metric(i)).unwrap();
+            kept.extend((cs..ce).filter(|&i| i != drop));
+        }
+        kept
+    }
+
+    /// The source frame the encode shows for source frame `t`: the frame
+    /// itself if VDecimate kept it, else the kept frame before it.
+    fn encode_shows(p: &ProcessingPipeline, cycle: usize, src_len: u64, origin: u64, end: u64, t: u64) -> u64 {
+        let decoded: Vec<u64> = (origin..end).collect();
+        let piped = p.pipe_frames(decoded.len() as i32) as usize;
+        let mut clip = decoded.clone();
+        clip.resize(piped, *decoded.last().unwrap());
+        let _ = src_len;
+        let kept = model_vdecimate(&clip, cycle);
+        let mut shown = clip[kept[0]];
+        for &i in &kept {
+            if i as u64 + origin > t {
+                break;
+            }
+            shown = clip[i];
+        }
+        shown
+    }
+
+    /// What the preview script shows for `t`, run as the template runs it.
+    fn preview_shows(p: &ProcessingPipeline, src_len: u64, origin: u64, end: u64, t: u64) -> (u64, PreviewOutput) {
+        let radius = p.total_radius() as u64;
+        let first = t.saturating_sub(radius);
+        let num_frames = (t - first) + radius + 1;
+        let out = p.preview_output_in(origin, first, t, 0, Some((num_frames, end)));
+        let d = out.decimate.expect("a decimating pipeline previews through VDecimate");
+        // pipe_source repeats the last frame past the source's end.
+        let mut clip: Vec<u64> = (first..first + num_frames).map(|n| n.min(src_len - 1)).collect();
+        clip.drain(..d.skip as usize);
+        let head = clip[0];
+        clip.splice(0..0, std::iter::repeat_n(head, d.pad as usize));
+        if d.real_len > 0 {
+            clip.truncate(d.real_len as usize);
+            let last = *clip.last().unwrap();
+            clip.resize(d.len as usize, last);
+        }
+        let kept = model_vdecimate(&clip, d.cycle as usize);
+        let tagged: Vec<usize> = kept.clone();
+        let (tc, c) = (d.target as usize, d.cycle as usize);
+        let j = tc / c * (c - 1) + tc % c;
+        let corr = tc % c == c - 1 || j >= tagged.len() || tagged[j] != tc;
+        let index = if corr { d.after_drop.0 } else { out.local_index } as usize;
+        (clip[kept[index.min(kept.len() - 1)]], out)
+    }
+
+    fn decimating(method: DeinterlaceMethod, cycle: i32) -> ProcessingPipeline {
+        let mut p = ProcessingPipeline::default();
+        p.deinterlace.enabled = true;
+        p.deinterlace.method = method;
+        p.deinterlace.ivtc_cycle = Some(cycle);
+        p.frame_rate.source_fps_num = Some(30000);
+        p.frame_rate.source_fps_den = Some(1001);
+        p
+    }
+
+    #[test]
+    fn a_decimation_previews_the_frame_the_encode_keeps() {
+        const SRC: u64 = 47;
+        let cases = [
+            (DeinterlaceMethod::Ivtc, 5),
+            (DeinterlaceMethod::Ivtc, 4),
+            (DeinterlaceMethod::Ivtc, 6),
+            (DeinterlaceMethod::SoftTelecine, 5),
+        ];
+        for (method, cycle) in cases {
+            let p = decimating(method, cycle);
+            for origin in 0..8u64 {
+                for end in [SRC, SRC - 3, 31, 29] {
+                    if end <= origin + 1 {
+                        continue;
+                    }
+                    for t in origin..end {
+                        let want = encode_shows(&p, cycle as usize, SRC, origin, end, t);
+                        let (got, out) = preview_shows(&p, SRC, origin, end, t);
+                        assert_eq!(
+                            got, want,
+                            "{method:?} cycle {cycle}, encode {origin}..{end}, target {t}: {out:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_old_walk_showed_a_frame_early() {
+        // Without running VDecimate the preview took local * 4/5 from the
+        // undecimated window: one frame early at radius 5 (task #46). The
+        // walk now leaves the target where VDecimate's clip has it.
+        let p = decimating(DeinterlaceMethod::Ivtc, 5);
+        let out = p.preview_output(0, 34, 40, 0);
+        let d = out.decimate.unwrap();
+        assert_eq!((d.skip, d.pad, d.target), (0, 4, 10));
+        assert_eq!(out.local_index, 8, "kept before it: none of its cycle");
+        assert_eq!(d.after_drop.0, 7, "its cycle lost a frame at or before it");
+    }
+
+    #[test]
+    fn a_decimation_reads_its_cycle_and_the_frames_before() {
+        assert_eq!(FrameMap::Decimate { cycle: 5, keep: 4 }.radius(), 6);
+        assert_eq!(decimating(DeinterlaceMethod::Ivtc, 5).total_radius(), 6);
+        assert_eq!(decimating(DeinterlaceMethod::Ivtc, 8).total_radius(), 9);
+        assert_eq!(decimating(DeinterlaceMethod::SoftTelecine, 5).total_radius(), 6);
+        let mut film = decimating(DeinterlaceMethod::SoftTelecine, 5);
+        film.frame_rate.source_fps_num = Some(24000);
+        assert!(film.preview_output(0, 0, 10, 0).decimate.is_none(), "nothing decimates at the film rate");
+        assert_eq!(film.total_radius(), MIN_PREVIEW_RADIUS);
+    }
+
+    #[test]
+    fn a_retime_after_a_decimation_takes_both_outcomes() {
+        // IVTC then 23.976 -> 59.94 (x5/2): the target's place after the
+        // decimation moves by one when its cycle lost a frame before it, and
+        // the retime's outputs for it follow.
+        let mut p = decimating(DeinterlaceMethod::Ivtc, 5);
+        p.frame_rate.enabled = true;
+        p.frame_rate.target = crate::models::FrameRateTarget::Ntsc5994;
+        p.frame_rate.method = FrameRateMethod::FlowFps;
+        // Outputs of decimated frame j (encode terms) start at ceil(5j/2).
+        let ceil = |x: i64| (5 * x + 1).div_euclid(2);
+        for first in 30..40u64 {
+            for t in first..first + 7 {
+                let out = p.preview_output(0, first, t, 0);
+                let d = out.decimate.unwrap();
+                let e0_dec = (first - d.pad) as i64 / 5 * 4;
+                let e0_out = (e0_dec - out.rate_pad as i64) / 2 * 5;
+                let at = |corr: i64| e0_dec + d.target as i64 / 5 * 4 + d.target as i64 % 5 - corr;
+                for (corr, (index, sub_frames)) in
+                    [(0, (out.local_index, out.sub_frames)), (1, (d.after_drop.0, d.after_drop.2))]
+                {
+                    if corr == 1 && d.target == 0 {
+                        continue; // a clip's frame 0 is never dropped
+                    }
+                    assert_eq!(index as i64 + e0_out, ceil(at(corr)), "window {first}, target {t}, corr {corr}");
+                    assert_eq!(sub_frames as i64, ceil(at(corr) + 1) - ceil(at(corr)));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn stabilize_looks_up_the_decimated_clip_from_its_encode_offset() {
+        let p = decimating(DeinterlaceMethod::Ivtc, 5);
+        // Window from 34, encode from 3: e0 = 31, padded by 1 to 30 = 6 cycles.
+        let out = p.preview_output(3, 34, 40, 0);
+        assert_eq!(out.decimate.unwrap().pad, 1);
+        assert_eq!(ProcessingPipeline::preview_source_offset(&out, 34), 33);
+        // Encode index n + 24 of the decimated clip is source 3 + (n+24)*5/4
+        // = 33 + n*5/4 for whole cycles of n.
+        // Window from 0, encode from 4: the first 4 frames are dropped.
+        let out = p.preview_output(4, 0, 6, 0);
+        assert_eq!(out.decimate.unwrap().skip, 4);
+        assert_eq!(ProcessingPipeline::preview_source_offset(&out, 0), 4);
+        let plain = ProcessingPipeline::default();
+        assert_eq!(ProcessingPipeline::preview_source_offset(&plain.preview_output(0, 7, 10, 0), 7), 7);
     }
 }
