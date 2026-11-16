@@ -620,7 +620,8 @@ const parityTolerances = <String, ({double tolerance, String reason})>{
   'color_correction/applyLocalContrast=true': (
     tolerance: 4.0,
     reason: 'CLAHE\'s per-tile histograms quantise differently by depth; '
-        '12-bit measured 3.1-3.35 at 96x64 (16-bit is task #56, F7)',
+        'at 96x64 its tiles are 12x8 px (since task #56 F7 it decides on an '
+        '8-bit copy at every depth)',
   ),
   'chroma_fixes/applyChromaBleedingFix=true': (
     tolerance: 4.0,
@@ -750,89 +751,14 @@ class KnownFailure {
       rows(row);
 }
 
-bool _widthMod4Is2(SweepRow r) => r.size.width % 4 == 2;
-bool _subsampledHorizontally(SweepRow r) => r.format.chromaShift.$1 > 1;
 
 /// The one task the sweep's findings are filed as.
 const knownFailuresTask = 56;
 
-final knownFailures = <KnownFailure>[
-  KnownFailure(
-    variant: 'deband',
-    check: SweepCheck.depth,
-    rows: (r) => r.format.depth == 8,
-    error: 'PNG is 16-bit',
-    task: knownFailuresTask,
-    finding: 'F4: Deband\'s default output_depth 16 turns an 8-bit source\'s '
-        'output 16-bit under Color Format "original"',
-  ),
-  KnownFailure(
-    variant: 'color_correction/applyLocalContrast=true',
-    check: SweepCheck.parity,
-    rows: (r) => r.format.pipedDepth == 16,
-    error: 'levels from 8-bit',
-    task: knownFailuresTask,
-    finding: 'F7: CLAHE\'s limit is scaled by content depth, which assumes the '
-        'content fills its histogram sub-bins',
-  ),
-  KnownFailure(
-    variant: 'chroma_fixes/applyBifrost=true',
-    check: SweepCheck.bitExact,
-    rows: _widthMod4Is2,
-    error: 'samples',
-    task: knownFailuresTask,
-    finding: 'F6: Bifrost is non-deterministic when the width is 2 mod 4',
-    flaky: true,
-  ),
-  for (final preset in ['Super Fast', 'Ultra Fast'])
-    KnownFailure(
-      variant: 'deinterlace/qtgmc[preset=$preset]',
-      check: SweepCheck.runs,
-      rows: (r) => _widthMod4Is2(r) && _subsampledHorizontally(r),
-      error: 'image dimensions must be divisible by subsampling factor',
-      task: knownFailuresTask,
-      finding: 'F2: QTGMC $preset fails when the width is 2 mod 4 on 4:2:0/4:2:2 '
-          '(MAnalyse\'s super clip)',
-    ),
-  for (final turn in ['cw90', 'ccw90'])
-    KnownFailure(
-      variant: 'geometry/rotation=$turn',
-      check: SweepCheck.runs,
-      rows: (r) =>
-          r.field == SweepField.tff &&
-          r.format.chromaShift.$1 != r.format.chromaShift.$2 &&
-          _widthMod4Is2(r),
-      error: 'image dimensions must be divisible by subsampling factor',
-      task: knownFailuresTask,
-      finding: 'F3: a quarter turn keeps _FieldBased, and zimg then resamples '
-          'the turned 4:2:2 picture per "field"',
-    ),
-  KnownFailure(
-    variant: 'noise_reduction/mc_temporal_denoise',
-    check: SweepCheck.runs,
-    rows: (r) => _widthMod4Is2(r) && _subsampledHorizontally(r),
-    error: 'cropped area needs to have mod 2 width offset',
-    task: knownFailuresTask,
-    finding: 'F1: MCTemporalDenoise fails when the width is 2 mod 4 on 4:2:0/4:2:2',
-  ),
-  // After F2, so F2's rows keep F2's match. Seen on every x86 push gate
-  // (Linux x64 with AVX-512, macOS x64 and Windows without), every row of
-  // these four presets; the other presets pass, and arm64 passes them all.
-  // Flaky, since why is not known yet.
-  for (final preset in ['Very Fast', 'Super Fast', 'Ultra Fast', 'Draft'])
-    KnownFailure(
-      variant: 'deinterlace/qtgmc[preset=$preset]',
-      check: SweepCheck.runs,
-      rows: (r) => !WorkerHarness.platform.endsWith('arm64'),
-      error: 'vspipe failed',
-      task: knownFailuresTask,
-      finding: 'F9: QTGMC $preset dies in vspipe on x86 (not arm64) with no Python '
-          'error (likely a native crash). The four presets alone share '
-          'Overlap = blocksize/4 and SearchParam 1 (MVTools). The preview '
-          'path drops vspipe\'s exit status whenever stderr has a line',
-      flaky: true,
-    ),
-];
+// Task #56 fixed every entry this list held (F1-F4, F6, F7, F9; see
+// docs/reports/task-56-format-sweep-findings). A new finding goes here with
+// its task, and comes out with its fix.
+final knownFailures = <KnownFailure>[];
 
 KnownFailure? knownFailureFor(String variantId, SweepRow row, SweepCheck check) {
   for (final k in knownFailures) {

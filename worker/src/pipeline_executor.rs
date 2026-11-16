@@ -302,12 +302,6 @@ pub fn field_order_args(job: &VideoJob) -> FieldOrderArgs {
     }
 }
 
-/// The job-log line for a picture left interlaced that the output cannot
-/// declare as such, or `None` when it can (or the picture is progressive).
-///
-/// Players then show it as progressive, combing on every moving edge, and an
-/// editor treats each woven frame as one picture. Said rather than refused:
-/// the user may want exactly this file.
 /// The preview's YUV -> RGB conversion for an SDR picture (task #56 F8).
 /// `full_chroma_int` interpolates chroma for every source: without it swscale
 /// converted 8-bit 4:2:0 on its fast path with nearest-neighbour chroma and
@@ -323,6 +317,12 @@ pub fn preview_scale_filter(input_opts: &[String]) -> String {
     format!("scale={}", opts.join(":"))
 }
 
+/// The job-log line for a picture left interlaced that the output cannot
+/// declare as such, or `None` when it can (or the picture is progressive).
+///
+/// Players then show it as progressive, combing on every moving edge, and an
+/// editor treats each woven frame as one picture. Said rather than refused:
+/// the user may want exactly this file.
 pub fn field_order_note(job: &VideoJob) -> Option<String> {
     let codec = job.encoding_settings.codec;
     let pipeline = job.effective_pipeline();
@@ -1906,10 +1906,17 @@ impl PipelineExecutor {
 
         // Check for errors
         if !vspipe_status.success() {
-            if !errors.is_empty() {
-                bail!("vspipe failed: {}", errors.join("\n"));
-            }
-            bail!("vspipe exited with {}", format_exit_status(&vspipe_status));
+            // The encode's wording (task #28), so a native crash says so
+            // rather than quoting the first warning vspipe printed (task #56
+            // F9b: a SIGFPE inside MVTools read as "plugin already loaded").
+            bail!(
+                "{}",
+                vspipe_failure::vspipe_failure_message(
+                    &format_exit_status(&vspipe_status),
+                    is_native_crash(&vspipe_status),
+                    &errors.join("\n"),
+                )
+            );
         }
 
         if !output.status.success() {

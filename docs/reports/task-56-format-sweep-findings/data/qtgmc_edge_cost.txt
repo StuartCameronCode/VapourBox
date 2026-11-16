@@ -1,0 +1,11 @@
+# 854x480 4:2:0 TFF, 12 frames; luma |padded - unpadded| in 8-bit levels
+preset        whole (mean/max)    last 16 cols (mean/max)   left of them (mean/max)
+Placebo        0.034 /   11.0          1.198 /   11.0          0.012 /    5.0      
+Very Slow      0.025 /   10.0          1.142 /   10.0          0.004 /    5.0      
+Slower         0.022 /    9.0          1.037 /    9.0          0.003 /    4.0      
+Slow           0.019 /    8.0          0.919 /    8.0          0.002 /    4.0      
+Medium         0.019 /    9.0          0.950 /    9.0          0.001 /    6.0      
+Fast           0.013 /    7.0          0.696 /    7.0          0.000 /    5.0      
+Faster         0.000 /    3.0          0.000 /    3.0          0.000 /    0.0      
+Very Fast      0.000 /    3.0          0.000 /    3.0          0.000 /    0.0      
+Draft          0.000 /    0.0          0.000 /    0.0          0.000 /    0.0      

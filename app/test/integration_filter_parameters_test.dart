@@ -2128,7 +2128,7 @@ void main() {
 
     // --- needs vszip (issue #90) ---------------------------------------------
 
-    test('color: local contrast reaches vszip.CLAHE on luma, depth-scaled',
+    test('color: local contrast reaches vszip.CLAHE on luma, deciding at 8-bit',
         () async {
       loadSchema('color_correction');
       final job = buildJob(
@@ -2147,8 +2147,11 @@ void main() {
       // vszip equalizes every plane it is given, so luma goes in alone.
       expect(script,
           contains('y = core.std.ShufflePlanes(c, planes=0, colorfamily=vs.GRAY)'));
-      // Its limit is a per-bin count, scaled by the depth the content uses.
-      expect(script, contains('limit_8bit << (16 - content_bits)'));
+      // Its limit is a whole count per histogram bin, which a deep histogram
+      // can't scale to: it decides on an 8-bit copy and only its change is
+      // applied at the clip's depth (task #56 F7).
+      expect(script, contains("_pf.change_at(y, vs.core.get_video_format(vs.GRAY8), _clahe"));
+      expect(script, isNot(contains('content_bits')));
       // Strength blends over a fixed limit rather than being the limit.
       expect(script, contains('    limit_8bit = 2\n'));
       expect(script, contains('work = core.std.Merge(y, work, weight=amount)'));

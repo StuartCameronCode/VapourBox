@@ -959,6 +959,10 @@ impl ScriptGenerator {
                     script = process_optional_double("SV_THIN", params.sv_thin, script);
                     script = process_optional_int("SBB", params.sbb, script);
                     script = process_optional_int("SRCH_CLIP_PP", params.srch_clip_pp, script);
+                    script = script.replace(
+                        "{{QTGMC_HALVES_SEARCH}}",
+                        if params.effective_srch_clip_pp() == 1 { "True" } else { "False" },
+                    );
 
                     // Noise processing
                     // When noise reduction is set to QTGMC built-in, use the noise

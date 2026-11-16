@@ -1,0 +1,19 @@
+# 96x64, 8 tiles, noise 6.0, limit 2, strength 1
+content            passthrough   before #56 (mean / max)   rounded copy (mean / max)   dithered copy (mean / max)
+10-bit genuine      0.272        21.782 /  93.4           5.415 /  43.0           4.788 /  42.2
+12-bit genuine      0.251        31.072 / 127.9           5.584 /  44.8           5.073 /  42.7
+14-bit genuine      0.249        34.369 / 144.2           5.320 /  44.7           5.272 /  42.7
+16-bit genuine      0.249        35.358 / 151.5           5.281 /  42.7           5.228 /  44.4
+ 8-bit in 10-bit      0.000        12.662 /  40.7           0.000 /   0.0           0.000 /   0.0
+ 8-bit in 16-bit      0.000        12.662 /  40.7           0.000 /   0.0           0.000 /   0.0
+
+banding on a smooth ramp: largest step between neighbours, 8-bit levels, raw / after a 13-px box blur
+ 8-bit CLAHE                  5.000 /  1.154
+10-bit source itself          0.498 /  0.421
+10-bit before #56             5.311 /  1.600
+10-bit after #56, rounded     5.253 /  1.077
+10-bit after #56, dithered    5.755 /  1.289
+16-bit source itself          0.420 /  0.417
+16-bit before #56             5.311 /  1.600
+16-bit after #56, rounded     5.420 /  1.111
+16-bit after #56, dithered    5.420 /  1.200

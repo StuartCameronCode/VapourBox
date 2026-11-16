@@ -76,6 +76,22 @@ Map<String, String> _templateCalls() {
   return calls;
 }
 
+/// Whether [contract]'s width_step / height_step pad the frame of [cell]
+/// (`<ss>p<bits>/f<field>/<W>x<H>`): a size refusal its run_within() avoids.
+/// A step is luma samples, or 'chroma' (2 << that axis's subsampling).
+bool _padsCell(Map<String, dynamic> contract, String cell) {
+  final m = RegExp(r'^(\d{3})p\d+/f\d/(\d+)x(\d+)$').firstMatch(cell);
+  if (m == null) return false;
+  final (sw, sh) = switch (m.group(1)) {
+    '420' => (1, 1),
+    '422' => (1, 0),
+    _ => (0, 0),
+  };
+  int step(Object? v, int sub) => v == 'chroma' ? 2 << sub : (v as int? ?? 1);
+  final w = int.parse(m.group(2)!), h = int.parse(m.group(3)!);
+  return w % step(contract['width_step'], sw) != 0 || h % step(contract['height_step'], sh) != 0;
+}
+
 /// Whether a call's summary in the table refuses anything a pass can see.
 bool _limited(Map<String, dynamic> s) =>
     s.containsKey('broken') ||
@@ -250,15 +266,30 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
       if (subs.join(',') != ((s['subsampling'] as List).cast<String>()..sort()).join(',')) {
         problems.add('$key: contract subsampling $subs, the bundle accepts ${s['subsampling']}');
       }
+      // Task #57: every reachable cell runs through run_within(), which
+      // converts and pads to the contract.
+      final within = (s['within_refused'] as List?)?.cast<String>();
+      if (within == null) {
+        problems.add('$key: the table has no run_within() measurement; re-run the probe on it');
+      } else if (within.isNotEmpty && !handled.containsKey(key)) {
+        // A HANDLED key's refusals beyond its contract are met by the pass,
+        // not by run_within() (DeScratch: field-flagged 4:2:0 runs on a
+        // 4:2:2 carrier, measured as pass.DeScratch).
+        problems.add('$key: refused through run_within() at ${within.join(', ')}');
+      }
     }
     for (final MapEntry(key: key, value: entry) in calls.entries) {
       final s = (entry as Map)['summary'] as Map<String, dynamic>;
       if (!_limited(s)) continue;
       final depthOrSs = (s['depths'] as List?)?.length != 4 || (s['subsampling'] as List?)?.length != 3;
+      final contract = contracts[key] as Map<String, dynamic>?;
+      final unpadded = ((s['sizes_refused'] as List?) ?? const [])
+          .cast<String>()
+          .where((cell) => contract == null || !_padsCell(contract, cell));
       final other = s.containsKey('broken') ||
           s['field_based'] != true ||
           s.containsKey('irregular') ||
-          ((s['sizes_refused'] as List?)?.isNotEmpty ?? false);
+          unpadded.isNotEmpty;
       if (depthOrSs && !contracts.containsKey(key) && !handled.containsKey(key)) {
         problems.add('$key: refuses ${s['depths']} x ${s['subsampling']} but has no contract');
       }
@@ -275,9 +306,15 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
       final s = (calls[key] as Map?)?['summary'] as Map<String, dynamic>?;
       if (s == null) {
         problems.add('$key: in KNOWN but not probed');
-      } else if (!_limited(s)) {
-        problems.add('$key: in KNOWN, but the bundle now accepts everything; remove it '
-            '(and close its task if this was the fix)');
+      } else if (!_limited(s) ||
+          (contracts.containsKey(key) &&
+              s['field_based'] == true &&
+              !s.containsKey('irregular') &&
+              ((s['sizes_refused'] as List?) ?? const [])
+                  .cast<String>()
+                  .every((cell) => _padsCell(contracts[key] as Map<String, dynamic>, cell)))) {
+        problems.add('$key: in KNOWN, but the bundle now accepts everything, or its contract '
+            'pads every size it refuses; remove it (and close its task if this was the fix)');
       }
     }
     expect(problems, isEmpty, reason: problems.join('\n'));

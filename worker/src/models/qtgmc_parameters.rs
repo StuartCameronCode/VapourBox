@@ -423,6 +423,26 @@ fn default_true() -> bool { true }
 const SUPPORTED_CHROMA_EDI: [&str; 2] = ["nnedi3", "bob"];
 
 impl QTGMCParameters {
+    /// The SrchClipPP havsfunc's QTGMC runs with: the user's, else its
+    /// preset's (havsfunc r31's table). 1 alone halves the frame for the
+    /// motion search (`resize.Bilinear(w // 2, h // 2)`), which a 4:2:x
+    /// picture whose width is 2 mod 4 can't take, so only then does the
+    /// template pad the width (task #56 F2). The others resample the whole
+    /// frame at a size that follows the width, so padding would move every
+    /// column, not just the edge.
+    pub fn effective_srch_clip_pp(&self) -> i32 {
+        self.srch_clip_pp.unwrap_or(match self.preset {
+            QTGMCPreset::Placebo
+            | QTGMCPreset::VerySlow
+            | QTGMCPreset::Slower
+            | QTGMCPreset::Slow
+            | QTGMCPreset::Medium => 3,
+            QTGMCPreset::Fast | QTGMCPreset::Faster | QTGMCPreset::VeryFast => 2,
+            QTGMCPreset::SuperFast | QTGMCPreset::UltraFast => 1,
+            QTGMCPreset::Draft => 0,
+        })
+    }
+
     /// The fade fix's mode as the template spells it. Anything but `match`
     /// is `average`, upstream's first and gentler mode: it keeps a fade's
     /// overall level, where `match` darkens every frame to its darker field.

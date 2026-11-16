@@ -361,6 +361,34 @@ Output 97 frames in 0.06 seconds (1646.73 fps)
     }
 
     #[test]
+    fn a_crash_after_warnings_is_reported_as_the_crash() {
+        // Task #56 F9b: the preview used to report the first stderr line, so
+        // a SIGFPE inside MVTools read as one of these warnings.
+        let mac = "Warning: Plugin /d/plugins/libretinex.dylib already loaded (com.vapoursynth.retinex) \
+                   from /d/plugins/libretinex.dylib";
+        let win = "Warning: Plugin D:\\d\\vs-plugins\\CAS.dll is using API3 which is deprecated and \
+                   will be removed shortly.";
+        for warning in [mac, win] {
+            let m = vspipe_failure_message("signal 8 (SIGFPE)", true, warning);
+            assert!(
+                m.starts_with("vspipe exited with signal 8 (SIGFPE) — a native crash"),
+                "{m}"
+            );
+            assert!(!m.starts_with("vspipe failed"), "{m}");
+        }
+        let code = "exit code -1073741676 — integer divide by zero inside vspipe or a plugin";
+        let m = vspipe_failure_message(code, true, win);
+        assert!(m.starts_with(&format!("vspipe exited with {code} — a native crash")), "{m}");
+        // A Python error after the warnings is still the Python error.
+        let tail = format!(
+            "{mac}\nScript evaluation failed:\nPython exception: Resize error 1027: image dimensions \
+             must be divisible by subsampling factor\n"
+        );
+        let m = vspipe_failure_message("exit code 1", false, &tail);
+        assert!(m.starts_with("The VapourSynth script failed: Resize error 1027"), "{m}");
+    }
+
+    #[test]
     fn windows_line_endings_give_the_same_message() {
         let crlf = BITDEPTH.replace('\n', "\r\n");
         assert_eq!(

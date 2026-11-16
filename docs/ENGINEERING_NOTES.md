@@ -4970,3 +4970,38 @@ Depth Sources", states the rules; this entry has the why.
   ~1.5–2.5 min. The nightly product is ~6,100 previews plus ~110 FFV1
   encodes, ~16 min; on a hosted runner (pool 2, slower cores), ~1.5 h, in
   its own matrix leg.
+
+### Format sweep findings fixed; MVTools' two-block-row division (task #56, 2026-11-17)
+
+Report: [docs/reports/task-56-format-sweep-findings](reports/task-56-format-sweep-findings/index.html).
+Every row task #47's sweep had pinned in `knownFailures` now passes.
+
+- **MVTools on a picture one or two block rows tall (F9).** Compensate,
+  Degrain and BlockFPS pick the overlap window with
+  `((by + nBlkY - 3) / (nBlkY - 2)) * 3`. At two block rows x86 traps
+  (SIGFPE, vspipe dies with no Python error) and arm64 silently blends the
+  bottom row with the wrong window (up to 127 levels off). One row, or one
+  column, is that wrong on every CPU. #47 first pinned it as "x86 only";
+  that was the symptom, not the bug. Every MVTools overlap caller runs
+  through `plugin_formats.mvtools_blocks`, which pads a picture under 64x96
+  (`test_256`). No real source is that small, so no real job's script
+  changes.
+- **The preview hid native crashes (F9b).** It reported vspipe's stderr,
+  whose first lines are plugin warnings (task #61), and dropped the exit
+  status. It now uses the encode's `vspipe_failure_message`.
+- **Frame-size refusals are Contract steps** (task #57's `pad_around`, taken
+  verbatim): MCTemporalDenoise and QTGMC with SrchClipPP 1 pad a 4:2:x width
+  2 mod 4 (F1, F2), and Bifrost pads to its 4x8 blocks, whose leftover chroma
+  it never initialises (F6; 720x486 4:2:2 D1 differed run to run). QTGMC's
+  other presets keep their width: padding moved their pictures up to 5
+  levels inside the frame, because their search clip is resampled at a size
+  that follows the width.
+- **CLAHE decides on an 8-bit copy at every depth (F7).** Its clip limit is
+  a whole count per bin, which a 16-bit histogram can't scale down to.
+  Scaling by the content depth (the 2026-10 note) left genuine deep content
+  3–22 levels from the 8-bit result; now ~1. That note's lesson (content
+  depth is not container depth) still holds; its fix is superseded. The
+  cost: a smooth deep ramp steps about as the 8-bit result does.
+- F3/F3b (Rotate / Flip and field order), F4 (Color Format "original"
+  restores the source depth after Deband), F5 (field-aware resize height)
+  and F8 (preview chroma interpolation at every depth) are in the same report.
