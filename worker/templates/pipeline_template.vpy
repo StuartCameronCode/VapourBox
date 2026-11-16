@@ -149,6 +149,10 @@ clip = core.std.FrameEval(core.std.BlankClip(_vfr_src, length=_vfr_slots), _vfr_
 clip = core.std.SetFieldBased(clip, {{FIELD_BASED}})
 {{/SET_FIELD_BASED}}
 
+# The format every pass starts from (after the 4:1:1 conversion above). Color
+# Format "original" delivers its depth at the end (task #56).
+_source_format = clip.format
+
 # Get input properties for progress tracking
 input_fps_num = clip.fps.numerator
 input_fps_den = clip.fps.denominator
@@ -2285,6 +2289,14 @@ clip = core.std.FlipHorizontal(clip)
 {{#GEOM_FLIP_V}}
 clip = core.std.FlipVertical(clip)
 {{/GEOM_FLIP_V}}
+# On a still-interlaced picture (task #56): after a quarter turn the "fields"
+# are columns, so it is progressive from here on (a field-aware resample of it,
+# the restore below included, is wrong and on 4:2:2 at a width of 2 mod 4
+# fails); a vertical mirror of an even-height frame puts the field captured
+# first on the bottom lines. ScriptGenerator::field_order_at_framing decides.
+{{#GEOM_SET_FIELD_BASED}}
+clip = core.std.SetFieldBased(clip, {{GEOM_FIELD_BASED}})
+{{/GEOM_SET_FIELD_BASED}}
 if clip.format.id != _geom_src_format.id:
     clip = core.resize.Spline36(clip, format=_geom_src_format.id)
 {{/GEOMETRY}}
@@ -2505,6 +2517,18 @@ def _even(value):
     return max(2, int(round(value)) & ~1)
 
 
+# A height a still-interlaced 4:2:0 picture can take: each field needs a whole
+# chroma height, so a multiple of 4 (task #56; zimg refuses 106 lines with
+# "image dimensions must be divisible by subsampling factor"). Everything else
+# keeps _even. ScriptGenerator::framing_steps decides, and
+# CropResizeParameters::output_size rounds the same way.
+_height_step = {{RESIZE_HEIGHT_STEP}}
+
+
+def _height(value):
+    return max(_height_step, (int(round(value)) // _height_step) * _height_step)
+
+
 # Storage aspect when the pixel grid is left alone, display aspect when we are
 # resampling to square pixels: that is exactly what "square up" means.
 {{#ASPECT_SQUARE_PIXELS}}
@@ -2517,6 +2541,8 @@ _fit_aspect = clip.width / clip.height
 # Calculate target dimensions
 target_w = {{TARGET_WIDTH}}
 target_h = {{TARGET_HEIGHT}}
+if target_h > 0 and _height_step > 2:
+    target_h = _height(target_h)
 {{#ASPECT_SQUARE_PIXELS}}
 if target_w <= 0 and target_h <= 0:
     # Squaring the pixels with no target size: keep the height and widen (or
@@ -2527,14 +2553,14 @@ _box_w, _box_h = target_w, target_h
 {{#MAINTAIN_ASPECT}}
 # Maintain aspect ratio - calculate the missing dimension, or fit inside the box
 if target_w > 0 and target_h <= 0:
-    target_h = _even(target_w / _fit_aspect)
+    target_h = _height(target_w / _fit_aspect)
 elif target_h > 0 and target_w <= 0:
     target_w = _even(target_h * _fit_aspect)
 elif target_w > 0 and target_h > 0:
     # Both specified - fit within bounds while maintaining aspect
     scale = min(target_w / (clip.height * _fit_aspect), target_h / clip.height)
     target_w = _even(clip.height * _fit_aspect * scale)
-    target_h = _even(clip.height * scale)
+    target_h = _height(clip.height * scale)
 {{/MAINTAIN_ASPECT}}
 
 # filter_param_a/b carry the kernel's own tuning: b and c for Bicubic, taps
@@ -2556,7 +2582,7 @@ clip = core.resize.{{RESIZE_KERNEL}}(
 # letterbox/pillarbox out to it. The bars go on last so that nothing after this
 # (grain in particular) touches them. An axis with no target stays as it is.
 _aspect_box_w = _even(_box_w) if _box_w > 0 else 0
-_aspect_box_h = _even(_box_h) if _box_h > 0 else 0
+_aspect_box_h = _height(_box_h) if _box_h > 0 else 0
 {{/ASPECT_PAD}}
 {{/RESIZE_STANDARD}}
 {{/RESIZE}}
@@ -2881,6 +2907,17 @@ if clip.format.id != target_format:
     clip = core.resize.Bicubic(clip, format=target_format,
                                dither_type="error_diffusion")
 {{/CHROMA_CONVERT}}
+{{#DEPTH_RESTORE}}
+# Color Format "original" is the source's format, depth included (task #56). A
+# pass can change the depth on the way -- Deband's output_depth is the depth the
+# passes after it work at, 16 by default -- so it is brought back here, dithered
+# like the conversion above. Depth only: a pass that adds colour to a grey source
+# (Colourisation) keeps it. A no-op when nothing changed the depth.
+if (clip.format.bits_per_sample, clip.format.sample_type) != (_source_format.bits_per_sample, _source_format.sample_type):
+    clip = core.resize.Bicubic(clip, format=clip.format.replace(
+        bits_per_sample=_source_format.bits_per_sample,
+        sample_type=_source_format.sample_type).id, dither_type="error_diffusion")
+{{/DEPTH_RESTORE}}
 
 # ============================================================================
 # BORDERS (issue #86)

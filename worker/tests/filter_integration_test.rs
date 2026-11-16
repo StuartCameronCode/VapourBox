@@ -8357,10 +8357,14 @@ fn test_221_template_field_based_sites_are_all_accounted_for() {
         ("core.std.SetFieldBased(c, 2 if _stx_tff else 1)", "mpeg2stinx internal"),
         ("core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)", "mpeg2stinx output: progressive"),
         ("core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})", "SangNom restores the source order"),
+        (
+            "core.std.SetFieldBased(clip, {{GEOM_FIELD_BASED}})",
+            "Rotate / Flip: a quarter turn is progressive, a vertical mirror swaps the order (field_order_at_framing, task #56)",
+        ),
     ];
     // How many of each: the bare `clip, 0` line appears three times (fade fix,
     // mpeg2stinx, Stabilize pitch), AA twice (two SangNom blocks).
-    let counts = [1usize, 1, 3, 1, 1, 1, 2];
+    let counts = [1usize, 1, 3, 1, 1, 1, 2, 1];
     for name in [vapourbox_worker::script_generator::TEMPLATE_FILE] {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates").join(name);
         let src = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n");
@@ -9463,4 +9467,152 @@ fn test_252_limited_plugins_are_called_within_run_within() {
         assert!(norm < at, "the 4:1:1 normalisation must come before {later}");
     }
     assert_eq!(template.matches("subsampling_w > 1").count(), 1, "one 4:1:1 rule, at the top");
+}
+
+/// Task #56 F3: Rotate / Flip on a still-interlaced picture. A quarter turn
+/// makes it progressive (its "fields" are columns), a vertical mirror swaps the
+/// field order, and both are stamped on the clip before the format restore and
+/// told to the encoder (`output_field_order`). A progressive source, or a turn
+/// that changes nothing, emits no stamp.
+#[test]
+fn test_253_rotate_flip_field_order() {
+    create_output_dir();
+    let job_for = |rotation: Rotation, flip_v: bool, detected: Option<FieldOrder>| {
+        let mut job = create_base_job("test_253_rotate_flip_field_order");
+        job.qtgmc_parameters.enabled = false;
+        job.detected_field_order = detected;
+        job.input_height = Some(480);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..job.qtgmc_parameters.clone() },
+            geometry: GeometryParameters {
+                enabled: true,
+                rotation,
+                flip_horizontal: false,
+                flip_vertical: flip_v,
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    let tff = Some(FieldOrder::TopFieldFirst);
+    let bff = Some(FieldOrder::BottomFieldFirst);
+    let cases: &[(Rotation, bool, Option<FieldOrder>, Option<&str>, Option<bool>)] = &[
+        (Rotation::Cw90, false, tff, Some("0"), None),
+        (Rotation::Ccw90, false, bff, Some("0"), None),
+        (Rotation::Rotate180, false, tff, Some("1"), Some(false)),
+        (Rotation::None, true, bff, Some("2"), Some(true)),
+        // A half turn plus a vertical mirror is a horizontal mirror: no change.
+        (Rotation::Rotate180, true, tff, None, Some(true)),
+        // Progressive source: nothing to stamp.
+        (Rotation::Cw90, false, Some(FieldOrder::Progressive), None, None),
+        (Rotation::Rotate180, false, None, None, None),
+    ];
+    for &(rotation, flip_v, detected, stamp, encoder) in cases {
+        let job = job_for(rotation, flip_v, detected);
+        let pipeline = job.effective_pipeline();
+        assert_eq!(
+            ScriptGenerator::output_field_order(&job, &pipeline),
+            encoder,
+            "{rotation:?} flip_v={flip_v} {detected:?}"
+        );
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(!script.contains("GEOM_"), "{name}: unsubstituted geometry tag");
+            let line = stamp.map(|v| format!("clip = core.std.SetFieldBased(clip, {v})\n"));
+            match line {
+                Some(l) => {
+                    let at = script.find(&l).unwrap_or_else(|| panic!("{name} {rotation:?}: no `{l}`"));
+                    // After the turn, before the format restore.
+                    assert!(at > script.find("_geom_src_format = clip.format").unwrap(), "{name}");
+                    assert!(at < script.find("if clip.format.id != _geom_src_format.id").unwrap(), "{name}");
+                }
+                None => {
+                    let a = script.find("_geom_src_format = clip.format").unwrap();
+                    let b = script.find("if clip.format.id != _geom_src_format.id").unwrap();
+                    assert!(!script[a..b].contains("SetFieldBased("), "{name} {rotation:?}: stamped");
+                }
+            }
+        }
+    }
+}
+
+/// Task #56 F5: a still-interlaced 4:2:0 picture is resized to a height that
+/// is a multiple of 4 (each field needs a whole chroma height); everything else
+/// keeps the even rounding. A quarter turn before the resize makes it
+/// progressive, so the step goes back to 2.
+#[test]
+fn test_254_resize_height_step_follows_the_fields() {
+    create_output_dir();
+    let job_for = |detected: Option<FieldOrder>, pix: &str, rotation: Rotation| {
+        let mut job = create_base_job("test_254_resize_height_step");
+        job.qtgmc_parameters.enabled = false;
+        job.detected_field_order = detected;
+        job.input_pixel_format = Some(pix.to_string());
+        job.input_width = Some(720);
+        job.input_height = Some(480);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..job.qtgmc_parameters.clone() },
+            geometry: GeometryParameters { enabled: rotation != Rotation::None, rotation, ..Default::default() },
+            crop_resize: CropResizeParameters {
+                enabled: true,
+                resize_enabled: true,
+                target_width: Some(160),
+                maintain_aspect: true,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    let tff = Some(FieldOrder::TopFieldFirst);
+    for (detected, pix, rotation, step, size) in [
+        (tff, "yuv420p", Rotation::None, 4, (160, 104)),
+        (tff, "yuv420p10le", Rotation::None, 4, (160, 104)),
+        (tff, "yuv422p", Rotation::None, 2, (160, 106)),
+        (Some(FieldOrder::Progressive), "yuv420p", Rotation::None, 2, (160, 106)),
+        (tff, "yuv420p", Rotation::Cw90, 2, (160, 240)),
+    ] {
+        let job = job_for(detected, pix, rotation);
+        let pipeline = job.effective_pipeline();
+        assert_eq!(ScriptGenerator::framing_steps(&job, &pipeline), (2, step), "{pix} {detected:?} {rotation:?}");
+        assert_eq!(job.estimated_output_size(), Some(size), "{pix} {detected:?} {rotation:?}");
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(&format!("_height_step = {step}\n")), "{name} {pix} {detected:?}");
+            assert!(script.contains("target_h = _height(target_w / _fit_aspect)"), "{name}");
+        }
+    }
+}
+
+/// Task #56 F4: Color Format "original" delivers the source's depth even when a
+/// pass changed it (Deband's output_depth, 16 by default, is the working depth
+/// of the passes after it). The restore sits where the output conversion
+/// would, after Deband, and only under "original"; any other Color Format
+/// converts anyway.
+#[test]
+fn test_255_original_color_format_restores_the_source_depth() {
+    create_output_dir();
+    for &cs in ChromaSubsampling::ALL.iter() {
+        let mut job = create_base_job("test_255_depth_restore");
+        job.qtgmc_parameters.enabled = false;
+        job.encoding_settings.chroma_subsampling = cs;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..job.qtgmc_parameters.clone() },
+            deband: DebandParameters { enabled: true, ..Default::default() },
+            ..ProcessingPipeline::default()
+        });
+        let original = job.output_chroma_subsampling().vapoursynth_format().is_none();
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(!script.contains("DEPTH_RESTORE"), "{name} {cs:?}: unsubstituted tag");
+            assert!(script.contains("output_depth=16,"), "{name} {cs:?}: Deband's working depth");
+            let restore = script.find("bits_per_sample=_source_format.bits_per_sample");
+            assert_eq!(restore.is_some(), original, "{name} {cs:?}");
+            if let Some(at) = restore {
+                assert!(at > script.find("core.neo_f3kdb.Deband(").unwrap(), "{name}: restore before Deband");
+                assert!(script.find("_source_format = clip.format").unwrap() < script.find("core.neo_f3kdb.Deband(").unwrap());
+                assert!(script[at..].contains("dither_type=\"error_diffusion\""), "{name}: undithered");
+            }
+        }
+    }
 }

@@ -163,7 +163,8 @@ fn test_preview_10bit_422_matches_source_frame() {
             "-frames:v",
             "1",
             "-vf",
-            "scale=in_range=tv:out_range=pc",
+            // The preview's own conversion (task #56 F8).
+            "scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int",
         ],
     );
 

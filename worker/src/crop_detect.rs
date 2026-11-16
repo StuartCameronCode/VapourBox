@@ -715,17 +715,13 @@ pub fn orient<T: Copy>(pipeline: &ProcessingPipeline, left: T, right: T, top: T,
 
 /// The rounding steps for a job's crop: even everywhere (the Crop controls
 /// move in twos, which keeps 4:2:0 and 4:2:2 chroma aligned), and a multiple
-/// of four vertically when a 4:2:0 picture is still interlaced at the crop —
+/// of four vertically when a 4:2:0 picture is still interlaced at the crop
+/// (after Rotate / Flip: `ScriptGenerator::framing_steps`) —
 /// each field's chroma lines alternate too, so cropping two lines would swap
 /// them.
 pub fn steps(job: &VideoJob) -> (i32, i32) {
     let pipeline = job.effective_pipeline();
-    let pipe = crate::pixel_format::decode_pixel_format(job.input_pixel_format.as_deref());
-    let (class, _) = crate::pixel_format::chroma_and_depth(&pipe.name);
-    let still_interlaced =
-        crate::script_generator::ScriptGenerator::still_interlaced_tff(job, &pipeline).is_some();
-    let y = if still_interlaced && class == crate::pixel_format::ChromaClass::C420 { 4 } else { 2 };
-    (2, y)
+    crate::script_generator::ScriptGenerator::framing_steps(job, &pipeline)
 }
 
 /// Turn the measurement into the report: orientation, rounding, the

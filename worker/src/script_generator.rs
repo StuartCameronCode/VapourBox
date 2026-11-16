@@ -579,22 +579,60 @@ impl ScriptGenerator {
     ///
     /// [`still_interlaced_tff`]: Self::still_interlaced_tff
     pub fn output_field_order(job: &VideoJob, pipeline: &ProcessingPipeline) -> Option<bool> {
-        let tff = Self::still_interlaced_tff(job, pipeline)?;
-        // Stabilize's pitch correction resamples vertically and clears
-        // _FieldBased first ({{#STAB_CLEAR_FIELD_BASED}}).
-        if pipeline.stabilize.pitch_active() {
-            return None;
-        }
-        // mpeg2stinx is a cross-field filter for film DVDs encoded as
-        // interlaced MPEG-2, and marks its output progressive.
-        if pipeline.deblock.enabled && pipeline.deblock.method == DeblockMethod::Mpeg2Stinx {
-            return None;
-        }
+        let tff = Self::field_order_at_framing(job, pipeline)?;
         // A retimed woven frame is an interpolated picture, not a field pair.
         if pipeline.frame_rate.enabled {
             return None;
         }
         Some(tff)
+    }
+
+    /// The field order of the picture leaving Rotate / Flip, i.e. what Crop &
+    /// Resize, the borders and everything up to the Frame Rate pass see:
+    /// `Some(true)` top field first, `Some(false)` bottom, `None` progressive
+    /// (task #56). The passes run Deblock → … → Stabilize → Rotate / Flip →
+    /// Crop & Resize → … → Frame Rate, so this is [`still_interlaced_tff`]
+    /// less the passes ahead of framing that make the picture progressive,
+    /// then what Rotate / Flip does to it
+    /// ([`GeometryParameters::field_order_after`]: a quarter turn makes it
+    /// progressive, a vertical mirror swaps the order). Anything that reads
+    /// the field order *after* Rotate / Flip must use this, not
+    /// `still_interlaced_tff`.
+    ///
+    /// [`still_interlaced_tff`]: Self::still_interlaced_tff
+    /// [`GeometryParameters::field_order_after`]: crate::models::GeometryParameters::field_order_after
+    pub fn field_order_at_framing(job: &VideoJob, pipeline: &ProcessingPipeline) -> Option<bool> {
+        let tff = Self::field_order_before_geometry(job, pipeline)?;
+        pipeline.geometry.field_order_after(tff, job.input_height.unwrap_or(480))
+    }
+
+    /// The field order of the picture arriving at Rotate / Flip: still
+    /// interlaced, less the passes ahead of it that make it progressive.
+    fn field_order_before_geometry(job: &VideoJob, pipeline: &ProcessingPipeline) -> Option<bool> {
+        let tff = Self::still_interlaced_tff(job, pipeline)?;
+        // mpeg2stinx is a cross-field filter for film DVDs encoded as
+        // interlaced MPEG-2, and marks its output progressive.
+        if pipeline.deblock.enabled && pipeline.deblock.method == DeblockMethod::Mpeg2Stinx {
+            return None;
+        }
+        // Stabilize's pitch correction resamples vertically and clears
+        // _FieldBased first ({{#STAB_CLEAR_FIELD_BASED}}).
+        if pipeline.stabilize.pitch_active() {
+            return None;
+        }
+        Some(tff)
+    }
+
+    /// The steps a crop and a resized height move in, in the orientation of
+    /// the Crop & Resize pass: (2, 2), or (2, 4) for a 4:2:0 picture that is
+    /// still interlaced there, whose fields each need a whole chroma height
+    /// (task #56; the crop detector's rounding before it). One rule for the
+    /// crop detector (`crop_detect::steps`) and the resize's rounding.
+    pub fn framing_steps(job: &VideoJob, pipeline: &ProcessingPipeline) -> (i32, i32) {
+        let pipe = crate::pixel_format::decode_pixel_format(job.input_pixel_format.as_deref());
+        let (class, _) = crate::pixel_format::chroma_and_depth(&pipe.name);
+        let interlaced = Self::field_order_at_framing(job, pipeline).is_some();
+        if interlaced && class == crate::pixel_format::ChromaClass::C420 { (2, 4) } else { (2, 2) }
     }
 
     /// Validate and normalise the job's pitch factor file when the Stabilize
@@ -2080,6 +2118,26 @@ impl ScriptGenerator {
                 }
             }
 
+            // A quarter turn makes a still-interlaced picture progressive, and a
+            // vertical mirror swaps its field order (task #56): stamp what the
+            // picture now is, before the format restore resamples it.
+            let before = Self::field_order_before_geometry(job, pipeline);
+            let after = Self::field_order_at_framing(job, pipeline);
+            match before {
+                Some(_) if after != before => {
+                    let value = match after {
+                        None => "0",
+                        Some(true) => "2",
+                        Some(false) => "1",
+                    };
+                    script = keep_block_lines("GEOM_SET_FIELD_BASED", script);
+                    script = script.replace("{{GEOM_FIELD_BASED}}", value);
+                }
+                _ => {
+                    script = remove_block("{{#GEOM_SET_FIELD_BASED}}", "{{/GEOM_SET_FIELD_BASED}}", script);
+                }
+            }
+
             for (flag, block) in [
                 (geometry.flip_horizontal, "GEOM_FLIP_H"),
                 (geometry.flip_vertical, "GEOM_FLIP_V"),
@@ -2674,6 +2732,10 @@ impl ScriptGenerator {
                 let height = if resize.resize_enabled { resize.target_height.unwrap_or(-1) } else { -1 };
                 script = script.replace("{{TARGET_WIDTH}}", &width.to_string());
                 script = script.replace("{{TARGET_HEIGHT}}", &height.to_string());
+                script = script.replace(
+                    "{{RESIZE_HEIGHT_STEP}}",
+                    &Self::framing_steps(job, pipeline).1.to_string(),
+                );
 
                 // Squaring with no target size has nothing to fit, so the
                 // aspect logic has to run regardless of the user's choice.
@@ -2789,13 +2851,17 @@ impl ScriptGenerator {
         // bit depth included.
         // `output_chroma_subsampling` also limits AV1 to 4:2:0 at 8/10 bits.
         match job.output_chroma_subsampling().vapoursynth_format() {
+            // "Original": the source's format, depth included, whatever depth a
+            // pass left the clip at (Deband's working depth; task #56).
             None => {
                 script = remove_block("{{#CHROMA_CONVERT}}", "{{/CHROMA_CONVERT}}", script);
+                script = keep_block_lines("DEPTH_RESTORE", script);
             }
             Some(format) => {
                 script = script.replace("{{#CHROMA_CONVERT}}", "");
                 script = script.replace("{{/CHROMA_CONVERT}}", "");
                 script = script.replace("{{CHROMA_FORMAT}}", format);
+                script = remove_block("{{#DEPTH_RESTORE}}", "{{/DEPTH_RESTORE}}", script);
             }
         }
 
@@ -2824,7 +2890,7 @@ impl ScriptGenerator {
             // something else (IVTC) already made it progressive.
             script = script.replace(
                 "{{BORDER_FIELD_ALIGN}}",
-                if Self::still_interlaced_tff(job, pipeline).is_some() { "2" } else { "1" },
+                if Self::field_order_at_framing(job, pipeline).is_some() { "2" } else { "1" },
             );
 
             if resize.pads_to_aspect() {
