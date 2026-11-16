@@ -611,7 +611,7 @@ void main() {
           reason: 'Cnr4 without SCDetect fails at frame request, not at parse');
 
       // 4:1:1 is NTSC DV and pipe_source maps it natively; Cnr4 rejects it.
-      expect(script.substring(0, cnr4At), contains('subsampling_w == 2'));
+      expect(script.substring(0, cnr4At), contains('if clip.format.subsampling_w > 1:'));
 
       final actual = parseFilterParams(script, 'core.zsmooth.Cnr4(');
       expect(actual['radius'], '3');
@@ -1698,8 +1698,7 @@ void main() {
       expect(actual['ythresh'], '14');
       // Same 8-10 bit limit as LUTDeCrawl, verified by probing the bundle.
       // Above it, only the filter's change is applied at full depth (task #37).
-      expect(script, contains('_low_depth_change(clip, 10, _derainbow)'));
-      expect(script, contains('bits_per_sample > 10'));
+      expect(script, contains("_pf.run_within(clip, 'havsfunc.LUTDeRainbow', _derainbow, label='LUTDeRainbow')"));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
@@ -2077,8 +2076,7 @@ void main() {
       expect(actual['interlaced'], 'False');
       // 8-bit only, verified against the bundle at 10/12/16-bit and 4:2:2.
       // A deeper source gets only its change applied at full depth (task #37).
-      expect(script, contains('_low_depth_change(clip, 8, _bifrost)'));
-      expect(script, contains('bits_per_sample != 8'));
+      expect(script, contains("_pf.run_within(clip, 'bifrost.Bifrost', _bifrost, label='Bifrost')"));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
@@ -2105,7 +2103,7 @@ void main() {
       expect(actual['chroma_t2'], '7');
       // 8-bit only; a deeper source gets only its change applied at full depth
       // (task #37).
-      expect(script, contains('_low_depth_change(clip, 8, _dedot)'));
+      expect(script, contains("_pf.run_within(clip, 'dedot.Dedot', _dedot, label='Dedot')"));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 

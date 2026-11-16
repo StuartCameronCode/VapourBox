@@ -132,6 +132,8 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass: the weave (`Stab` measured at 16-bit) and the vertical pitch correction (see "Stabilize") |
 | `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
+| `worker/templates/plugin_formats.py` | Each limited plugin's format `Contract` and `run_within()`, the one way a pass runs a plugin outside its formats (see "High Bit Depth Sources") |
+| `Scripts/probe-plugin-formats.py` | Runs every plugin call the template makes at every format and size a pass can be handed; writes / checks `Tests/TestResources/plugin_format_table.json` (task #48) |
 | `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
@@ -410,11 +412,18 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
 - Example: `DynamicParameters(filterId: 'x', enabled: true, values: {}, lastOptionalValues: {'param1': 5})`
 
 **8. VapourSynth Compatibility Guards**
-- If the plugin only supports 8-bit (or, like `LUTDeCrawl`, caps out at 10),
-  wrap the call in `_low_depth_change(clip, bits, filt)` in the template,
-  and first check at that depth, on a fixture with real low bits, that the
-  plugin leaves the samples it doesn't change exact — see "High Bit Depth
-  Sources"
+- **Add the call to `CALLS` in `Scripts/probe-plugin-formats.py`** (with the
+  template's arguments) and re-run it with `--out` on the table
+  (`plugin_format_contracts_test.dart` fails on a template call the probe
+  doesn't list). If the table shows it refusing a depth or subsampling a pass
+  can be handed, add a `Contract` to `worker/templates/plugin_formats.py` and
+  call it through `_pf.run_within(clip, '<ns.Fn>', fn, label='<Pass>')`
+  (test_252 fails on a contracted plugin called any other way); a refusal no
+  contract expresses (a field flag, a frame size) is handled in the pass and
+  explained in `plugin_formats.HANDLED`, or filed as a task and listed in
+  `plugin_formats.KNOWN` until it is. Check on a fixture with real low
+  bits that the plugin leaves the samples it doesn't change exact — see
+  "High Bit Depth Sources"
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**
   (which is how the UI presents them), scale it to `clip.format` *in the script*.
   A filter working in the clip's own range is silently wrong on a 10-bit source
@@ -1049,7 +1058,11 @@ is the **single** decider of the pipe format, and **all four** call sites
 it — if they disagree, the byte stream desyncs from the frame geometry
 `pipe_source` expects and the output is garbage rather than an error.
 
-- Readable formats pass through unchanged.
+- Readable formats pass through unchanged. **4:1:1 (NTSC DV) is the one the
+  script itself converts**, to 4:2:2, losslessly, right after the pipe source
+  and before the VFR placement and every pass (task #48; test_252 holds the
+  order). So no pass sees 4:1:1 and none carries a 4:1:1 guard of its own;
+  mvtools, Cnr4, RemoveDirt and DeScratch all refuse it.
 - Anything else is converted **by the decoder ffmpeg** to the nearest readable
   superset format (never less chroma resolution or bit depth): 4:1:0/4:4:0 go to
   4:2:2; depth rounds *up* to 8/10/12/16; unrecognized names fall back to
@@ -1456,14 +1469,17 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
 
 1. **The filter rejects the depth** and vspipe dies. Known 8-bit-only cases
    (`vivtc.VFM`, `descratch.DeScratch`, `dedot.Dedot`, `bifrost.Bifrost`) and
-   10-bit-max cases (`havsfunc.LUTDeCrawl`, `LUTDeRainbow`) are guarded in
-   the template. VFM takes metrics from an 8-bit copy (`clip2`); every
-   other guard **applies only the filter's change at full depth**:
-   `src + up(filt(low)) - up(low)`, so every sample it left alone stays
-   bit-exact. DeScratch does this inline (task #34); the Chroma Fixes four go
-   through the template's `_low_depth_change(clip, bits, filt)` (task #37),
-   which new guards should use. **Never up-convert a filter's whole low-depth
-   result**: it quantised 78% of samples at 10-bit and 99.6% at 16-bit, in
+   10-bit-max cases (`havsfunc.LUTDeCrawl`, `LUTDeRainbow`) are measured,
+   not remembered: `Scripts/probe-plugin-formats.py` runs every plugin call
+   the template makes at every format and size and keeps the result in
+   `Tests/TestResources/plugin_format_table.json`, re-checked against the
+   installed bundle by the push gate (quick) and nightly (full). VFM takes
+   metrics from an 8-bit copy (`clip2`); every other limited plugin has a
+   `Contract` in `worker/templates/plugin_formats.py` and is called through
+   `_pf.run_within(clip, key, fn, label=…)` (task #48), which **applies only
+   the filter's change at full depth**: `src + back(fn(work)) - back(work)`,
+   so every sample it left alone stays bit-exact (tasks #34, #37). **Never
+   up-convert a filter's whole low-depth result**: it quantised 78% of samples at 10-bit and 99.6% at 16-bit, in
    planes the filter never touches. Test a guard like this on a fixture with
    real sub-target-depth content: one converted from a shallower master has
    zero low bits and passes either way
@@ -2871,8 +2887,11 @@ Headless Dart-VM tests. Three groups:
   `filter_schema_curation` (lints every shipped schema), `pass_list_stages`,
   `pass_relevance`, `pass_advice`, `processing_preset`.
 - **Shell-out tests** — `vapoursynth_integration_test`,
-  `schema_converter_integration_test`; need the per-arch `deps/` and (for whisper)
-  `addons/`.
+  `schema_converter_integration_test`, `template_call_arguments_test`,
+  `plugin_format_contracts_test` (the quick plugin format probe against its
+  table, the contracts, and `run_within()` on real low bits; the full probe
+  is the heavy `plugin_format_probe_test`); need the per-arch `deps/` and
+  (for whisper) `addons/`.
 - **Integration tests** — `integration_*_test.dart`. They spawn the worker
   end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy ones
   are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy,gpu`

@@ -92,6 +92,13 @@ class WorkerHarness {
   /// Path to the bundled ffprobe executable.
   static String get ffprobePath => p.join(depsDir, 'ffmpeg', 'ffprobe$_ext');
 
+  /// The bundle's own Python, which imports vapoursynth under [workerEnv]:
+  /// the embeddable one beside the wheel on Windows, python-build-standalone
+  /// elsewhere.
+  static String get pythonPath => Platform.isWindows
+      ? p.join(depsDir, 'vapoursynth', 'python.exe')
+      : p.join(depsDir, 'python', 'bin', 'python3');
+
   /// The interlaced test fixture used by most filter tests.
   static String get inputFile =>
       p.join(repoRoot, 'Tests', 'TestResources', 'interlaced_test.avi');

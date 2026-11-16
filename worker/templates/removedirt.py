@@ -41,9 +41,10 @@ RestoreMotionBlocks — and is written for VapourBox rather than copied.
 
 ``RestoreMotionBlocks`` accepts 8-16 bit YUV 4:2:0/4:2:2/4:4:4 and GRAY. It
 rejects 9-bit, 4:1:1, float and RGB with "Video must be grey, YUV 4:2:0, 4:2:2,
-or 4:4:4 with bit depths 8-16!". Both 9-bit and 4:1:1 are reachable here —
-``pixel_format.rs`` rounds odd depths up through 9, and 4:1:1 is NTSC DV — so
-both are guarded below.
+or 4:4:4 with bit depths 8-16!". Neither reaches a pass: ``pixel_format.rs``
+decodes 9-bit as 10 (task #31), and the script template converts 4:1:1 to
+4:2:2 before the first pass, so this module carries no guard of its own
+(task #48; Tests/TestResources/plugin_format_table.json has the cells).
 
 Its ``noise``/``noisy`` thresholds are normalised internally: the same values at
 8/10/12/16-bit produced bit-identical output (mean |diff| 0.0000), so unlike
@@ -53,12 +54,6 @@ most of this codebase they must NOT be depth-scaled.
 import vapoursynth as vs
 
 core = vs.core
-
-
-def _restore_format(clip, target_id):
-    return clip if clip.format.id == target_id else core.resize.Bicubic(
-        clip, format=target_id
-    )
 
 
 def remove_dirt(clip, limit=16, gmthreshold=70, noise=50, noisy=12, dist=1,
@@ -75,28 +70,6 @@ def remove_dirt(clip, limit=16, gmthreshold=70, noise=50, noisy=12, dist=1,
     """
     if clip.format is None or clip.format.color_family not in (vs.YUV, vs.GRAY):
         raise vs.Error('RemoveDirt: only YUV and GRAY clips are supported')
-
-    src_id = clip.format.id
-    bits = clip.format.bits_per_sample
-
-    # 9-bit and 4:1:1 are both reachable and both rejected by the plugin.
-    needs_depth_fix = bits == 9
-    needs_subsampling_fix = (
-        clip.format.color_family == vs.YUV and clip.format.subsampling_w == 2
-    )
-    if needs_depth_fix or needs_subsampling_fix:
-        target_bits = 10 if needs_depth_fix else bits
-        if clip.format.color_family == vs.GRAY:
-            work_format = core.get_video_format(vs.GRAY8).replace(
-                bits_per_sample=target_bits,
-                sample_type=vs.INTEGER,
-            )
-        else:
-            work_format = core.get_video_format(vs.YUV422P8).replace(
-                bits_per_sample=target_bits,
-                sample_type=vs.INTEGER,
-            )
-        clip = core.resize.Bicubic(clip, format=work_format.id)
 
     # The Clense family, from zsmooth so 9-16 bit all work.
     clensed = core.zsmooth.Clense(clip)
@@ -128,4 +101,4 @@ def remove_dirt(clip, limit=16, gmthreshold=70, noise=50, noisy=12, dist=1,
     if post_denoise:
         out = core.zsmooth.RemoveGrain(out, mode=[17])
 
-    return _restore_format(out, src_id)
+    return out

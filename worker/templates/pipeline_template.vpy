@@ -30,6 +30,9 @@ core.max_cache_size = {{MAX_CACHE_SIZE}}
 import os
 sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
 from pipe_source import create_pipe_clip
+# Each plugin's format limits, measured against the bundle, and run_within(),
+# the one way a pass runs a plugin outside them (task #48).
+import plugin_formats as _pf
 
 {{#AI_RUNTIME}}
 # ONNX Runtime from the ai-runtime add-on (Settings -> Add-ons), for passes
@@ -97,6 +100,15 @@ def _preview_decimate_out(c):
     return core.std.RemoveFrameProps(c, '_PreviewSlot')
 {{/PREVIEW_ONLY}}
 
+# 4:1:1 (NTSC DV) becomes 4:2:2 before anything else, losslessly: horizontal
+# only, so it is the same with or without a field flag. Several plugins refuse
+# 4:1:1 (mvtools, zsmooth's Cnr4, removedirt, DeScratch; see
+# Tests/TestResources/plugin_format_table.json), and no pass sees it after
+# this, so none needs a 4:1:1 guard of its own (task #48). test_252 keeps this
+# ahead of the first pass.
+if clip.format.subsampling_w > 1:
+    clip = core.resize.Bicubic(clip, format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16)
+
 {{#VFR_TIMELINE}}
 # Variable frame rate source (issue #137). The decoder passed the stored frames
 # through as they are; this places them on the constant-rate grid everything
@@ -118,20 +130,13 @@ for _vfr_i in range(_vfr_slots):
     _vfr_map.append(_vfr_k)
 _vfr_inter = {}
 if _vfr_gaps:
-    # mvtools rejects 4:1:1, as in the Frame Rate pass.
-    _vfr_mv = _vfr_src
-    if _vfr_mv.format.subsampling_w == 2:
-        _vfr_mv = core.resize.Bicubic(_vfr_mv, format=vs.YUV422P8 if _vfr_mv.format.bits_per_sample == 8 else vs.YUV422P16)
-    _vfr_super = core.mv.Super(_vfr_mv, pel=2)
+    _vfr_super = core.mv.Super(_vfr_src, pel=2)
     _vfr_bw = core.mv.Analyse(_vfr_super, isb=True, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})
     _vfr_fw = core.mv.Analyse(_vfr_super, isb=False, blksize={{FPS_BLOCK_SIZE}}, overlap={{FPS_OVERLAP}})
     # One FlowInter per distinct position: frame k of it lies that percentage
     # of the way from stored frame k to k + 1.
     for _vfr_t in sorted(set(_vfr_gaps.values())):
-        _vfr_c = core.mv.FlowInter(_vfr_mv, _vfr_super, _vfr_bw, _vfr_fw, time=_vfr_t)
-        if _vfr_c.format.id != _vfr_src.format.id:
-            _vfr_c = core.resize.Bicubic(_vfr_c, format=_vfr_src.format.id)
-        _vfr_inter[_vfr_t] = _vfr_c
+        _vfr_inter[_vfr_t] = core.mv.FlowInter(_vfr_src, _vfr_super, _vfr_bw, _vfr_fw, time=_vfr_t)
 def _vfr_pick(n):
     _t = _vfr_gaps.get(n)
     _c = _vfr_src if _t is None else _vfr_inter[_t]
@@ -143,12 +148,6 @@ clip = core.std.FrameEval(core.std.BlankClip(_vfr_src, length=_vfr_slots), _vfr_
 {{#SET_FIELD_BASED}}
 clip = core.std.SetFieldBased(clip, {{FIELD_BASED}})
 {{/SET_FIELD_BASED}}
-
-# Convert unusual chroma formats (e.g., 4:1:1 from NTSC DV) to 4:2:2 for filter compatibility
-# 4:1:1 (YUV411P) has subsampling_w=2, subsampling_h=0
-# Most filters expect 4:2:0 or 4:2:2; 4:2:2 is lossless when upconverting from 4:1:1
-if clip.format.subsampling_w > 1:  # 4:1:1 or more extreme horizontal subsampling
-    clip = core.resize.Bicubic(clip, format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16)
 
 # Get input properties for progress tracking
 input_fps_num = clip.fps.numerator
@@ -193,20 +192,6 @@ def _expr(clips, expr, **kwargs):
         return _akarin_expr(clips, expr, **kwargs)
     return core.std.Expr(clips, expr, **kwargs)
 
-def _low_depth_change(clip, bits, filt):
-    """Run filt on a copy of clip at `bits` (a plugin's depth limit) and add only
-    what it changed to the full-depth clip: src + up(filt(low)) - up(low).
-    Up-converting filt's whole result quantised every sample of a deeper source,
-    though these filters change a fraction of them; this way every sample filt
-    left alone stays bit-exact, and a changed one keeps the source's low bits
-    (within half a low-depth level of filt's result). Both up-conversions go
-    through zimg, as the down-conversion does, so the delta is right in full and
-    limited range. Frame properties are the source's (tasks #34/#37,
-    docs/reports/issue-37-chroma-fixes-high-bit-depth)."""
-    low = core.resize.Bilinear(clip, format=clip.format.replace(
-        bits_per_sample=bits, sample_type=vs.INTEGER).id)
-    up = lambda c: core.resize.Point(c, format=clip.format.id)
-    return _expr([clip, up(filt(low)), up(low)], "x y + z -")
 
 # ============================================================================
 # PASS 2: DEINTERLACING
@@ -717,12 +702,12 @@ clip = _deflicker.reduce_flicker(clip, strength={{DEFLICKER_LOCAL_STRENGTH}}, ag
 # ============================================================================
 {{#DESCRATCH}}
 # DeScratch - remove vertical scratches from film
-# DeScratch only supports 8-bit YUV (YV12/YV16/YV24) - convert if needed
-_descratch_orig_format = clip.format
-_descratch_src = clip
-if clip.format.bits_per_sample != 8:
-    clip = core.resize.Bilinear(clip, format=clip.format.replace(bits_per_sample=8, sample_type=vs.INTEGER))
-_descratch_in8 = clip
+# DeScratch is 8-bit only, so a deeper clip goes through run_within(): the
+# pass runs on an 8-bit copy and only its change is applied at full depth, so
+# every sample it leaves alone stays bit-exact, and a repaired one keeps the
+# source's low bits. Up-converting the whole 8-bit result quantised every
+# sample of a 10/12/16-bit source, though the plugin changes ~1% of them
+# (task #34, docs/reports/issue-34-descratch-high-bit-depth).
 # DeScratch blurs each frame with an internal resize to height // (1 + blurlen)
 # rows, rounded to even. zimg resizes a field-based clip per field, where 4:2:0
 # chroma needs a multiple of 4, so the plugin failed on most interlaced 4:2:0
@@ -785,31 +770,18 @@ def _descratch(c):
         mindifuv={{DESCRATCH_MINDIFUV}},
 {{/DESCRATCH_MINDIFUV}}
     )
-if clip.format.subsampling_h == 0:
-    clip = _descratch(clip)
-else:
-    _ds_blank = core.std.BlankClip(clip, width=clip.width // 2, format=vs.GRAY8, color=128, keep=True)
-    _ds_luma = _descratch(core.std.ShufflePlanes([clip, _ds_blank, _ds_blank], [0, 0, 0], vs.YUV))
-    _ds_chroma = clip
+def _descratch_pass(c):
+    if c.format.subsampling_h == 0:
+        return _descratch(c)
+    _ds_blank = core.std.BlankClip(c, width=c.width // 2, format=vs.GRAY8, color=128, keep=True)
+    _ds_luma = _descratch(core.std.ShufflePlanes([c, _ds_blank, _ds_blank], [0, 0, 0], vs.YUV))
+    _ds_chroma = c
 {{#DESCRATCH_CHROMA_MODES}}
     # Chroma analysed as frames (no _FieldBased), which accepts every height.
-    _ds_chroma = _descratch(core.std.RemoveFrameProps(clip, props="_FieldBased"))
+    _ds_chroma = _descratch(core.std.RemoveFrameProps(c, props="_FieldBased"))
 {{/DESCRATCH_CHROMA_MODES}}
-    clip = core.std.ShufflePlanes([_ds_luma, _ds_chroma], [0, 1, 2], vs.YUV)
-# Restore the source depth by applying only DeScratch's change to the
-# full-depth clip: source + up(result) - up(8-bit input). Up-converting the
-# whole 8-bit result quantised every sample of a 10/12/16-bit source, though
-# the plugin changes ~1% of them; this way every sample it left alone stays
-# bit-exact, and a repaired one keeps the source's low bits (within half an
-# 8-bit level of the 8-bit repair). Both up-conversions go through zimg, as the
-# down-conversion did, so the delta is right in full and limited range
-# (task #34, docs/reports/issue-34-descratch-high-bit-depth).
-if _descratch_orig_format.bits_per_sample != 8:
-    clip = _expr([
-        _descratch_src,
-        core.resize.Point(clip, format=_descratch_orig_format),
-        core.resize.Point(_descratch_in8, format=_descratch_orig_format),
-    ], "x y + z -")
+    return core.std.ShufflePlanes([_ds_luma, _ds_chroma], [0, 1, 2], vs.YUV)
+clip = _pf.run_within(clip, 'descratch.DeScratch', _descratch_pass, label='DeScratch')
 {{/DESCRATCH}}
 
 # ============================================================================
@@ -1292,12 +1264,8 @@ clip = core.zsmooth.CCD(
 #    them, and is the better answer than scenechange=False because it is what
 #    stops the filter smearing chroma across a cut.
 #
-# 2. It rejects 4:1:1 outright ("must be integer YUV420, YUV422, YUV440, or
-#    YUV444"), and 4:1:1 is NTSC DV, which pipe_source maps natively. Convert
-#    up to 4:2:2 and restore afterwards, as DeScratch does for bit depth.
-_cnr4_src_format = clip.format.id
-if clip.format.subsampling_w == 2:
-    clip = core.resize.Bicubic(clip, format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16)
+# 2. It rejects 4:1:1 ("must be integer YUV420, YUV422, YUV440, or YUV444"),
+#    which the top of the script converts to 4:2:2 before any pass (task #48).
 clip = core.misc.SCDetect(clip)
 clip = core.zsmooth.Cnr4(
     clip,
@@ -1307,8 +1275,6 @@ clip = core.zsmooth.Cnr4(
     tmode={{CNR4_TMODE}},
     wmode={{CNR4_WMODE}},
 )
-if clip.format.id != _cnr4_src_format:
-    clip = core.resize.Bicubic(clip, format=_cnr4_src_format)
 {{/CHROMA_DENOISE_CNR4}}
 {{/CHROMA_DENOISE}}
 
@@ -1766,7 +1732,7 @@ clip = _auto_chroma_fix(
 # 8-bit only: "the input clip must be 8 bit YUV or Gray with constant format and
 # dimensions", measured failing at 10/12/16-bit on both 4:2:0 and 4:2:2. On a
 # deeper source it runs on an 8-bit copy and only its change is applied at full
-# depth (_low_depth_change), so every sample it leaves alone stays bit-exact;
+# depth (run_within), so every sample it leaves alone stays bit-exact;
 # up-converting its whole 8-bit result (dithered) quantised them all (task #37).
 def _dedot(clip):
     return core.dedot.Dedot(
@@ -1776,10 +1742,7 @@ def _dedot(clip):
         chroma_t1={{DEDOT_CHROMA_T1}},
         chroma_t2={{DEDOT_CHROMA_T2}},
     )
-if clip.format.bits_per_sample != 8:
-    clip = _low_depth_change(clip, 8, _dedot)
-else:
-    clip = _dedot(clip)
+clip = _pf.run_within(clip, 'dedot.Dedot', _dedot, label='Dedot')
 {{/CF_DEDOT}}
 
 {{#CHROMA_SHIFT}}
@@ -1822,7 +1785,7 @@ clip = haf.FixChromaBleedingMod(
 # havsfunc REJECTS anything above 10-bit outright ("LUTDeCrawl: This is not an
 # 8-10 bit YUV clip"), which failed the whole job on a 12-bit source such as
 # ProRes 4444 XQ. Above 10-bit it runs on a 10-bit copy and only its change is
-# applied at full depth (_low_depth_change): dot crawl is an analog artifact, so
+# applied at full depth (run_within): dot crawl is an analog artifact, so
 # 10-bit is ample for the decision, every sample it leaves alone stays
 # bit-exact, and the 8/10-bit path stays byte-for-byte what it was.
 # Up-converting its whole 10-bit result quantised every sample (task #37).
@@ -1839,10 +1802,7 @@ def _decrawl(clip):
         maxdiff={{DECRAWL_MAXDIFF}},
 {{/DECRAWL_MAXDIFF}}
     )
-if clip.format.bits_per_sample > 10:
-    clip = _low_depth_change(clip, 10, _decrawl)
-else:
-    clip = _decrawl(clip)
+clip = _pf.run_within(clip, 'havsfunc.LUTDeCrawl', _decrawl, label='LUTDeCrawl')
 {{/CHROMA_DECRAWL}}
 
 {{#CHROMA_DERAINBOW}}
@@ -1853,7 +1813,7 @@ else:
 # Same 8-10 bit limit as LUTDeCrawl and the same treatment: havsfunc rejects
 # anything above 10-bit outright ("LUTDeRainbow: This is not an 8-10 bit YUV or
 # YCoCg clip"), verified against the bundle, so above 10-bit it runs on a
-# 10-bit copy and only its change is applied at full depth (_low_depth_change,
+# 10-bit copy and only its change is applied at full depth (run_within,
 # task #37). Rainbowing is an analog artifact; 10-bit is ample for the decision,
 # and the 8/10-bit path is byte-for-byte unchanged.
 def _derainbow(clip):
@@ -1872,10 +1832,7 @@ def _derainbow(clip):
         linkUV={{DERAINBOW_LINKUV}},
 {{/DERAINBOW_LINKUV}}
     )
-if clip.format.bits_per_sample > 10:
-    clip = _low_depth_change(clip, 10, _derainbow)
-else:
-    clip = _derainbow(clip)
+clip = _pf.run_within(clip, 'havsfunc.LUTDeRainbow', _derainbow, label='LUTDeRainbow')
 {{/CHROMA_DERAINBOW}}
 
 {{#CHROMA_BIFROST}}
@@ -1887,7 +1844,7 @@ else:
 # 8-BIT ONLY: "Bifrost: Only constant format 8 bit integer YUV input supported",
 # verified against the bundle at 10/12/16-bit and 4:2:2. On a deeper source
 # (a 10-bit ProRes capture of the same tape) it runs on an 8-bit copy and only
-# its change is applied at full depth (_low_depth_change), so every sample it
+# its change is applied at full depth (run_within), so every sample it
 # leaves alone, luma included, stays bit-exact. Up-converting its whole 8-bit
 # result, dithered, quantised and noised every sample (task #37).
 def _bifrost(clip):
@@ -1897,10 +1854,7 @@ def _bifrost(clip):
         variation={{BIFROST_VARIATION}},
         interlaced={{BIFROST_INTERLACED}},
     )
-if clip.format.bits_per_sample != 8:
-    clip = _low_depth_change(clip, 8, _bifrost)
-else:
-    clip = _bifrost(clip)
+clip = _pf.run_within(clip, 'bifrost.Bifrost', _bifrost, label='Bifrost')
 {{/CHROMA_BIFROST}}
 
 {{#CHROMA_VINVERSE}}
@@ -2788,14 +2742,7 @@ clip = haf.GrainFactory3(
 # block below sets the length itself rather than trusting either.
 #
 # mvtools rejects 4:1:1 at Super ("input clip must be GRAY, 420, 422, 440, or
-# 444") and 4:1:1 is NTSC DV — precisely the tape an NTSC->PAL conversion
-# targets — so convert up and restore, as the chroma denoise pass does.
-_fps_src_format = clip.format.id
-if clip.format.subsampling_w == 2:
-    clip = core.resize.Bicubic(
-        clip,
-        format=vs.YUV422P8 if clip.format.bits_per_sample == 8 else vs.YUV422P16,
-    )
+# 444"); the top of the script converts 4:1:1 to 4:2:2 before any pass.
 {{#PREVIEW_ONLY}}
 # Preview only. A retime's phase depends on where its clip starts, and this
 # clip starts at the preview window, not the encode's first frame. Copies of
@@ -2881,8 +2828,6 @@ def _rife_pick(n):
     return _rife_out
 clip = core.std.FrameEval(_rife_out, _rife_pick)
 {{/FRAME_RATE_RIFE}}
-if clip.format.id != _fps_src_format:
-    clip = core.resize.Bicubic(clip, format=_fps_src_format)
 {{/FRAME_RATE}}
 
 # ============================================================================
