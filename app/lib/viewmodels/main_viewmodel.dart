@@ -1544,6 +1544,7 @@ class MainViewModel extends ChangeNotifier {
         encodingSettings: _encodingSettings,
         subFrame: _previewSubFrame,
         startFrame: item.inPointFrame,
+        endFrame: item.outPointFrame,
         pitchFactorsPath: item.pitchFactorsPath,
         cancelToken: cancelToken,
       );

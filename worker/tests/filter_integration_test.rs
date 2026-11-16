@@ -1961,6 +1961,7 @@ fn test_55_preview_selects_exact_frame() {
         rate_pad: 0,
         unblend_pad: 0,
         unblend_origin: 0,
+        decimate: None,
         source_frame_offset: 0,
         width: 720,
         height: 576,
@@ -1976,7 +1977,7 @@ fn test_55_preview_selects_exact_frame() {
     let script = std::fs::read_to_string(&script_path).expect("read preview script");
 
     assert!(
-        script.contains("min(7, clip.num_frames - 1)"),
+        script.contains("min(7 if _dec_corr else 7,"),
         "preview must select the exact computed output index, script was:\n{}",
         script
     );
@@ -3082,6 +3083,7 @@ fn generate_both_scripts(job: &VideoJob) -> (String, String) {
         rate_pad: 0,
         unblend_pad: 0,
         unblend_origin: 0,
+        decimate: None,
         source_frame_offset: 0,
         width: job.input_width.unwrap_or(720),
         height: job.input_height.unwrap_or(480),
@@ -5972,11 +5974,12 @@ fn test_161_each_deinterlace_method_emits_only_its_own_block() {
     create_output_dir();
 
     // (method, its call in the encode script, its call in the preview script).
-    // Soft Telecine is a frame-count change only, so the preview has no block.
+    // Soft Telecine is a frame-count change only; the preview decimates too
+    // since task #46.
     let cases = [
         (DeinterlaceMethod::Qtgmc, "haf.QTGMC(", Some("haf.QTGMC(")),
         (DeinterlaceMethod::Ivtc, "core.vivtc.VFM(", Some("core.vivtc.VFM(")),
-        (DeinterlaceMethod::SoftTelecine, "core.vivtc.VDecimate(clip)", None),
+        (DeinterlaceMethod::SoftTelecine, "core.vivtc.VDecimate(clip)", Some("core.vivtc.VDecimate(clip)")),
         (DeinterlaceMethod::Bwdif, "core.bwdif.Bwdif(", Some("core.bwdif.Bwdif(")),
     ];
     let all_calls = ["haf.QTGMC(", "core.vivtc.VFM(", "core.vivtc.VDecimate(", "core.bwdif.Bwdif("];
@@ -6039,6 +6042,7 @@ fn test_162_max_cache_size_is_only_set_when_overridden() {
         rate_pad: 0,
         unblend_pad: 0,
         unblend_origin: 0,
+        decimate: None,
         source_frame_offset: 0,
             width: 720,
             height: 480,
@@ -6223,6 +6227,7 @@ fn both_scripts_with(generator: &ScriptGenerator, job: &VideoJob) -> anyhow::Res
         rate_pad: 0,
         unblend_pad: 0,
         unblend_origin: 0,
+        decimate: None,
         source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
@@ -6285,6 +6290,7 @@ fn test_167_rife_unavailable_refuses_with_the_probe_message() {
         rate_pad: 0,
         unblend_pad: 0,
         unblend_origin: 0,
+        decimate: None,
         source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
@@ -6856,6 +6862,7 @@ fn test_182_preview_retime_padding() {
             rate_pad: 1,
             unblend_pad: 0,
             unblend_origin: 0,
+            decimate: None,
             source_frame_offset: 0,
             width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 5,
             fps_num: 24, fps_den: 1, output_index: 3,
@@ -7821,6 +7828,7 @@ fn test_209_gpu_plugin_models_are_addons() {
         rate_pad: 0,
         unblend_pad: 0,
         unblend_origin: 0,
+        decimate: None,
         source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
         fps_num: 25, fps_den: 1, output_index: 5,
@@ -7896,6 +7904,7 @@ fn test_210_preview_aspect_matches_the_encode() {
         rate_pad: 0,
         unblend_pad: 0,
         unblend_origin: 0,
+        decimate: None,
         source_frame_offset: 0,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 5,
         fps_num: 25, fps_den: 1, output_index: 2,
@@ -7954,6 +7963,7 @@ fn stabilize_preview_script_at(job: &VideoJob, source_frame_offset: i32) -> Resu
         rate_pad: 0,
         unblend_pad: 0,
         unblend_origin: 0,
+        decimate: None,
         source_frame_offset,
         width: 720,
         height: 576,
@@ -8555,7 +8565,7 @@ fn test_240_soft_telecine_decimates_only_at_a_pulldown_rate() {
     job.input_frame_rate = Some(23.976);
     let (encode_film, preview_film) = both_scripts_with(&generator, &job).unwrap();
     assert!(!encode_film.contains("VDecimate"), "23.976 must not decimate");
-    assert!(!preview_film.contains("VDecimate"));
+    assert!(!preview_film.contains("core.vivtc.VDecimate("));
     assert_eq!(job.effective_pipeline().output_count(120), 120);
 
     job.source_grid = Some(vapourbox_worker::source_decode::SourceGrid { rate_num: 24000, rate_den: 1001, origin: 0.0 });
@@ -8754,6 +8764,7 @@ fn test_228_unblend_preview_pad_and_origin() {
         rate_pad: 0,
         unblend_pad: 7,
         unblend_origin: 9,
+        decimate: None,
         source_frame_offset: 40,
         width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 61,
         fps_num: 25, fps_den: 1, output_index: 3,
@@ -9113,7 +9124,10 @@ fn test_248_one_template_with_well_formed_side_blocks() {
     let preview = select_side(&raw, ScriptKind::Preview);
     let encode = select_side(&raw, ScriptKind::Encode);
     assert!(preview.contains("{{PREVIEW_OUTPUT_INDEX}}") && !encode.contains("{{PREVIEW_OUTPUT_INDEX}}"));
-    assert!(encode.contains("core.vivtc.VDecimate(") && !preview.contains("core.vivtc.VDecimate("));
+    // IVTC's and Soft Telecine's VDecimate run in both since task #46; only
+    // the preview arranges its input in the encode's phase.
+    assert!(encode.contains("core.vivtc.VDecimate(") && preview.contains("core.vivtc.VDecimate("));
+    assert!(preview.contains("_preview_decimate_in(") && !encode.contains("_preview_decimate"));
 }
 
 #[test]
@@ -9233,4 +9247,85 @@ fn test_250_templates_do_not_call_tcanny() {
         "the generated script still reaches TCanny"
     );
     assert!(script.contains("_gaussian_blur(clip, "));
+}
+
+#[test]
+fn test_251_ivtc_and_soft_telecine_preview_decimates_in_the_encodes_phase() {
+    // Task #46: the preview skipped VDecimate while `preview_output` assumed
+    // it, so it showed the frame radius/5 before the target. It now runs
+    // VDecimate on a clip arranged as the encode's (frames before the
+    // in-point dropped, padded into the encode's cycle phase, ended where the
+    // encode ends), and picks between the two outputs the worker computed.
+    use vapourbox_worker::models::DecimatePreview;
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap();
+
+    let mut ivtc = create_ivtc_base_job("test_251_ivtc_preview");
+    ivtc.qtgmc_parameters.ivtc_cycle = Some(5);
+    ivtc.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: ivtc.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+    let mut soft = create_ivtc_base_job("test_251_soft_telecine_preview");
+    soft.qtgmc_parameters.method = DeinterlaceMethod::SoftTelecine;
+    soft.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: soft.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+
+    for (job, name) in [(&ivtc, "IVTC"), (&soft, "Soft Telecine")] {
+        let pipeline = job.effective_pipeline();
+        // Window 34..46 for target 40, encode from 3, ending at 44.
+        let out = pipeline.preview_output_in(3, 34, 40, 0, Some((13, 44)));
+        let d = out.decimate.expect("decimating pipeline");
+        assert_eq!((d.cycle, d.skip, d.pad, d.target), (5, 0, 1, 7), "{name}");
+        // Encode clip 3..44 = 41 frames; the preview's real frames end 10
+        // after its padded start (34 - 1 = 33 → 43).
+        assert_eq!(d.real_len, 11, "{name}");
+        let params = PreviewParams {
+            width: 720, height: 480, pix_fmt: "yuv420p".into(), num_frames: 13,
+            fps_num: 30000, fps_den: 1001,
+            output_index: out.local_index as i32,
+            rate_pad: out.rate_pad,
+            unblend_pad: 0,
+            unblend_origin: 0,
+            decimate: out.decimate,
+            source_frame_offset: 34,
+        };
+        let preview = std::fs::read_to_string(generator.generate_preview(job, &params).unwrap()).unwrap();
+        let encode = std::fs::read_to_string(generator.generate(job).unwrap()).unwrap();
+
+        let call = preview.find("core.vivtc.VDecimate(").expect("the preview decimates");
+        let before = preview.find("clip = _preview_decimate_in(").expect("arranged first");
+        let after = preview.find("clip = _preview_decimate_out(clip)").expect("then reads the drop");
+        assert!(before < call && call < after, "{name}: in, VDecimate, out");
+        for value in [
+            "_skip = 0\n",
+            "_pad, _real, _len = 1, 11, ",
+            &format!("_t, _cycle = 7, 5\n"),
+            &format!("min({} if _dec_corr else {},", d.after_drop.0, out.local_index),
+        ] {
+            assert!(preview.contains(value), "{name}: preview lacks {value:?}");
+        }
+        let unfilled: Vec<&str> = preview.lines().filter(|l| l.contains("{{PREVIEW")).collect();
+        assert!(unfilled.is_empty(), "{name}: unfilled placeholder: {unfilled:?}");
+        assert_eq!(encode.matches("core.vivtc.VDecimate(").count(), 1, "{name}");
+        assert!(!encode.contains("_preview_decimate") && !encode.contains("_PreviewSlot"),
+            "{name}: the encode is not touched");
+        // Soft Telecine fills its last cycle as the encode's pipe does.
+        let want_len = if name == "IVTC" { 11 } else { 15 };
+        assert_eq!(d.len, want_len, "{name}");
+    }
+
+    // No decimation: the alternative output is the output itself, and the
+    // values are inert.
+    let plain = create_base_job("test_251_plain_preview");
+    let params = PreviewParams {
+        width: 720, height: 576, pix_fmt: "yuv422p".into(), num_frames: 11,
+        fps_num: 25, fps_den: 1, output_index: 10, rate_pad: 0, unblend_pad: 0,
+        unblend_origin: 0, decimate: None::<DecimatePreview>, source_frame_offset: 0,
+    };
+    let preview = std::fs::read_to_string(generator.generate_preview(&plain, &params).unwrap()).unwrap();
+    assert!(preview.contains("min(10 if _dec_corr else 10,"));
+    assert!(!preview.contains("core.vivtc.VDecimate("));
 }

@@ -11,7 +11,7 @@ use anyhow::{Context, Result};
 use crate::gpu_plugin::{py_str, GpuPluginFiles};
 use crate::source_timing::TimelineWindow;
 use crate::models::{
-    AntiAliasMethod, GrainMethod,
+    AntiAliasMethod, DecimatePreview, GrainMethod,
     VideoJob, ProcessingPipeline, NoiseReductionMethod, UpscaleMethod, AiModel, CCD_REFERENCE_HEIGHT,
     ChromaDenoiseMethod, FrameRateMethod, SpotLessMethod, DeflickerMethod, EdgeRepairParameters,
     parse_ratio,
@@ -143,11 +143,37 @@ pub struct PreviewParams {
     /// (`PreviewOutput::unblend_pad` / `unblend_origin`).
     pub unblend_pad: u64,
     pub unblend_origin: u64,
+    /// How the preview runs a decimation in the encode's phase, and the
+    /// output to show if it dropped a frame of the target's cycle at or
+    /// before the target (`PreviewOutput::decimate`, task #46).
+    pub decimate: Option<DecimatePreview>,
     /// Source frame number of the first decoded frame (the window start).
     /// Anything that looks frames up by source number — the stabiliser's
     /// pitch factor file — must add it, or every preview frame gets the
     /// factor of the wrong frame.
     pub source_frame_offset: i32,
+}
+
+/// The preview's decimation values (task #46): the window's frames before the
+/// in-point to drop, the copies of the first frame that put VDecimate's cycles
+/// in the encode's phase, where the encode's clip ends, the target's index in
+/// that clip, and the output to show when its cycle lost a frame at or before
+/// it. Without a decimation every value is 0 and the alternative output is the
+/// output itself.
+fn preview_decimate_values(script: String, p: &PreviewParams) -> String {
+    let d = p.decimate;
+    let v = |f: fn(&DecimatePreview) -> u64| d.as_ref().map_or(0, f).to_string();
+    script
+        .replace("{{PREVIEW_DECIMATE_CYCLE}}", &v(|d| d.cycle))
+        .replace("{{PREVIEW_DECIMATE_SKIP}}", &v(|d| d.skip))
+        .replace("{{PREVIEW_DECIMATE_PAD}}", &v(|d| d.pad))
+        .replace("{{PREVIEW_DECIMATE_TARGET}}", &v(|d| d.target))
+        .replace("{{PREVIEW_DECIMATE_REAL}}", &v(|d| d.real_len))
+        .replace("{{PREVIEW_DECIMATE_LEN}}", &v(|d| d.len))
+        .replace(
+            "{{PREVIEW_OUTPUT_INDEX_AFTER_DROP}}",
+            &d.map_or(p.output_index as u64, |d| d.after_drop.0).to_string(),
+        )
 }
 
 /// Per-script inputs to the Stabilize pass that aren't pipeline settings.
@@ -416,6 +442,7 @@ impl ScriptGenerator {
         script = script.replace("{{PREVIEW_RATE_PAD}}", &preview_params.rate_pad.to_string());
         script = script.replace("{{PREVIEW_UNBLEND_PAD}}", &preview_params.unblend_pad.to_string());
         script = script.replace("{{PREVIEW_UNBLEND_ORIGIN}}", &preview_params.unblend_origin.to_string());
+        script = preview_decimate_values(script, preview_params);
         script = script.replace("{{PIPE_CACHE_FRAMES}}", &pipe_cache_frames(&pipeline).to_string());
         // Field-based: same derivation as the encode path, so the preview can't
         // deinterlace at a different field order than the final render.

@@ -49,6 +49,53 @@ clip = create_pipe_clip(
     pix_fmt="{{INPUT_PIX_FMT}}",
     cache_frames={{PIPE_CACHE_FRAMES}},
 )
+{{#PREVIEW_ONLY}}
+
+# Preview only: a decimation (IVTC, Soft Telecine at 29.97) runs as the encode
+# runs it (task #46). VDecimate drops one frame of every cycle, counting cycles
+# from its clip's first frame, and decides each from that cycle and the frame
+# before it, so the clip it sees is arranged as the encode's: the window's
+# frames before the in-point dropped, copies of the first frame in front to put
+# the cycles in the encode's phase, and the clip ended where the encode's ends
+# (ProcessingPipeline::preview_output_in). Which frame of the target's cycle
+# goes depends on the picture: each frame is tagged with its index, and the
+# tag of the frame where the target would be says whether one went at or
+# before it. The worker computed the output for both cases.
+_dec_corr = 0
+
+
+def _preview_decimate_skip(c):
+    _skip = {{PREVIEW_DECIMATE_SKIP}}
+    return c[_skip:] if _skip else c
+
+
+def _preview_decimate_in(c):
+    _pad, _real, _len = {{PREVIEW_DECIMATE_PAD}}, {{PREVIEW_DECIMATE_REAL}}, {{PREVIEW_DECIMATE_LEN}}
+    if _pad:
+        c = c[0] * _pad + c
+    if _real:
+        c = c[:_real]
+        if _len > _real:
+            c = c + c[-1] * (_len - _real)
+
+    def _tag(n, f):
+        fout = f.copy()
+        fout.props['_PreviewSlot'] = n
+        return fout
+    return core.std.ModifyFrame(c, c, _tag)
+
+
+def _preview_decimate_out(c):
+    global _dec_corr
+    _t, _cycle = {{PREVIEW_DECIMATE_TARGET}}, {{PREVIEW_DECIMATE_CYCLE}}
+    _j = _t // _cycle * (_cycle - 1) + _t % _cycle
+    if _t % _cycle == _cycle - 1 or _j >= c.num_frames:
+        _dec_corr = 1
+    else:
+        _dec_corr = 0 if c.get_frame(_j).props['_PreviewSlot'] == _t else 1
+    print(f'PREVIEW_DECIMATE:corr={_dec_corr}', file=sys.stderr)
+    return core.std.RemoveFrameProps(c, '_PreviewSlot')
+{{/PREVIEW_ONLY}}
 
 {{#VFR_TIMELINE}}
 # Variable frame rate source (issue #137). The decoder passed the stored frames
@@ -446,6 +493,9 @@ clip = core.bwdif.Bwdif(clip, field={{BWDIF_FIELD}})
 # ProRes 422, yuv422p10le) run the field-matching/decimation decisions on an
 # 8-bit copy but take the output pixels from the full-depth clip via clip2, so
 # no precision is lost.
+{{#PREVIEW_ONLY}}
+clip = _preview_decimate_skip(clip)
+{{/PREVIEW_ONLY}}
 _ivtc_src = clip
 _ivtc_metrics = clip if clip.format.bits_per_sample == 8 else core.resize.Bilinear(clip, format=clip.format.replace(bits_per_sample=8, sample_type=vs.INTEGER))
 clip = core.vivtc.VFM(_ivtc_metrics, order={{IVTC_ORDER}},
@@ -534,9 +584,10 @@ clip = core.std.DoubleWeave(core.std.Interleave([_fade_top, _fade_bot]), tff=Tru
 clip = core.std.SetFieldBased(clip, 0)
 clip = core.resize.Point(clip, format=_fade_fmt.id, dither_type="error_diffusion")
 {{/DEINT_IVTC_FIX_FADES}}
-{{#ENCODE_ONLY}}
 # VFM output is full-depth again; VDecimate accepts 8..16 bit natively.
-# (The preview shows VFM's field matching only, without VDecimate.)
+{{#PREVIEW_ONLY}}
+clip = _preview_decimate_in(clip)
+{{/PREVIEW_ONLY}}
 clip = core.vivtc.VDecimate(clip,
 {{#IVTC_CYCLE}}
     cycle={{IVTC_CYCLE}},
@@ -548,17 +599,23 @@ clip = core.vivtc.VDecimate(clip,
     scthresh={{IVTC_SCTHRESH}},
 {{/IVTC_SCTHRESH}}
 )
-{{/ENCODE_ONLY}}
+{{#PREVIEW_ONLY}}
+clip = _preview_decimate_out(clip)
+{{/PREVIEW_ONLY}}
 {{/DEINT_IVTC}}
-{{#ENCODE_ONLY}}
 {{#DEINT_SOFT_TELECINE}}
 # Soft Telecine: Remove duplicate frames from 3:2 pulldown.
 # Source frames are progressive but the container includes pulldown duplicates
 # at ~29.97fps. VDecimate identifies and removes the duplicates, producing
 # ~23.976fps output with only unique frames.
+{{#PREVIEW_ONLY}}
+clip = _preview_decimate_in(_preview_decimate_skip(clip))
+{{/PREVIEW_ONLY}}
 clip = core.vivtc.VDecimate(clip)
+{{#PREVIEW_ONLY}}
+clip = _preview_decimate_out(clip)
+{{/PREVIEW_ONLY}}
 {{/DEINT_SOFT_TELECINE}}
-{{/ENCODE_ONLY}}
 {{/DEINTERLACE}}
 
 # ============================================================================
@@ -2968,7 +3025,8 @@ clip = _pad_to(clip, _canvas_w if _canvas_w > 0 else clip.width, _canvas_h if _c
 # source frames around the requested frame and passes the deterministic output
 # index it maps to (after any frame-rate change such as QTGMC double-rate).
 # Clamp defensively in case the decode came up short.
-target_frame = max(0, min({{PREVIEW_OUTPUT_INDEX}}, clip.num_frames - 1))
+target_frame = max(0, min({{PREVIEW_OUTPUT_INDEX_AFTER_DROP}} if _dec_corr else {{PREVIEW_OUTPUT_INDEX}},
+                          clip.num_frames - 1))
 clip = clip[target_frame]
 {{/PREVIEW_ONLY}}
 clip.set_output()

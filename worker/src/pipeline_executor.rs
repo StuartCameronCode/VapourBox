@@ -169,6 +169,22 @@ fn decoder_lost_its_reader(code: i32, stderr_tail: &str) -> bool {
         || stderr_tail.contains("Error muxing a packet")
 }
 
+/// The line the preview script prints when it decimates: `1` when VDecimate
+/// dropped a frame of the target's cycle at or before the target (task #46).
+const PREVIEW_DECIMATE_PREFIX: &str = "PREVIEW_DECIMATE:corr=";
+
+/// Where the encode's picture ends, as a source frame number plus one: the
+/// out-point, else the source's length. A preview job carries the source's
+/// length as `total_frames` (the encode's is the trimmed count, but the
+/// encode never asks). `None` when neither is known.
+fn preview_encode_end(job: &VideoJob) -> Option<u64> {
+    match (job.end_frame, job.total_frames) {
+        (Some(end), _) if end >= 0 => Some(end as u64 + 1),
+        (_, Some(total)) if total > 0 => Some(total as u64),
+        _ => None,
+    }
+}
+
 /// Decode window for a frame-accurate preview of source frame `target`, given
 /// a temporal `radius`. Returns `(first, local, num_frames)`:
 /// - `first`: first source frame to decode (clamped so it never goes below 0),
@@ -215,7 +231,7 @@ use crate::comment_metadata::{self, CommentFile};
 use crate::gpu_plugin::GpuPlugin;
 use crate::hdr_metadata::HdrMetadata;
 use crate::dependency_locator::DependencyLocator;
-use crate::models::{AspectDeclaration, ContainerFormat, DeinterlaceMethod, EncoderFamily, FieldOrderSignal, LogLevel, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
+use crate::models::{AspectDeclaration, ContainerFormat, DeinterlaceMethod, EncoderFamily, FieldOrderSignal, LogLevel, ProcessingPipeline, ProgressInfo, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
 use crate::source_decode;
 use crate::vspipe_failure::{self, Blame};
@@ -1635,7 +1651,13 @@ impl PipelineExecutor {
         // ×2 for QTGMC double-rate), or the `sub_frame`th of those in its time
         // span, in the encode's phase. The template clamps defensively.
         let origin = job.start_frame.unwrap_or(0).max(0) as u64;
-        let out = pipeline.preview_output(origin, first as u64, target as u64, sub_frame as u64);
+        let out = pipeline.preview_output_in(
+            origin,
+            first as u64,
+            target as u64,
+            sub_frame as u64,
+            preview_encode_end(job).map(|end| (num_frames as u64, end)),
+        );
         let output_index = out.local_index as i32;
 
         // What the decoder actually runs: on an MPEG-TS/PS it seeks a GOP
@@ -1662,6 +1684,13 @@ impl PipelineExecutor {
         // On the source's grid (source_decode rule 8): say so.
         if let (None, None, Some(g)) = (&window, start.seek, job.source_grid()) {
             plan_note.push_str(&format!(", grid {}/{} from slot {}", g.rate_num, g.rate_den, first));
+        }
+        if let Some(d) = out.decimate {
+            plan_note.push_str(&format!(
+                ", decimate: skip {} pad {} target {} (output {} if its cycle lost a frame at or before it){}",
+                d.skip, d.pad, d.target, d.after_drop.0,
+                if d.real_len > 0 { format!(", ends after {} of {}", d.real_len, d.len) } else { String::new() }
+            ));
         }
         eprintln!(
             "Preview: source frame {} (window {}..{}, local {}, output index {}, output {} of {}, rate pad {}) seek {:.6}s ({}x{} {}{}{})",
@@ -1710,7 +1739,8 @@ impl PipelineExecutor {
             rate_pad: out.rate_pad,
             unblend_pad: out.unblend_pad,
             unblend_origin: out.unblend_origin,
-            source_frame_offset: first,
+            decimate: out.decimate,
+            source_frame_offset: ProcessingPipeline::preview_source_offset(&out, first as u64) as i32,
         };
 
         let script_path = script_generator.generate_preview(job, &preview_params)?;
@@ -1834,14 +1864,21 @@ impl PipelineExecutor {
             Some(thread::spawn(move || {
                 let reader = BufReader::new(stderr);
                 let mut errors = Vec::new();
+                let mut decimate_corr = None;
                 for line in reader.lines().map_while(Result::ok) {
+                    // The preview script's decimation reports which of the
+                    // two outputs it showed (task #46).
+                    if let Some(v) = line.strip_prefix(PREVIEW_DECIMATE_PREFIX) {
+                        decimate_corr = v.trim().parse::<u8>().ok();
+                        continue;
+                    }
                     if !line.starts_with("INPUT_INFO:") &&
                        !line.starts_with("Loaded template") &&
                        !line.trim().is_empty() {
                         errors.push(line);
                     }
                 }
-                errors
+                (errors, decimate_corr)
             }))
         } else {
             None
@@ -1855,9 +1892,10 @@ impl PipelineExecutor {
         let _ = fs::remove_dir_all(&temp_dir);
         let _ = fs::remove_file(&script_path);
 
+        let (errors, decimate_corr) = stderr_thread.and_then(|t| t.join().ok()).unwrap_or_default();
+
         // Check for errors
         if !vspipe_status.success() {
-            let errors = stderr_thread.map(|t| t.join().ok()).flatten().unwrap_or_default();
             if !errors.is_empty() {
                 bail!("vspipe failed: {}", errors.join("\n"));
             }
@@ -1870,7 +1908,17 @@ impl PipelineExecutor {
 
         // Echo the frame we actually rendered so the caller can label it (the
         // PNG itself is the only thing on stdout, so this goes to stderr).
-        eprintln!("{}", preview_info_line(job, target, &out));
+        // A decimation whose target cycle lost a frame at or before the
+        // target showed the other of the two outputs the walk computed.
+        let mut shown = out;
+        if let (Some(d), Some(1)) = (out.decimate, decimate_corr) {
+            (shown.local_index, shown.sub_frame, shown.sub_frames, shown.generated) = d.after_drop;
+        }
+        if out.decimate.is_some() {
+            eprintln!("Preview: decimation dropped a frame at or before the target: {}",
+                if decimate_corr == Some(1) { "yes" } else { "no" });
+        }
+        eprintln!("{}", preview_info_line(job, target, &shown));
 
         // Write PNG to stdout
         std::io::stdout().write_all(&output.stdout)?;
@@ -3031,7 +3079,23 @@ mod tests {
             generated: false,
             unblend_pad: 0,
             unblend_origin: 0,
+            decimate: None,
         }
+    }
+
+    /// Where a preview's decimation ends its clip (task #46): the out-point
+    /// the app sends, else the source's length.
+    #[test]
+    fn a_preview_ends_where_the_encode_ends() {
+        let mut job = create_test_job("/tmp/out.mkv");
+        job.total_frames = Some(90);
+        job.end_frame = None;
+        assert_eq!(preview_encode_end(&job), Some(90));
+        job.end_frame = Some(70);
+        assert_eq!(preview_encode_end(&job), Some(71), "the out-point is the last frame kept");
+        job.total_frames = None;
+        job.end_frame = None;
+        assert_eq!(preview_encode_end(&job), None);
     }
 
     /// The preview reports the aspect the encode will declare, so the app can

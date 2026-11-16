@@ -4644,7 +4644,8 @@ sweeping an axis. This change is the first step: the duplicated template.
   preview skips VDecimate but `ProcessingPipeline::preview_output` maps the
   target through the decimation, so the preview picks window frame
   `local * 4 / 5` of an undecimated clip: about `radius / 5` frames before
-  the target (at least one, `MIN_PREVIEW_RADIUS` 5). Filed as task #46.
+  the target (at least one, `MIN_PREVIEW_RADIUS` 5). Filed as task #46
+  (fixed, below).
 
 ### Chroma Fixes' depth guards apply only the filter's change (task #37, 2026-11-15)
 
@@ -4702,3 +4703,38 @@ Full evidence:
   survives (see `WorkerHarness.frameAverages`). `_flashTime` now uses `-i`
   with `signalstats,metadata=print`, `-copyts` keeping the clock `_beepTime`
   reads. Test-only.
+
+### IVTC / Soft Telecine preview runs VDecimate in the encode's phase (task #46, 2026-11-16)
+
+Full evidence:
+[docs/reports/issue-46-ivtc-preview/](reports/issue-46-ivtc-preview/index.html).
+
+- Measured before: the preview showed the film frame of source frame
+  `target - ceil(radius / 5)`: 1 film frame early at radius 5, 2 at 8, 3 at
+  12, and frame 1 already showed frame 0 (the plan's "0 near the start" was
+  wrong). 22 of 135 previews over eight IVTC / Soft Telecine cases were the
+  encode's frame for their source frame. IVTC then FlowFPS to 59.94 was
+  wrong a second way: the preview converted its undecimated 29.97.
+- What vivtc's VDecimate decides from (`scripts/vdecimate_probe.py`): cycles
+  count from the clip's first frame; each frame's metric is its difference
+  from the previous frame, so a cycle reads the frame before it; a clip's
+  frame 0 gets a fixed large metric (never dropped); a short last cycle still
+  drops one; frame properties survive on kept frames.
+- Fix (option a): the preview runs VDecimate on a clip arranged as the
+  encode's. Window frames before the in-point are dropped (before VFM for
+  IVTC), `e0 mod cycle` copies of the first frame put the cycles in phase,
+  and the clip ends where the encode's does (the app now sends `endFrame`
+  with a preview job; Soft Telecine's last cycle is filled as `pipe_frames`
+  does). `FrameMap::Decimate` declares radius `cycle + 1`. Each frame is
+  tagged with its index; the script reads the tag where the target would be
+  to learn whether its cycle lost a frame at or before it, and picks between
+  the two outputs `preview_output_in` computed (reported to the worker as
+  `PREVIEW_DECIMATE:corr=N`). Option b (treat the decimation as identity)
+  was rejected: duplicates, wrong neighbours for later temporal passes, and
+  no fix for a retime or Stabilize's lookup after IVTC.
+- After: 147 of 147 previews (12 of them FlowFPS outputs) are the encode's
+  frame, MAD 0.00 on 8-bit, 0.87 (the 10-bit conversion) on ProRes.
+- Found, not fixed: IVTC's encode loses a real film frame from a short last
+  cycle (the trim 23..70 drops film 55), as Soft Telecine did before
+  `pipe_frames` (issue #174). The preview now shows the same.
+

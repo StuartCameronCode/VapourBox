@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IVTC preview frame</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>IVTC and Soft Telecine previewed a frame before the target</h1>
+<p class="meta">2026-11-16 · macOS arm64, deps 1.16.0 (vivtc as bundled, FFmpeg 9.0) · task #46, found by
+task #42 while merging the encode and preview templates</p>
+
+<div class="card">
+<p><strong>Outcome: fixed.</strong> With Deinterlace set to IVTC, or Soft Telecine on a 29.97 source, the preview
+ran VFM but not VDecimate, while the worker chose the frame to show as if it had decimated
+(<code>local × 4/5</code> of an undecimated window). The preview showed the film frame of source frame
+<code>target − ceil(radius / 5)</code>: <strong>one film frame early</strong> at the minimum window radius of 5,
+<strong>two</strong> at radius 8, <strong>three</strong> at radius 12. Of 135 previews across eight IVTC and Soft
+Telecine cases, <strong>22</strong> showed what the encode shows for their source frame. A frame rate conversion
+after IVTC was wrong a second way: the preview converted its undecimated 29.97 clip, at about ×2 rather than ×2.5.</p>
+<p>The preview now runs VDecimate on a clip arranged as the encode's. Frames before the in-point are dropped,
+copies of the first frame put VDecimate's cycles in the encode's phase, and the clip ends where the encode's ends.
+The script then reads which frame of the target's cycle VDecimate dropped. After: <strong>147 of 147</strong>
+previews (including 12 frame-rate outputs) are the encode's frame for their source frame, <strong>pixel for
+pixel</strong> on 8-bit sources (MAD 0.00), and within the 10-bit conversion's 0.87 on ProRes. The encode is
+unchanged.</p>
+</div>
+
+<h2>1. The fault</h2>
+<p>Since task #42 the encode and the preview come from one template. VDecimate sat in an
+<code>{{#ENCODE_ONLY}}</code> block, carried over from the separate preview template, which never had it.
+<code>ProcessingPipeline::preview_output</code> walks every pass's <code>FrameMap</code> forward, and IVTC's is
+<code>Decimate { cycle: 5, keep: 4 }</code>, so the target's index in the window (<code>local</code>, the
+window radius once past the start) became <code>local × 4 / 5</code>. That index then picked a frame from the
+undecimated clip.</p>
+<div class="card correction">
+<p><strong>Correction to the plan.</strong> The plan said the error was 0 near the start of a source, where
+<code>local &lt; radius</code>. It is not: <code>local − floor(4·local/5)</code> is 1 for every local from 1 to 6.
+The measurement shows source frame 1 previewed as film frame 0. Only frame 0 itself was right.</p>
+</div>
+
+<h2>2. What VDecimate decides from</h2>
+<p>Running VDecimate in the preview is only right if its decisions match the encode's.
+<code>scripts/vdecimate_probe.py</code> asks the bundled vivtc (with <code>dryrun=True</code>, which stamps each
+frame's decision) on synthetic flat-grey clips:</p>
+<pre>1. frame 0 metric 156673 is the same for another first frame: 156673
+2. frame 4 = 72: second cycle drops [6]
+2. frame 4 = 86 (= frame 5): second cycle drops [5]
+3. from frame 3: drops at [5, 9] (cycles 3..7 and the short 8..9)
+4. kept frames carry their tag: [0, 1, 2, 4, 6, 7, 8, 9]</pre>
+<ol>
+<li>A clip's first frame gets a fixed large metric instead of a difference, so it is never dropped. From frame 0,
+frame 3 (a copy of frame 2) is dropped; from frame 3, it is kept.</li>
+<li>Each frame's metric is its difference from the frame before it, so <strong>a cycle's decision reads the frame
+before the cycle</strong>. Changing only frame 4 moves the second cycle's drop from 6 to 5.</li>
+<li>Cycles count from the clip's first frame, and a short last cycle still loses a frame.</li>
+<li>A frame property set before VDecimate is still on the frames it keeps.</li>
+</ol>
+<p>So the preview's clip must start its cycles where the encode's do, hold real frames before the target's cycle,
+start where the encode starts when the window reaches back past an in-point, and end where the encode ends.</p>
+
+<h2>3. The fix</h2>
+<ul>
+<li><strong>The window.</strong> <code>FrameMap::Decimate</code> declares a radius of <code>cycle + 1</code>. That
+covers the target's whole cycle, the frame before it (VDecimate's comparison) and that frame's VFM neighbour.</li>
+<li><strong>The walk.</strong> <code>preview_output_in</code> gives a decimation its own step, beside the retime's
+padding (issue #129):
+  <ul>
+  <li>When the window starts before the in-point, the frames before it are dropped (<code>skip</code>; for IVTC
+  before VFM, so VFM also starts where the encode's does).</li>
+  <li><code>pad = e0 mod cycle</code> copies of the first frame go in front, putting the cycles in the encode's
+  phase.</li>
+  <li>When the encode ends inside the window, the clip is cut there (<code>real_len</code>). Soft Telecine's last
+  cycle is then filled with copies of the last frame, as the encode's pipe does (<code>pipe_frames</code>).</li>
+  </ul>
+The target's place after VDecimate depends on whether its cycle lost a frame at or before it, so the walk runs
+for both cases (<code>after_drop</code>).</li>
+<li><strong>The script.</strong> <code>_preview_decimate_in</code> arranges the clip and tags each frame with its
+index. VDecimate runs with the same arguments as the encode's (one call, shared by both sides).
+<code>_preview_decimate_out</code> reads the tag of the frame where the target would be, prints
+<code>PREVIEW_DECIMATE:corr=N</code> for the worker, and the final pick takes the matching output. The worker
+reports that output's <code>sub_frame</code>/<code>sub_frames</code>.</li>
+<li><strong>The out-point.</strong> The app now sends the out-point with a preview job (<code>endFrame</code>, not a
+trim). Without it the worker takes the source's length (<code>totalFrames</code>).</li>
+<li><strong>Stabilize.</strong> Its pitch-file lookup in the preview starts at <code>first + skip − pad</code>,
+which keeps the encode's <code>offset + n × 5/4</code> exact, because the padded clip starts a whole number of
+cycles from the in-point.</li>
+</ul>
+
+<h2>4. Measurement</h2>
+<p><code>scripts/measure.py</code> encodes each case losslessly (FFV1 in MKV) and previews the listed source frames,
+with the worker before the fix (commit 38bac59) and after. Every fixture is testsrc2 at 24000/1001
+(<code>generate_telecine_test.sh</code>, <code>generate_prores422_10bit_test.sh</code>,
+<code>generate_source_grid_test.sh</code>), so each picture is named by the film frame it holds. The name is the
+nearest film field among the film frames regenerated from lavfi, judged on luma thumbnails normalised for mean and
+contrast, field by field. The source slot comes from an independent ffmpeg decode, not the worker's.</p>
+<p><strong>Right</strong> means the preview is one of the encode's frames (MAD &lt; 1.5) and either holds one of
+the slot's film frames, or, where the encode kept none of them, the kept frame before them. After a frame rate
+conversion it must be the encode's k-th output of the slot's film frame (<code>verdict</code> in
+<code>measure.py</code>). <strong>Film off</strong> counts the previews by how many film frames they missed the
+slot's by.</p>
+<div class="scroll">
+<table>
+<tr><th>Case</th><th>Fixture</th><th>Window radius</th><th class="num">Right before</th><th class="num">Right after</th><th>Film off before → after</th></tr>
+<tr><td>IVTC</td><td>hard_telecine_test.avi (8-bit, 90 slots)</td><td class="num">6 (5 before)</td><td class="num bad">5/24</td><td class="num good">24/24</td><td>−2: 5, −1: 18, 0: 1 → 0: 24</td></tr>
+<tr><td>IVTC + Deflicker window 8</td><td>same</td><td class="num">14 (8)</td><td class="num bad">0/10</td><td class="num good">10/10</td><td>−2: 10 → 0: 10</td></tr>
+<tr><td>IVTC + Deflicker window 12</td><td>same</td><td class="num">18 (12)</td><td class="num bad">0/10</td><td class="num good">10/10</td><td>−3: 8, −2: 2 → 0: 10</td></tr>
+<tr><td>IVTC trimmed 23..70</td><td>same</td><td class="num">6 (5)</td><td class="num bad">4/17</td><td class="num good">17/17</td><td>−2: 3, −1: 14 → 0: 16, −1: 1 *</td></tr>
+<tr><td>IVTC, 10-bit</td><td>prores422_10bit_telecine.mov (30 slots)</td><td class="num">6 (5)</td><td class="num bad">6/30</td><td class="num good">30/30</td><td>−2: 6, −1: 23, 0: 1 → 0: 29, +1: 1 *</td></tr>
+<tr><td>Soft Telecine</td><td>soft_telecine_dvd.vob (150 slots)</td><td class="num">6 (5)</td><td class="num bad">4/17</td><td class="num good">17/17</td><td>−1: 13, 0: 4 → 0: 17</td></tr>
+<tr><td>Soft Telecine</td><td>soft_telecine_dvd.mkv</td><td class="num">6 (5)</td><td class="num bad">3/17</td><td class="num good">17/17</td><td>−1: 14, 0: 3 → 0: 17</td></tr>
+<tr><td>Soft Telecine + Deflicker 8</td><td>soft_telecine_dvd.vob</td><td class="num">14 (8)</td><td class="num bad">0/10</td><td class="num good">10/10</td><td>−2: 6, −1: 4 → 0: 10</td></tr>
+<tr><td>IVTC → 59.94 (FlowFPS), every output</td><td>hard_telecine_test.avi</td><td class="num">7 (5)</td><td class="num bad">5/13</td><td class="num good">12/12</td><td>(by output frame)</td></tr>
+</table>
+</div>
+<p class="caption">Window radius: after the fix (before it, in brackets). The decimation now declares
+<code>cycle + 1</code> = 6. Before the fix the preview reported 13 outputs for the five FlowFPS targets
+(three for source 41, whose film frame has two), so the totals differ. Targets: 0–6, 40–49 and 83–89 for IVTC;
+40–49 at the wider radii; 23–32 and 64–70 for the trim; all 30 for ProRes; 0–6 and 60–69 for the VOB;
+60–69 and 143–149 for the MKV; 40–44 for FlowFPS.</p>
+<p>* The after rows marked * are right, and show what the encode itself does:</p>
+<ul>
+<li><strong>Trim, source 69</strong> (film off −1). The encode's last cycle is short (48 frames is 9 cycles and 3).
+VDecimate drops a frame from it, and there it drops a real one, film frame 55, the only frame of slot 69. The
+preview shows the kept frame before it, film 54, which is encode frame 36 to the pixel. The same partial-cycle loss
+is what <code>pipe_frames</code> avoids for Soft Telecine (issue #174). IVTC still has it in the encode; that is
+outside this task.</li>
+<li><strong>ProRes, source 0</strong> (film off +1). The encode drops film frame 0: its first cycle has a duplicate
+of film 1, but VDecimate drops slot 0 instead. Its frame 0 is film 1, and the preview shows the same. The film
+naming on this 10-bit fixture is also less certain; previews and encode frames differ by 0.86–0.87 throughout,
+which is the 10-bit PNG against an 8-bit decode, not a different picture.</li>
+</ul>
+
+<h3>Pictures</h3>
+<p>Each image has four panels at half size. From left: the source slot (independent decode); the old preview; the
+new preview; the encode's frame. testsrc2 prints its frame number in the top-left corner, which is the film frame
+number. Click for full size.</p>
+<figure>
+<a href="img/01-ivtc-radius12-source45.png"><img src="img/01-ivtc-radius12-source45.png" alt="Four panels: film frames 36, 33, 36, 36"></a>
+<div class="caption"><strong>IVTC with Deflicker window 12, source frame 45.</strong> The slot holds film frame 36
+(counter <code>36</code>, 1.502 s). The old preview shows <code>33</code>, three film frames early. The new preview
+shows <code>36</code>, identical to the encode's frame 36 (MAD 0.00).</div>
+</figure>
+<figure>
+<a href="img/02-soft-telecine-source62.png"><img src="img/02-soft-telecine-source62.png" alt="Four panels of the soft telecine DVD fixture"></a>
+<div class="caption"><strong>Soft Telecine on the DVD program stream, source frame 62.</strong> The slot holds film
+frame 50 (slot 63 is its pulldown repeat). The old preview shows film frame 49; the new preview and the encode show
+50, identical (MAD 0.00).</div>
+</figure>
+<figure>
+<a href="img/03-ivtc-5994-source44-output1.png"><img src="img/03-ivtc-5994-source44-output1.png" alt="Four panels: IVTC then 59.94"></a>
+<div class="caption"><strong>IVTC then 59.94, source frame 44, its second output.</strong> The slot holds film frame
+35, so its outputs are encode frames 88 and 89 (outputs of film frame f start at ⌈5f/2⌉). The old preview equals
+encode frame 90 to the pixel: frame-rate output from the wrong film frame. The new preview equals encode frame 89
+(MAD 0.00).</div>
+</figure>
+
+<h3>What the metric can't tell you</h3>
+<ul>
+<li><strong>The source slot's film frame comes from an independent decode</strong>, plain for the hard-telecined
+files and ffmpeg's <code>fps</code> filter onto the 29.97 grid for the soft-telecined ones. It is not the worker's
+placement (issue #174), so a slot where the two disagree would be misjudged. That decode of the VOB holds 149 slots
+(its last picture has no timestamp; task #26), so the VOB's tail is checked on the MKV instead.</li>
+<li><strong>A hard-telecined slot can hold two film frames</strong>, one per field. Either is right, because
+VFM picks one and the encode keeps it. The check is that the preview is the encode's frame, not which of the two VFM
+chose.</li>
+<li><strong>MAD compares the preview PNG with the encode decoded by ffmpeg's own YUV→RGB.</strong> 0.00 on 8-bit
+means the same picture. It cannot say how alike two different pictures are; only the film naming does that.</li>
+<li><strong>Short synthetic fixtures with regular 3:2 cadence</strong>, one machine (Apple Silicon). VDecimate on
+broken cadence, scene changes or real film grain is not exercised beyond what the model test below covers.</li>
+</ul>
+
+<h2>5. Tests</h2>
+<ul>
+<li><code>a_decimation_previews_the_frame_the_encode_keeps</code> (Rust unit). A model of VDecimate built from
+§2's rules, with a picture-dependent drop, runs the encode and the preview exactly as the template does:
+<ul>
+<li>IVTC cycles 4, 5 and 6, and Soft Telecine;</li>
+<li>in-points 0–7, four out-points, every target.</li>
+</ul>
+Each of these mutations fails it:
+<ul>
+<li>no skip;</li>
+<li>no pad;</li>
+<li>no out-point cut;</li>
+<li>a radius of <code>cycle − 2</code>.</li>
+</ul></li>
+<li><code>a_retime_after_a_decimation_takes_both_outcomes</code>,
+<code>stabilize_looks_up_the_decimated_clip_from_its_encode_offset</code>, and the radius test (Rust unit).</li>
+<li><code>test_251</code> (script generation): VDecimate and the preview blocks are in place in both methods' preview
+scripts, the values are filled, and the encode carries none of it. <code>test_248</code> and
+<code>test_240</code> were updated for VDecimate now being in both scripts.</li>
+<li><code>integration_ivtc_preview_test.dart</code> (heavy): the measurement's verdict as assertions, on 82 previews
+over six cases. It fails all six with the worker before the fix.</li>
+</ul>
+
+<h2>6. Decisions</h2>
+<ul>
+<li><strong>Run VDecimate in the preview (option a), not treat the decimation as identity (option b).</strong> (b)
+would show the duplicates the encode drops. It would leave every pass after IVTC working on 29.97 frames with
+duplicate neighbours. And it cannot fix a frame rate conversion or Unblend after IVTC, or Stabilize's pitch lookup,
+whose rates come from the decimated clip.</li>
+<li><strong>Read the drop in the script, not in the worker.</strong> Which frame goes depends on the picture. A
+frame-index tag on the one real VDecimate call, read back at script time with <code>get_frame</code>, costs one
+cycle of VFM on a few frames. It also keeps a single VDecimate call, so its arguments cannot drift between sides. A
+<code>dryrun=True</code> copy would have been a second call with its arguments copied.</li>
+<li><strong>The worker computes both outcomes</strong> and the script picks one, so the retime and sub-frame
+arithmetic after a decimation stays in <code>preview_output</code> alone.</li>
+<li><strong>Send the out-point.</strong> Without it, a target in a trimmed encode's short last cycle could be decided
+on frames the encode never sees. Measured: source 69 of the 23..70 trim shows the encode's partial-cycle drop.</li>
+</ul>
+
+<h2>7. Not tested</h2>
+<ul>
+<li>Windows and Linux (the template and walk are platform-independent; vivtc is the same release).</li>
+<li>Real telecined film (broken cadence, orphan fields, VFM's <code>mic</code> decisions near the window edge).</li>
+<li>IVTC with Unblend or RIFE after it (the walk handles any retime; only FlowFPS was encoded).</li>
+<li>Stabilize file-mode pitch after IVTC on a real file; the offset is unit-tested only.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>cd worker &amp;&amp; cargo build
+BEFORE_WORKER=&lt;worker built at 38bac59, with that commit's templates/ beside it&gt; \
+  docs/reports/issue-46-ivtc-preview/scripts/run.sh</pre>
+<p><code>run.sh</code> runs <code>vdecimate_probe.py</code>, then <code>measure.py</code> with each worker, then
+<code>summary.py</code> and <code>images.py</code>. Scratch files go to <code>$IVTC_WORK_ROOT</code> (default: a
+temporary directory). It needs <code>deps/&lt;platform&gt;</code> or <code>$VAPOURBOX_DEPS_DIR</code>.</p>
+</main>
+</body>
+</html>
