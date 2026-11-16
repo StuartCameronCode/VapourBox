@@ -3065,6 +3065,27 @@ for the full audit and the specific licence/year errors it found.
 - `json_annotation` + `json_serializable` for models
 - MVVM pattern (models, viewmodels, views, services)
 
+### Line endings: accept both CRLF and LF, everywhere
+
+**Any code that reads a text file from the repo or the user, in the app,
+the worker, a test or a script, must work on CRLF (Windows) and LF (macOS
+/ Linux) line endings alike.** Windows CI checks the repo out with CRLF,
+so a file that is LF on a Mac is CRLF there, and the failure only shows on
+Windows. Normalise first (`text.replace("\r\n", "\n")` in Rust,
+`replaceAll('\r\n', '\n')` in Dart), or split with `.lines()` /
+`LineSplitter`, which accept both. Never:
+
+- search for a multi-line pattern containing `"\n"` in raw file text (task
+  #49's container lint looked for `"#[cfg(test)]\nmod "` and scanned every
+  test module on Windows);
+- compare a file byte for byte against generated text (task #49's
+  generated-table freshness check);
+- substitute a pattern that spans a line break in a loaded template
+  (`load_template_by_name` normalises for this; see Debugging Tips #5).
+
+Text the code writes may use `\n`; it is what it reads that must accept
+both.
+
 ## havsfunc Compatibility Patches
 
 All three `download-deps-*` scripts apply these automatically, and they must stay
