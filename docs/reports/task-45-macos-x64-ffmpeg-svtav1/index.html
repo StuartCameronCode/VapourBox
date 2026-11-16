@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>macOS x64 FFmpeg with SVT-AV1</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>macOS x64 FFmpeg with SVT-AV1</h1>
+<p class="meta">2026-11-16 · task #45 · deps 1.17.0-rc2 · evermeet.cx 9.0.1 (shipped up to rc1) against
+martin-riedl.de 9.0.2 amd64 build <code>1789931006</code>, both run under Rosetta 2 on an Apple Silicon Mac
+(macOS 27.2)</p>
+
+<div class="card">
+<strong>Outcome: shipped.</strong> The macOS x64 deps bundle now takes martin-riedl.de's static amd64 FFmpeg
+instead of evermeet's. The new build has SVT-AV1, so AV1 output (task #40) works on Intel Macs. It targets
+macOS 12.0, links only system frameworks, and is the same 9.0.2 build run as the Apple Silicon binary.
+<strong>Nothing VapourBox writes changes except the encoder's version text</strong>: native encoders are
+byte-identical, and x264, x265 and MP3 decode to identical pictures and samples (F3). Every one of the 30 test
+fixtures decodes identically (F4). The components it drops are ones nothing in VapourBox calls (F2).
+</div>
+
+<h2>F1. The candidates, and the checks the task asked for</h2>
+<ul>
+<li><strong>evermeet.cx</strong>: no <code>libsvtav1</code> in any release (libaom only). This was the gap.</li>
+<li><strong>Homebrew</strong>: dynamically linked to Homebrew's dylibs, and its bottles target the runner's
+macOS. Rejected for arm64 long ago for the same reason.</li>
+<li><strong>A source build</strong>: possible, but unnecessary once a static build that passes every check exists.</li>
+<li><strong>martin-riedl.de amd64 release build</strong> (chosen). The site publishes static macOS builds for both
+architectures from one build run. Its release history lists every build back to 5.0 (2022), and 2022 build-ID
+URLs still download, so an exact pin is durable. The deps script pins the build ID and each zip's SHA-256.</li>
+</ul>
+<div class="scroll"><table>
+<tr><th>Check</th><th>evermeet 9.0.1</th><th>martin-riedl 9.0.2</th></tr>
+<tr><td><code>libsvtav1</code></td><td class="bad">absent (libaom only)</td><td class="good">SVT-AV1 v4.2.0, plus libaom and rav1e</td></tr>
+<tr><td>Minimum macOS (Mach-O minos)</td><td>10.13</td><td class="good">12.0, our x64 floor</td></tr>
+<tr><td>Dependencies outside <code>/System</code> and <code>/usr/lib</code></td><td>none</td><td class="good">none</td></tr>
+<tr><td><code>Scripts/check-macho-refs.py</code></td><td>pass</td><td class="good">pass</td></tr>
+<tr><td><code>assert_ffmpeg_series</code> (9.0)</td><td>9.0</td><td class="good">9.0 (<code>9.0.2-https://www.martin-riedl.de</code>)</td></tr>
+<tr><td><code>check-load-time-simd.py --depth 0</code></td><td>12 initializers, no VEX</td><td>60 initializers, no VEX</td></tr>
+<tr><td>ffmpeg + ffprobe, unzipped / zipped</td><td class="num">161.4 MB / 52.2 MB</td><td class="num">189.4 MB / 67.5 MB</td></tr>
+</table></div>
+<p class="caption">From <code>scripts/measure.py</code> (<code>probe</code> in <code>results.json</code>). The SIMD check
+looks for AVX instructions run while the binary loads, which would crash it on a pre-AVX Mac. At its default depth
+it follows calls from each initializer, and on these 90 MB stripped static binaries it reports chains through
+unrelated functions for <em>both</em> builds (for example <code>srt::handshakeSide → dav1d_close → opus…</code>),
+which is mis-symbolisation, not evidence either way. See Limits.</p>
+
+<h2>F2. What the new build has and lacks</h2>
+<div class="scroll"><table>
+<tr><th></th><th>Only in evermeet</th><th>Only in martin-riedl</th></tr>
+<tr><td>Encoders</td><td>libgsm, libgsm_ms, libopencore_amrnb, libshine, libspeex, libtwolame, libvo_amrwbenc, libxavs, libxvid</td><td>libsvtav1, librav1e, libvvenc</td></tr>
+<tr><td>Decoders</td><td>libgsm, libgsm_ms, libopencore_amrnb, libopencore_amrwb, libspeex (FFmpeg's own gsm and amr decoders remain)</td><td>none</td></tr>
+<tr><td>Filters</td><td>azmq, rubberband, sofalizer, vidstabdetect, vidstabtransform, zmq</td><td>none</td></tr>
+<tr><td>Muxers</td><td>none</td><td>whip</td></tr>
+<tr><td>Demuxers</td><td>avisynth, libmodplug</td><td>none</td></tr>
+</table></div>
+<p class="caption">None of the names in the first column appears in <code>worker/src</code>,
+<code>worker/templates</code>, <code>app/lib</code> or <code>app/assets</code>
+(<code>lost_names_used_by_vapourbox</code> is empty). Every filter the worker builds into its <code>-vf</code> and
+<code>-af</code> chains (aresample, loudnorm, afftdn, adeclick, adeclip, alimiter, highpass, bandreject, pan, adelay,
+apad, atrim, asetrate, zscale, tonemap, subtitles, fps, trim, setparams, setpts, settb, setsar, setdar, scale,
+crop, select and others) is in both builds. The grep can't see a filter a user types into Custom FFmpeg Arguments:
+such a job using, say, <code>vidstabdetect</code> would now fail on an Intel Mac.</p>
+
+<h2>F3. Encoder output</h2>
+<p>A 2-second 720x576 test pattern and a 440 Hz tone, encoded single-threaded with <code>+bitexact</code>, at the
+settings the worker uses. Each output is then hashed as packets and as decoded frames (always decoded by the
+same binary).</p>
+<div class="scroll"><table>
+<tr><th>Encoder</th><th>Packets</th><th>Decoded</th></tr>
+<tr><td>libx264 CRF 18 medium</td><td class="warn">different</td><td class="good">identical</td></tr>
+<tr><td>libx265 CRF 20 medium 10-bit</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>prores_ks profile 0</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>prores_ks profile 1</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>prores_ks profile 2</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>prores_ks profile 3</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>prores_ks profile 4</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>ffv1 level 3</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>huffyuv</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>ffvhuff</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>v210</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>aac 192k</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>libmp3lame 192k</td><td class="warn">different</td><td class="good">identical</td></tr>
+<tr><td>ac3 192k</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>libopus 128k</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>flac</td><td class="good">identical</td><td class="good">identical</td></tr>
+<tr><td>pcm_s24le</td><td class="good">identical</td><td class="good">identical</td></tr>
+</table></div>
+<p class="caption"><code>encoder_bitstreams</code> in <code>results.json</code>. "Packets" hashes the coded packets
+only, not the stream header. That is why x265 matches here although the files are not byte-identical: x265 writes
+its version (<code>4.2+37-b81f650e2</code> against <code>4.0+1-6318f22</code>) into the header (2,415 against 2,412
+bytes of extradata). x264 and LAME write theirs into the packets, so they show as different, but decode identically.</p>
+
+<p>On real footage: the first 100 frames of three fixtures, encoded by each build and scored against a lossless
+copy by the same binary.</p>
+<div class="scroll"><table>
+<tr><th>Fixture</th><th>Encoder</th><th class="num">evermeet bytes</th><th class="num">martin-riedl bytes</th><th class="num">PSNR Y (both)</th><th class="num">SSIM (both)</th><th>Decoded frames</th></tr>
+<tr><td>small_clip.mp4</td><td>libx264 CRF 18</td><td class="num">200,331</td><td class="num">200,317</td><td class="num">43.60 dB</td><td class="num">0.9926</td><td class="good">identical</td></tr>
+<tr><td>small_clip.mp4</td><td>libx265 CRF 20</td><td class="num">173,341</td><td class="num">173,338</td><td class="num">42.06 dB</td><td class="num">0.9889</td><td class="good">identical</td></tr>
+<tr><td>pal-sd-25.mov</td><td>libx264 CRF 18</td><td class="num">5,650</td><td class="num">5,636</td><td class="num">62.65 dB</td><td class="num">0.9998</td><td class="good">identical</td></tr>
+<tr><td>pal-sd-25.mov</td><td>libx265 CRF 20</td><td class="num">11,360</td><td class="num">11,357</td><td class="num">70.19 dB</td><td class="num">1.0000</td><td class="good">identical</td></tr>
+<tr><td>interlaced_test.avi</td><td>libx264 CRF 18</td><td class="num">2,222,550</td><td class="num">2,222,536</td><td class="num">40.71 dB</td><td class="num">0.9700</td><td class="good">identical</td></tr>
+<tr><td>interlaced_test.avi</td><td>libx265 CRF 20</td><td class="num">1,539,728</td><td class="num">1,539,725</td><td class="num">40.25 dB</td><td class="num">0.9691</td><td class="good">identical</td></tr>
+</table></div>
+<p class="caption"><code>quality</code> in <code>results.json</code>. PSNR and SSIM are the same to every printed digit
+because the pictures are identical. The size difference is the encoder's version text: x264 writes its full
+version, including evermeet's <code>r3223 0480cb0</code>, into an SEI message, and x265 reports
+<code>4.2+37-b81f650e2</code> (evermeet) against <code>4.0+1-6318f22</code> (martin-riedl; the site's own
+version list says 4.2, so its x265 version string looks stale). These fixtures are three clips at one setting each,
+not a population, and x264/x265 dispatch SIMD at run time, so a different CPU could in principle take a different
+path. Both encoders are designed to give the same output on every SIMD level.</p>
+
+<p><strong>MP3</strong>: 20 s of <code>small_clip.mp4</code>'s sound at 192 kbit/s. Both files are 481,677 bytes and decode to identical samples (960,000 compared). The packets
+differ in the LAME header's version tag (<code>LAME3.100</code> against <code>LAME4.0</code>).</p>
+
+<h2>F4. Decoding and the filters the app relies on</h2>
+<p>Every media file in <code>Tests/TestResources/</code> (30 files: MPEG-2 in PS/TS/VOB, H.264 in TS/AVI/MKV/MP4,
+ProRes, DV-style AVIs, HuffYUV, AAC/MP3/AC-3/PCM sound) was decoded in full by both builds with
+<code>-f framemd5</code>, every video and audio stream. <strong>30 of 30 decode identically</strong>.</p>
+<ul>
+<li><strong>HDR display tone-map</strong>, the worker's <code>ColorMetadata::display_tonemap_filter</code> chain
+(zscale, tonemap) on a PQ/BT.2020 clip: identical frames.</li>
+<li><strong>Subtitle burn-in</strong> (libass with fontconfig) of one line on black: identical pixels
+(552 lit pixels in each).</li>
+</ul>
+<p class="caption"><code>decoders</code> and <code>filters</code> in <code>results.json</code>. All the codecs above
+are FFmpeg's own decoders, and 9.0.1 → 9.0.2 is a point release. dav1d (AV1 decoding) was not exercised by a fixture.</p>
+
+<h2>F5. AV1 through the new build</h2>
+<p>The first 100 frames of <code>small_clip.mp4</code> (lossless copy) at the worker's AV1 arguments: preset 6,
+CRF 24, <code>SVT_LOG=2</code>.</p>
+<div class="scroll"><table>
+<tr><th>Format</th><th>Container</th><th>Stored</th><th class="num">Frames</th><th class="num">PSNR Y</th><th class="num">SSIM</th><th class="num">Bytes</th><th class="num">fps (Rosetta)</th></tr>
+<tr><td>8-bit</td><td>MP4</td><td>av1 yuv420p</td><td class="num">100</td><td class="num">42.67 dB</td><td class="num">0.9896</td><td class="num">174,101</td><td class="num">165.0</td></tr>
+<tr><td>8-bit</td><td>MKV</td><td>av1 yuv420p</td><td class="num">100</td><td class="num">42.67 dB</td><td class="num">0.9896</td><td class="num">174,099</td><td class="num">161.9</td></tr>
+<tr><td>10-bit</td><td>MP4</td><td>av1 yuv420p10le</td><td class="num">100</td><td class="num">42.94 dB</td><td class="num">0.9907</td><td class="num">177,790</td><td class="num">144.5</td></tr>
+<tr><td>10-bit</td><td>MKV</td><td>av1 yuv420p10le</td><td class="num">100</td><td class="num">42.94 dB</td><td class="num">0.9907</td><td class="num">177,788</td><td class="num">144.4</td></tr>
+</table></div>
+<p class="caption"><code>av1</code> in <code>results.json</code>. Speed is under Rosetta 2 on an Apple Silicon Mac
+(which translates AVX2) and says nothing about an Intel Mac's speed. HDR10 metadata given as
+<code>-svtav1-params</code> in the form <code>HdrMetadata::svtav1_params</code> writes
+(<code>mastering-display=G(0.265,0.69)…L(1000,0.0001):content-light=1000,400</code>) reads back from the first
+frame as mastering display primaries and luminance 1000 / 0.000122 cd/m², and content light 1000 / 400.</p>
+
+<h2>Limits</h2>
+<ul>
+<li><strong>Not run on an Intel Mac here.</strong> Everything above ran under Rosetta 2. CI's
+<code>macos-15-intel</code> runner runs the push gate and the heavy suite against the new bundle (both CPU tiers
+in the nightly), which is the real-hardware check.</li>
+<li><strong>Pre-AVX Intel Macs (the v2 tier).</strong> FFmpeg is one binary for both tiers. There is no Intel SDE
+on macOS, and the static check can only show that the initializers themselves contain no AVX. Beyond that,
+FFmpeg, x264, x265, dav1d and SVT-AV1 select their SIMD at run time, which is what evermeet's build relied on too.
+macOS 12's oldest supported Mac (Mac Pro, late 2013) has AVX; older Macs run it only through patchers.</li>
+<li><strong>Download size</strong>: +15.3 MB zipped for the macOS x64 bundle.</li>
+<li><strong>The source may thin out.</strong> martin-riedl.de's amd64 <em>snapshot</em> channel was last built in
+January 2026, though release builds continue (9.0.2 in September 2026). The build-ID pin keeps working whatever
+happens next; a future FFmpeg series may need a source build or another host.</li>
+<li>Not tested: hardware encoders (VideoToolbox is in both builds and unchanged), and an AV1 <em>source</em>
+(dav1d) on x64.</li>
+</ul>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>martin-riedl over a source build</strong>: it passes every check, matches the arm64 bundle's build,
+and needs no toolchain in CI.</li>
+<li><strong>Pinned by build ID and SHA-256, not <code>latest</code></strong>: the host keeps build-ID URLs, so
+a rebuilt deps bundle gets the same binary, and a changed file fails the build. (arm64 still takes
+<code>latest</code> with the series check; pinning it too is a separate change.)</li>
+<li><strong>The build fails without <code>libsvtav1</code></strong> on either arch
+(<code>assert_ffmpeg_encoder</code> in <code>download-deps-macos.sh</code>), and the push gate's
+<code>libsvtav1 is compiled in</code> test checks every bundle with no exception.</li>
+<li><strong>The app keeps its availability check</strong> (<code>HardwareEncoderDetector</code>,
+<code>missing_encoder_problem</code>): cheap, and still right for any FFmpeg without SVT-AV1.</li>
+<li><strong>A new deps version</strong>, 1.17.0-rc2: no released app references 1.17.0 yet.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>scripts/fetch.sh "$SCRATCH/bins"                      # both builds, martin-riedl's checked by SHA-256
+WORK="$SCRATCH/work" python3 -I scripts/measure.py "$SCRATCH/bins"   # writes scripts/results.json
+python3 -I scripts/render.py                          # fills this page's tables from results.json</pre>
+<p class="caption">On Apple Silicon the scripts run the x86_64 binaries with <code>arch -x86_64</code>; on an
+Intel Mac they run them directly.</p>
+</main>
+</body>
+</html>

@@ -1,0 +1,998 @@
+{
+  "host": "arm64 27.2",
+  "rosetta": true,
+  "probe": {
+    "evermeet": {
+      "version": "ffmpeg version 9.0.1-tessus  https://evermeet.cx/ffmpeg/  Copyright (c) 2000-2026 the FFmpeg developers",
+      "compiler": "built with Apple clang version 17.0.0 (clang-1700.6.4.2)",
+      "configure": "configuration: --cc=/usr/bin/clang --prefix=/opt/ffmpeg --extra-version=tessus --enable-avisynth --enable-fontconfig --enable-gpl --enable-libaom --enable-libass --enable-libbluray --enable-libdav1d --enable-libfreetype --enable-libgsm --enable-libharfbuzz --enable-libmodplug --enable-libmp3lame --enable-libmysofa --enable-libopencore-amrnb --enable-libopencore-amrwb --enable-libopenh264 --enable-libopenjpeg --enable-libopus --enable-librubberband --enable-libshine --enable-libsnappy --enable-libsoxr --enable-libspeex --enable-libtheora --enable-libtwolame --enable-libvidstab --enable-libvmaf --enable-libvo-amrwbenc --enable-libvorbis --enable-libvpx --enable-libwebp --enable-libx264 --enable-libx265 --enable-libxavs --enable-libxml2 --enable-libxvid --enable-libzimg --enable-libzmq --enable-libzvbi --enable-version3 --pkg-config-flags=--static --disable-ffplay",
+      "series": "9.0",
+      "minos": "10.13",
+      "dependencies": [
+        "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+        "/System/Library/Frameworks/AudioToolbox.framework/Versions/A/AudioToolbox",
+        "/System/Library/Frameworks/CoreAudio.framework/Versions/A/CoreAudio",
+        "/usr/lib/libSystem.B.dylib",
+        "/System/Library/Frameworks/AVFoundation.framework/Versions/A/AVFoundation",
+        "/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo",
+        "/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia",
+        "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics",
+        "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+        "/System/Library/Frameworks/Accelerate.framework/Versions/A/Accelerate",
+        "/System/Library/Frameworks/VideoToolbox.framework/Versions/A/VideoToolbox",
+        "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/ApplicationServices",
+        "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+        "/System/Library/Frameworks/CoreImage.framework/Versions/A/CoreImage",
+        "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+        "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+        "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+        "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+        "/usr/lib/libc++.1.dylib",
+        "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText",
+        "/usr/lib/libobjc.A.dylib"
+      ],
+      "outside_system": [],
+      "check_macho_refs": {
+        "exit": 0,
+        "output": "\u2713 2 Mach-O files depend only on the bundle and the system"
+      },
+      "load_time_simd_depth0": {
+        "exit": 0,
+        "output": "ok   evermeet/ffmpeg: 12 initializers, 12 functions reachable"
+      },
+      "bytes": {
+        "ffmpeg": 80776328,
+        "ffprobe": 80590016
+      },
+      "zip_bytes": {
+        "ffmpeg": 26172529,
+        "ffprobe": 26075757
+      }
+    },
+    "mr": {
+      "version": "ffmpeg version 9.0.2-https://www.martin-riedl.de Copyright (c) 2000-2026 the FFmpeg developers",
+      "compiler": "built with Apple clang version 14.0.0 (clang-1400.0.29.202)",
+      "configure": "configuration: --prefix=/Volumes/ffmpeg_amd64/out --pkg-config-flags=--static --extra-version='https://www.martin-riedl.de' --enable-gray --enable-libxml2 --enable-version3 --enable-gpl --enable-openssl --enable-libfreetype --enable-fontconfig --enable-libharfbuzz --enable-libbluray --enable-libsnappy --enable-libsrt --enable-libvmaf --enable-libass --enable-libklvanc --enable-libzimg --enable-libzvbi --enable-libaom --enable-libdav1d --enable-libopenh264 --enable-libopenjpeg --enable-librav1e --enable-libsvtav1 --enable-libvpx --enable-libvvenc --enable-libwebp --enable-libx264 --enable-libx265 --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-libtheora",
+      "series": "9.0",
+      "minos": "12.0",
+      "dependencies": [
+        "/System/Library/Frameworks/Foundation.framework/Versions/C/Foundation",
+        "/System/Library/Frameworks/AudioToolbox.framework/Versions/A/AudioToolbox",
+        "/System/Library/Frameworks/CoreAudio.framework/Versions/A/CoreAudio",
+        "/usr/lib/libSystem.B.dylib",
+        "/System/Library/Frameworks/AVFoundation.framework/Versions/A/AVFoundation",
+        "/System/Library/Frameworks/CoreVideo.framework/Versions/A/CoreVideo",
+        "/System/Library/Frameworks/CoreMedia.framework/Versions/A/CoreMedia",
+        "/System/Library/Frameworks/CoreGraphics.framework/Versions/A/CoreGraphics",
+        "/System/Library/Frameworks/OpenGL.framework/Versions/A/OpenGL",
+        "/usr/lib/libbz2.1.0.dylib",
+        "/System/Library/Frameworks/VideoToolbox.framework/Versions/A/VideoToolbox",
+        "/usr/lib/libiconv.2.dylib",
+        "/System/Library/Frameworks/ApplicationServices.framework/Versions/A/ApplicationServices",
+        "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+        "/System/Library/Frameworks/CoreImage.framework/Versions/A/CoreImage",
+        "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+        "/System/Library/Frameworks/CoreServices.framework/Versions/A/CoreServices",
+        "/System/Library/Frameworks/DiskArbitration.framework/Versions/A/DiskArbitration",
+        "/usr/lib/libc++.1.dylib",
+        "/System/Library/Frameworks/CoreText.framework/Versions/A/CoreText",
+        "/usr/lib/libobjc.A.dylib"
+      ],
+      "outside_system": [],
+      "check_macho_refs": {
+        "exit": 0,
+        "output": "\u2713 2 Mach-O files depend only on the bundle and the system"
+      },
+      "load_time_simd_depth0": {
+        "exit": 0,
+        "output": "ok   mr/ffmpeg: 60 initializers, 19 functions reachable"
+      },
+      "bytes": {
+        "ffmpeg": 94769296,
+        "ffprobe": 94594080
+      },
+      "zip_bytes": {
+        "ffmpeg": 33816391,
+        "ffprobe": 33719233
+      }
+    }
+  },
+  "capabilities": {
+    "encoders": {
+      "only_evermeet": [
+        "libgsm",
+        "libgsm_ms",
+        "libopencore_amrnb",
+        "libshine",
+        "libspeex",
+        "libtwolame",
+        "libvo_amrwbenc",
+        "libxavs",
+        "libxvid"
+      ],
+      "only_mr": [
+        "librav1e",
+        "libsvtav1",
+        "libvvenc"
+      ]
+    },
+    "decoders": {
+      "only_evermeet": [
+        "libgsm",
+        "libgsm_ms",
+        "libopencore_amrnb",
+        "libopencore_amrwb",
+        "libspeex"
+      ],
+      "only_mr": []
+    },
+    "filters": {
+      "only_evermeet": [
+        "azmq",
+        "rubberband",
+        "sofalizer",
+        "vidstabdetect",
+        "vidstabtransform",
+        "zmq"
+      ],
+      "only_mr": []
+    },
+    "muxers": {
+      "only_evermeet": [],
+      "only_mr": [
+        "whip"
+      ]
+    },
+    "demuxers": {
+      "only_evermeet": [
+        "avisynth",
+        "libmodplug"
+      ],
+      "only_mr": []
+    },
+    "lost_names_used_by_vapourbox": {},
+    "needed_filters_missing": {
+      "evermeet": [],
+      "mr": []
+    }
+  },
+  "encoder_bitstreams": {
+    "libx264 CRF 18 medium": {
+      "evermeet": {
+        "bitstream_md5": "fe42604f8d752a9677d657a8e5a4a6c1",
+        "decoded_md5": "51769d0feb51db913477a5415155afb7",
+        "bytes": 466382
+      },
+      "mr": {
+        "bitstream_md5": "3cf052d81f719e789c29c2bcaaca8ef6",
+        "decoded_md5": "51769d0feb51db913477a5415155afb7",
+        "bytes": 466368
+      },
+      "bitstream_identical": false,
+      "decoded_identical": true
+    },
+    "libx265 CRF 20 medium 10-bit": {
+      "evermeet": {
+        "bitstream_md5": "e3ab552cab485021b43597ed1f4d9143",
+        "decoded_md5": "9f70655f9a203889d311440be4e051c6",
+        "bytes": 478007
+      },
+      "mr": {
+        "bitstream_md5": "e3ab552cab485021b43597ed1f4d9143",
+        "decoded_md5": "9f70655f9a203889d311440be4e051c6",
+        "bytes": 478004
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "prores_ks profile 0": {
+      "evermeet": {
+        "bitstream_md5": "ecf442725fc225af2c40bd3b400ceefe",
+        "decoded_md5": "5f7c0bc3c40e157f2b296a60b944db34",
+        "bytes": 1732409
+      },
+      "mr": {
+        "bitstream_md5": "ecf442725fc225af2c40bd3b400ceefe",
+        "decoded_md5": "5f7c0bc3c40e157f2b296a60b944db34",
+        "bytes": 1732409
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "prores_ks profile 1": {
+      "evermeet": {
+        "bitstream_md5": "61fd4270f3aad2c9dcfc74374e775660",
+        "decoded_md5": "33c97689008a3beaea437c36a5a8959d",
+        "bytes": 3616036
+      },
+      "mr": {
+        "bitstream_md5": "61fd4270f3aad2c9dcfc74374e775660",
+        "decoded_md5": "33c97689008a3beaea437c36a5a8959d",
+        "bytes": 3616036
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "prores_ks profile 2": {
+      "evermeet": {
+        "bitstream_md5": "03276693ab6c747318ed88b9276e93cb",
+        "decoded_md5": "96db9ab62d11e705bbe69c2fd76ac56b",
+        "bytes": 4686113
+      },
+      "mr": {
+        "bitstream_md5": "03276693ab6c747318ed88b9276e93cb",
+        "decoded_md5": "96db9ab62d11e705bbe69c2fd76ac56b",
+        "bytes": 4686113
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "prores_ks profile 3": {
+      "evermeet": {
+        "bitstream_md5": "474119ef7a4225db50fe0c18ec6b07c9",
+        "decoded_md5": "5ac08bd234cb1e0aabc5ae9936b1db64",
+        "bytes": 6060043
+      },
+      "mr": {
+        "bitstream_md5": "474119ef7a4225db50fe0c18ec6b07c9",
+        "decoded_md5": "5ac08bd234cb1e0aabc5ae9936b1db64",
+        "bytes": 6060043
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "prores_ks profile 4": {
+      "evermeet": {
+        "bitstream_md5": "134bbe997854eb0622f6f183f16a8d22",
+        "decoded_md5": "71de23b056428ead93020174ed9fb981",
+        "bytes": 8471253
+      },
+      "mr": {
+        "bitstream_md5": "134bbe997854eb0622f6f183f16a8d22",
+        "decoded_md5": "71de23b056428ead93020174ed9fb981",
+        "bytes": 8471253
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "ffv1 level 3": {
+      "evermeet": {
+        "bitstream_md5": "983150e7059c18acc71c7500cdf9a7ce",
+        "decoded_md5": "b511da03f5f1bab210196b3e8bd172f8",
+        "bytes": 1377363
+      },
+      "mr": {
+        "bitstream_md5": "983150e7059c18acc71c7500cdf9a7ce",
+        "decoded_md5": "b511da03f5f1bab210196b3e8bd172f8",
+        "bytes": 1377363
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "huffyuv": {
+      "evermeet": {
+        "bitstream_md5": "6d26089c5528934e2ee3d87d621b838b",
+        "decoded_md5": "28a96650864a6dfc8bb84699cec3d892",
+        "bytes": 12800689
+      },
+      "mr": {
+        "bitstream_md5": "6d26089c5528934e2ee3d87d621b838b",
+        "decoded_md5": "28a96650864a6dfc8bb84699cec3d892",
+        "bytes": 12800689
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "ffvhuff": {
+      "evermeet": {
+        "bitstream_md5": "102dbbf09ea5bb93075ebd83ee9b6f3b",
+        "decoded_md5": "b511da03f5f1bab210196b3e8bd172f8",
+        "bytes": 9405593
+      },
+      "mr": {
+        "bitstream_md5": "102dbbf09ea5bb93075ebd83ee9b6f3b",
+        "decoded_md5": "b511da03f5f1bab210196b3e8bd172f8",
+        "bytes": 9405593
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "v210": {
+      "evermeet": {
+        "bitstream_md5": "8a92d69e1bbd309311e87c0b24af26f6",
+        "decoded_md5": "de0a58301bc773a5a735605ab7ae00ab",
+        "bytes": 55297973
+      },
+      "mr": {
+        "bitstream_md5": "8a92d69e1bbd309311e87c0b24af26f6",
+        "decoded_md5": "de0a58301bc773a5a735605ab7ae00ab",
+        "bytes": 55297973
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "aac 192k": {
+      "evermeet": {
+        "bitstream_md5": "07202afd39fda175379aa900c82789c4",
+        "decoded_md5": "797eb425c9c742fe44b786ece37e62cb",
+        "bytes": 39177
+      },
+      "mr": {
+        "bitstream_md5": "07202afd39fda175379aa900c82789c4",
+        "decoded_md5": "797eb425c9c742fe44b786ece37e62cb",
+        "bytes": 39177
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "libmp3lame 192k": {
+      "evermeet": {
+        "bitstream_md5": "4a9744ba826fecadd3f89d987cd137cf",
+        "decoded_md5": "c719dff21ba5ba290b6b985ae4bbbc61",
+        "bytes": 49169
+      },
+      "mr": {
+        "bitstream_md5": "a24d47abd0e1959ba4fef3de755307fe",
+        "decoded_md5": "c719dff21ba5ba290b6b985ae4bbbc61",
+        "bytes": 49169
+      },
+      "bitstream_identical": false,
+      "decoded_identical": true
+    },
+    "ac3 192k": {
+      "evermeet": {
+        "bitstream_md5": "f204608b909958b1033339fa0d946c68",
+        "decoded_md5": "cfdbd217117b8dc2d886e576042bc9fc",
+        "bytes": 48718
+      },
+      "mr": {
+        "bitstream_md5": "f204608b909958b1033339fa0d946c68",
+        "decoded_md5": "cfdbd217117b8dc2d886e576042bc9fc",
+        "bytes": 48718
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "libopus 128k": {
+      "evermeet": {
+        "bitstream_md5": "0af664f3a01e997264cceebe1cfb5d6d",
+        "decoded_md5": "8822ea9a6f58f05656fa5f70ad528324",
+        "bytes": 39782
+      },
+      "mr": {
+        "bitstream_md5": "0af664f3a01e997264cceebe1cfb5d6d",
+        "decoded_md5": "8822ea9a6f58f05656fa5f70ad528324",
+        "bytes": 39782
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "flac": {
+      "evermeet": {
+        "bitstream_md5": "9913b59ee09ebd0a80e4671243ae9081",
+        "decoded_md5": "fb46b3ca49dc517e08700e06a1e69963",
+        "bytes": 34679
+      },
+      "mr": {
+        "bitstream_md5": "9913b59ee09ebd0a80e4671243ae9081",
+        "decoded_md5": "fb46b3ca49dc517e08700e06a1e69963",
+        "bytes": 34679
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    },
+    "pcm_s24le": {
+      "evermeet": {
+        "bitstream_md5": "230b8ed8de0a4223b5cf899c0c6d4ad7",
+        "decoded_md5": "fb46b3ca49dc517e08700e06a1e69963",
+        "bytes": 288911
+      },
+      "mr": {
+        "bitstream_md5": "230b8ed8de0a4223b5cf899c0c6d4ad7",
+        "decoded_md5": "fb46b3ca49dc517e08700e06a1e69963",
+        "bytes": 288911
+      },
+      "bitstream_identical": true,
+      "decoded_identical": true
+    }
+  },
+  "library_versions": {
+    "evermeet": {
+      "x264": "x264 - core 165 r3223 0480cb0",
+      "x265": "4.2+37-b81f650e2",
+      "lame": "LAME3.100",
+      "svt-av1": null
+    },
+    "mr": {
+      "x264": "x264 - core 165",
+      "x265": "4.0+1-6318f22",
+      "lame": "LAME4.0",
+      "svt-av1": "v4.2.0"
+    }
+  },
+  "quality": {
+    "small_clip.mp4": {
+      "libx264 CRF 18": {
+        "evermeet": {
+          "psnr_y": 43.603733,
+          "psnr_avg": 45.32808,
+          "ssim_all": 0.992607,
+          "bytes": 200331,
+          "decoded_md5": "e5855445ddf0db6dc43bb9b835dfc772"
+        },
+        "mr": {
+          "psnr_y": 43.603733,
+          "psnr_avg": 45.32808,
+          "ssim_all": 0.992607,
+          "bytes": 200317,
+          "decoded_md5": "e5855445ddf0db6dc43bb9b835dfc772"
+        }
+      },
+      "libx265 CRF 20": {
+        "evermeet": {
+          "psnr_y": 42.063268,
+          "psnr_avg": 43.750452,
+          "ssim_all": 0.988906,
+          "bytes": 173341,
+          "decoded_md5": "d8d1a7ac3d9c8ff684a580bfd3885c89"
+        },
+        "mr": {
+          "psnr_y": 42.063268,
+          "psnr_avg": 43.750452,
+          "ssim_all": 0.988906,
+          "bytes": 173338,
+          "decoded_md5": "d8d1a7ac3d9c8ff684a580bfd3885c89"
+        }
+      }
+    },
+    "pal-sd-25.mov": {
+      "libx264 CRF 18": {
+        "evermeet": {
+          "psnr_y": 62.651082,
+          "psnr_avg": 61.114482,
+          "ssim_all": 0.999823,
+          "bytes": 5650,
+          "decoded_md5": "d15dda290d9074e36f7d9da71825b287"
+        },
+        "mr": {
+          "psnr_y": 62.651082,
+          "psnr_avg": 61.114482,
+          "ssim_all": 0.999823,
+          "bytes": 5636,
+          "decoded_md5": "d15dda290d9074e36f7d9da71825b287"
+        }
+      },
+      "libx265 CRF 20": {
+        "evermeet": {
+          "psnr_y": 70.190739,
+          "psnr_avg": 67.790494,
+          "ssim_all": 0.999955,
+          "bytes": 11360,
+          "decoded_md5": "3a140b18d8ab7c5041624f3837c5731a"
+        },
+        "mr": {
+          "psnr_y": 70.190739,
+          "psnr_avg": 67.790494,
+          "ssim_all": 0.999955,
+          "bytes": 11357,
+          "decoded_md5": "3a140b18d8ab7c5041624f3837c5731a"
+        }
+      }
+    },
+    "interlaced_test.avi": {
+      "libx264 CRF 18": {
+        "evermeet": {
+          "psnr_y": 40.705756,
+          "psnr_avg": 42.174271,
+          "ssim_all": 0.969956,
+          "bytes": 2222550,
+          "decoded_md5": "ec2e21fd2f0c356ed7e4b6f900da8d7b"
+        },
+        "mr": {
+          "psnr_y": 40.705756,
+          "psnr_avg": 42.174271,
+          "ssim_all": 0.969956,
+          "bytes": 2222536,
+          "decoded_md5": "ec2e21fd2f0c356ed7e4b6f900da8d7b"
+        }
+      },
+      "libx265 CRF 20": {
+        "evermeet": {
+          "psnr_y": 40.246682,
+          "psnr_avg": 41.829739,
+          "ssim_all": 0.969119,
+          "bytes": 1539728,
+          "decoded_md5": "2b71702ac8e5a5f517ac377f861a29a6"
+        },
+        "mr": {
+          "psnr_y": 40.246682,
+          "psnr_avg": 41.829739,
+          "ssim_all": 0.969119,
+          "bytes": 1539725,
+          "decoded_md5": "2b71702ac8e5a5f517ac377f861a29a6"
+        }
+      }
+    }
+  },
+  "mp3": {
+    "evermeet": {
+      "bytes": 481677
+    },
+    "mr": {
+      "bytes": 481677
+    },
+    "samples_compared": 960000,
+    "identical_decode": true,
+    "difference_db_below_signal": null,
+    "max_abs_sample_difference": 0
+  },
+  "decoders": {
+    "avi_aac_overshoot.mkv": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 575,
+        "md5": "760814b9a3b9cdd16b9344ac930a0d25"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 575,
+        "md5": "760814b9a3b9cdd16b9344ac930a0d25"
+      },
+      "identical": true
+    },
+    "avi_h264_bframes.avi": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 184,
+        "md5": "29b349243105dd03a88b5097cdd2508f"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 184,
+        "md5": "29b349243105dd03a88b5097cdd2508f"
+      },
+      "identical": true
+    },
+    "avi_ntsc_intra.avi": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 90,
+        "md5": "f65f0f8be848a707f6f116236c1f4b0b"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 90,
+        "md5": "f65f0f8be848a707f6f116236c1f4b0b"
+      },
+      "identical": true
+    },
+    "blended_film_50i.mkv": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 150,
+        "md5": "74fa1be916c8d8f0ba05301aca172039"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 150,
+        "md5": "74fa1be916c8d8f0ba05301aca172039"
+      },
+      "identical": true
+    },
+    "blended_pal_5994i.mkv": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 150,
+        "md5": "854e0fbb2b3aad0c0d178baa0815212d"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 150,
+        "md5": "854e0fbb2b3aad0c0d178baa0815212d"
+      },
+      "identical": true
+    },
+    "colorize_test.mp4": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 120,
+        "md5": "85949cacf81a5ee837c5ef28b2aad91c"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 120,
+        "md5": "85949cacf81a5ee837c5ef28b2aad91c"
+      },
+      "identical": true
+    },
+    "face_restore_test.mp4": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 150,
+        "md5": "f1fe129d2676e737d1b6feb5604b6d43"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 150,
+        "md5": "f1fe129d2676e737d1b6feb5604b6d43"
+      },
+      "identical": true
+    },
+    "hard_telecine_test.avi": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 90,
+        "md5": "eaf31fd863e70ea9a32a45579a0d1bcf"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 90,
+        "md5": "eaf31fd863e70ea9a32a45579a0d1bcf"
+      },
+      "identical": true
+    },
+    "interlaced_test.avi": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 231,
+        "md5": "190f5fd6e10cea8346e4b7c7c0ff2a49"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 231,
+        "md5": "190f5fd6e10cea8346e4b7c7c0ff2a49"
+      },
+      "identical": true
+    },
+    "late_video.mkv": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 335,
+        "md5": "49a43798f535a379bf7677a4d79b56d9"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 335,
+        "md5": "49a43798f535a379bf7677a4d79b56d9"
+      },
+      "identical": true
+    },
+    "late_video.mp4": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 335,
+        "md5": "432132575592113e1ff09445ba50ba49"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 335,
+        "md5": "432132575592113e1ff09445ba50ba49"
+      },
+      "identical": true
+    },
+    "late_video_gop.ts": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 309,
+        "md5": "52591f3dcde3e244b695f8f14a25dbf8"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 309,
+        "md5": "52591f3dcde3e244b695f8f14a25dbf8"
+      },
+      "identical": true
+    },
+    "late_video_intra.ts": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 309,
+        "md5": "2bd79a20071844da7b733b424579b2f5"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 309,
+        "md5": "2bd79a20071844da7b733b424579b2f5"
+      },
+      "identical": true
+    },
+    "null_frames_mid.avi": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 195,
+        "md5": "a661089fc240858c8d6ea67f06b6a558"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 195,
+        "md5": "a661089fc240858c8d6ea67f06b6a558"
+      },
+      "identical": true
+    },
+    "pal-dvbt-fieldcoded-25i.ts": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 383,
+        "md5": "1b4e86f79fd8a78cea5cffbac14f7d24"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 383,
+        "md5": "1b4e86f79fd8a78cea5cffbac14f7d24"
+      },
+      "identical": true
+    },
+    "pal-sd-25.mov": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 360,
+        "md5": "05f0159d71d97ed5528230c5304df1c4"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 360,
+        "md5": "05f0159d71d97ed5528230c5304df1c4"
+      },
+      "identical": true
+    },
+    "primed_aac.mkv": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 288,
+        "md5": "8e684934fdf625e11f842629efd034fd"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 288,
+        "md5": "8e684934fdf625e11f842629efd034fd"
+      },
+      "identical": true
+    },
+    "primed_mp3.mp4": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 268,
+        "md5": "c23950239c7dd9a5cc98b4b6c5eab24d"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 268,
+        "md5": "c23950239c7dd9a5cc98b4b6c5eab24d"
+      },
+      "identical": true
+    },
+    "prores422_10bit_telecine.mov": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 30,
+        "md5": "7a310e2497ba1d65520b9b7873d19b10"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 30,
+        "md5": "7a310e2497ba1d65520b9b7873d19b10"
+      },
+      "identical": true
+    },
+    "reserved_colour_tags.mov": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 38,
+        "md5": "f6c27956722652c774ddee10ef324f32"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 38,
+        "md5": "f6c27956722652c774ddee10ef324f32"
+      },
+      "identical": true
+    },
+    "reserved_colour_tags_4444a.mov": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 10,
+        "md5": "b704040e3ce055a2ad7c5750a6222498"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 10,
+        "md5": "b704040e3ce055a2ad7c5750a6222498"
+      },
+      "identical": true
+    },
+    "seek_dvd_pal.mpg": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 400,
+        "md5": "3150c7b8f6488001e947aaea91c25034"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 400,
+        "md5": "3150c7b8f6488001e947aaea91c25034"
+      },
+      "identical": true
+    },
+    "seek_gop_late_video.ts": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 442,
+        "md5": "5478229a2508b9973775a09b86106bcc"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 442,
+        "md5": "5478229a2508b9973775a09b86106bcc"
+      },
+      "identical": true
+    },
+    "seek_reset_dvd_pal.mpg": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 800,
+        "md5": "12e21e69ac89181ab7e2b27c2c7df348"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 800,
+        "md5": "12e21e69ac89181ab7e2b27c2c7df348"
+      },
+      "identical": true
+    },
+    "seek_reset_h264.ts": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 800,
+        "md5": "20d01fbce11470e4dabcfedeb40f8355"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 800,
+        "md5": "20d01fbce11470e4dabcfedeb40f8355"
+      },
+      "identical": true
+    },
+    "seek_timebase_2997.mov": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 231,
+        "md5": "5fe54ca52ac30e515444c7afa63a99c2"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 231,
+        "md5": "5fe54ca52ac30e515444c7afa63a99c2"
+      },
+      "identical": true
+    },
+    "small_clip.mp4": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 8079,
+        "md5": "d9cf35bc573f635b9d2ac6e8321a54bb"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 8079,
+        "md5": "d9cf35bc573f635b9d2ac6e8321a54bb"
+      },
+      "identical": true
+    },
+    "soft_telecine_dvd.mkv": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 120,
+        "md5": "037db7c63ad2fba7fa2af31b91818b1a"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 120,
+        "md5": "037db7c63ad2fba7fa2af31b91818b1a"
+      },
+      "identical": true
+    },
+    "soft_telecine_dvd.vob": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 120,
+        "md5": "f75d13c6543b12f6894ba685afcd037a"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 120,
+        "md5": "f75d13c6543b12f6894ba685afcd037a"
+      },
+      "identical": true
+    },
+    "soft_telecine_test.mkv": {
+      "evermeet": {
+        "exit": 0,
+        "frames": 120,
+        "md5": "a6f0f972455561ec92f477350b7bb7ce"
+      },
+      "mr": {
+        "exit": 0,
+        "frames": 120,
+        "md5": "a6f0f972455561ec92f477350b7bb7ce"
+      },
+      "identical": true
+    }
+  },
+  "filters": {
+    "hdr_tonemap": {
+      "evermeet": "1ab24191d8a54ccce9cbbdd40215d287",
+      "mr": "1ab24191d8a54ccce9cbbdd40215d287"
+    },
+    "burn_in_bright_pixels": {
+      "evermeet": 552,
+      "mr": 552
+    },
+    "burn_in_md5": {
+      "evermeet": "b5e8f9c919e28a60a987f76119727a31",
+      "mr": "b5e8f9c919e28a60a987f76119727a31"
+    }
+  },
+  "av1": {
+    "8-bit mp4": {
+      "codec_name": "av1",
+      "pix_fmt": "yuv420p",
+      "nb_read_frames": "100",
+      "psnr_y": 42.674667,
+      "psnr_avg": 44.308995,
+      "ssim_all": 0.989608,
+      "bytes": 174101,
+      "fps_under_rosetta": 165.0
+    },
+    "8-bit mkv": {
+      "codec_name": "av1",
+      "pix_fmt": "yuv420p",
+      "nb_read_frames": "100",
+      "psnr_y": 42.674667,
+      "psnr_avg": 44.308995,
+      "ssim_all": 0.989608,
+      "bytes": 174099,
+      "fps_under_rosetta": 161.9
+    },
+    "10-bit mp4": {
+      "codec_name": "av1",
+      "pix_fmt": "yuv420p10le",
+      "nb_read_frames": "100",
+      "psnr_y": 42.94458,
+      "psnr_avg": 44.60474,
+      "ssim_all": 0.990678,
+      "bytes": 177790,
+      "fps_under_rosetta": 144.5
+    },
+    "10-bit mkv": {
+      "codec_name": "av1",
+      "pix_fmt": "yuv420p10le",
+      "nb_read_frames": "100",
+      "psnr_y": 42.94458,
+      "psnr_avg": 44.60474,
+      "ssim_all": 0.990678,
+      "bytes": 177788,
+      "fps_under_rosetta": 144.4
+    },
+    "hdr10_side_data": [
+      {
+        "side_data_type": "Mastering display metadata",
+        "red_x": "44564/65536",
+        "red_y": "20972/65536",
+        "green_x": "17367/65536",
+        "green_y": "45220/65536",
+        "blue_x": "9830/65536",
+        "blue_y": "3932/65536",
+        "white_point_x": "20493/65536",
+        "white_point_y": "21561/65536",
+        "min_luminance": "2/16384",
+        "max_luminance": "256000/256"
+      },
+      {
+        "side_data_type": "Content light level metadata",
+        "max_content": 1000,
+        "max_average": 400
+      }
+    ],
+    "evermeet_has_libsvtav1": false
+  }
+}
