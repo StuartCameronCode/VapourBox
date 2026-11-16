@@ -1089,7 +1089,16 @@ class MainViewModel extends ChangeNotifier {
   /// jobs go ahead: thumbnails, noise / halo and the timeline follow.
   void _queueContinuityScan(QueueItem item) {
     if (!item.continuityPending) return;
-    _continuityQueue = _continuityQueue.then((_) => _runContinuityScan(item));
+    // A scan that throws (its join, or the probe of the copy) must not break
+    // the chain: every later item would stay pending, and its job wait
+    // forever. The item itself is released by _runContinuityScan's finally.
+    _continuityQueue = _continuityQueue
+        .then((_) => _runContinuityScan(item))
+        .catchError((Object e) {
+      if (!_disposed) {
+        _log(LogLevel.warning, '${item.filename}: the timestamp check failed ($e)');
+      }
+    });
   }
 
   Future<void> _runContinuityScan(QueueItem item) async {

@@ -55,6 +55,7 @@ class _FakeContinuity extends TimestampContinuityService {
   final scans = <Completer<SourceModel?>>[];
   final tasks = <ContinuityScanTask>[];
   ContinuityProxy? proxy;
+  String? failPrepareFor;
 
   @override
   Future<SourceModel?> probeSource(String path, {bool deferScan = false}) async {
@@ -83,6 +84,7 @@ class _FakeContinuity extends TimestampContinuityService {
           void Function(ContinuityScan)? onJoining,
           void Function(double)? onProgress}) async {
     prepared.add(model);
+    if (source == failPrepareFor) throw StateError('join failed to start');
     final needs = scanned?.needsCopy ?? false;
     return (checked: true, proxy: needs ? proxy : null, scan: scanned, error: null);
   }
@@ -363,6 +365,27 @@ void main() {
         .complete(SourceModel.fromJson(_modelJson('/nas/a.vob', continuity: _noReset)));
     await settle();
     expect(continuity.scans, hasLength(2));
+    continuity.scans.last
+        .complete(SourceModel.fromJson(_modelJson('/nas/b.vob', continuity: _noReset)));
+    await settle();
+    expect(b.continuityPending, isFalse);
+    v.dispose();
+  });
+
+  test('a scan that throws releases its video and the scans after it', () async {
+    continuity.failPrepareFor = '/nas/a.vob';
+    final v = vm();
+    await v.addToQueue('/nas/a.vob');
+    await v.addToQueue('/nas/b.vob');
+    await settle();
+    final a = v.queue.first;
+    final b = v.queue.last;
+    continuity.scans.first
+        .complete(SourceModel.fromJson(_modelJson('/nas/a.vob', continuity: _noReset)));
+    await settle();
+    expect(a.continuityPending, isFalse);
+    expect(continuity.scans, hasLength(2), reason: 'the queue goes on after a throw');
+    expect(v.logMessages.map((m) => m.message).join('\n'), contains('timestamp check failed'));
     continuity.scans.last
         .complete(SourceModel.fromJson(_modelJson('/nas/b.vob', continuity: _noReset)));
     await settle();
