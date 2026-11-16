@@ -987,7 +987,10 @@ impl DependencyLocator {
         // which is <libdir>/plugins relative to libvapoursynth, so R78
         // autoloads them and setting this as well would load every plugin
         // twice ("Plugin ... already loaded"). Windows keeps it: its plugins
-        // live in vs-plugins, which is not the autoload directory.
+        // live in vs-plugins, which is not the autoload directory. Task #61:
+        // the macOS/Linux blocks below set it too until 2026-11, burying real
+        // vspipe errors under 35+ warnings; tests/vspipe_environment_test.rs
+        // fails on a duplicate load.
         #[cfg(target_os = "windows")]
         env.insert(
             "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
@@ -1036,17 +1039,6 @@ impl DependencyLocator {
                 format!("{}:{}:{}", vs_lib_path.to_string_lossy(), python_lib_path.to_string_lossy(), existing_dyld)
             };
             env.insert("DYLD_LIBRARY_PATH".to_string(), new_dyld);
-
-            // Point vspipe-bin at the bundled plugins. R74 removed the config
-            // file mechanism (UserPluginDir / AutoloadUserPluginDir /
-            // VAPOURSYNTH_CONF_PATH) in favour of this variable, which also
-            // retires the per-process conf file we used to write: there is no
-            // longer a shared file for concurrent runs to race on.
-            let plugins_dir = vs_lib_path.join("plugins");
-            env.insert(
-                "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
-                plugins_dir.to_string_lossy().to_string(),
-            );
         }
 
         #[cfg(target_os = "linux")]
@@ -1073,13 +1065,6 @@ impl DependencyLocator {
                 )
             };
             env.insert("LD_LIBRARY_PATH".to_string(), new_ld);
-
-            // Bundled plugin path (same as macOS)
-            let plugins_dir = vs_lib_path.join("plugins");
-            env.insert(
-                "VAPOURSYNTH_EXTRA_PLUGIN_PATH".to_string(),
-                plugins_dir.to_string_lossy().to_string(),
-            );
         }
 
         env
@@ -1110,6 +1095,26 @@ mod tests {
             platform: Platform::WindowsX64,
         };
         assert_eq!(locator.platform_suffix(), "windows-x64");
+    }
+
+    /// Task #61: R78 autoloads `<deps>/vapoursynth/plugins` on macOS and
+    /// Linux, so the variable must only be set on Windows (`vs-plugins`).
+    #[test]
+    fn extra_plugin_path_is_set_on_windows_only() {
+        let base = std::env::temp_dir()
+            .join(format!("vapourbox_env_test_{}", std::process::id()));
+        let locator = DependencyLocator {
+            base_path: base.clone(),
+            platform: DependencyLocator::detect_platform(),
+        };
+        let env = locator.build_environment();
+        let var = env.get("VAPOURSYNTH_EXTRA_PLUGIN_PATH");
+        if cfg!(windows) {
+            assert!(var.is_some_and(|v| v.ends_with("vs-plugins")), "{var:?}");
+        } else {
+            assert_eq!(var, None, "R78 autoloads the plugins; setting this loads each twice");
+        }
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]
