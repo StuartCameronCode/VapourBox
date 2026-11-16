@@ -95,6 +95,7 @@
 <tr><td><code>pipe_source</code> returns an evicted frame as the last one: pictures 3&ndash;7 come out as picture 99</td><td class="num">1&ndash;3</td><td>no, varies</td></tr>
 <tr><td>A reset whose sound ends off the picture grid joins 16 ms late (125 fps, 493 pictures)</td><td class="num">1 test</td><td>yes</td></tr>
 </table>
+<div class="card correction"><p><strong>Correction (task #58, 2026-11-17).</strong> &ldquo;Convert to FLAC/PCM of the same seek is exact&rdquo; was the oracle's tolerance: it differs in the same samples by one 16-bit step and passed because Convert writes 16-bit. The delayed AVI's 31 ms was the source's own 23 ms lag plus an 8 ms cut. All five findings are fixed: <a href="../task-58-output-conformance-findings/index.html">task #58's report</a>.</p></div>
 <p>The deterministic 19 are <code>knownFailures</code>: they run, and fail the suite if they start passing. The <code>pipe_source</code> fault cannot be listed, so the matrix fails intermittently until #58 fixes it; it writes wrong pictures into a user's file, so that is the right pressure.</p>
 <p>Limits: one platform (macOS arm64), one picture size and rate (25 fps, so a frame is exactly 1,920 samples at 48 kHz and every trim lands on a sample), one content. &ldquo;Within one audio packet&rdquo; is the bound the task asked for, not a measure of how close each case is.</p>
 </main>

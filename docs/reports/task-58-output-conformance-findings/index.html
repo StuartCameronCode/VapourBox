@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Conformance findings</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .bad { color: var(--bad); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+  .caption { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+  .correction { border-left: 3px solid var(--warn); }
+  img { max-width: 100%; height: auto; image-rendering: pixelated; border: 1px solid var(--border); }
+  .scroll { overflow-x: auto; }
+  figure { margin: 18px 0; }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #58: what the output conformance matrix found, fixed</h1>
+<p class="meta">2026-11-17 &middot; macOS arm64, deps 1.16.0 (bundled FFmpeg 9.0.2) &middot; task #58, filed by task #49 (<a href="../task-49-output-conformance/index.html">its report</a>)</p>
+
+<div class="card">
+<p><strong>Five findings, five causes, all fixed.</strong> Two were worker bugs (a dropped frame served as another picture; a primed AVI trim cut short), one a decoder choice in the Audio Restoration render, one the reset join, and one the matrix's own oracle. <code>knownFailures</code> is empty. Each fix was checked against the pre-fix worker, built from <code>dc9e36c</code>: every case it fixes fails there.</p>
+</div>
+
+<table>
+<tr><th>#</th><th>finding</th><th>cause</th><th>fix</th></tr>
+<tr><td>4</td><td><code>pipe_source</code> served the wrong pictures, intermittently</td><td>VapourSynth runs the pipe clip's callbacks out of order; the reader dropped a frame not yet served and returned the last one read in its place</td><td>Keep every frame until it is served; raise on a dropped one</td></tr>
+<tr><td>1</td><td>Restore + Convert AAC into AVI, trimmed: 49 pictures for 50</td><td><code>-shortest</code> with a sound read late by the encoder's priming</td><td><code>-t</code> the window instead, under a priming</td></tr>
+<tr><td>2</td><td>Restore of a seeked MP2: one 16-bit step off</td><td>FFmpeg's default MP2 decoder is fixed-point, with rounding state carried between frames</td><td>The render reads MP1/MP2 with the float decoder</td></tr>
+<tr><td>3</td><td>Delayed AVI's MP3 copied into AVI from frame 2: click 31 ms late</td><td>The source's own click is 23 ms late (libmp3lame's priming, unmarked in AVI); the cut adds 8 ms, by design</td><td>Oracle: expect each click at the source's own lag</td></tr>
+<tr><td>5</td><td>A reset whose sound ends off the picture grid joins 16 ms late</td><td>ffmpeg's correction takes its offset from the stream that shows the reset first: here the sound</td><td>The picture decides the join (<code>-copyts</code> + <code>setts</code> per stream)</td></tr>
+</table>
+
+<h2>4. <code>pipe_source</code> served a frame it had dropped as another picture</h2>
+<p>The source is read from a pipe, forward only, and <code>pipe_source</code> kept the 40 frames behind the last one read. A frame asked for after it left that window came back as whatever frame had been read last, silently. The matrix saw it as pictures 3&ndash;7 of an output holding source picture 99.</p>
+<h3>Reproduction</h3>
+<p>Nothing but the pipe: <code>conf_plain.mp4</code> decoded to raw frames, piped to <code>vspipe</code> running a script that is only <code>create_pipe_clip(…, cache_frames=40)</code>, each output compared by <code>framemd5</code> with a direct decode, 16 runs at once (<a href="scripts/pipe_source_stress.sh"><code>pipe_source_stress.sh</code></a>):</p>
+<table>
+<tr><th>reader</th><th class="num">runs</th><th class="num">wrong runs</th><th class="num">runs that raised</th></tr>
+<tr><td>before (<code>dc9e36c</code>), first sample</td><td class="num">320</td><td class="num bad">6</td><td class="num">&ndash;</td></tr>
+<tr><td>before (<code>dc9e36c</code>), second sample</td><td class="num">320</td><td class="num bad">8</td><td class="num">&ndash;</td></tr>
+<tr><td>after, first sample</td><td class="num">320</td><td class="num good">0</td><td class="num">0</td></tr>
+<tr><td>after, second sample</td><td class="num">320</td><td class="num good">0</td><td class="num">0</td></tr>
+</table>
+<p>In the failing runs the wrong frames were output 1&ndash;7, 4&ndash;7, 5&ndash;7 or 6&ndash;7, each holding whatever the reader had read last (source 53, 69, 74, 99), not always 99. An instrumented reader (not kept) showed the cause: in both failing runs out of 160, frames 6 and 7 reached the callback after the reader had read to frame 100 (92&ndash;93 frames behind it); passing runs never fell more than 38 behind. vspipe requests a new frame each time <em>any</em> frame completes, so one early frame whose callback is late lets the whole clip go past it. Sleeping inside the callback for frame 3 did <em>not</em> reproduce it (the callbacks run one at a time, so a sleep there stalls everything): the late frame is one whose callback hasn't started.</p>
+<h3>Fix</h3>
+<p>The reader keeps every frame until it has been served and is <code>cache_frames</code> behind the oldest frame not yet served (not merely behind the last frame read), with a cap for frames the script never asks for (a decimation, a preview's single frame): 512 MB beyond the window, at least 16 frames. A frame asked for after it was dropped raises a VapourSynth error naming it, so a pass whose radius is under-declared now fails the job instead of writing wrong frames. <code>app/test/pipe_source_order_test.dart</code> (push gate) drives the reader in the measured order with a fake pipe, and checks the window, the cap and the end of stream.</p>
+<p>Limits: the failure rate depends on load, so the counts are one machine's on one afternoon; the deterministic test is the guard.</p>
+
+<h2>1. Restore + Convert AAC into AVI, trimmed: one picture short</h2>
+<p>Task #38 reads every sound input of a Convert into AVI late by the encoder's priming P (AAC: 1024 samples), so that the priming the encoder puts in front lands where the sound was. The restored track is exactly the window long, so read from P it ends P before the picture on ffmpeg's timeline, and <code>-shortest</code> dropped the last picture. The same arguments with plain ffmpeg (<a href="scripts/shortest_priming.sh"><code>shortest_priming.sh</code></a>, 50 pictures, a 2.000 s WAV):</p>
+<pre>
+-ss P on the exact WAV, -shortest (before)    pictures 49, audio 2.005333 s
+no priming seek, -shortest                    pictures 50, audio 2.026667 s
+WAV P longer, -shortest                       pictures 50, audio 2.026667 s
+no -shortest                                  pictures 50, audio 2.005333 s
+-t 2 instead of -shortest (after)             pictures 50, audio 2.005333 s
+</pre>
+<p><strong>Not only Restore.</strong> A Convert into AVI trimmed to the source's last picture reads a sound that also ends with the window. The matrix had no such trim; four new cases (<code>avi/convert-{aac,libmp3lame,ac3}/plain/tail</code>, <code>avi/restore-convert-aac/plain/tail</code>, frames 50..99) all store 49 pictures on the pre-fix worker.</p>
+<p>Fix: under a priming, a trimmed encode ends with <code>-t</code> the window's length in place of <code>-shortest</code> (<code>pipeline_executor::encode_end_args</code>, both builders). Every other job keeps its arguments.</p>
+
+<h2>2. Audio Restoration of a seeked MP2: one 16-bit step off</h2>
+<p>FFmpeg's default decoder for MPEG layers I and II is the fixed-point one (<code>mp2</code>, s16p output), listed ahead of <code>mp2float</code>; layer III defaults to <code>mp3float</code>. The fixed-point synthesis rounds with an error it carries from frame to frame, so a decode that starts at a seek rounds differently from one that starts at 0. No filter is involved (<a href="scripts/mp2_seek_decoder.sh"><code>mp2_seek_decoder.sh</code></a>, <code>conf_late_video.ts</code> from 1.090 s, the render's chain, against a decode of the whole stream):</p>
+<pre>
+default_near         vs full_fixed.f32   offset 52321: 41377 of 96000 samples differ, max 1.000 LSB16
+default_near_noaf    vs full_fixed.f32   offset 52321: 41377 of 96000 samples differ, max 1.000 LSB16
+default_near         vs full_float.f32   offset 52321: 95996 of 96000 samples differ, max 1.047 LSB16
+float_near           vs full_float.f32   offset 52321: 0 of 96000 samples differ, max 0.000 LSB16
+float_mid            vs full_float.f32   offset 125281: 0 of 96000 samples differ, max 0.000 LSB16
+</pre>
+<div class="card correction"><p><strong>Correction to task #49's report.</strong> It said Convert to FLAC/PCM of the same seeked MP2 was exact. It differs in the same samples; it passed because the oracle allows one step at the output's depth, and Convert writes 16-bit. The restored track is 24-bit, so the same step failed it.</p></div>
+<p>Fix: the render reads MP1/MP2 with <code>mp1float</code>/<code>mp2float</code> (<code>audio_restoration::render_decoder</code>), which is also the more precise decode for an f32 render. Convert and the analysis keep FFmpeg's default. The oracle compares a restore against the render's decoder (<code>MatrixCase.referenceDecoder</code>).</p>
+
+<h2>3. Delayed AVI copied into AVI from frame 2: the oracle, not the copy</h2>
+<p>Where each source's first click sits after its flash, on its own timeline (<a href="scripts/click_lags.sh"><code>click_lags.sh</code></a>):</p>
+<pre>
+conf_plain.mp4       click 0.2001 s, flash 0.2000 s: the click +0.1 ms after it
+conf_late_video.ts   click 2.6101 s, flash 2.6100 s: the click +0.1 ms after it
+conf_delayed.avi     click 0.2231 s, flash 0.2000 s: the click +23.1 ms after it
+conf_reset.mpg       click 0.7401 s, flash 0.7400 s: the click +0.1 ms after it
+</pre>
+<p>The delayed AVI's MP3 was written by libmp3lame into AVI, which cannot mark the encoder's start-up (1,105 samples), so every player plays it 23 ms late: real AVI captures with MP3 look like this. Its packets are 24 ms; the in-point 0.080 s falls in the packet at 0.072, which the copy keeps (task #24's nearest-packet cut), 8 ms early, so the content plays 8 ms later: 23 + 8 = 31 ms, as measured. The mid trim's in-point (1.600) keeps the packet at 1.608: 23 &minus; 8 = 15 ms, which passed. The worker keeps the source's timing within half a packet, as designed.</p>
+<p>Fix (test only): the matrix measures each source's own lag per flash and expects each output click there, within one packet as before.</p>
+
+<h2>5. A reset whose sound ends off the picture grid joined 16 ms late</h2>
+<p><code>conf_reset_offgrid.mpg</code> resets at picture 50 (2.0 s = 83.3 MP2 frames), so its first part's sound runs 16 ms past its last picture, as a DVD cell's may. ffmpeg's discontinuity correction (the joined copy, without <code>-copyts</code>) takes one offset per segment from whichever stream shows the jump first, using that stream's next timestamp: here the sound's. The worker now makes a <code>JoinPlan</code> from the scan (each packet's DTS, duration and byte position): each segment moves so its first picture follows the last by one frame, every stream alike, applied by <code>setts</code> per stream under <code>-copyts</code>, with a sound packet overhanging the next segment by more than half of itself dropped (<a href="scripts/reset_join.sh"><code>reset_join.sh</code></a>):</p>
+<pre>
+ffmpeg conf_reset              rate 25/1    pictures 100, picture steps [0.04], picture 50 at 2.0000 s; sound frames 167, irregular sound steps []
+worker conf_reset              rate 25/1    pictures 100, picture steps [0.04], picture 50 at 2.0000 s; sound frames 167, irregular sound steps []
+ffmpeg conf_reset_offgrid      rate 125/1   pictures 100, picture steps [0.04, 0.056], picture 50 at 2.0160 s; sound frames 168, irregular sound steps []
+worker conf_reset_offgrid      rate 25/1    pictures 100, picture steps [0.04], picture 50 at 2.0000 s; sound frames 167, irregular sound steps [(2.006, 0.032)]
+</pre>
+<p>On the grid the two copies time every picture and sound frame alike. Off it, the picture now stays on the grid, and the sound has one 8 ms gap where its overhanging packet went (the job log says so). The sound after the join is within half a packet either way, which a copy can't improve on.</p>
+<p>Two traps on the way, both in the plan: the MPEG audio frames the parser splits out of one PES carry no byte position, so a stream that resets is cut by its packet index (<code>N</code>), and only streams without a reset of their own (subtitles) by position (<code>POS</code>); and a packet with no DTS must keep none (<code>if(eq(DTS,NOPTS),NOPTS,…)</code>), or the copy's DTS stop increasing. Without a plan (no durations, streams resetting a different number of times) the copy is exactly as before. The off-grid matrix test is an ordinary test now; <code>integration_seek_alignment_test.dart</code>'s <code>seek_reset_*</code> fixtures and the DVD import test pass through the new copy.</p>
+<p>Limits: two synthetic program streams; no DVD with angles or a broadcast TS with a reset was available. Task #55 (reset scan) changes the same scan and should rebase on this.</p>
+
+<h2>The matrix</h2>
+<!--MATRIX-->
+<p>Run with <a href="../task-49-output-conformance/scripts/run_matrix.sh"><code>task-49-output-conformance/scripts/run_matrix.sh</code></a>.</p>
+
+<h2>Not tested</h2>
+<ul>
+<li>Windows and Linux: nightly runs the matrix there. The decoder order (fixed MP2 first) is FFmpeg's own, the same on every build of a version, and the render names its decoder anyway.</li>
+<li>The cap of <code>pipe_source</code> on a long decimating job at 4K (the cap there is the window plus 16 frames); a radius too small for a pass now raises, which the heavy suite would show: see the matrix and the runs below.</li>
+</ul>
+</main>
+</body>
+</html>

@@ -1329,9 +1329,22 @@ the **single** builder of both decoders' arguments (encode + preview):
   mid-file: ffprobe counts the last segment only, `-ss` can't reach a later
   segment, and `-copyts` stops at the reset. `source_continuity.rs` is the
   one decision: a reset is ffmpeg's own (DTS > 0.1 s back or > 10 s forward,
-  per A/V stream), and the fix is a **same-container stream copy without
-  `-copyts`**, checked (no reset left, every video packet) before use and
-  made only when a reset is found — a file without one keeps every argument.
+  per A/V stream), and the fix is a **same-container stream copy**, checked
+  (no reset left, every video packet) before use and made only when a reset
+  is found — a file without one keeps every argument.
+  - **The picture decides the join (task #58).** Each segment moves by one
+    offset, every stream alike, so its first picture follows the last
+    segment's last by one frame (`JoinPlan`, made by the scan from each
+    packet's DTS, duration and position): `-copyts` and a `setts` filter per
+    stream (by packet index `N` for a stream that resets, by byte position
+    `POS` for one that doesn't: subtitles; MPEG audio split from a PES has
+    no position). A sound packet overhanging the next segment by more than
+    half of itself is dropped (`noise`), and the log says so. ffmpeg's own
+    correction (no `-copyts`) took the offset from whichever stream showed
+    the reset first: a part whose sound ran 16 ms past its last picture put
+    every later picture off the grid (125 fps, 493 pictures for 100). It is
+    still the fallback when no plan can be made (no durations, streams
+    resetting a different number of times).
   - **The app makes it after analysis, in the background (task #55).**
     The scan reads every byte (77 s for a 2 h DVD title on a network
     share), so analysis probes with `--probe-source --defer-scan` (the model
@@ -1420,12 +1433,18 @@ the **single** builder of both decoders' arguments (encode + preview):
     transcription, `OutputWindow`, `SoundCut` and the notes keep the true
     start. The sidecar decision (`needs_sound_sidecar`) asks with the
     encoder's start, so `main.rs` measures the priming before the sound copy.
+  - **A trimmed one stops at the window's length (`-t`), not `-shortest`**
+    (`encode_end_args`, task #58): read late by P, a sound that ends with the
+    window (the restored track; a source's sound at a trim to its last
+    picture) ends P before the picture on ffmpeg's timeline, and
+    `-shortest` dropped the last picture (49 stored for 50).
   - The cost is the first P (21–23 ms) of sound, replaced by the encoder's
     near-silent start-up; a failed probe is a warning, never a refusal; every
     other job keeps its arguments byte for byte
     (`a_priming_shift_changes_nothing_outside_convert_into_avi`).
   `integration_video_start_offset_test.dart` (heavy): AAC/MP3/AC-3 into AVI
-  store 100 frames and are in sync within 1 ms, restored and trimmed too,
+  store 100 frames and are in sync within 1 ms, restored and trimmed too
+  (the matrix counts trimmed pictures since task #58),
   and `small_clip.mp4` 0..49 stores 50 (docs/reports/2026-11-avi-convert-priming).
 - **An AAC stream in AVI declares a block size no packet exceeds (task
   #41).** avienc writes AAC's `nBlockAlign` as 768 × channels, and ffmpeg,
@@ -1783,11 +1802,18 @@ Invariants that are easy to break:
   `PitchFactorFile.sidecarCandidates` or the factor's meaning (`invertFactors`).
 - **Pitch on a still-interlaced clip clears `_FieldBased`** (a vertical resample
   would mix the fields; film scans are progressive). Weave alone leaves it.
-- **`pipe_source` evicts silently.** It keeps `cache_frames` decoded frames and
-  returns the *last* frame read for anything already evicted. The cache is
-  sized from the pipeline's declared radius (`pipe_cache_frames`, never below
-  the old 40), so a pass with a large window must report it through its
-  `FrameMap` radius.
+- **`pipe_source` raises on a frame it has dropped (task #58).** A pipe reads
+  forward only, and VapourSynth asks out of order: vspipe requests a frame
+  whenever any completes, so one late callback let the reader read the whole
+  clip past it (frames 6–7 served after 99 was read, on a plain job under
+  load). It keeps every frame until it is served and `cache_frames` behind
+  the oldest frame not yet served, with a memory cap (512 MB beyond the
+  window) for frames never asked for; a frame asked for after it was dropped
+  raises. It used to return the *last* frame read instead, silently. The
+  window is sized from the pipeline's declared radius (`pipe_cache_frames`,
+  never below 40), so a pass with a large window must report it through its
+  `FrameMap` radius, or its job now fails rather than writing wrong frames.
+  `pipe_source_order_test.dart` (push gate) drives the reader in that order.
 
 Tests: `test_211`…`test_218` (script generation, legacy block, offsets, errors,
 cache size, field marking) and `app/test/integration_stabilize_test.dart`
@@ -2518,18 +2544,20 @@ table. Rules:
   codec the container takes, Restore, Restore + Convert AAC) × source class
   (plain MP4, late-video TS, delayed AVI, reset PS through the continuity
   copy) × trim (none, from frame 2, from frame 40), plus ProRes/MOV and
-  AV1/MP4 rows, from `generate_output_conformance.sh`'s flash/click sources:
-  ~440 cases, generated from the enums and the table
+  AV1/MP4 rows and trims to the last picture for the primed Convert codecs
+  into AVI (`tailCases`), from `generate_output_conformance.sh`'s
+  flash/click sources: 448 cases, generated from the enums and the table
   (`test/support/output_matrix.dart`, which also holds the oracle; the push
   gate's `output_matrix_cases_test.dart` checks the cases). Each checks the
   header, picture count and first picture, no null frames, every flash's
-  click within one audio packet, packet timing, and lossless paths sample-
-  or byte-exact. **A new container fact or source rule gets a case here, not
-  another one-cell heavy test.** Cases that fail today are `knownFailures`
-  (id → task, today all task #58); they still run and fail when they pass.
-  One fault can't be listed: `pipe_source` intermittently serves an evicted
-  frame as the last one (#58), so the matrix fails a different case or two
-  per run until that is fixed. One case:
+  click within one audio packet **of where the source has it** (each
+  source's own lag, measured: `conf_delayed.avi`'s MP3 is 23 ms late by
+  libmp3lame's priming, which AVI cannot mark), packet timing, and lossless
+  paths sample- or byte-exact (a restore against the render's decoder).
+  **A new container fact or source rule gets a case here, not another
+  one-cell heavy test.** Cases that fail today are `knownFailures` (id →
+  task; empty since task #58); they still run and fail when they pass. One
+  case:
   `flutter test --tags heavy test/integration_output_conformance_test.dart
   --plain-name 'avi/convert-aac/delayed-avi/near-start'`. The shared
   measuring helpers are `test/support/av_sync.dart`.
@@ -2558,6 +2586,12 @@ Rules, from docs/reports/2026-11-audio-restoration:
   lead `adelay` → [DeepFilterNet] → `loudnorm` + `aresample` → `alimiter` →
   `apad`+`atrim` to the picture's length. Each ffmpeg run gets one `-af`
   (`every_combination_keeps_the_order_and_one_af_per_run`, 512 × 5 cases).
+- **MP1/MP2 are read with the float decoder** (`render_decoder`:
+  `mp2float`, task #58). FFmpeg's default for them is fixed-point, which
+  rounds with an error carried from frame to frame, so a render that seeked
+  differed from the source's decode by one 16-bit step in ~40% of samples;
+  the float decode is exact from any seek. MP3 and AC-3 default to float
+  already; Convert and the analysis keep the default.
 - **Measured traps, each now handled in the plan:** `afftdn` outputs 25 ms
   late at every rate (`atrim=start_sample=rate/40`); its default `nf=-50` took
   0.7 dB off −39 dB hiss — it gets the source's measured floor (quietest tenth

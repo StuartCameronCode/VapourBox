@@ -5247,3 +5247,41 @@ Report: [docs/reports/2026-11-srestore](reports/2026-11-srestore/index.html), se
   preview convert with `accurate_rnd+full_chroma_int`, which put the same
   frame 0.54 rgb levels from a default-flags decode of the encode. The test
   now decodes the encode with the preview's flags (0.00 again).
+
+
+### What the output conformance matrix found, fixed (task #58, 2026-11-17)
+
+Report: [docs/reports/task-58-output-conformance-findings](reports/task-58-output-conformance-findings/index.html).
+
+- **`pipe_source` served a dropped frame as another picture.** VapourSynth
+  runs the pipe clip's callbacks out of order (vspipe requests a frame when
+  any completes), so one late callback let the reader read the whole clip
+  past it: frames 6–7 served after 99 was read, on a plain job, 6 runs in
+  320 under 16-way load. The reader kept 40 frames behind the last one read
+  and returned the last frame for anything older. It now keeps frames until
+  they are served (window measured from the oldest frame not yet served, a
+  512 MB cap for frames never asked for), and raises on a dropped one: 0 in
+  320 on the same load.
+- **Restore + Convert AAC into AVI, trimmed: 49 pictures for 50.** Task
+  #38's priming shift reads every sound late by P; a sound ending with the
+  window (the restored track, or a source trimmed to its last picture) then
+  ended before the picture and `-shortest` dropped the last one. Convert
+  AAC/MP3/AC-3 trimmed to the end had it too. Such a trim now ends with
+  `-t` the window.
+- **The restored track of a seeked MP2 was one 16-bit step off** in ~40% of
+  samples: FFmpeg's default MP2 decoder is fixed-point, with rounding error
+  carried between frames, so the samples depend on where decoding started.
+  The render reads MP1/MP2 with `mp2float`, exact from any seek. (Task
+  #49's "Convert of the same seek is exact" was the oracle's 16-bit
+  tolerance.)
+- **The delayed AVI's 31 ms late click was the oracle's.** The fixture's
+  own click is 23 ms late (libmp3lame's priming, unmarked in AVI); the cut
+  adds 8 ms by its nearest-packet rule. The matrix now expects each click
+  at the source's own lag.
+- **A reset whose sound ran 16 ms past its last picture joined 16 ms off
+  the grid** (125 fps, 493 pictures for 100): ffmpeg's discontinuity
+  correction takes its offset from whichever stream shows the reset first.
+  The scan now makes a `JoinPlan` and the copy applies it with `-copyts` and
+  `setts` per stream: the picture decides, every stream of a segment moves
+  alike, an overhanging sound packet is dropped. Streams that reset are cut
+  by packet index (MPEG audio from a split PES has no byte position).
