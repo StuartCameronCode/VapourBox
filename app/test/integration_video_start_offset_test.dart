@@ -131,6 +131,23 @@ Future<void> _expectFrame(String what, Uint8List img, String video, int n,
   expect(diffs[n]!, lessThan(maxDiff), reason: '$what is not source frame $n ($table)');
 }
 
+/// Luma MD5s of the last [n] pictures [path] decodes.
+Future<List<String>> _lastLumaHashes(String path, int n) async {
+  final r = await Process.run(
+    WorkerHarness.ffmpegPath,
+    ['-v', 'error', '-sseof', '-2', '-i', path, '-map', '0:v:0',
+     '-fps_mode', 'passthrough', '-pix_fmt', 'gray', '-f', 'framemd5', '-'],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(r.exitCode, 0, reason: 'framemd5 of $path: ${r.stderr}');
+  final hashes = [
+    for (final line in (r.stdout as String).split('\n'))
+      if (line.isNotEmpty && !line.startsWith('#')) line.split(',').last.trim(),
+  ];
+  expect(hashes.length, greaterThanOrEqualTo(n));
+  return hashes.sublist(hashes.length - n);
+}
+
 Future<String> _encode(VideoJob job, String label) async {
   final r = await WorkerHarness.runJob(job.toJson(), label: label);
   expect(r.success, isTrue, reason: r.error);
@@ -338,7 +355,11 @@ void main() {
     });
   }
 
-  test('the DVB-T capture to AVI: its 126 pictures at 25/1, the first at 0 (task #30)', () async {
+  // The job carries no count, so it takes the source model's: 128, the grid's
+  // slots (task #54). Two slots repeat the picture before them, where the
+  // field-coded stream leaves a gap; `-count_frames`, which such a job used
+  // before, counted the 126 decoded pictures. An app job has always sent 128.
+  test('the DVB-T capture to AVI: its 128 slots at 25/1, the first at 0 (task #30)', () async {
     final video = _resource('pal-dvbt-fieldcoded-25i.ts');
     final job = VideoJob(
       id: const Uuid().v4(),
@@ -355,7 +376,7 @@ void main() {
     );
     final v = await aviVideo(await _encode(job, 'vstart_dvbt_avi'));
     expect(v.rate, '25/1');
-    expect(v.stored, 126, reason: 'every picture once, no null frames');
+    expect(v.stored, 128, reason: 'every slot once, no null frames');
     expect(v.pts.take(2).toList(), [0.0, 0.04]);
   });
 
@@ -579,9 +600,16 @@ void main() {
         ),
         inputFrameRate: 2997 / 100,
       );
-      final v = await aviVideo(await _encode(job, 'vstart_small_clip_copy'));
+      final out = await _encode(job, 'vstart_small_clip_copy');
+      final v = await aviVideo(out);
       expect(v.stored, 3151, reason: 'stored frames, null frames included');
       expect(v.pts.first, 0.0);
+      // The count is the model's (task #54), which no longer counts the edit
+      // list's 3 discarded packets: the output ends on the source's last
+      // picture, not on 3 copies of it.
+      expect(await _lastLumaHashes(out, 4),
+          await _lastLumaHashes(_resource('small_clip.mp4'), 4),
+          reason: 'the last pictures are the source\'s last pictures');
     });
   });
 }

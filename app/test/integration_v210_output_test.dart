@@ -210,12 +210,12 @@ void main() {
         countFrames: true);
     expect(s!['codec_name'], 'v210');
     expect(s['pix_fmt'], 'yuv422p10le');
-    // The AVI index says 79, but four of its entries are empty: what decodes
-    // is the count to match.
-    final source = await WorkerHarness.firstStream(src,
-        selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
+    // The AVI index says 79, four of its entries empty (null frames): each
+    // is a slot repeating the frame before (issue #174), so the job, which
+    // sends no count, encodes the source model's 79 (task #54), not the 75
+    // pictures `-count_frames` decodes.
     expect(int.parse(s['nb_read_frames'].toString()),
-        int.parse(source!['nb_read_frames'].toString()));
+        (await WorkerHarness.sourceModel(src)).frameCount);
 
     final pv = await WorkerHarness.runPreview(job, frame: 10, label: 'v210 preview');
     expect(pv.png, isNotNull, reason: '${pv.error}\n${pv.logs}');
