@@ -42,7 +42,8 @@ class ToolLocator {
   String? get workerPath => _workerPath;
 
   /// Environment variables for spawning worker/tool processes.
-  /// Includes PYTHONHOME, PYTHONPATH, VAPOURSYNTH_EXTRA_PLUGIN_PATH, PATH, etc.
+  /// Includes PYTHONHOME, PYTHONPATH, PATH, etc. (VAPOURSYNTH_EXTRA_PLUGIN_PATH
+  /// on Windows only: R78 autoloads the plugins on macOS/Linux, task #61).
   ///
   /// The temp variables are applied per call rather than baked into the cached
   /// map, so changing the temp directory in Settings takes effect immediately.
