@@ -420,7 +420,8 @@ mod lint {
             if f.ends_with("models/output_capabilities.rs") {
                 continue;
             }
-            let text = std::fs::read_to_string(&f).unwrap();
+            // A Windows checkout has CRLF line endings; `non_test` looks for "\n".
+            let text = std::fs::read_to_string(&f).unwrap().replace("\r\n", "\n");
             for (n, line) in non_test(&text).lines().enumerate() {
                 let code = line.split("//").next().unwrap();
                 let compares = code.contains("== ContainerFormat::")

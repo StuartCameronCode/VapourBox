@@ -18,8 +18,10 @@ import '../tool/generate_output_capabilities.dart' as generator;
 
 void main() {
   test('the generated table is current', () {
-    final fresh = generator.generate(File(generator.tablePath).readAsStringSync());
-    expect(File(generator.outputPath).readAsStringSync(), fresh,
+    // A Windows checkout has CRLF line endings; compare the text, not them.
+    String lf(String s) => s.replaceAll('\r\n', '\n');
+    final fresh = generator.generate(lf(File(generator.tablePath).readAsStringSync()));
+    expect(lf(File(generator.outputPath).readAsStringSync()), lf(fresh),
         reason: 'output_capabilities.json changed: run '
             '`dart run tool/generate_output_capabilities.dart` in app/');
   });
