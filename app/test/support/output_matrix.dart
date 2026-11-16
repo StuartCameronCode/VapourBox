@@ -41,6 +41,16 @@ enum SourceClass {
   /// The source's sound, as ffprobe names it.
   final String audioCodec;
 
+  /// The decoder Audio Restoration's render reads this sound with, when it
+  /// is not FFmpeg's default: the float decoder for MPEG layers I and II,
+  /// whose fixed-point default rounds differently after a seek (mirrors
+  /// `audio_restoration::render_decoder`, task #58).
+  String? get renderDecoder => switch (audioCodec) {
+        'mp1' => 'mp1float',
+        'mp2' => 'mp2float',
+        _ => null,
+      };
+
   /// How far the picture starts after the sound, as the fixture was made.
   double get nominalVideoStart => this == lateVideo ? 1.0 : 0.0;
 }
@@ -200,6 +210,11 @@ class MatrixCase {
     return codec == 'flac' || codec.startsWith('pcm_') ? LosslessCheck.exact : LosslessCheck.none;
   }
 
+  /// The decoder the source's sound is decoded with for [LosslessCheck.exact]:
+  /// a restored track is the render's decode ([SourceClass.renderDecoder]);
+  /// a Convert is FFmpeg's default decoder. Null for the default.
+  String? get referenceDecoder => restores ? source.renderDecoder : null;
+
   /// Whether the AVI AAC block-size rule applies (task #41).
   bool get checksAacBlockAlign =>
       container.timesAudioByBlockAlign && expectedAudioCodec == 'aac';
@@ -249,33 +264,7 @@ List<MatrixCase> matrixCases() {
 }
 
 /// Cases that fail today, by id, with the task that owns the fault. They
-/// still run, and fail if they pass, so the list can only shrink.
-/// The task that owns what the matrix found (filed by task #49). Its fourth
-/// finding, `pipe_source` serving an evicted frame as the last one, is
-/// intermittent and so not listed: a different case or two fails each run.
-const _t58 = 'task #58';
-
-const knownFailures = <String, String>{
-  // Restore + Convert AAC into AVI, trimmed: 49 pictures for 50.
-  'avi/restore-convert-aac/plain/near-start': _t58,
-  'avi/restore-convert-aac/plain/mid': _t58,
-  'avi/restore-convert-aac/late-video/near-start': _t58,
-  'avi/restore-convert-aac/late-video/mid': _t58,
-  'avi/restore-convert-aac/delayed-avi/near-start': _t58,
-  'avi/restore-convert-aac/delayed-avi/mid': _t58,
-  'avi/restore-convert-aac/reset-ps/near-start': _t58,
-  'avi/restore-convert-aac/reset-ps/mid': _t58,
-  // Restore of an MP2 source whose sound is seeked: off by up to 2^-15.
-  'mkv/restore/late-video/near-start': _t58,
-  'mkv/restore/late-video/mid': _t58,
-  'avi/restore/late-video/near-start': _t58,
-  'avi/restore/late-video/mid': _t58,
-  'mov+proresProxy/restore/late-video/near-start': _t58,
-  'mov+proresProxy/restore/late-video/mid': _t58,
-  'mkv/restore/reset-ps/mid': _t58,
-  'avi/restore/reset-ps/mid': _t58,
-  'mov+proresProxy/restore/reset-ps/mid': _t58,
-  'avi/restore/late-video/untrimmed': _t58,
-  // A delayed AVI's MP3 copied into AVI from frame 2: the click 31 ms late.
-  'avi/passthrough/delayed-avi/near-start': _t58,
-};
+/// still run, and fail if they pass, so the list can only shrink. Empty since
+/// task #58 fixed what the matrix first found (docs/reports/
+/// task-58-output-conformance-findings).
+const knownFailures = <String, String>{};

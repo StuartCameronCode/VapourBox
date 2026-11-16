@@ -48,6 +48,15 @@ Future<({List<double> flashes, List<double> beeps, double videoStart})> events(
     if (sum / (n / 97).ceil() > 200) flashes.add(pts[i]);
   }
 
+  final beeps = await beepOnsets(path);
+  return (flashes: flashes, beeps: beeps, videoStart: pts.isEmpty ? double.nan : pts.first);
+}
+
+/// The onsets of the first audio stream's beeps on the file's own timeline
+/// (loud after 5 ms of quiet; the first 5 ms never count, since a copied
+/// track can start inside a beep). Needs no video timestamps, so it also
+/// reads a source whose pictures have none (task #58's source lags).
+Future<List<double>> beepOnsets(String path) async {
   final af = await WorkerHarness.ffprobeJson([
     '-v', 'error', '-select_streams', 'a:0', '-show_entries',
     'frame=pts_time,nb_samples:stream=sample_rate', '-of', 'json', path,
@@ -85,7 +94,7 @@ Future<({List<double> flashes, List<double> beeps, double videoStart})> events(
     }
     pos += count;
   }
-  return (flashes: flashes, beeps: beeps, videoStart: pts.isEmpty ? double.nan : pts.first);
+  return beeps;
 }
 
 /// Each white frame has its beep: the first beep from 0.5 s before it to 1.5 s

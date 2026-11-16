@@ -132,6 +132,25 @@ pub struct SourceAudio {
     pub sample_rate: u32,
     /// The restored stream's duration in seconds, when stated or measured.
     pub duration: Option<f64>,
+    /// The restored stream's codec, as ffprobe names it (`codec_name`).
+    pub codec: Option<String>,
+}
+
+/// The decoder the render reads a codec with, when it is not FFmpeg's
+/// default: MPEG audio layers I and II decode by default with the
+/// fixed-point decoders (`mp1`, `mp2`), which round each sample with an error
+/// carried from frame to frame, so a decode that starts at a seek differs from
+/// one that starts at 0 in up to 40% of samples by one 16-bit step. The float
+/// decoders carry no such state: from any seek they give the full decode's
+/// samples exactly, which is what makes the restored track the source's sound
+/// sample for sample (task #58). Layer III's default (`mp3float`) and AC-3's
+/// (`ac3`) are already float. Convert and the analysis keep the default.
+pub fn render_decoder(codec: &str) -> Option<&'static str> {
+    match codec {
+        "mp1" => Some("mp1float"),
+        "mp2" => Some("mp2float"),
+        _ => None,
+    }
 }
 
 /// The span of the output on the source's timeline: where the picture starts
@@ -391,6 +410,9 @@ pub struct AudioPlan {
     pub read_skip: bool,
     /// How much to read (`-t`), when the window's length is known.
     pub read_duration: Option<f64>,
+    /// The decoder the stream is read with, when not FFmpeg's default
+    /// ([`render_decoder`]).
+    pub decoder: Option<&'static str>,
     /// The first ffmpeg run's filters, in order.
     pub restore_filters: Vec<String>,
     /// DeepFilterNet's attenuation limit, when it runs.
@@ -567,6 +589,7 @@ impl AudioPlan {
             read_start,
             read_skip,
             read_duration,
+            decoder: source.codec.as_deref().and_then(render_decoder),
             restore_filters: f,
             deep_filter,
             loudness_target,
@@ -593,6 +616,9 @@ impl AudioPlan {
         let head = if self.read_skip { self.read_start } else { 0.0 };
         if let Some(t) = self.read_duration {
             args.extend(["-t".into(), format!("{:.6}", t + head)]);
+        }
+        if let Some(d) = self.decoder {
+            args.extend([format!("-c:a:{}", self.stream), d.to_string()]);
         }
         args.extend(["-i".into(), source.to_string()]);
         args.extend(["-map".into(), format!("0:a:{}", self.stream)]);
@@ -1677,7 +1703,7 @@ impl AudioRestorer {
         let ffprobe = self.deps.ffprobe_path()?;
         let out = Command::new(&ffprobe)
             .args(["-v", "error", "-select_streams", "a", "-show_entries",
-                   "stream=channels,sample_rate,duration:stream_tags=DURATION", "-of", "json", input])
+                   "stream=codec_name,channels,sample_rate,duration:stream_tags=DURATION", "-of", "json", input])
             .envs(self.deps.build_environment())
             .output()
             .context("Failed to run ffprobe on the audio")?;
@@ -1882,6 +1908,7 @@ pub fn parse_source_probe(json: &str, stream: u32) -> Option<SourceAudio> {
         channels: int("channels").unwrap_or(2),
         sample_rate: int("sample_rate").unwrap_or(48_000),
         duration,
+        codec: s.get("codec_name").and_then(|c| c.as_str()).map(str::to_string),
     })
 }
 
@@ -1923,7 +1950,7 @@ mod tests {
     }
 
     fn stereo48() -> SourceAudio {
-        SourceAudio { streams: 1, channels: 2, sample_rate: 48_000, duration: Some(60.0) }
+        SourceAudio { streams: 1, channels: 2, sample_rate: 48_000, duration: Some(60.0), codec: None }
     }
 
     fn window(start: f64, d: f64) -> OutputWindow {
@@ -2271,12 +2298,32 @@ mod tests {
         assert!(parse_loudnorm_json("no json").is_none());
     }
 
+    /// Task 58: MP1/MP2 are rendered with the float decoders, which give the
+    /// same samples from any seek; every other codec keeps its arguments.
+    #[test]
+    fn the_render_reads_mpeg_layers_1_and_2_with_the_float_decoder() {
+        assert_eq!(render_decoder("mp2"), Some("mp2float"));
+        assert_eq!(render_decoder("mp1"), Some("mp1float"));
+        for c in ["mp3", "aac", "ac3", "pcm_s16le", "flac", "opus"] {
+            assert_eq!(render_decoder(c), None, "{c}");
+        }
+        let p = AudioRestorationParameters { enabled: true, stream_index: 1, ..Default::default() };
+        let src = |c: &str| SourceAudio { streams: 2, codec: Some(c.to_string()), ..stereo48() };
+        let mp2 = AudioPlan::new(&p, &src("mp2"), window(1.5, 2.0), &Analysis::default(), None);
+        let args = mp2.restore_args("in.ts", Path::new("a.wav")).join(" ");
+        assert!(args.contains(" -t 3.000000 -c:a:1 mp2float -i in.ts"), "{args}");
+        let aac = AudioPlan::new(&p, &src("aac"), window(1.5, 2.0), &Analysis::default(), None);
+        let plain = AudioPlan::new(&p, &SourceAudio { streams: 2, ..stereo48() }, window(1.5, 2.0), &Analysis::default(), None);
+        assert_eq!(aac.restore_args("in.ts", Path::new("a.wav")), plain.restore_args("in.ts", Path::new("a.wav")));
+    }
+
     #[test]
     fn source_probe_reads_streams_and_durations() {
-        let json = r#"{"streams":[{"channels":2,"sample_rate":"48000","duration":"12.5"},
+        let json = r#"{"streams":[{"codec_name":"mp2","channels":2,"sample_rate":"48000","duration":"12.5"},
             {"channels":6,"sample_rate":"44100","tags":{"DURATION":"01:00:01.250000000"}}]}"#;
         let a = parse_source_probe(json, 0).unwrap();
         assert_eq!((a.streams, a.channels, a.sample_rate, a.duration), (2, 2, 48_000, Some(12.5)));
+        assert_eq!(a.codec.as_deref(), Some("mp2"));
         let b = parse_source_probe(json, 1).unwrap();
         assert_eq!((b.channels, b.sample_rate, b.duration), (6, 44_100, Some(3601.25)));
         assert!(parse_source_probe(json, 2).is_none());
@@ -2317,7 +2364,7 @@ mod tests {
         // The plan reads from the window's start, with nothing else changed.
         let plan = AudioPlan::new(
             &job.effective_pipeline().audio,
-            &SourceAudio { streams: 1, channels: 2, sample_rate: 48_000, duration: Some(6.1) },
+            &SourceAudio { streams: 1, channels: 2, sample_rate: 48_000, duration: Some(6.1), codec: None },
             w,
             &Analysis::default(),
             None,
@@ -2792,7 +2839,7 @@ mod tests {
     /// delay, or further in, reads with -ss exactly as before.
     #[test]
     fn a_delayed_avi_near_its_start_drops_the_head_in_the_chain() {
-        let src = SourceAudio { streams: 1, channels: 1, sample_rate: 32_000, duration: Some(3.0) };
+        let src = SourceAudio { streams: 1, channels: 1, sample_rate: 32_000, duration: Some(3.0), codec: None };
         let start = 2.0 * 1001.0 / 30000.0;
         let delayed = OutputWindow { start, duration: Some(2.0), decoder_delay: 2 };
         let plan = AudioPlan::new(&on(), &src, delayed, &Analysis::default(), None);
