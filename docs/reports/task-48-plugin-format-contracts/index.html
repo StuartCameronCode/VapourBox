@@ -174,6 +174,9 @@ a cell names the field flags refused.</p>
 <!-- /TABLE -->
 <h3>What the refusals mean for a job</h3>
 <ul>
+  <li><strong>VFM differs by platform.</strong> The macOS arm64 and Windows <code>vivtc</code> builds refuse anything
+  but 8-bit; the Linux x64 and macOS x64 builds accept 10/12/16-bit (found by the first CI run of this change; recorded
+  under <code>platforms</code> in the table). The template gives VFM an 8-bit copy either way.</li>
   <li><strong>Depth</strong> (DeScratch, DeDot, Bifrost, VFM: 8-bit; LUTDeCrawl, LUTDeRainbow: 8–10): the five
   contracts, and VFM's 8-bit decision copy. These are the only refusals inside the reachable formats at 160×120.</li>
   <li><strong>DeScratch on field-flagged 4:2:0</strong>, the plugin alone: the 4:2:2 carrier (#29) avoids it;
