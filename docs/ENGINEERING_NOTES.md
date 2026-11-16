@@ -5048,3 +5048,36 @@ Every row task #47's sweep had pinned in `knownFailures` now passes.
 - F3/F3b (Rotate / Flip and field order), F4 (Color Format "original"
   restores the source depth after Deband), F5 (field-aware resize height)
   and F8 (preview chroma interpolation at every depth) are in the same report.
+
+### In/out points map to the frame the preview showed (task #59, 2026-11-17)
+
+The scrubber turns a position into a frame with `FrameMath.frameForPosition`,
+`round(pos × (N − 1))`. The in/out points (`QueueItem.inPointFrame` /
+`outPointFrame`, the encode job, `_detectorJob`) used `round(pos × N)`. A
+point set at frame F (position `F / (N − 1)`) therefore became
+`F + round(F / (N − 1))`:
+
+- in the second half of a source, the next frame (`conf_plain.mp4`, N = 100:
+  in at 60 encoded from 61; `small_clip.mp4`, N = 3151: 2000 → 2001);
+- an out point at the last frame became N, one past the end, so the job asked
+  the decoder for one frame more than it delivers and `pipe_source` repeated
+  the last picture (101 pictures for an untrimmed-start trim to the end).
+
+Preview, detectors and encode made the same mistake, so they agreed with each
+other and nothing caught it. All of them now read the two `QueueItem`
+getters, which use `FrameMath`; positions stay the stored form (the timeline
+markers and the clock already agree with the playhead). The worker does not
+clamp `end_frame`: a clamp would hide the next such drift.
+
+The time labels (In/Out buttons, the queue's Range) still show
+`pos × duration`, as the playhead clock does, so frame F reads
+`F × duration / (N − 1)`, not `F / fps`. That is display only and shared by
+every clock label; not changed here.
+
+Tests: `trim_points_test.dart` (round trip at every frame, the jobs the view
+model builds, and a static check that nothing in `app/lib` multiplies a
+position by a frame count outside `frame_math.dart`);
+`integration_trim_points_test.dart` (heavy: FFV1 encodes of trims set at
+shown frames, first/last picture against `select=eq(n,F)` of the source, no
+repeated last picture). Its small_clip cases skip until task #54 makes the
+model's count 3151.

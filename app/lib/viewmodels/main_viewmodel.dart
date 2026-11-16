@@ -16,6 +16,7 @@ import '../models/preview_frame_info.dart';
 import '../models/progress_info.dart';
 import '../models/qtgmc_parameters.dart';
 import '../models/queue_item.dart';
+import '../models/source_model.dart';
 import '../models/processing_pipeline.dart';
 import '../models/subtitle_parameters.dart';
 import '../models/video_job.dart';
@@ -279,9 +280,13 @@ class MainViewModel extends ChangeNotifier {
 
   /// Put an analysed video in the queue and select it, for widget tests.
   @visibleForTesting
-  void debugAddQueueItemForTest(String path,
+  QueueItem debugAddQueueItemForTest(String path,
       {required int width,
       required int height,
+      int frameCount = 14386,
+      double frameRate = 23.976,
+      String pixelFormat = 'yuv420p',
+      SourceModel? source,
       String? sar,
       String? colorMatrix,
       String? colorPrimaries,
@@ -290,14 +295,15 @@ class MainViewModel extends ChangeNotifier {
     final item = QueueItem(
       inputPath: path,
       outputPath: '$path.out.mkv',
+      sourceModel: source,
       videoInfo: VideoInfo(
         width: width,
         height: height,
-        frameRate: 23.976,
-        duration: 600,
-        frameCount: 14386,
+        frameRate: frameRate,
+        duration: frameCount / frameRate,
+        frameCount: frameCount,
         codec: 'h264',
-        pixelFormat: 'yuv420p',
+        pixelFormat: pixelFormat,
         hasAudio: false,
         sar: sar,
         colorMatrix: colorMatrix,
@@ -309,6 +315,7 @@ class MainViewModel extends ChangeNotifier {
     _queue.add(item);
     _selectedItemId = item.id;
     notifyListeners();
+    return item;
   }
 
   /// The job a detector (`--detect-native`, `--detect-crop`,
@@ -319,9 +326,6 @@ class MainViewModel extends ChangeNotifier {
   VideoJob _detectorJob(QueueItem item,
       {ProcessingPipeline? pipeline, FieldOrder? fieldOrder, bool trimmed = true}) {
     final info = item.videoInfo;
-    final frameCount = info?.frameCount ?? 0;
-    int? at(double? point) =>
-        !trimmed || point == null ? null : (point * frameCount).round();
     return VideoJob(
       inputPath: item.decodePath,
       source: item.sourceModel,
@@ -340,8 +344,8 @@ class MainViewModel extends ChangeNotifier {
       inputColorPrimaries: info?.colorPrimaries,
       inputColorTransfer: info?.colorTransfer,
       inputColorRange: info?.colorRange,
-      startFrame: at(item.inPoint),
-      endFrame: at(item.outPoint),
+      startFrame: trimmed ? item.inPointFrame : null,
+      endFrame: trimmed ? item.outPointFrame : null,
     );
   }
 
@@ -1855,24 +1859,12 @@ class MainViewModel extends ChangeNotifier {
     _currentProgress = null;
     notifyListeners();
 
-    // Calculate frame range from in/out points
-    int? startFrame;
-    int? endFrame;
-    int? trimmedFrameCount;
-    if (item.inPoint != null || item.outPoint != null) {
-      final frameCount = item.videoInfo?.frameCount ?? 0;
-      if (item.inPoint != null) {
-        startFrame = (item.inPoint! * frameCount).round();
-      }
-      if (item.outPoint != null) {
-        endFrame = (item.outPoint! * frameCount).round();
-      }
-      // Use trimmed frame count so pipe_source creates the correct clip length
-      // and progress tracking shows accurate percentages
-      final effectiveStart = startFrame ?? 0;
-      final effectiveEnd = endFrame ?? (frameCount - 1);
-      trimmedFrameCount = effectiveEnd - effectiveStart + 1;
-    }
+    // The frame range from the in/out points: the frames the preview showed
+    // there (QueueItem.inPointFrame / outPointFrame). The trimmed count makes
+    // pipe_source build the right clip length and the progress accurate.
+    final startFrame = item.inPointFrame;
+    final endFrame = item.outPointFrame;
+    final trimmedFrameCount = item.trimmedFrameCount;
 
     // Subtitle-only mode: no video processing passes enabled, only subtitles
     // Audio restoration needs the full job (it renders the output's
