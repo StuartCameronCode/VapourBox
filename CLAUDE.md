@@ -2375,7 +2375,7 @@ table. Rules:
   switch applies `fallbackFor`, a preset that still pairs them gets a "Use
   <fallback>" dialog, the worker refuses via `audio_container_problem`).
   `audioCopy` is the Passthrough copy table (issue #118), which the worker now
-  checks too: one ffprobe of the source's audio codecs, refused with
+  checks too: the source model's audio codecs (`audioStreams`), refused with
   `audioCopyMessage` (`audio_copy_problem`, Dart
   `AudioCompatibilityService.copyProblem`); a stream Audio Restoration
   re-encodes is not checked.
@@ -2398,7 +2398,10 @@ table. Rules:
   click within one audio packet, packet timing, and lossless paths sample-
   or byte-exact. **A new container fact or source rule gets a case here, not
   another one-cell heavy test.** Cases that fail today are `knownFailures`
-  (id → task); they still run and fail when they pass. One case:
+  (id → task, today all task #58); they still run and fail when they pass.
+  One fault can't be listed: `pipe_source` intermittently serves an evicted
+  frame as the last one (#58), so the matrix fails a different case or two
+  per run until that is fixed. One case:
   `flutter test --tags heavy test/integration_output_conformance_test.dart
   --plain-name 'avi/convert-aac/delayed-avi/near-start'`. The shared
   measuring helpers are `test/support/av_sync.dart`.

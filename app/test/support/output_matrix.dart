@@ -185,6 +185,14 @@ class MatrixCase {
     }
   }
 
+  /// Whether ffprobe's `codec_name` for the output's sound is the expected
+  /// one. MP4 files MPEG-1 Layer II under the object type it shares with
+  /// Layer III, so ffprobe names a copied MP2 mp3 or mp2 depending on how
+  /// much it parses (the bytes are unchanged; the copy check compares them).
+  bool audioCodecMatches(String probed) =>
+      probed == expectedAudioCodec ||
+      (expectedAudioCodec == 'mp2' && probed == 'mp3' && container == ContainerFormat.mp4);
+
   /// What a lossless output's sound is checked against.
   LosslessCheck get lossless {
     if (audio == AudioKind.passthrough) return LosslessCheck.copy;
@@ -242,4 +250,32 @@ List<MatrixCase> matrixCases() {
 
 /// Cases that fail today, by id, with the task that owns the fault. They
 /// still run, and fail if they pass, so the list can only shrink.
-const knownFailures = <String, String>{};
+/// The task that owns what the matrix found (filed by task #49). Its fourth
+/// finding, `pipe_source` serving an evicted frame as the last one, is
+/// intermittent and so not listed: a different case or two fails each run.
+const _t58 = 'task #58';
+
+const knownFailures = <String, String>{
+  // Restore + Convert AAC into AVI, trimmed: 49 pictures for 50.
+  'avi/restore-convert-aac/plain/near-start': _t58,
+  'avi/restore-convert-aac/plain/mid': _t58,
+  'avi/restore-convert-aac/late-video/near-start': _t58,
+  'avi/restore-convert-aac/late-video/mid': _t58,
+  'avi/restore-convert-aac/delayed-avi/near-start': _t58,
+  'avi/restore-convert-aac/delayed-avi/mid': _t58,
+  'avi/restore-convert-aac/reset-ps/near-start': _t58,
+  'avi/restore-convert-aac/reset-ps/mid': _t58,
+  // Restore of an MP2 source whose sound is seeked: off by up to 2^-15.
+  'mkv/restore/late-video/near-start': _t58,
+  'mkv/restore/late-video/mid': _t58,
+  'avi/restore/late-video/near-start': _t58,
+  'avi/restore/late-video/mid': _t58,
+  'mov+proresProxy/restore/late-video/near-start': _t58,
+  'mov+proresProxy/restore/late-video/mid': _t58,
+  'mkv/restore/reset-ps/mid': _t58,
+  'avi/restore/reset-ps/mid': _t58,
+  'mov+proresProxy/restore/reset-ps/mid': _t58,
+  'avi/restore/late-video/untrimmed': _t58,
+  // A delayed AVI's MP3 copied into AVI from frame 2: the click 31 ms late.
+  'avi/passthrough/delayed-avi/near-start': _t58,
+};

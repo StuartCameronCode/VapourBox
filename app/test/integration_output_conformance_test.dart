@@ -43,8 +43,8 @@ import 'support/worker_harness.dart';
 String _resource(String name) =>
     p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', name);
 
-/// The task that owns the off-grid join (filed by task #49).
-const _offGridJoin = 'off-grid reset join, task to be filed';
+/// The task that owns the off-grid join (task #58, filed by task #49).
+const _offGridJoin = 'off-grid reset join, task #58';
 
 final _outDir = p.join(Directory.systemTemp.path, 'vapourbox_output_conformance');
 
@@ -176,17 +176,20 @@ VideoJob _job(MatrixCase c, _Source s) {
 
 /// Whether [out] (decoded) is a run of [src], sample for sample to within
 /// one step at the output's [depth]. Returns why not, or null.
+///
+/// The tone between the clicks repeats, so the output's first second matches
+/// the source at many offsets; each is compared in full and the best kept
+/// (taking the first put a trimmed output a whole number of tone periods
+/// early, and every click then "differed").
 String? _sampleExact(Float32List out, Float32List src, int depth) {
   final tol = 1.0 / (1 << (depth - 1)) + 1e-7;
-  // Find the run: the first offset where the first second of non-silent
-  // output matches.
   var first = 0;
   while (first < out.length && out[first].abs() < 1e-3) {
     first++;
   }
   if (first >= out.length) return 'the output is silent';
   final probe = out.length - first < 4800 ? out.length - first : 4800;
-  int? at;
+  (int, int, int)? best; // (offset, differ, compared)
   for (var o = 0; o + probe <= src.length; o++) {
     var ok = true;
     for (var k = 0; k < probe; k++) {
@@ -195,19 +198,22 @@ String? _sampleExact(Float32List out, Float32List src, int depth) {
         break;
       }
     }
-    if (ok) {
-      at = o - first;
-      break;
+    if (!ok) continue;
+    final at = o - first;
+    var differ = 0, compared = 0;
+    for (var k = 0; k < out.length; k++) {
+      final j = at + k;
+      if (j < 0 || j >= src.length) continue;
+      compared++;
+      if ((src[j] - out[k]).abs() > tol) differ++;
     }
+    if (best == null || differ < best.$2 || (differ == best.$2 && compared > best.$3)) {
+      best = (at, differ, compared);
+    }
+    if (differ == 0 && compared >= out.length - 1920) break;
   }
-  if (at == null) return 'no run of the source matches the output\'s first $probe samples';
-  var differ = 0, compared = 0;
-  for (var k = 0; k < out.length; k++) {
-    final j = at + k;
-    if (j < 0 || j >= src.length) continue;
-    compared++;
-    if ((src[j] - out[k]).abs() > tol) differ++;
-  }
+  if (best == null) return 'no run of the source matches the output\'s first $probe samples';
+  final (at, differ, compared) = best;
   if (differ > 0) return '$differ of $compared samples differ (offset $at)';
   if (compared < out.length - 1920) {
     return 'only $compared of ${out.length} samples overlap the source';
@@ -249,7 +255,8 @@ Future<void> _check(MatrixCase c, _Source s) async {
   expect(list.where((x) => x['codec_type'] == 'video'), hasLength(1), reason: '1. video');
   final audio = list.where((x) => x['codec_type'] == 'audio').toList();
   expect(audio, hasLength(1), reason: '1. one audio stream');
-  expect(audio.first['codec_name'], c.expectedAudioCodec, reason: '1. the audio codec');
+  expect(c.audioCodecMatches('${audio.first['codec_name']}'), isTrue,
+      reason: '1. the audio codec: ${audio.first['codec_name']}, expected ${c.expectedAudioCodec}');
 
   // 2. Picture count and first picture.
   expect(await countFrames(out), c.expectedPictures, reason: '2. pictures');
@@ -301,11 +308,19 @@ Future<void> _check(MatrixCase c, _Source s) async {
             'one packet ${tolerance.toStringAsFixed(4)} s)');
   }
 
-  // 5. The audio packets follow on.
+  // 5. The audio packets follow on. AVI stores no duration for its first
+  // audio chunk (nor for any FLAC chunk); such a packet is taken to last the
+  // stream's usual packet, and with no duration anywhere only order is checked.
+  final known = [for (final t in times) if (t.$2 > 0) t.$2]..sort();
+  final usual = known.isEmpty ? null : known[known.length ~/ 2];
   for (var i = 1; i < times.length; i++) {
-    final gap = times[i].$1 - (times[i - 1].$1 + times[i - 1].$2);
-    final half = (times[i - 1].$2 > 0 ? times[i - 1].$2 : tolerance) / 2;
-    expect(gap.abs(), lessThanOrEqualTo(half + 1e-4),
+    final last = times[i - 1].$2 > 0 ? times[i - 1].$2 : usual;
+    if (last == null) {
+      expect(times[i].$1, greaterThan(times[i - 1].$1), reason: '5. audio packet $i is out of order');
+      continue;
+    }
+    final gap = times[i].$1 - (times[i - 1].$1 + last);
+    expect(gap.abs(), lessThanOrEqualTo(last / 2 + 1e-4),
         reason: '5. audio packet $i starts ${gap.toStringAsFixed(4)} s off the last one\'s end');
   }
   if (c.checksAacBlockAlign) await expectAacTimedOnce('5. AVI AAC', out);

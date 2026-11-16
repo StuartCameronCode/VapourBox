@@ -83,5 +83,9 @@ void main() {
     expect(find('avi/convert-aac/plain/mid').checksAacBlockAlign, isTrue);
     expect(find('avi/passthrough/plain/mid').checksAacBlockAlign, isTrue);
     expect(find('mkv/convert-aac/plain/mid').checksAacBlockAlign, isFalse);
+    // ffprobe names MP2 in MP4 mp3 or mp2; only MP4 takes either.
+    expect(find('mp4/passthrough/late-video/mid').audioCodecMatches('mp3'), isTrue);
+    expect(find('mp4/passthrough/late-video/mid').audioCodecMatches('mp2'), isTrue);
+    expect(find('mkv/passthrough/late-video/mid').audioCodecMatches('mp3'), isFalse);
   });
 }
