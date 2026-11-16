@@ -200,7 +200,24 @@ impl VideoJob {
             self.seek_plan = v.seek_plan;
         }
         if self.source_grid.is_none() {
-            self.source_grid = v.source_grid;
+            // The grid is at the job's rate, as `grid_from_probe` makes it:
+            // the probed rate's exact fraction when they agree, else the
+            // job's own rate from the same first picture.
+            self.source_grid = v.source_grid.and_then(|g| match self.input_frame_rate {
+                Some(f)
+                    if f > 0.0
+                        && ((g.fps() - f) / f).abs() > crate::source_decode::GRID_RATE_TOLERANCE =>
+                {
+                    let (n, d) = crate::models::fps_to_rational(f);
+                    let g = crate::source_decode::SourceGrid {
+                        rate_num: u32::try_from(n.max(1)).ok()?,
+                        rate_den: u32::try_from(d.max(1)).ok()?,
+                        origin: g.origin,
+                    };
+                    g.is_valid().then_some(g)
+                }
+                _ => Some(g),
+            });
         }
     }
 

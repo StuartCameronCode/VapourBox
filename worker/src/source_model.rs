@@ -787,7 +787,67 @@ mod tests {
 
     #[test]
     fn model_round_trips_and_omits_absent_times() {
-        let m = SourceModel {
+        let m = sample_model();
+        let s = serde_json::to_string(&m).unwrap();
+        assert!(!s.contains("frameTimes"), "{s}");
+        assert!(s.contains("\"sourceGrid\":{\"rateNum\":25"), "{s}");
+        assert_eq!(serde_json::from_str::<SourceModel>(&s).unwrap(), m);
+        assert!(!m.describes("/x.mp4"), "a file that does not exist is never described");
+    }
+
+    fn job_with(extra: serde_json::Value) -> crate::models::VideoJob {
+        let mut j = json!({
+            "id": "00000000-0000-0000-0000-000000000050",
+            "inputPath": "/x.mp4", "outputPath": "out.mkv",
+            "qtgmcParameters": {}, "encodingSettings": {},
+        });
+        j.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let mut job: crate::models::VideoJob = serde_json::from_value(j).unwrap();
+        job.source = Some(sample_model());
+        job
+    }
+
+    #[test]
+    fn applying_the_model_fills_only_what_the_job_left_unset() {
+        let mut job = job_with(json!({}));
+        job.apply_source_model();
+        assert_eq!((job.input_width, job.input_height), (Some(720), Some(576)));
+        assert_eq!(job.input_frame_rate, Some(25.0));
+        assert_eq!(job.input_sar.as_deref(), Some("16:15"));
+        assert_eq!(job.video_start_offset, Some(0.0));
+        assert_eq!(job.decoder_delay_frames, Some(0));
+        assert_eq!(job.source_grid, Some(SourceGrid { rate_num: 25, rate_den: 1, origin: 0.0 }));
+        assert_eq!(job.total_frames, None, "a missing count is decoded, not taken from the model");
+
+        let mut job = job_with(json!({
+            "inputWidth": 704, "inputHeight": 480, "inputSar": "10:11", "videoStartOffset": 0.5,
+        }));
+        job.apply_source_model();
+        assert_eq!((job.input_width, job.input_height), (Some(704), Some(480)));
+        assert_eq!(job.input_sar.as_deref(), Some("10:11"));
+        assert_eq!(job.video_start_offset, Some(0.5));
+    }
+
+    /// `grid_from_probe` takes the job's rate when the stream's is not
+    /// within `GRID_RATE_TOLERANCE` of it; the model's grid follows.
+    #[test]
+    fn the_grid_is_at_the_jobs_rate() {
+        let mut job = job_with(json!({ "inputFrameRate": 25.0 }));
+        job.apply_source_model();
+        assert_eq!(job.source_grid, Some(SourceGrid { rate_num: 25, rate_den: 1, origin: 0.0 }));
+
+        let mut job = job_with(json!({ "inputFrameRate": 50.0 }));
+        if let Some(m) = job.source.as_mut() {
+            m.video.source_grid = Some(SourceGrid { rate_num: 25, rate_den: 1, origin: 0.4 });
+        }
+        job.apply_source_model();
+        let g = job.source_grid.unwrap();
+        assert_eq!(g.fps(), 50.0);
+        assert_eq!(g.origin, 0.4);
+    }
+
+    fn sample_model() -> SourceModel {
+        SourceModel {
             schema: SOURCE_MODEL_SCHEMA,
             identity: SourceIdentity { path: "/x.mp4".into(), size_bytes: 1, modified_ms: 2 },
             format_name: "mov,mp4".into(),
@@ -825,12 +885,7 @@ mod tests {
             },
             audio_streams: vec![],
             continuity: None,
-        };
-        let s = serde_json::to_string(&m).unwrap();
-        assert!(!s.contains("frameTimes"), "{s}");
-        assert!(s.contains("\"sourceGrid\":{\"rateNum\":25"), "{s}");
-        assert_eq!(serde_json::from_str::<SourceModel>(&s).unwrap(), m);
-        assert!(!m.describes("/x.mp4"), "a file that does not exist is never described");
+        }
     }
 
     #[test]

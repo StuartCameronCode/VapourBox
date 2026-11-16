@@ -60,6 +60,9 @@ class PreviewGenerator {
   /// `--preview --source`.
   String? _modelPath;
 
+  /// The model [_modelPath] holds, so reselecting a video doesn't rewrite it.
+  SourceModel? _modelWritten;
+
   /// Video duration in seconds.
   double _duration = 0;
 
@@ -729,10 +732,19 @@ class PreviewGenerator {
     _colorRange = model.colorRange;
     _sar = model.sar;
     final dir = _tempDir;
-    if (dir != null) {
+    if (dir != null && !identical(model, _modelWritten)) {
+      final previous = _modelPath;
       final file = File('$dir/source_model_${DateTime.now().microsecondsSinceEpoch}.json');
       await model.writeTo(file);
       _modelPath = file.path;
+      _modelWritten = model;
+      // A preview already started has read it; a late one that misses it
+      // probes the source itself (`resolve_source`).
+      if (previous != null) {
+        try {
+          await File(previous).delete();
+        } catch (_) {}
+      }
     }
   }
 
