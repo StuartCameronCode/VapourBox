@@ -21,6 +21,7 @@ VideoInfo source({
   String pixelFormat = 'yuv420p',
   ScanType scanType = ScanType.interlaced,
   String? sar,
+  bool pulldownRate = false,
 }) =>
     VideoInfo(
       width: width,
@@ -33,6 +34,7 @@ VideoInfo source({
       scanType: scanType,
       hasAudio: true,
       sar: sar,
+      pulldownRate: pulldownRate,
     );
 
 Set<PassType> suggestedFor(VideoInfo? info) => PassType.values
@@ -65,7 +67,9 @@ void main() {
             PassType.deinterlace,
             source(
                 scanType: scan,
-                frameRate: scan == ScanType.softTelecine ? 29.97 : 25.0));
+                frameRate: scan == ScanType.softTelecine ? 29.97 : 25.0,
+                // The worker's verdict on that rate (the source model's).
+                pulldownRate: scan == ScanType.softTelecine));
         expect(result.isRecommended, true, reason: '$scan should suggest it');
         expect(result.reason, contains(scan.displayName.toLowerCase()));
       }

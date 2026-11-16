@@ -35,6 +35,7 @@ mod pixel_format;
 mod source_continuity;
 mod source_decode;
 mod source_timing;
+mod source_model;
 mod progress_reporter;
 mod addons;
 mod audio_restoration;
@@ -114,6 +115,17 @@ struct Args {
     /// lines (phase "joining"); the copy is checked before it is kept.
     #[arg(long)]
     make_continuous: Option<String>,
+
+    /// Probe a source and print its `SourceModel` (`source_model`, task #50)
+    /// as one JSON line: everything every decoder of it needs to know.
+    #[arg(long)]
+    probe_source: Option<String>,
+
+    /// A `SourceModel` file (from `--probe-source`) for the job in
+    /// `--config`, when the job does not carry one inline: the worker then
+    /// probes nothing it already describes.
+    #[arg(long)]
+    source: Option<PathBuf>,
 
     /// Probe mode: report whether a usable OpenCL device is available as JSON
     /// (`{"opencl": true|false}`) to stdout and exit. Used by the app to warn
@@ -224,6 +236,9 @@ fn main() -> ExitCode {
     if let Some(ref input) = args.make_continuous {
         return run_make_continuous(&args, input);
     }
+    if let Some(ref input) = args.probe_source {
+        return run_probe_source(input);
+    }
 
     // OpenCL probe mode: emit availability as JSON and exit (no progress stream).
     if args.probe_cpu {
@@ -296,7 +311,7 @@ fn main() -> ExitCode {
         return ExitCode::from(1);
     }
 
-    match run_worker(args.config.as_ref().unwrap(), &reporter, cancelled) {
+    match run_worker(args.config.as_ref().unwrap(), args.source.as_deref(), &reporter, cancelled) {
         Ok(output_path) => {
             reporter.send_complete(true, Some(&output_path));
             // Small delay to ensure stdout is flushed and received by parent process
@@ -368,8 +383,7 @@ fn run_audio_plan(args: &Args) -> ExitCode {
             .ok_or_else(|| anyhow::anyhow!("--config is required with --audio-plan"))?;
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
-        fill_total_frames(&mut job, Some(&deps), |_| {});
-        fill_video_start(&mut job, Some(&deps), |_| {});
+        resolve_source(&mut job, Some(&deps), args.source.as_deref(), true, |m| eprintln!("{m}"));
         let reporter = ProgressReporter::new_to_stderr();
         let Some((plan, source)) = audio_restoration::AudioRestorer::new(reporter, deps).plan(&job)? else {
             return Ok(serde_json::json!({ "active": false }));
@@ -416,10 +430,7 @@ fn run_detect_native(args: &Args) -> ExitCode {
             .ok_or_else(|| anyhow::anyhow!("--config is required with --detect-native"))?;
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
-        fill_frame_size(&mut job, Some(&deps), |_| {});
-        fill_video_start(&mut job, Some(&deps), |_| {});
-        fill_seek_plan(&mut job, Some(&deps), |_| {});
-        fill_source_grid(&mut job, Some(&deps), |_| {});
+        resolve_source(&mut job, Some(&deps), args.source.as_deref(), false, |m| eprintln!("{m}"));
         native_res::detect(&deps, &job)
     })();
     match result {
@@ -444,10 +455,7 @@ fn run_detect_crop(args: &Args) -> ExitCode {
             .ok_or_else(|| anyhow::anyhow!("--config is required with --detect-crop"))?;
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
-        fill_frame_size(&mut job, Some(&deps), |_| {});
-        fill_video_start(&mut job, Some(&deps), |_| {});
-        fill_seek_plan(&mut job, Some(&deps), |_| {});
-        fill_source_grid(&mut job, Some(&deps), |_| {});
+        resolve_source(&mut job, Some(&deps), args.source.as_deref(), false, |m| eprintln!("{m}"));
         crop_detect::detect(&deps, &job)
     })();
     match result {
@@ -472,10 +480,7 @@ fn run_detect_noise_halo(args: &Args) -> ExitCode {
             .ok_or_else(|| anyhow::anyhow!("--config is required with --detect-noise-halo"))?;
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
-        fill_frame_size(&mut job, Some(&deps), |_| {});
-        fill_video_start(&mut job, Some(&deps), |_| {});
-        fill_seek_plan(&mut job, Some(&deps), |_| {});
-        fill_source_grid(&mut job, Some(&deps), |_| {});
+        resolve_source(&mut job, Some(&deps), args.source.as_deref(), false, |m| eprintln!("{m}"));
         noise_halo::detect(&deps, &job)
     })();
     match result {
@@ -802,9 +807,15 @@ fn warn_on_resets(
     if job.continuity_checked {
         return;
     }
-    let Some(d) = deps else { return };
-    let Ok(ffprobe) = d.ffprobe_path() else { return };
-    if let Ok(scan) = source_continuity::scan(&ffprobe, &d.build_environment(), &job.input_path) {
+    let scan = match job.source.as_ref().and_then(|m| m.continuity.clone()) {
+        Some(scan) => Some(scan),
+        None => {
+            let Some(d) = deps else { return };
+            let Ok(ffprobe) = d.ffprobe_path() else { return };
+            source_continuity::scan(&ffprobe, &d.build_environment(), &job.input_path).ok()
+        }
+    };
+    if let Some(scan) = scan {
         if scan.needs_copy() {
             log(&format!(
                 "The source's {}. Frames after the first reset are not reliable in this job: \
@@ -851,10 +862,7 @@ fn run_preview_mode(args: &Args) -> ExitCode {
         }
     };
     let deps = dependency_locator::DependencyLocator::new().ok();
-    fill_frame_size(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
-    fill_video_start(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
-    fill_seek_plan(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
-    fill_source_grid(&mut job, deps.as_ref(), |msg| eprintln!("{}", msg));
+    resolve_source(&mut job, deps.as_ref(), args.source.as_deref(), false, |msg| eprintln!("{}", msg));
 
     // The frame index is passed straight through to the worker — no
     // time-conversion round-trip — so the rendered frame is exactly the one the
@@ -880,19 +888,56 @@ fn run_preview_mode(args: &Args) -> ExitCode {
     }
 }
 
-/// Resolve the frame count if the caller didn't supply one. The Flutter app
-/// probes and sets total_frames; direct callers (tests, CLI) may omit it, and
-/// the script's pipe_source needs an exact length (it builds a fixed-size
-/// clip). Without this the worker defaults to 1 frame and the whole output is
-/// a single frame. total_frames must be the *post-trim* count the decoder
-/// will actually pipe (trimming is decoder-side: -ss + -frames:v), matching
-/// the decoder's own range logic in pipeline_executor.
-fn fill_total_frames(
+/// Give `job` its source model and fill every source fact it left unset
+/// from it (`VideoJob::apply_source_model`). The model comes from the job
+/// itself, else from `source_file` (`--source`); one that is missing, or no
+/// longer describes `job.input_path` (the file changed after the app probed
+/// it), is probed here. A failed probe leaves the job as it was, and every
+/// decoder then works as it did before any of this was known.
+fn resolve_source(
     job: &mut VideoJob,
     deps: Option<&dependency_locator::DependencyLocator>,
-    log: impl Fn(&str),
+    source_file: Option<&Path>,
+    count_frames: bool,
+    log: impl Fn(&str) + Sync,
 ) {
-    if job.total_frames.is_none() {
+    if job.source.is_none() {
+        if let Some(path) = source_file {
+            match std::fs::read_to_string(path)
+                .map_err(anyhow::Error::from)
+                .and_then(|t| Ok(serde_json::from_str::<source_model::SourceModel>(&t)?))
+            {
+                Ok(m) => job.source = Some(m),
+                Err(e) => log(&format!("The source model {} could not be read ({e}); probing the source", path.display())),
+            }
+        }
+    }
+    let usable = job.source.as_ref().is_some_and(|m| m.describes(&job.input_path));
+    if !usable {
+        if job.source.take().is_some() {
+            log("The source model no longer describes the file (it changed after it was probed); probing it again");
+        }
+        if let Some(d) = deps {
+            if let Ok(ffprobe) = d.ffprobe_path() {
+                match source_model::probe_source(&ffprobe, &d.build_environment(), &job.input_path, |_| {}) {
+                    Ok(m) => {
+                        log(&format!(
+                            "Probed the source: {}x{}, {} frames at {:.3} fps",
+                            m.video.width, m.video.height, m.video.frame_count, m.video.frame_rate
+                        ));
+                        job.source = Some(m);
+                    }
+                    Err(e) => log(&format!("The source could not be probed: {e:#}")),
+                }
+            }
+        }
+    }
+    job.apply_source_model();
+    // A job without a count (the app always sends one) is counted by
+    // decoding, as before: the model's count and the decoded one disagree
+    // on some sources (task #50 report). Only the encode and the audio plan
+    // need it (`count_frames`); a preview or a detector never did.
+    if count_frames && job.total_frames.is_none() {
         if let Some(full) = deps.and_then(|d| d.probe_frame_count(&job.input_path)) {
             let effective = match (job.start_frame, job.end_frame) {
                 (Some(s), Some(e)) => (e - s + 1).max(0),
@@ -900,124 +945,58 @@ fn fill_total_frames(
                 (Some(s), None) => (full - s).max(0),
                 (None, None) => full,
             };
-            log(&format!("Probed input frame count: {} (effective after trim: {})", full, effective));
+            log(&format!("Counted the input's frames by decoding: {} (effective after trim: {})", full, effective));
             job.total_frames = Some(effective);
         }
     }
-
-}
-
-/// Fill a missing `input_width`/`input_height` from ffprobe. A job that carries
-/// both is never touched; if either is missing and the probe succeeds, both
-/// come from the probe; a failed probe leaves the old fallback in place.
-fn fill_frame_size(
-    job: &mut VideoJob,
-    deps: Option<&dependency_locator::DependencyLocator>,
-    log: impl Fn(&str),
-) {
-    if job.input_width.is_some() && job.input_height.is_some() {
-        return;
-    }
-    if let Some((w, h)) = deps.and_then(|d| d.probe_frame_size(&job.input_path)) {
-        log(&format!("Probed input frame size: {}x{}", w, h));
-        job.input_width = Some(w);
-        job.input_height = Some(h);
-    }
-}
-
-/// Fill a missing `video_start_offset` and `decoder_delay_frames` from
-/// ffprobe (see `source_decode::video_start_from_probe` and
-/// `decoder_delay_from_probe`; the delay needs a second, decoding probe only
-/// for an AVI that stores decode-order timestamps). Values the job carries
-/// are never touched; a failed probe leaves them unset, which means 0.
-fn fill_video_start(
-    job: &mut VideoJob,
-    deps: Option<&dependency_locator::DependencyLocator>,
-    log: impl Fn(&str),
-) {
-    if job.video_start_offset.is_some() && job.decoder_delay_frames.is_some() {
-        return;
-    }
-    let Some(d) = deps else { return };
-    let Ok(ffprobe) = d.ffprobe_path() else { return };
-    let Some((probed, delay)) =
-        source_decode::probe_video_timing(&ffprobe, &d.build_environment(), &job.input_path)
-    else {
-        return;
-    };
-    if job.video_start_offset.is_none() {
-        if probed > 0.0 {
-            job.source_has_audio =
-                source_decode::probe_has_audio(&ffprobe, &d.build_environment(), &job.input_path);
+    if job.source.is_some() {
+        if job.video_start() > 0.0 {
             log(&format!(
                 "The video's first picture starts {:.3} s after the file's start (its sound starts first); \
                  frame numbers count from the picture",
-                probed
+                job.video_start()
             ));
         }
-        job.video_start_offset = Some(probed);
-    }
-    if job.decoder_delay_frames.is_none() {
-        if delay > 0 {
+        if job.decoder_delay() > 0 {
             log(&format!(
                 "The source stores decode-order timestamps (AVI): the decoder stamps each picture \
                  {} frame(s) late, and seeks allow for it",
-                delay
+                job.decoder_delay()
             ));
         }
-        job.decoder_delay_frames = Some(delay);
-    }
-}
-
-/// Fill a missing `seek_plan` from ffprobe (see
-/// `source_decode::seek_plan_from_probe`, issue #169): only an MPEG-TS/PS
-/// source gets one. A job that carries it is never touched; a failed probe
-/// leaves it unset, which means seeking as before.
-fn fill_seek_plan(
-    job: &mut VideoJob,
-    deps: Option<&dependency_locator::DependencyLocator>,
-    log: impl Fn(&str),
-) {
-    if job.seek_plan.is_some() {
-        return;
-    }
-    let Some(d) = deps else { return };
-    let Ok(ffprobe) = d.ffprobe_path() else { return };
-    if let Some(plan) =
-        source_decode::probe_seek_plan(&ffprobe, &d.build_environment(), &job.input_path)
-    {
-        log(&format!(
-            "MPEG-TS/PS source (no keyframe index): seeks start {:.2} s early and drop to the frame",
-            plan.preroll
-        ));
-        job.seek_plan = Some(plan);
-    }
-}
-
-/// Fill a missing `source_grid` from ffprobe (see
-/// `source_decode::grid_from_probe`, rule 7). A job that carries it is never
-/// touched; a source with no grid (a failed probe, packets without
-/// timestamps) keeps the decoders' old arguments.
-fn fill_source_grid(
-    job: &mut VideoJob,
-    deps: Option<&dependency_locator::DependencyLocator>,
-    log: impl Fn(&str),
-) {
-    if job.source_grid.is_some() {
-        return;
-    }
-    let Some(d) = deps else { return };
-    let Ok(ffprobe) = d.ffprobe_path() else { return };
-    let fps = job.input_frame_rate.unwrap_or(29.97);
-    match source_decode::probe_source_grid(&ffprobe, &d.build_environment(), &job.input_path, fps) {
-        Some(grid) => {
+        if let Some(plan) = job.seek_plan() {
             log(&format!(
-                "Frames are placed on a {}/{} fps grid from the first picture ({:.6} s)",
-                grid.rate_num, grid.rate_den, grid.origin
+                "MPEG-TS/PS source (no keyframe index): seeks start {:.2} s early and drop to the frame",
+                plan.preroll
             ));
-            job.source_grid = Some(grid);
         }
-        None => log("No frame grid for this source (timestamps missing); decoding as before"),
+        match job.source_grid() {
+            Some(g) => log(&format!(
+                "Frames are placed on a {}/{} fps grid from the first picture ({:.6} s)",
+                g.rate_num, g.rate_den, g.origin
+            )),
+            None => log("No frame grid for this source (timestamps missing); decoding as before"),
+        }
+    }
+}
+
+/// `--probe-source`: print the source's model as one JSON line, or
+/// `{"error": ...}` when it could not be read.
+fn run_probe_source(input: &str) -> ExitCode {
+    let result = (|| -> anyhow::Result<source_model::SourceModel> {
+        let deps = dependency_locator::DependencyLocator::new()?;
+        let ffprobe = deps.ffprobe_path()?;
+        source_model::probe_source(&ffprobe, &deps.build_environment(), input, |m| eprintln!("{m}"))
+    })();
+    match result {
+        Ok(m) => {
+            println!("{}", serde_json::to_string(&m).unwrap_or_default());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({ "error": format!("{e:#}") }));
+            ExitCode::FAILURE
+        }
     }
 }
 
@@ -1041,6 +1020,12 @@ fn source_timeline(
     {
         return None;
     }
+    let fps = job.input_frame_rate.unwrap_or(29.97);
+    // The model holds the stored frames' times when they are irregular, so
+    // nothing is read again (a preview used to read every packet).
+    if let Some(m) = &job.source {
+        return m.timeline(fps, log);
+    }
     let deps = deps?;
     let ffprobe = deps.ffprobe_path().ok()?;
     source_timing::probe(
@@ -1054,6 +1039,7 @@ fn source_timeline(
 
 fn run_worker(
     config_path: &PathBuf,
+    source_file: Option<&Path>,
     reporter: &ProgressReporter,
     cancelled: Arc<AtomicBool>,
 ) -> Result<String> {
@@ -1093,38 +1079,19 @@ fn run_worker(
     // Resolve deps once for the pre-generation probes below.
     let deps = dependency_locator::DependencyLocator::new().ok();
 
-    fill_total_frames(&mut job, deps.as_ref(), |msg| {
-        reporter.send_log(models::LogLevel::Debug, msg)
-    });
-
-    // Same for the frame size: the app always sends ffprobe's width/height, but
-    // a direct caller may not, and the old 720x480 fallback is now a decode
-    // error for any other source rather than a silent rescale (source_decode).
-    fill_frame_size(&mut job, deps.as_ref(), |msg| {
-        reporter.send_log(models::LogLevel::Debug, msg)
-    });
-    // Where the video's first picture sits after the container's start: every
-    // seek adds it, and the output keeps the gap (source_decode, rule 5).
-    fill_video_start(&mut job, deps.as_ref(), |msg| {
+    // Every source fact the decoders need, from the model the app sent (or
+    // a file given with --source), probed only when the job carries none:
+    // a direct caller's job, the CLI (source_model, task #50).
+    resolve_source(&mut job, deps.as_ref(), source_file, true, |msg| {
         reporter.send_log(models::LogLevel::Info, msg)
     });
-    // An MPEG-TS/PS has no keyframe index: its seeks start a GOP early and
-    // trim to the frame (source_decode, rule 6).
-    fill_seek_plan(&mut job, deps.as_ref(), |msg| {
-        reporter.send_log(models::LogLevel::Info, msg)
-    });
-    // ... and its clock may reset mid-file (source_continuity), which the app
-    // handles before it sends a job; a hand-written job only gets a warning.
+    // An MPEG-TS/PS's clock may reset mid-file (source_continuity), which the
+    // app handles before it sends a job; a hand-written job only gets a warning.
     if job.seek_plan.is_some() {
         warn_on_resets(&job, deps.as_ref(), |msg| {
             reporter.send_log(models::LogLevel::Warning, msg)
         });
     }
-    // Every constant-rate decoder places the frames on the source's grid
-    // (source_decode, rule 7).
-    fill_source_grid(&mut job, deps.as_ref(), |msg| {
-        reporter.send_log(models::LogLevel::Debug, msg)
-    });
 
     // A variable-frame-rate source is decoded as stored and placed on the
     // grid by the script. Its length in grid slots replaces the stored-frame

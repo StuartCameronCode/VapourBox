@@ -237,7 +237,7 @@ impl TimelineWindow {
 }
 
 /// Parse an ffprobe rational ("30000/1001", "25/1", "0/0").
-fn parse_rational(s: &str) -> Option<f64> {
+pub(crate) fn parse_rational(s: &str) -> Option<f64> {
     let (n, d) = s.trim().split_once('/')?;
     let (n, d) = (n.parse::<f64>().ok()?, d.parse::<f64>().ok()?);
     (d != 0.0 && n > 0.0).then(|| n / d)
@@ -289,15 +289,30 @@ pub fn probe(
     let stream = json.get("streams")?.get(0)?;
     let r = parse_rational(stream.get("r_frame_rate")?.as_str()?)?;
     let avg = parse_rational(stream.get("avg_frame_rate")?.as_str()?)?;
-    if !rates_suggest_vfr(r, avg) {
-        return None;
-    }
     let start_time = json
         .get("format")
         .and_then(|f| f.get("start_time"))
         .and_then(|s| s.as_str())
         .and_then(|s| s.parse::<f64>().ok());
+    let (times, start) = probe_times(ffprobe, env, input, r, avg, start_time, &log)?;
+    timeline_from_times(&times, start, fps, log)
+}
 
+/// The stored frames' presentation times and the start `-ss` counts from,
+/// read only when the two rates [`rates_suggest_vfr`]; `None` for a
+/// constant-rate source or one whose times can't be trusted.
+pub fn probe_times(
+    ffprobe: &Path,
+    env: &std::collections::HashMap<String, String>,
+    input: &str,
+    r: f64,
+    avg: f64,
+    start_time: Option<f64>,
+    log: impl Fn(&str),
+) -> Option<(Vec<f64>, f64)> {
+    if !rates_suggest_vfr(r, avg) {
+        return None;
+    }
     log(&format!(
         "Source may have a variable frame rate (r_frame_rate {:.3}, average {:.3}); reading its frame timestamps",
         r, avg
@@ -319,13 +334,19 @@ pub fn probe(
     }
     let times = parse_packet_times(&String::from_utf8_lossy(&out.stdout))?;
     let first = times.iter().cloned().fold(f64::INFINITY, f64::min);
+    Some((times, start_time.unwrap_or(first)))
+}
+
+/// The timeline of stored frame `times` on the grid at `fps`, or `None` when
+/// they are regular (decode as constant rate).
+pub fn timeline_from_times(
+    times: &[f64],
+    start: f64,
+    fps: f64,
+    log: impl Fn(&str),
+) -> Option<SourceTimeline> {
     let (num, den) = crate::models::fps_to_rational(fps);
-    let timeline = SourceTimeline::build(
-        &times,
-        start_time.unwrap_or(first),
-        num.max(0) as u32,
-        den.max(0) as u32,
-    );
+    let timeline = SourceTimeline::build(times, start, num.max(0) as u32, den.max(0) as u32);
     match &timeline {
         Some(t) => log(&format!(
             "Variable frame rate: {} stored frames over {} frames at {:.3} fps ({} gaps)",

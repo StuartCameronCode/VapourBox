@@ -7,7 +7,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/models/preview_frame_info.dart';
-import 'package:vapourbox/services/field_order_detector.dart';
 import 'package:vapourbox/viewmodels/main_viewmodel.dart';
 import 'package:vapourbox/widgets/comparison_view_mode.dart';
 
@@ -58,18 +57,7 @@ void main() {
     });
   });
 
-  group('FieldOrderDetector.normalizeSar', () {
-    test('keeps a real SAR', () {
-      expect(FieldOrderDetector.normalizeSar('16:15'), '16:15');
-      expect(FieldOrderDetector.normalizeSar(' 64:45 '), '64:45');
-    });
-
-    test('square, unknown and missing read as none', () {
-      for (final raw in [null, '', 'N/A', '1:1', '0:1']) {
-        expect(FieldOrderDetector.normalizeSar(raw), isNull, reason: '$raw');
-      }
-    });
-  });
+  // The SAR is normalised by the worker (`source_model::normalize_sar`).
 }
 
 /// What the comparison panel draws each side at, through the view model it

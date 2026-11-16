@@ -92,6 +92,7 @@ fn test_preview_10bit_422_matches_source_frame() {
         source_grid: None,
         continuity_checked: false,
         source_has_audio: None,
+        source: None,
     };
 
     let cfg_path = out_dir.join("preview_pal_job.json");

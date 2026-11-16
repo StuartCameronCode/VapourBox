@@ -17,6 +17,8 @@ const _userFileReads = <String, Map<String, String>>{
     'String? get inputPath => selectedItem?.inputPath;': 'the user\'s file, for display',
     'if (_queue.any((q) => q.inputPath == filePath)) continue;': 'duplicate check on add',
     'item.inputPath,': 'the source _prepareContinuity scans and copies',
+    'final model = await _continuity.probeSource(item.inputPath);':
+        'the user\'s file is probed for its reset scan; the decoded file is probed again if it differs',
     'item.outputPath = _generateOutputPath(item.inputPath);': 'output naming',
     'inputPath: item.inputPath,': 'the failure log goes beside the user\'s file',
   },

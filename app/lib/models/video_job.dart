@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 import 'qtgmc_parameters.dart';
 import 'encoding_settings.dart';
 import 'processing_pipeline.dart';
+import 'source_model.dart';
 import 'subtitle_parameters.dart';
 
 part 'video_job.g.dart';
@@ -69,6 +70,11 @@ class VideoJob {
   /// worker scans and warns.
   final bool continuityChecked;
 
+  /// The worker's model of [inputPath] (`--probe-source`, task #50), sent
+  /// back as it came. The worker uses it instead of probing the source.
+  @JsonKey(fromJson: _sourceFromJson, toJson: _sourceToJson)
+  final SourceModel? source;
+
   VideoJob({
     String? id,
     required this.inputPath,
@@ -94,6 +100,7 @@ class VideoJob {
     this.burnInSubtitlePath,
     this.pitchFactorsPath,
     this.continuityChecked = false,
+    this.source,
   })  : id = id ?? const Uuid().v4(),
         qtgmcParameters = qtgmcParameters ?? QTGMCParameters(),
         encodingSettings = encodingSettings ?? EncodingSettings();
@@ -132,6 +139,7 @@ class VideoJob {
     String? burnInSubtitlePath,
     String? pitchFactorsPath,
     bool? continuityChecked,
+    SourceModel? source,
   }) {
     return VideoJob(
       id: id ?? this.id,
@@ -158,9 +166,15 @@ class VideoJob {
       burnInSubtitlePath: burnInSubtitlePath ?? this.burnInSubtitlePath,
       pitchFactorsPath: pitchFactorsPath ?? this.pitchFactorsPath,
       continuityChecked: continuityChecked ?? this.continuityChecked,
+      source: source ?? this.source,
     );
   }
 }
+
+SourceModel? _sourceFromJson(Map<String, dynamic>? json) =>
+    json == null ? null : SourceModel.fromJson(json);
+
+Map<String, dynamic>? _sourceToJson(SourceModel? model) => model?.toJson();
 
 /// DTO for subtitle settings sent to the worker.
 @JsonSerializable()

@@ -72,6 +72,7 @@ fn create_base_job(output_name: &str) -> VideoJob {
         source_grid: None,
         continuity_checked: false,
         source_has_audio: None,
+        source: None,
     }
 }
 
@@ -1291,6 +1292,7 @@ fn create_ivtc_base_job(output_name: &str) -> VideoJob {
         source_grid: None,
         continuity_checked: false,
         source_has_audio: None,
+        source: None,
     }
 }
 

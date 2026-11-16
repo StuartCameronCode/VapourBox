@@ -16,6 +16,7 @@ pub mod pixel_format;
 pub mod source_continuity;
 pub mod source_decode;
 pub mod source_timing;
+pub mod source_model;
 pub mod progress_reporter;
 pub mod addons;
 pub mod audio_restoration;

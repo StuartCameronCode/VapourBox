@@ -124,37 +124,16 @@ class _Source {
   _Source(this.width, this.height, this.pixFmt, this.fps);
 }
 
-double _rate(String? s) {
-  final parts = (s ?? '0/0').split('/');
-  final n = double.tryParse(parts[0]) ?? 0;
-  final d = parts.length > 1 ? double.tryParse(parts[1]) ?? 0 : 1;
-  return d == 0 ? 0 : n / d;
-}
-
 Future<_Source> _probe(String path) async {
-  final v = await WorkerHarness.firstStream(path,
-      selector: 'v:0',
-      entries: ['width', 'height', 'pix_fmt', 'r_frame_rate', 'avg_frame_rate']);
-  expect(v, isNotNull, reason: 'no video stream in $path');
-  final r = _rate(v!['r_frame_rate'] as String?);
-  final a = _rate(v['avg_frame_rate'] as String?);
-  // The app's choice: the picture rate for a field-coded source (the DVB-T
-  // clip's r_frame_rate is its 50 Hz field rate).
-  return _Source(v['width'] as int, v['height'] as int, v['pix_fmt'] as String,
-      FieldOrderDetector.selectFrameRate(r, a) ?? (r > 0 ? r : a));
+  // The worker's model, as the app reads it: the picture rate for a
+  // field-coded source (the DVB-T clip's r_frame_rate is its 50 Hz field rate).
+  final m = await WorkerHarness.sourceModel(path);
+  return _Source(m.width, m.height, m.pixelFormat ?? 'yuv420p', m.frameRate);
 }
 
-/// The decoder delay `PreviewGenerator` finds for [video] (issue #173), as
-/// the app probes it.
-Future<int> _decoderDelay(String video) async {
-  final j = await WorkerHarness.ffprobeJson([
-    '-v', 'error', '-select_streams', 'v:0', '-show_entries',
-    'stream=has_b_frames', '-of', 'json', video,
-  ]);
-  return FieldOrderDetector.probeDecoderDelay(WorkerHarness.ffprobePath, video,
-      hasBFrames: (j['streams'] as List).first['has_b_frames'] as int?,
-      videoStart: 0);
-}
+/// The decoder delay the app's model of [video] carries (issue #173).
+Future<int> _decoderDelay(String video) async =>
+    (await WorkerHarness.sourceModel(video)).decoderDelayFrames;
 
 VideoJob _job(String input, _Source s, String name,
     {int? start,
@@ -188,20 +167,8 @@ VideoJob _job(String input, _Source s, String name,
 /// What `PreviewGenerator` learns about where and how to seek: the video's
 /// start offset (#168) and, on an MPEG-TS/PS, the seek plan (#169).
 Future<({double offset, SeekPlan? plan})> _seekInfo(String video) async {
-  final j = await WorkerHarness.ffprobeJson([
-    '-v', 'error', '-select_streams', 'v:0', '-show_entries',
-    'stream=start_time:format=start_time,format_name', '-of', 'json', video,
-  ]);
-  final format = j['format'] as Map<String, dynamic>;
-  final start = await FieldOrderDetector.probeVideoStart(
-    WorkerHarness.ffprobePath,
-    video,
-    streamStart: double.tryParse('${(j['streams'] as List).first['start_time']}'),
-    containerStart: double.tryParse('${format['start_time']}'),
-  );
-  final plan = await FieldOrderDetector.probeSeekPlan(WorkerHarness.ffprobePath, video,
-      formatName: format['format_name'] as String?);
-  return (offset: start.offset, plan: plan);
+  final m = await WorkerHarness.sourceModel(video);
+  return (offset: m.videoStartOffset, plan: m.seekPlan);
 }
 
 /// The app's own "before" picture of [frame], through the same argument
@@ -210,8 +177,7 @@ Future<({double offset, SeekPlan? plan})> _seekInfo(String video) async {
 /// (issue #174; none for an AVI that stores decode-order timestamps).
 Future<Uint8List> _beforeFrame(String video, int frame, double fps,
     ({double offset, SeekPlan? plan}) seek, int delay) async {
-  final grid = await FieldOrderDetector.probeSourceGrid(
-      WorkerHarness.ffprobePath, video, frameRate: fps);
+  final grid = (await WorkerHarness.sourceModel(video)).sourceGrid;
   final out = File(p.join(Directory.systemTemp.path,
       'vb_seek_before_${DateTime.now().microsecondsSinceEpoch}.png'));
   try {
@@ -382,7 +348,7 @@ void main() {
     ]) {
       test('$file: the app counts what an untrimmed decode delivers', () async {
         final video = _resource(file);
-        final info = await FieldOrderDetector().getVideoInfo(video);
+        final info = await WorkerHarness.sourceModel(video);
         // The worker's own count when a job carries none: a full decode
         // on the source's grid, exactly the encode's length.
         final source = await _probe(video);
@@ -392,7 +358,7 @@ void main() {
         expect(r.success, isTrue, reason: r.error);
         final frames = await WorkerHarness.firstStream(r.outputPath!,
             selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
-        expect(info!.frameCount, int.parse(frames!['nb_read_frames'].toString()));
+        expect(info.frameCount, int.parse(frames!['nb_read_frames'].toString()));
       });
     }
 
@@ -402,8 +368,8 @@ void main() {
           selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
       expect(int.parse(seq!['nb_read_frames'].toString()), 150,
           reason: 'the sequential decode');
-      final info = await FieldOrderDetector().getVideoInfo(video);
-      expect(info!.frameCount, 150);
+      final info = await WorkerHarness.sourceModel(video);
+      expect(info.frameCount, 150);
       final r = await WorkerHarness.runJob(
           _job(video, await _probe(video), 'last_picture_dvd', total: info.frameCount)
               .toJson(),
@@ -443,11 +409,11 @@ void main() {
 
       test('the analysed frame count is every picture (it was the last segment\'s)',
           () async {
-        final before = await FieldOrderDetector().getVideoInfo(original);
-        final after = await FieldOrderDetector().getVideoInfo(decode);
-        expect(before!.frameCount, lessThan(160), reason: 'the fault the copy fixes');
+        final before = await WorkerHarness.sourceModel(original);
+        final after = await WorkerHarness.sourceModel(decode);
+        expect(before.frameCount, lessThan(160), reason: 'the fault the copy fixes');
         // The PS copy's last picture's packet has no PTS: counted since task #26.
-        expect(after!.frameCount, 300);
+        expect(after.frameCount, 300);
       });
 
       for (final n in [100, 149, 150, 151, 160, 290]) {
@@ -478,7 +444,7 @@ void main() {
           // Untrimmed, the job carries the app's count, as the app sends it:
           // the encode stops at it (-frames:v), so a short count drops pictures.
           final total = start == null
-              ? (await FieldOrderDetector().getVideoInfo(decode))!.frameCount
+              ? (await WorkerHarness.sourceModel(decode)).frameCount
               : null;
           final r = await WorkerHarness.runJob(
             _job(decode, source, name, start: start, end: end, total: total, checked: true)

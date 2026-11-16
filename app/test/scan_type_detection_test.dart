@@ -9,7 +9,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:vapourbox/models/video_job.dart';
 import 'package:vapourbox/services/field_order_detector.dart';
-import 'package:vapourbox/services/tool_locator.dart';
+import 'package:vapourbox/services/tool_locator.dart' show ToolLocator;
+
+import 'support/worker_harness.dart';
 
 void main() {
   late String testResourcesDir;
@@ -33,91 +35,19 @@ void main() {
       fail('ffprobe not found — ensure deps are downloaded');
     }
 
+    await WorkerHarness.ensureReady();
     detector = FieldOrderDetector();
   });
 
-  group('selectFrameRate (issue #13)', () {
-    test('field-coded interlaced PAL (r=50, avg=25) → picture rate 25', () {
-      // DVB-T PAL rip stored as separated fields reports r_frame_rate as the
-      // field rate. Must resolve to 25 so QTGMC double-rate targets 50p, not 100.
-      expect(FieldOrderDetector.selectFrameRate(50.0, 25.0), 25.0);
-    });
+  // The worker's model of the source, then the app's scan analysis.
+  Future<VideoInfo?> videoInfo(String videoPath) async {
+    final model = await WorkerHarness.sourceModel(videoPath);
+    return detector.getVideoInfo(videoPath, model);
+  }
 
-    test('field-coded interlaced NTSC (r=59.94, avg=29.97) → 29.97', () {
-      expect(FieldOrderDetector.selectFrameRate(59.94, 29.97), 29.97);
-    });
-
-    test('true 50p progressive (r=50, avg=50) keeps 50', () {
-      expect(FieldOrderDetector.selectFrameRate(50.0, 50.0), 50.0);
-    });
-
-    test('frame-coded 25fps (r=25, avg=25) keeps 25', () {
-      expect(FieldOrderDetector.selectFrameRate(25.0, 25.0), 25.0);
-    });
-
-    test('missing/invalid avg falls back to r', () {
-      expect(FieldOrderDetector.selectFrameRate(25.0, null), 25.0);
-      expect(FieldOrderDetector.selectFrameRate(50.0, 0.0), 50.0);
-    });
-
-    test('missing r falls back to avg', () {
-      expect(FieldOrderDetector.selectFrameRate(null, 25.0), 25.0);
-    });
-  });
-
-  group('frameCountFor (issue #137)', () {
-    test('a constant-rate source counts its stored frames', () {
-      expect(
-          FieldOrderDetector.frameCountFor(
-              storedFrames: 3154,
-              rFrameRate: 29.97,
-              avgFrameRate: 29.97,
-              duration: 105.119,
-              frameRate: 29.97),
-          3154);
-    });
-
-    test('a variable-rate source counts its duration at the nominal rate', () {
-      // 30 fps that slowed to 20 for half its length: 250 stored frames over
-      // 10 s. Counting stored frames cut the encode off 1.7 s early.
-      expect(
-          FieldOrderDetector.frameCountFor(
-              storedFrames: 250,
-              rFrameRate: 30.0,
-              avgFrameRate: 25.0,
-              duration: 10.0,
-              frameRate: 30.0),
-          300);
-    });
-
-    test('field-coded interlaced (2:1) is constant-rate, not variable', () {
-      expect(FieldOrderDetector.isVariableRate(50.0, 25.0), isFalse);
-      expect(
-          FieldOrderDetector.frameCountFor(
-              storedFrames: 750,
-              rFrameRate: 50.0,
-              avgFrameRate: 25.0,
-              duration: 30.0,
-              frameRate: 25.0),
-          750);
-    });
-
-    test('container rounding of the average is not variable rate', () {
-      expect(FieldOrderDetector.isVariableRate(30000 / 1001, 29.97), isFalse);
-      expect(FieldOrderDetector.isVariableRate(30.0, 29.9), isTrue);
-    });
-
-    test('no stored count and constant rate leaves it to the caller', () {
-      expect(
-          FieldOrderDetector.frameCountFor(
-              storedFrames: null,
-              rFrameRate: 25.0,
-              avgFrameRate: 25.0,
-              duration: 10.0,
-              frameRate: 25.0),
-          isNull);
-    });
-  });
+  // The picture rate (selectFrameRate, issue #13) and the frame count (issue
+  // #137) are the worker's since task #50: `source_model.rs` tests them, and
+  // the DVB-T test below checks the rate end to end.
 
   group('Scan Type Detection', () {
     test('soft_telecine_test.mkv is detected as soft telecine', () async {
@@ -127,7 +57,7 @@ void main() {
         return;
       }
 
-      final info = await detector.getVideoInfo(videoPath);
+      final info = await videoInfo(videoPath);
       expect(info, isNotNull);
       expect(info!.scanType, ScanType.softTelecine,
           reason: 'idet sees progressive frames but repeat_pict reveals '
@@ -141,7 +71,7 @@ void main() {
         return;
       }
 
-      final info = await detector.getVideoInfo(videoPath);
+      final info = await videoInfo(videoPath);
       expect(info, isNotNull);
       // idet detects interlaced frames with repeated fields → hard telecine
       expect(info!.scanType, ScanType.telecine,
@@ -163,7 +93,7 @@ void main() {
         return;
       }
 
-      final info = await detector.getVideoInfo(videoPath);
+      final info = await videoInfo(videoPath);
       expect(info, isNotNull);
       expect(info!.frameRate, closeTo(25.0, 0.01),
           reason: 'field-coded interlaced source must resolve to the 25fps '
@@ -181,7 +111,7 @@ void main() {
         return;
       }
 
-      final info = await detector.getVideoInfo(videoPath);
+      final info = await videoInfo(videoPath);
       expect(info, isNotNull);
       // idet detects TFF interlaced frames, no repeated fields
       expect(info!.scanType, ScanType.interlaced,
@@ -197,7 +127,7 @@ void main() {
         return;
       }
 
-      final info = await detector.getVideoInfo(videoPath);
+      final info = await videoInfo(videoPath);
       expect(info, isNotNull);
       // H.264 progressive at 23.976fps — already processed, no telecine
       expect(info!.scanType, ScanType.progressive,
@@ -214,7 +144,7 @@ void main() {
         return;
       }
 
-      final info = await detector.getVideoInfo(videoPath);
+      final info = await videoInfo(videoPath);
       expect(info, isNotNull);
       // idet sees 100% progressive frames
       expect(info!.scanType, ScanType.progressive,
@@ -231,7 +161,7 @@ void main() {
         return;
       }
 
-      final info = await detector.getVideoInfo(videoPath);
+      final info = await videoInfo(videoPath);
       expect(info, isNotNull);
       // idet sees ~97% progressive frames (a few TFF false positives)
       expect(info!.scanType, ScanType.progressive,

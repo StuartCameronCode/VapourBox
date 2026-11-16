@@ -2181,12 +2181,15 @@ void main() {
     // The method left Bwdif's block in the script with `{{BWDIF_FIELD}}` raw,
     // which vspipe reports as a Python SyntaxError on every source.
     test('soft telecine: VDecimate only, no other method\'s block', () async {
+      // Soft Telecine decimates only at a pulldown rate (issue #174). The
+      // fixture is 25 fps, which a job without a rate now gets from the
+      // worker's source model (task #50), so the job declares one.
       final job = buildJob(
         testName: 'soft_telecine',
         deinterlace: const QTGMCParameters(
           enabled: true, method: DeinterlaceMethod.softTelecine,
         ),
-      );
+      ).copyWith(inputFrameRate: 30000 / 1001);
       print('  Generating soft telecine script...');
       final script = await generateScriptViaWorker(job);
       expect(script, contains('core.vivtc.VDecimate(clip)'));

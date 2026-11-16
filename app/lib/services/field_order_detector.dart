@@ -2,107 +2,26 @@ import 'dart:convert';
 import 'dart:io';
 
 import '../models/hdr_display.dart';
+import '../models/source_model.dart';
 import '../models/video_job.dart';
 import 'tool_locator.dart';
 
 /// Detects field order and scan type from video files using ffmpeg idet filter
 /// and ffprobe frame analysis.
+///
+/// Every other fact about a source (size, rate, frame count, where the first
+/// picture sits, how it seeks, its colour tags) comes from the worker's
+/// [SourceModel] (`--probe-source`, task #50); this class only adds the scan
+/// type, which needs a look at the pictures.
 class FieldOrderDetector {
   FieldOrderDetector();
 
-  /// Detects the field order of a video file using idet pixel analysis.
-  ///
-  /// Returns [FieldOrder.topFieldFirst], [FieldOrder.bottomFieldFirst], or [FieldOrder.progressive]
-  /// based on actual frame content. Returns null if detection fails.
-  Future<FieldOrder?> detect(String videoPath) async {
-    final idet = await _runIdet(videoPath);
-    if (idet != null) {
-      return idet.fieldOrder;
-    }
-
-    // Fall back to metadata-based detection
-    return _detectFieldOrderFromMetadata(videoPath);
-  }
-
-  /// Gets detailed video information for display.
-  Future<VideoInfo?> getVideoInfo(String videoPath) async {
-    final ffprobe = ToolLocator.instance.ffprobePath;
-    if (ffprobe == null) {
-      return null;
-    }
-
+  /// The [VideoInfo] for [videoPath]: the worker's [model] of it, plus the
+  /// scan type and field order from idet and the repeat flags.
+  Future<VideoInfo?> getVideoInfo(String videoPath, SourceModel model) async {
     try {
-      final result = await Process.run(
-        ffprobe,
-        [
-          '-v', 'quiet',
-          '-print_format', 'json',
-          '-show_streams',
-          '-show_format',
-          videoPath,
-        ],
-      );
-
-      if (result.exitCode != 0) {
-        return null;
-      }
-
-      final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
-      final streams = json['streams'] as List<dynamic>?;
-      final format = json['format'] as Map<String, dynamic>?;
-
-      if (streams == null || streams.isEmpty) {
-        return null;
-      }
-
-      // Find video stream
-      Map<String, dynamic>? videoStream;
-      Map<String, dynamic>? audioStream;
-
-      for (final stream in streams) {
-        final s = stream as Map<String, dynamic>;
-        final codecType = s['codec_type'] as String?;
-        if (codecType == 'video' && videoStream == null) {
-          videoStream = s;
-        } else if (codecType == 'audio' && audioStream == null) {
-          audioStream = s;
-        }
-      }
-
-      if (videoStream == null) {
-        return null;
-      }
-
-      final width = videoStream['width'] as int?;
-      final height = videoStream['height'] as int?;
-      final rFrameRate = _parseFrameRate(videoStream['r_frame_rate'] as String?);
-      final avgFrameRate =
-          _parseFrameRate(videoStream['avg_frame_rate'] as String?);
-      final frameRate = selectFrameRate(rFrameRate, avgFrameRate);
-      final duration = _parseDuration(format?['duration'] as String?);
-      final frameCount = frameCountFor(
-        storedFrames: _parseFrameCount(videoStream['nb_frames'] as String?),
-        rFrameRate: rFrameRate,
-        avgFrameRate: avgFrameRate,
-        duration: _parseDuration(videoStream['duration'] as String?) ?? duration,
-        frameRate: frameRate,
-      );
-      final videoStart = await probeVideoStart(
-        ffprobe,
-        videoPath,
-        streamStart: double.tryParse('${videoStream['start_time']}'),
-        containerStart: double.tryParse('${format?['start_time']}'),
-      );
-      final codec = videoStream['codec_name'] as String?;
-      final pixelFormat = videoStream['pix_fmt'] as String?;
-
-      // Extract sample aspect ratio (SAR) — null if square pixels or unavailable
-      final sar = normalizeSar(videoStream['sample_aspect_ratio'] as String?);
-
-      // Get metadata field order for context
-      final metadataFieldOrder = videoStream['field_order'] as String?;
-
-      // Run idet and repeat_pict analysis in parallel
+      final frameRate = model.frameRate;
+      final duration = model.containerDuration ?? 0;
       final results = await Future.wait([
         _runIdet(videoPath, duration: duration),
         _detectSoftTelecine(videoPath),
@@ -110,48 +29,35 @@ class FieldOrderDetector {
       final idet = results[0] as _IdetResult?;
       final hasSoftTelecine = results[1] as bool;
 
-      // Determine field order: prefer idet, fall back to metadata
-      FieldOrder? fieldOrder;
-      if (idet != null) {
-        fieldOrder = idet.fieldOrder;
-      }
-      fieldOrder ??= await _detectFieldOrderFromMetadata(videoPath);
+      // Field order: idet first, then the stream's own claim.
+      final fieldOrder = idet?.fieldOrder ?? fieldOrderFromMetadata(model);
 
-      // Determine scan type from idet + repeat_pict + metadata context
       final scanType = _classifyScanType(
-        idet, hasSoftTelecine,
-        metadataFieldOrder: metadataFieldOrder,
+        idet,
+        hasSoftTelecine,
+        metadataFieldOrder: model.fieldOrder,
         frameRate: frameRate,
       );
 
       return VideoInfo(
-        width: width ?? 0,
-        height: height ?? 0,
-        frameRate: frameRate ?? 0,
-        duration: duration ?? 0,
-        frameCount: frameCount ??
-            await frameCountWithoutStoredCount(
-              ffprobe,
-              videoPath,
-              streamDuration: _parseDuration(videoStream['duration'] as String?),
-              containerDuration: duration,
-              start: videoStart,
-              frameRate: frameRate,
-              streamStart: double.tryParse('${videoStream['start_time']}'),
-              formatName: format?['format_name'] as String?,
-            ),
-        codec: codec ?? 'unknown',
-        pixelFormat: pixelFormat ?? 'unknown',
+        width: model.width,
+        height: model.height,
+        frameRate: frameRate,
+        duration: duration,
+        frameCount: model.frameCount,
+        codec: model.codec ?? 'unknown',
+        pixelFormat: model.pixelFormat ?? 'unknown',
         fieldOrder: fieldOrder,
         scanType: scanType,
-        hasAudio: audioStream != null,
-        sar: sar,
-        colorMatrix: colorTag(videoStream, 'color_space'),
-        colorPrimaries: colorTag(videoStream, 'color_primaries'),
-        colorTransfer: colorTag(videoStream, 'color_transfer'),
-        colorRange: colorTag(videoStream, 'color_range'),
-        dolbyVision: DolbyVisionInfo.fromStream(videoStream),
-        videoStartOffset: videoStart.offset,
+        hasAudio: model.hasAudio,
+        sar: model.sar,
+        colorMatrix: model.colorMatrix,
+        colorPrimaries: model.colorPrimaries,
+        colorTransfer: model.colorTransfer,
+        colorRange: model.colorRange,
+        dolbyVision: model.dolbyVision,
+        videoStartOffset: model.videoStartOffset,
+        pulldownRate: model.pulldownRate,
       );
     } catch (e) {
       return null;
@@ -394,681 +300,39 @@ class FieldOrderDetector {
   // METADATA FALLBACK
   // ============================================================================
 
-  /// Detects field order from stream metadata (fallback when idet unavailable).
-  Future<FieldOrder?> _detectFieldOrderFromMetadata(String videoPath) async {
-    final ffprobe = ToolLocator.instance.ffprobePath;
-    if (ffprobe == null) return null;
-
-    try {
-      final result = await Process.run(
-        ffprobe,
-        [
-          '-v', 'quiet',
-          '-print_format', 'json',
-          '-show_streams',
-          '-select_streams', 'v:0',
-          videoPath,
-        ],
-      );
-
-      if (result.exitCode != 0) return null;
-
-      final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
-      final streams = json['streams'] as List<dynamic>?;
-      if (streams == null || streams.isEmpty) return null;
-
-      final videoStream = streams[0] as Map<String, dynamic>;
-
-      // Check field_order tag
-      final fieldOrder = videoStream['field_order'] as String?;
-      if (fieldOrder != null) {
-        switch (fieldOrder.toLowerCase()) {
-          case 'tt':
-          case 'tb':
-            return FieldOrder.topFieldFirst;
-          case 'bb':
-          case 'bt':
-            return FieldOrder.bottomFieldFirst;
-          case 'progressive':
-            return FieldOrder.progressive;
-        }
-      }
-
-      // Fallback: check codec tags
-      final codecTagString = videoStream['codec_tag_string'] as String?;
-      if (codecTagString != null) {
-        if (codecTagString.toLowerCase().contains('dv')) {
-          final frameRate = _parseFrameRate(videoStream['r_frame_rate'] as String?);
-          if (frameRate != null && frameRate < 26) {
-            return FieldOrder.topFieldFirst;
-          } else {
-            return FieldOrder.bottomFieldFirst;
-          }
-        }
-      }
-
-      // Check if interlaced based on codec
-      final codecName = videoStream['codec_name'] as String?;
-      if (codecName != null && codecName.toLowerCase() == 'mpeg2video') {
+  /// The field order the stream's metadata claims (fallback when idet has
+  /// no answer): its `field_order`, else a DV codec tag (TFF below 26 fps,
+  /// BFF above), else TFF for MPEG-2.
+  static FieldOrder? fieldOrderFromMetadata(SourceModel model) {
+    switch (model.fieldOrder?.toLowerCase()) {
+      case 'tt':
+      case 'tb':
         return FieldOrder.topFieldFirst;
-      }
-
-      return null;
-    } catch (e) {
-      return null;
+      case 'bb':
+      case 'bt':
+        return FieldOrder.bottomFieldFirst;
+      case 'progressive':
+        return FieldOrder.progressive;
     }
-  }
-
-  // ============================================================================
-  // UTILITIES
-  // ============================================================================
-
-  /// ffprobe's `sample_aspect_ratio` as the job carries it: null for square
-  /// pixels or when there is none to read (`N/A`, `1:1`, and `0:1`, which is
-  /// ffprobe's "unknown"). The encode and the preview jobs both go through
-  /// this, so the preview fits the frame with the same SAR as the encode
-  /// (issue #149).
-  static String? normalizeSar(String? raw) {
-    final sar = raw?.trim();
-    if (sar == null || sar.isEmpty || sar == 'N/A' || sar == '1:1') return null;
-    final parts = sar.split(':');
-    if (parts.length == 2 && (double.tryParse(parts[0]) ?? 0) <= 0) return null;
-    return sar;
-  }
-
-  /// Picks the true picture frame rate from the container's `r_frame_rate`
-  /// (the stream's base/tick rate) and `avg_frame_rate` (the average displayed
-  /// rate).
-  ///
-  /// Field-coded interlaced H.264 — e.g. a DVB-T PAL rip stored as "separated
-  /// fields" — reports `r_frame_rate` as the *field* rate (50 for 25fps PAL,
-  /// 59.94 for 29.97fps NTSC) while `avg_frame_rate` reports the real picture
-  /// rate (25 / 29.97). Trusting the field rate makes VapourBox think the
-  /// source is 50p, so QTGMC "Double Rate" deinterlacing targets 100fps and
-  /// the pipe-source clip is built at the wrong rate (issue #13).
-  ///
-  /// When `avg` is roughly half of `r` (the field-coded signature), trust
-  /// `avg`. Otherwise keep `r` — it's the reliable rate for CFR progressive
-  /// and frame-coded interlaced content, and `avg` can be 0/0 or skewed by
-  /// VFR/duration rounding.
-  static double? selectFrameRate(double? rFrameRate, double? avgFrameRate) {
-    if (rFrameRate == null || rFrameRate <= 0) return avgFrameRate;
-    if (avgFrameRate == null || avgFrameRate <= 0) return rFrameRate;
-    final ratio = rFrameRate / avgFrameRate;
-    if (ratio > 1.8 && ratio < 2.2) {
-      return avgFrameRate;
+    if (model.codecTagString?.toLowerCase().contains('dv') ?? false) {
+      final rate = model.rFrameRate;
+      return rate != null && rate < 26
+          ? FieldOrder.topFieldFirst
+          : FieldOrder.bottomFieldFirst;
     }
-    return rFrameRate;
-  }
-
-  /// Relative difference between `r_frame_rate` and `avg_frame_rate` above
-  /// which a source may have a variable frame rate. The worker's
-  /// `source_timing::VFR_RATE_TOLERANCE` — keep the two equal.
-  static const double vfrRateTolerance = 0.0002;
-
-  /// Whether ffprobe's two rates say the source may have a variable frame
-  /// rate (a phone or screen recording that slows down). Field-coded
-  /// interlaced video's 2:1 ratio (see [selectFrameRate]) is constant-rate.
-  static bool isVariableRate(double? rFrameRate, double? avgFrameRate) {
-    if (rFrameRate == null || avgFrameRate == null) return false;
-    if (rFrameRate <= 0 || avgFrameRate <= 0) return false;
-    final ratio = rFrameRate / avgFrameRate;
-    if (ratio > 1.8 && ratio < 2.2) return false;
-    return ((rFrameRate - avgFrameRate) / rFrameRate).abs() > vfrRateTolerance;
-  }
-
-  /// The source's length in frames at [frameRate] — the count the timeline,
-  /// trims and the worker's pipe all work in.
-  ///
-  /// `nb_frames` is the number of frames *stored*. For a variable-frame-rate
-  /// source that is fewer than its duration holds at the nominal rate: the
-  /// gaps where the camera slowed down have no frame of their own. Counting
-  /// stored frames made the timeline short, put every trim point early, and
-  /// cut the end off the encode (issue #137), so such a source is counted
-  /// by duration instead; the worker places its frames on the same grid.
-  static int? frameCountFor({
-    required int? storedFrames,
-    required double? rFrameRate,
-    required double? avgFrameRate,
-    required double? duration,
-    required double? frameRate,
-  }) {
-    if (isVariableRate(rFrameRate, avgFrameRate) &&
-        duration != null &&
-        duration > 0 &&
-        frameRate != null &&
-        frameRate > 0) {
-      return (duration * frameRate).round();
+    if (model.codec?.toLowerCase() == 'mpeg2video') {
+      return FieldOrder.topFieldFirst;
     }
-    return storedFrames;
-  }
-
-  double? _parseFrameRate(String? rateStr) {
-    if (rateStr == null) return null;
-
-    final parts = rateStr.split('/');
-    if (parts.length == 2) {
-      final num = double.tryParse(parts[0]);
-      final den = double.tryParse(parts[1]);
-      if (num != null && den != null && den != 0) {
-        return num / den;
-      }
-    }
-    return double.tryParse(rateStr);
-  }
-
-  double? _parseDuration(String? durationStr) {
-    if (durationStr == null) return null;
-    return double.tryParse(durationStr);
-  }
-
-  int? _parseFrameCount(String? countStr) {
-    if (countStr == null) return null;
-    return int.tryParse(countStr);
-  }
-
-  /// The length in frames of a constant-rate source with no stored count
-  /// (`nb_frames` absent: TS, most MKV), counted from the video's first
-  /// picture, as the worker decodes it:
-  ///
-  /// 1. the video stream's own duration plus its leading pictures (an open
-  ///    GOP's B pictures shown before the stream's `start_time`);
-  /// 2. else the container's duration less the video's start offset.
-  ///
-  /// The container's duration alone runs from the earliest stream: on a DVB-T
-  /// capture whose sound starts 1.2 s first it counted 158 frames for a
-  /// 128-frame video, and the encode padded the difference with repeats.
-  static int frameCountFromDuration({
-    required double? streamDuration,
-    required double? containerDuration,
-    required VideoStart start,
-    required double? frameRate,
-  }) {
-    if (frameRate == null || frameRate <= 0) return 0;
-    if (streamDuration != null && streamDuration > 0) {
-      return ((streamDuration + start.leading) * frameRate).round();
-    }
-    if (containerDuration == null) return 0;
-    final d = containerDuration - start.offset;
-    return d > 0 ? (d * frameRate).round() : 0;
-  }
-
-  /// The length in frames of a source with no `nb_frames`: by its stream
-  /// duration when it has one ([frameCountFromDuration]), on an MPEG-TS/PS
-  /// plus a last picture whose packet has no PTS
-  /// ([frameCountWithUntimedTail], task #26); otherwise (Matroska/WebM) from
-  /// its last picture on its grid ([frameCountFromLastPicture]), which is
-  /// what the worker's decode produces, falling back to the container's
-  /// duration.
-  static Future<int> frameCountWithoutStoredCount(
-    String ffprobe,
-    String videoPath, {
-    required double? streamDuration,
-    required double? containerDuration,
-    required VideoStart start,
-    required double? frameRate,
-    double? streamStart,
-    String? formatName,
-  }) async {
-    final byDuration = frameCountFromDuration(
-      streamDuration: streamDuration,
-      containerDuration: containerDuration,
-      start: start,
-      frameRate: frameRate,
-    );
-    if (streamDuration != null &&
-        streamDuration > 0 &&
-        frameRate != null &&
-        frameRate > 0 &&
-        streamStart != null &&
-        probesUntimedTail(formatName, streamStart)) {
-      final untimed = await probeUntimedLastPicture(ffprobe, videoPath,
-          streamStart: streamStart,
-          streamDuration: streamDuration,
-          frameRate: frameRate);
-      return frameCountWithUntimedTail(
-        byDuration: byDuration,
-        untimedLast: untimed,
-        streamStart: streamStart,
-        start: start,
-        frameRate: frameRate,
-      );
-    }
-    if ((streamDuration != null && streamDuration > 0) ||
-        containerDuration == null ||
-        frameRate == null ||
-        frameRate <= 0) {
-      return byDuration;
-    }
-    final grid =
-        await probeSourceGrid(ffprobe, videoPath, frameRate: frameRate);
-    if (grid == null) return byDuration;
-    final last = await probeLastPicture(ffprobe, videoPath,
-        containerDuration: containerDuration);
-    if (last == null) return byDuration;
-    final n = frameCountFromLastPicture(last, grid);
-    return n > 0 ? n : byDuration;
-  }
-
-  /// Seconds before the stream's end that [tailFramesProbeArgs] decode from.
-  static const tailFramesProbeSeconds = 3.0;
-
-  /// ffprobe's arguments (before the input) for [untimedLastPicture]: the
-  /// frames decoded from [from] (an absolute timestamp, as `-read_intervals`
-  /// takes it) to the end.
-  static List<String> tailFramesProbeArgs(double from) => [
-        '-v', 'error',
-        '-select_streams', 'v:0',
-        '-show_entries', 'frame=best_effort_timestamp_time,duration_time',
-        '-read_intervals', '${(from > 0 ? from : 0.0).toStringAsFixed(6)}%',
-        '-of', 'json',
-      ];
-
-  /// Whether [frameCountWithoutStoredCount] looks for a last picture with no
-  /// timestamp: only on an MPEG-TS/PS (the formats a [SeekPlan] covers) with
-  /// a known stream start. Every other source is counted as before.
-  static bool probesUntimedTail(String? formatName, double? streamStart) =>
-      streamStart != null && seeksByTimestampSearch(formatName);
-
-  /// The presentation time ffmpeg's decoder gives the last picture that has
-  /// no timestamp of its own, from ffprobe's answer to [tailFramesProbeArgs];
-  /// null when every frame has one (task #26).
-  ///
-  /// An MPEG-PS (DVD/VOB) leaves some packets without a PTS. Mid-stream the
-  /// decoder still times such a picture from its DTS, but the reference
-  /// picture flushed at the end has neither, and ffprobe's stream duration
-  /// (largest known PTS plus its duration) ends one picture early:
-  /// `seek_dvd_pal.mpg` lasts 5.96 s by ffprobe and decodes 150 pictures.
-  /// ffmpeg's decoder (`ffmpeg_dec.c`) stamps such a frame with the previous
-  /// frame's time plus that frame's duration, and so does this walk: a frame
-  /// with no timestamp gets `prev + prev's duration_time` (else one frame at
-  /// [frameRate]); untimed frames before the first timed one are skipped.
-  static double? untimedLastPicture(Map<String, dynamic> json,
-      {required double frameRate}) {
-    double? num(Object? v) {
-      final d = v == null ? null : double.tryParse('$v');
-      return d != null && d.isFinite ? d : null;
-    }
-
-    final frames = (json['frames'] as List<dynamic>?) ?? const [];
-    double? prevT;
-    var prevD = 0.0;
-    double? last;
-    for (final f in frames) {
-      final m = f as Map<String, dynamic>;
-      var t = num(m['best_effort_timestamp_time']);
-      final d = num(m['duration_time']);
-      final dur = d != null && d > 0 ? d : (frameRate > 0 ? 1 / frameRate : 0.0);
-      if (t == null) {
-        if (prevT == null) continue;
-        t = prevT + prevD;
-        if (last == null || t > last) last = t;
-      }
-      prevT = t;
-      prevD = dur;
-    }
-    return last;
-  }
-
-  /// The frame count by duration ([byDuration]) with a last picture that had
-  /// no timestamp ([untimedLast], from [untimedLastPicture]) counted in: its
-  /// slot on the grid from the first picture (`streamStart - leading`), plus
-  /// one. Never fewer than [byDuration].
-  static int frameCountWithUntimedTail({
-    required int byDuration,
-    required double? untimedLast,
-    required double streamStart,
-    required VideoStart start,
-    required double frameRate,
-  }) {
-    if (untimedLast == null || frameRate <= 0) return byDuration;
-    final first = streamStart - start.leading;
-    final n = ((untimedLast - first) * frameRate).round() + 1;
-    return n > byDuration ? n : byDuration;
-  }
-
-  /// Probe [untimedLastPicture] over the last [tailFramesProbeSeconds] of
-  /// the stream. Null on any failure, or when nothing decodes there (a GOP
-  /// longer than the window): the count is then the duration's.
-  static Future<double?> probeUntimedLastPicture(
-    String ffprobe,
-    String videoPath, {
-    required double streamStart,
-    required double streamDuration,
-    required double frameRate,
-  }) async {
-    try {
-      final result = await Process.run(ffprobe, [
-        ...tailFramesProbeArgs(
-            streamStart + streamDuration - tailFramesProbeSeconds),
-        videoPath,
-      ]);
-      if (result.exitCode != 0) return null;
-      return untimedLastPicture(
-          jsonDecode(result.stdout as String) as Map<String, dynamic>,
-          frameRate: frameRate);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// ffprobe's arguments (before the input) for [videoStartFromProbe] and
-  /// [SourceGrid.fromProbe]: the worker's
-  /// `source_decode::VIDEO_START_PROBE_ARGS`, word for word.
-  static const videoStartProbeArgs = [
-    '-v', 'error',
-    '-select_streams', 'v:0',
-    '-show_entries',
-    'packet=pts_time:stream=start_time,r_frame_rate,avg_frame_rate:format=start_time',
-    '-read_intervals', '%+#64',
-    '-of', 'json',
-  ];
-
-  /// Where the video's first picture sits (see [VideoStart]), from ffprobe's
-  /// answer to [videoStartProbeArgs]: the earlier of the stream's
-  /// `start_time` and the smallest PTS among its first packets (an open GOP
-  /// shows pictures stored after the first packet; MPEG-2 in AVI stores
-  /// packets with no PTS at all), less the container's `start_time`.
-  /// Twin of the worker's `source_decode::video_start_from_probe`; both read
-  /// `Tests/TestResources/video_start_probe_dvbt.json` in their tests.
-  static VideoStart videoStartFromProbe(Map<String, dynamic> json) {
-    double? num(Object? v) => v == null ? null : double.tryParse('$v');
-    final format = json['format'] as Map<String, dynamic>?;
-    final container = num(format?['start_time']);
-    final streams = (json['streams'] as List<dynamic>?) ?? const [];
-    final streamStart = streams.isEmpty
-        ? null
-        : num((streams.first as Map<String, dynamic>)['start_time']);
-    final packets = (json['packets'] as List<dynamic>?) ?? const [];
-    double? first = streamStart;
-    for (final p in packets) {
-      final t = num((p as Map<String, dynamic>)['pts_time']);
-      if (t != null && t.isFinite && (first == null || t < first)) first = t;
-    }
-    if (first == null) return VideoStart.none;
-    final offset =
-        container != null && first > container ? first - container : 0.0;
-    final leading =
-        streamStart != null && streamStart > first ? streamStart - first : 0.0;
-    return VideoStart(offset: offset, leading: leading);
-  }
-
-  /// Formats seeked by a timestamp search rather than an index, as
-  /// ffprobe's `format_name` names them: the worker's
-  /// `source_decode::TIMESTAMP_SEARCH_FORMATS`.
-  static const timestampSearchFormats = ['mpegts', 'mpeg'];
-
-  /// Seconds of video [seekProbeArgs] reads (`SEEK_PROBE_SECONDS`).
-  static const seekProbeSeconds = 20;
-
-  /// Added to the measured GOP and reorder delay (`SEEK_PREROLL_MARGIN`).
-  static const seekPrerollMargin = 0.5;
-
-  /// The smallest preroll (`SEEK_PREROLL_MIN`).
-  static const seekPrerollMin = 1.0;
-
-  /// ffprobe's arguments (before the input) for [seekPlanFromProbe]: the
-  /// worker's `source_decode::SEEK_PROBE_ARGS`, word for word.
-  static const seekProbeArgs = [
-    '-v', 'error',
-    '-select_streams', 'v:0',
-    '-show_entries', 'packet=pts_time,dts_time,flags:format=format_name,start_time',
-    '-read_intervals', '%+20',
-    '-of', 'json',
-  ];
-
-  /// Whether a container (ffprobe's comma-separated `format_name`) seeks by
-  /// timestamp search, so its decodes need a [SeekPlan].
-  static bool seeksByTimestampSearch(String? formatName) =>
-      formatName != null &&
-      formatName
-          .split(',')
-          .any((n) => timestampSearchFormats.contains(n.trim()));
-
-  /// The [SeekPlan] for a source from ffprobe's answer to [seekProbeArgs], or
-  /// null when its format seeks by index. Twin of the worker's
-  /// `source_decode::seek_plan_from_probe`: the preroll is the largest gap
-  /// between keyframes, plus the largest PTS - DTS and [seekPrerollMargin],
-  /// at least [seekPrerollMin]; the whole window with fewer than two
-  /// keyframes. Both read `Tests/TestResources/seek_probe_dvbt.json` in their
-  /// tests.
-  static SeekPlan? seekPlanFromProbe(Map<String, dynamic> json) {
-    final format = json['format'] as Map<String, dynamic>?;
-    if (!seeksByTimestampSearch(format?['format_name'] as String?)) return null;
-    double? num(Object? v) {
-      final d = v == null ? null : double.tryParse('$v');
-      return d != null && d.isFinite ? d : null;
-    }
-
-    final containerStart = num(format?['start_time']) ?? 0.0;
-    final packets = (json['packets'] as List<dynamic>?) ?? const [];
-    final keys = <double>[];
-    var reorder = 0.0;
-    for (final p in packets) {
-      final m = p as Map<String, dynamic>;
-      final pts = num(m['pts_time']);
-      final dts = num(m['dts_time']);
-      if (pts != null && dts != null && pts - dts > reorder) reorder = pts - dts;
-      final key = (m['flags'] as String?)?.startsWith('K') ?? false;
-      final t = pts ?? dts;
-      if (key && t != null) keys.add(t);
-    }
-    var gop = seekProbeSeconds.toDouble();
-    if (keys.length >= 2) {
-      gop = 0.0;
-      for (var i = 1; i < keys.length; i++) {
-        if (keys[i] - keys[i - 1] > gop) gop = keys[i] - keys[i - 1];
-      }
-    }
-    final preroll = gop + reorder + seekPrerollMargin;
-    return SeekPlan(
-      preroll: preroll < seekPrerollMin ? seekPrerollMin : preroll,
-      containerStart: containerStart,
-    );
-  }
-
-  /// Probe the [SeekPlan], but only when [formatName] (from the probe the
-  /// caller already ran) is an MPEG-TS/PS: every other source gets null, at
-  /// no cost, and seeks as before. Null on any failure too.
-  static Future<SeekPlan?> probeSeekPlan(
-    String ffprobe,
-    String videoPath, {
-    required String? formatName,
-  }) async {
-    if (!seeksByTimestampSearch(formatName)) return null;
-    try {
-      final result = await Process.run(ffprobe, [...seekProbeArgs, videoPath]);
-      if (result.exitCode != 0) return null;
-      return seekPlanFromProbe(
-          jsonDecode(result.stdout as String) as Map<String, dynamic>);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// The [SourceGrid] the worker's decoders place this source's frames on,
-  /// at [frameRate] (the rate the job carries), from the same probe as
-  /// [probeVideoStart]. Null on any failure, or when the source's packets
-  /// lack timestamps: its decodes then seek as before.
-  static Future<SourceGrid?> probeSourceGrid(
-    String ffprobe,
-    String videoPath, {
-    required double frameRate,
-  }) async {
-    try {
-      final result =
-          await Process.run(ffprobe, [...videoStartProbeArgs, videoPath]);
-      if (result.exitCode != 0) return null;
-      return SourceGrid.fromProbe(
-          jsonDecode(result.stdout as String) as Map<String, dynamic>,
-          frameRate);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// The source's length on its [grid] from its last picture's presentation
-  /// time: the slot that picture lands on, plus one. What the worker's grid
-  /// decode produces (issue #174), where the container's duration can count
-  /// the last frame's repeat flags (`soft_telecine_test.mkv`: 121 for 120).
-  static int frameCountFromLastPicture(double lastPts, SourceGrid grid) {
-    final n = ((lastPts - grid.origin) * grid.fps).round() + 1;
-    return n > 0 ? n : 0;
-  }
-
-  /// The largest packet PTS in the last [tail] seconds of the file, or null.
-  /// Asked only of a source with neither `nb_frames` nor a stream duration
-  /// (Matroska/WebM), whose container duration is all there is otherwise.
-  static Future<double?> probeLastPicture(
-    String ffprobe,
-    String videoPath, {
-    required double containerDuration,
-    double tail = 3.0,
-  }) async {
-    final from = containerDuration - tail;
-    try {
-      final result = await Process.run(ffprobe, [
-        '-v', 'error',
-        '-select_streams', 'v:0',
-        '-show_entries', 'packet=pts_time',
-        if (from > 0) ...['-read_intervals', '${from.toStringAsFixed(3)}%'],
-        '-of', 'csv=p=0',
-        videoPath,
-      ]);
-      if (result.exitCode != 0) return null;
-      double? last;
-      for (final line in (result.stdout as String).split('\n')) {
-        final t = double.tryParse(line.trim().replaceAll(',', ''));
-        if (t != null && t.isFinite && (last == null || t > last)) last = t;
-      }
-      return last;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  /// ffprobe's arguments (before the input) for [decoderDelayFromProbe]:
-  /// the worker's `source_decode::DECODER_DELAY_PROBE_ARGS`, word for word.
-  /// It decodes the first packets, so it runs only for a source that
-  /// [storesDecodeOrder].
-  static const decoderDelayProbeArgs = [
-    '-v', 'error',
-    '-select_streams', 'v:0',
-    '-show_entries', 'frame=best_effort_timestamp_time:stream=r_frame_rate:format=start_time',
-    '-read_intervals', '%+#16',
-    '-of', 'json',
-  ];
-
-  /// The largest decoder delay believed (`MAX_DECODER_DELAY`).
-  static const maxDecoderDelay = 4;
-
-  /// Whether a source stores decode-order timestamps only (issue #173): some
-  /// packet in ffprobe's answer to [videoStartProbeArgs] carries no PTS. AVI
-  /// does this for MPEG-2, MPEG-4 ASP and H.264 with B-frames. Twin of the
-  /// worker's `source_decode::stores_decode_order`.
-  static bool storesDecodeOrder(Map<String, dynamic> json) {
-    final packets = (json['packets'] as List<dynamic>?) ?? const [];
-    return packets.any((p) => !(p as Map<String, dynamic>).containsKey('pts_time'));
-  }
-
-  /// How many frames late the decoder stamps every picture of such a source,
-  /// from ffprobe's answer to [decoderDelayProbeArgs]: the first decoded
-  /// picture's timestamp less the container start and [videoStart], in whole
-  /// frames of `r_frame_rate`; 0 unless 1..[maxDecoderDelay]. Twin of the
-  /// worker's `source_decode::decoder_delay_from_probe`; both read
-  /// `Tests/TestResources/decoder_delay_probe_avi.json` in their tests.
-  static int decoderDelayFromProbe(
-      Map<String, dynamic> json, double videoStart) {
-    double? num(Object? v) {
-      final d = v == null ? null : double.tryParse('$v');
-      return d != null && d.isFinite ? d : null;
-    }
-
-    final streams = (json['streams'] as List<dynamic>?) ?? const [];
-    final rateStr = streams.isEmpty
-        ? null
-        : (streams.first as Map<String, dynamic>)['r_frame_rate'] as String?;
-    double? rate;
-    final parts = rateStr?.split('/');
-    if (parts != null && parts.length == 2) {
-      final n = double.tryParse(parts[0]);
-      final d = double.tryParse(parts[1]);
-      if (n != null && d != null && n > 0 && d > 0) rate = n / d;
-    }
-    final frames = (json['frames'] as List<dynamic>?) ?? const [];
-    final first = frames.isEmpty
-        ? null
-        : num((frames.first as Map<String, dynamic>)['best_effort_timestamp_time']);
-    if (rate == null || first == null) return 0;
-    final format = json['format'] as Map<String, dynamic>?;
-    final container = num(format?['start_time']) ?? 0.0;
-    final delay =
-        ((first - container - (videoStart > 0 ? videoStart : 0.0)) * rate).round();
-    return delay >= 1 && delay <= maxDecoderDelay ? delay : 0;
-  }
-
-  /// Probe the decoder delay (issue #173), but only for a stream that reports
-  /// one ([hasBFrames] > 0, from the probe the caller already ran) and stores
-  /// decode-order timestamps: one packet probe, then one short decode. 0
-  /// for every other source, and on any failure.
-  static Future<int> probeDecoderDelay(
-    String ffprobe,
-    String videoPath, {
-    required int? hasBFrames,
-    required double videoStart,
-  }) async {
-    if (hasBFrames == null || hasBFrames <= 0) return 0;
-    try {
-      final packets =
-          await Process.run(ffprobe, [...videoStartProbeArgs, videoPath]);
-      if (packets.exitCode != 0) return 0;
-      if (!storesDecodeOrder(
-          jsonDecode(packets.stdout as String) as Map<String, dynamic>)) {
-        return 0;
-      }
-      final frames =
-          await Process.run(ffprobe, [...decoderDelayProbeArgs, videoPath]);
-      if (frames.exitCode != 0) return 0;
-      return decoderDelayFromProbe(
-          jsonDecode(frames.stdout as String) as Map<String, dynamic>,
-          videoStart);
-    } catch (_) {
-      return 0;
-    }
-  }
-
-  /// Probe where the video's first picture sits, but only when the video
-  /// stream starts after the container (its sound starts first): the first
-  /// picture is never later than the stream's `start_time`, so otherwise
-  /// there is nothing to find. Then, and on any failure, [VideoStart.none]:
-  /// frame N means what it always meant.
-  static Future<VideoStart> probeVideoStart(
-    String ffprobe,
-    String videoPath, {
-    required double? streamStart,
-    required double? containerStart,
-  }) async {
-    if (streamStart == null ||
-        containerStart == null ||
-        streamStart <= containerStart) {
-      return VideoStart.none;
-    }
-    try {
-      final result =
-          await Process.run(ffprobe, [...videoStartProbeArgs, videoPath]);
-      if (result.exitCode != 0) return VideoStart.none;
-      return videoStartFromProbe(
-          jsonDecode(result.stdout as String) as Map<String, dynamic>);
-    } catch (_) {
-      return VideoStart.none;
-    }
+    return null;
   }
 }
 
 /// How the source's decodes seek an MPEG-TS/PS, which has no keyframe index
 /// (issue #169): [preroll] seconds before the target, keeping the file's own
 /// timestamps (`-copyts`), then an absolute `trim` at [containerStart] plus
-/// the target. Twin of the worker's `source_decode::SeekPlan`.
+/// the target. The worker computes it (`source_decode::SeekPlan`, in the
+/// [SourceModel]); the arguments built from it here are a twin of the
+/// worker's until the app's source pictures go through the worker.
 class SeekPlan {
   /// Seconds to seek before the target: one GOP plus the reorder delay, so a
   /// keyframe is decoded before the target is.
@@ -1112,6 +376,9 @@ class SeekPlan {
   /// seek there, since ffmpeg starts such a seek 3/23 s early.
   static const countSeekBelow = 0.5;
 
+  /// The largest decoder delay believed (`MAX_DECODER_DELAY`).
+  static const maxDecoderDelay = 4;
+
   /// The input options and `trim` that make source frame [frame] the first
   /// one decoded, or null for frame 0 (never seeks). [decoderDelayFrames] is
   /// added to the frame (an AVI stamps each picture that many frames late),
@@ -1134,7 +401,7 @@ class SeekPlan {
         plan.containerStart.isFinite;
     final delay = usable
         ? 0
-        : decoderDelayFrames.clamp(0, FieldOrderDetector.maxDecoderDelay);
+        : decoderDelayFrames.clamp(0, maxDecoderDelay);
     final offset = videoStartOffset > 0 ? videoStartOffset : 0.0;
     final target = (frame + delay - 0.5) / fps + offset;
     if (delay > 0 && target < countSeekBelow) {
@@ -1159,8 +426,9 @@ class SeekPlan {
 
 /// The constant-rate grid every decode of the source places its frames on
 /// (issue #174): the job's rate as the stream's exact fraction, from the
-/// video's first picture. Twin of the worker's `source_decode::SourceGrid`;
-/// frame N is slot N, so a null frame or a pulldown repeat is a slot that
+/// video's first picture. The worker computes it (`source_decode::SourceGrid`,
+/// in the [SourceModel]); [startAt] is a twin of its `decode_start`. Frame
+/// N is slot N, so a null frame or a pulldown repeat is a slot that
 /// shows the stored frame before it, and every decode, preview, encode, the
 /// Original and the thumbnails, agrees on which picture that is.
 class SourceGrid {
@@ -1225,83 +493,6 @@ class SourceGrid {
     );
   }
 
-  static (int, int)? _rate(Object? v) {
-    if (v is! String) return null;
-    final parts = v.trim().split('/');
-    if (parts.length != 2) return null;
-    final n = int.tryParse(parts[0]);
-    final d = int.tryParse(parts[1]);
-    return n != null && d != null && n > 0 && d > 0 ? (n, d) : null;
-  }
-
-  /// Twin of the worker's `source_decode::grid_from_probe`: null when any
-  /// probed packet has no PTS (MPEG-2 in AVI) or nothing usable is there.
-  static SourceGrid? fromProbe(Map<String, dynamic> json, double jobFps) {
-    double? num(Object? v) {
-      final d = v == null ? null : double.tryParse('$v');
-      return d != null && d.isFinite ? d : null;
-    }
-
-    final packets = json['packets'] as List<dynamic>?;
-    if (packets == null || packets.isEmpty) return null;
-    var first = double.infinity;
-    for (final p in packets) {
-      final t = num((p as Map<String, dynamic>)['pts_time']);
-      if (t == null) return null;
-      if (t < first) first = t;
-    }
-    final streams = (json['streams'] as List<dynamic>?) ?? const [];
-    final stream =
-        streams.isEmpty ? null : streams.first as Map<String, dynamic>;
-    final start = num(stream?['start_time']);
-    if (start != null && start < first) first = start;
-    final container =
-        num((json['format'] as Map<String, dynamic>?)?['start_time']);
-    final origin = container != null && container > first ? container : first;
-
-    final r = _rate(stream?['r_frame_rate']);
-    final a = _rate(stream?['avg_frame_rate']);
-    (int, int)? streamRate;
-    if (r != null && a != null) {
-      final ratio = (r.$1 * a.$2) / (r.$2 * a.$1);
-      streamRate = ratio > 1.8 && ratio < 2.2 ? a : r;
-    } else {
-      streamRate = r ?? a;
-    }
-    (int, int) rate;
-    if (streamRate != null &&
-        (jobFps <= 0 ||
-            ((streamRate.$1 / streamRate.$2 - jobFps) / jobFps).abs() <=
-                rateTolerance)) {
-      rate = streamRate;
-    } else if (jobFps > 0) {
-      rate = fpsToRational(jobFps);
-    } else {
-      return null;
-    }
-    final grid = SourceGrid(rateNum: rate.$1, rateDen: rate.$2, origin: origin);
-    return grid.isValid ? grid : null;
-  }
-
-  /// The worker's `models::fps_to_rational`: the broadcast rates exactly,
-  /// anything else as thousandths (unreduced, as the worker writes it).
-  static (int, int) fpsToRational(double fps) {
-    const common = [
-      (23.976, 24000, 1001),
-      (24.0, 24, 1),
-      (25.0, 25, 1),
-      (29.97, 30000, 1001),
-      (30.0, 30, 1),
-      (50.0, 50, 1),
-      (59.94, 60000, 1001),
-      (60.0, 60, 1),
-    ];
-    for (final (f, n, d) in common) {
-      if ((fps - f).abs() < 0.01) return (n, d);
-    }
-    return ((fps * 1000).round(), 1000);
-  }
-
   @override
   bool operator ==(Object other) =>
       other is SourceGrid &&
@@ -1320,21 +511,6 @@ class SourceGrid {
 /// broadcast capture). Frame N counts from the video's first picture, so
 /// every seek of the source adds [offset]: an input `-ss` is measured from
 /// the container's start, which is the earliest stream's.
-class VideoStart {
-  /// Seconds from the container's start to the first picture shown (the
-  /// smallest PTS among the first packets), never negative.
-  final double offset;
-
-  /// Seconds the first picture comes before the stream's `start_time`, which
-  /// is its first *packet*: an open GOP shows B pictures stored after it.
-  final double leading;
-
-  const VideoStart({required this.offset, required this.leading});
-
-  static const none = VideoStart(offset: 0, leading: 0);
-}
-
-/// Results from ffmpeg idet filter analysis.
 class _IdetResult {
   final int tff;
   final int bff;
@@ -1402,29 +578,6 @@ enum ScanType {
   }
 }
 
-/// Read one ffprobe colour tag, treating "unknown"/"N/A" as absent.
-///
-/// ffprobe reports the literal string `unknown` for an untagged stream, and
-/// forwarding that as though it were a value would put nonsense on the encoder
-/// command line. Anything unrecognised is dropped again worker-side, in
-/// `ColorMetadata::from_raw`, so a surprising value cannot reach ffmpeg.
-/// `PreviewGenerator` reads the tags with this too.
-///
-/// A value FFmpeg rejects, such as ProRes's `reserved`, is **forwarded on
-/// purpose**, not dropped here: FFmpeg's decoder reads the tag from the stream
-/// whatever the job says, so every decode that converts the pixel format has
-/// to know the tag is invalid to clear it first (`ColorTags.decodeNeutraliser`,
-/// and the worker's `VideoJob::decode_tag_neutraliser` from the job's tags).
-/// The encoder's tags still drop it, in `ColorMetadata::from_raw`.
-String? colorTag(Map<String, dynamic> stream, String key) {
-  final value = (stream[key] as String?)?.trim();
-  if (value == null || value.isEmpty || value == 'unknown' || value == 'N/A') {
-    return null;
-  }
-  return value;
-}
-
-/// Video file information.
 class VideoInfo {
   final int width;
   final int height;
@@ -1460,6 +613,12 @@ class VideoInfo {
   /// picture" drops the sound before the picture.
   final double videoStartOffset;
 
+  /// Whether a soft-telecine decode at [frameRate] holds 3:2 repeats: only
+  /// at 29.97 or 30 fps (issue #174; the worker's
+  /// `soft_telecine_decimates_at`, reported in the [SourceModel]). A stream
+  /// stored at its film rate decodes to the film frames already.
+  final bool pulldownRate;
+
   const VideoInfo({
     required this.width,
     required this.height,
@@ -1478,6 +637,7 @@ class VideoInfo {
     this.colorRange,
     this.dolbyVision,
     this.videoStartOffset = 0,
+    this.pulldownRate = false,
   });
 
   String get resolution => '${width}x$height';
@@ -1488,21 +648,16 @@ class VideoInfo {
         dolbyVision: dolbyVision,
       );
 
+  /// Whether the Soft Telecine method has pulldown repeats to remove from
+  /// this source: a soft-telecine scan at a rate the worker says holds them
+  /// ([pulldownRate], issue #174).
+  bool get softTelecineDecimates =>
+      scanType == ScanType.softTelecine && pulldownRate;
+
   /// The actual content frame rate, which may differ from the container rate.
   /// - Soft telecine: container is ~29.97fps, content is ~23.976fps
   /// - Hard telecine: container is ~29.97fps, content is ~23.976fps (after IVTC)
   /// - Progressive/interlaced: same as container rate
-  /// Whether the Soft Telecine method has pulldown repeats to remove from
-  /// this source: only at 29.97 or 30 fps (issue #174). A stream stored at its
-  /// film rate, its repeat flags only in the bitstream, decodes to the film
-  /// frames already. Twin of the worker's `soft_telecine_decimates_at`; both
-  /// read `Tests/TestResources/soft_telecine_rates.json` in their tests.
-  bool get softTelecineDecimates =>
-      scanType == ScanType.softTelecine && isPulldownRate(frameRate);
-
-  /// A rate whose decode of a soft-telecine source holds 3:2 repeats.
-  static bool isPulldownRate(double fps) =>
-      (fps - 30000 / 1001).abs() < 0.05 || (fps - 30).abs() < 0.05;
 
   double get contentFrameRate {
     if (scanType == ScanType.softTelecine && !softTelecineDecimates) {

@@ -5,94 +5,13 @@
 // (`source_decode::seek_plan_from_probe`, `decoder_seek`); the heavy
 // integration_seek_alignment_test checks the pictures.
 // See docs/reports/issue-169-mpeg-seek.
-import 'dart:convert';
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vapourbox/services/field_order_detector.dart';
 import 'package:vapourbox/services/preview_generator.dart';
 
-Map<String, dynamic> _dvbtProbe() => jsonDecode(
-        File('../Tests/TestResources/seek_probe_dvbt.json').readAsStringSync())
-    as Map<String, dynamic>;
-
-Map<String, dynamic> _probe(String format, String start, List<List<String>> packets) => {
-      'packets': [
-        for (final p in packets) {'pts_time': p[0], 'dts_time': p[1], 'flags': p[2]},
-      ],
-      'format': {'format_name': format, 'start_time': start},
-    };
-
-String _rust() => File('../worker/src/source_decode.rs').readAsStringSync();
-
 void main() {
-  group('the plan (twin of source_decode::seek_plan_from_probe)', () {
-    test('the DVB-T clip: one GOP plus reorder plus margin', () {
-      // Keyframes every 1.12 s, PTS up to 0.2 s after DTS, the container (the
-      // audio) from 1.4 s. The worker's test reads the same file.
-      final plan = FieldOrderDetector.seekPlanFromProbe(_dvbtProbe())!;
-      expect(plan.preroll, closeTo(1.12 + 0.2 + 0.5, 1e-6));
-      expect(plan.containerStart, closeTo(1.4, 1e-9));
-    });
-
-    test('only MPEG-TS and MPEG-PS get one', () {
-      final pk = [
-        ['0.0', '0.0', 'K__'],
-        ['0.48', '0.48', 'K__'],
-      ];
-      for (final f in ['mpegts', 'mpeg']) {
-        expect(FieldOrderDetector.seekPlanFromProbe(_probe(f, '0.5', pk)), isNotNull, reason: f);
-      }
-      for (final f in [
-        'mov,mp4,m4a,3gp,3g2,mj2',
-        'matroska,webm',
-        'avi',
-        'mpegvideo',
-        'h264',
-        'mpegtsraw',
-      ]) {
-        expect(FieldOrderDetector.seekPlanFromProbe(_probe(f, '0.0', pk)), isNull, reason: f);
-      }
-      expect(FieldOrderDetector.seekPlanFromProbe({}), isNull);
-    });
-
-    test('a floor, and the whole window when it holds one keyframe', () {
-      final dvd = FieldOrderDetector.seekPlanFromProbe(_probe('mpeg', '0.53', [
-        ['0.54', '0.54', 'K_'],
-        ['0.58', '0.58', '__'],
-        ['1.02', '1.02', 'K_'],
-      ]))!;
-      expect(dvd.preroll, FieldOrderDetector.seekPrerollMin);
-      final one = FieldOrderDetector.seekPlanFromProbe(_probe('mpegts', '1.4', [
-        ['1.5', '1.4', 'K_'],
-        ['1.54', '1.44', '__'],
-      ]))!;
-      expect(one.preroll, closeTo(20 + 0.1 + 0.5, 1e-9));
-      expect(FieldOrderDetector.seekPlanFromProbe(_probe('mpegts', 'N/A', []))!.containerStart, 0);
-    });
-
-    test('the app asks ffprobe exactly what the worker asks', () {
-      final block = RegExp(r'SEEK_PROBE_ARGS: \[&str; \d+\] = \[([^\]]*)\]')
-          .firstMatch(_rust())!
-          .group(1)!;
-      final args = RegExp(r'"([^"]*)"').allMatches(block).map((m) => m.group(1)).toList();
-      expect(FieldOrderDetector.seekProbeArgs, args);
-    });
-
-    test('the same constants as the worker', () {
-      final rust = _rust();
-      double constant(String name) => double.parse(
-          RegExp('pub const $name: [a-z0-9]+ = ([0-9.]+);').firstMatch(rust)!.group(1)!);
-      expect(FieldOrderDetector.seekPrerollMargin, constant('SEEK_PREROLL_MARGIN'));
-      expect(FieldOrderDetector.seekPrerollMin, constant('SEEK_PREROLL_MIN'));
-      expect(FieldOrderDetector.seekProbeSeconds, constant('SEEK_PROBE_SECONDS'));
-      final formats = RegExp(r'TIMESTAMP_SEARCH_FORMATS: \[&str; \d+\] = \[([^\]]*)\]')
-          .firstMatch(rust)!
-          .group(1)!;
-      expect(FieldOrderDetector.timestampSearchFormats,
-          RegExp(r'"([^"]*)"').allMatches(formats).map((m) => m.group(1)).toList());
-    });
-  });
+  // The plan itself is the worker's (`seek_plan_from_probe`, in the source
+  // model since task #50, tested there against seek_probe_dvbt.json).
 
   group('the before frame (twin of source_decode::decoder_seek)', () {
     const plan = SeekPlan(preroll: 1.82, containerStart: 1.4);

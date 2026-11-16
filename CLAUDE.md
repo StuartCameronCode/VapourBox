@@ -63,6 +63,15 @@ VapourBox is a **cross-platform** (macOS + Windows + Linux) video processing app
 - **Config**: JSON file path passed as CLI argument to worker (`--config path/to/job.json`)
 - **Progress**: JSON lines from worker stdout (`{"type":"progress","frame":1234,...}`)
 - **Cancel**: SIGTERM (Unix) or TerminateProcess (Windows)
+- **Source facts**: `--probe-source <path>` prints the `SourceModel` (task #50)
+  — size, rate, frame count, video start, decoder delay, seek plan, grid, VFR
+  times, colour tags, Dolby Vision, audio streams, the reset scan. The app
+  stores it on `QueueItem.sourceModel` at analysis and sends it in every job
+  (inline `source`, or `--source <file>` for previews); the worker probes only
+  when a job carries none. **A new source fact goes in the model, computed in
+  the worker; the app never probes a source itself** (idet and the
+  soft-telecine flags, which look at pictures, are the exceptions). The
+  remaining Rust↔Dart twins and why each is kept: [docs/TWINS.md](docs/TWINS.md)
 
 ## Project Structure
 
@@ -103,7 +112,7 @@ VapourBox/
 │   └── linux-arm64/
 │
 ├── licenses/                   # GPL, LGPL, NOTICES
-├── docs/                       # BUILDING, FILTER_SCHEMA, ADDONS, ENGINEERING_NOTES, FEATURE_MAP, PITCH_FACTOR_FILES, …
+├── docs/                       # BUILDING, FILTER_SCHEMA, ADDONS, ENGINEERING_NOTES, FEATURE_MAP, PITCH_FACTOR_FILES, TWINS, …
 │   └── reports/                # Investigation reports (evidence behind decisions)
 ├── Scripts/                    # Build, package, and release scripts
 │   └── models/                 # Model conversion scripts for self-hosted add-on files
@@ -127,6 +136,7 @@ VapourBox/
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
 | `worker/src/dvd_reader.rs` | DVD import: IFO parsing for the title picker, `title_cells` (a title's cells for a chapter range and angle), the copy plan, the NAV walk for interleaved cells, and the libdvdread copy (see "DVD Import") |
+| `worker/src/source_model.rs` | `SourceModel` and `--probe-source`: every fact about a source a decoder needs, probed once (the frame-count rules included); `VideoJob::apply_source_model` fills a job from it |
 | `worker/src/source_continuity.rs` | Timestamp resets in an MPEG-PS/TS: the rule, `--scan-timestamps`, and the continuous same-container copy decoded instead (see "Source Frame Size") |
 | `worker/src/vspipe_failure.rs` | A failed encode's blame (encoder first, unless it only saw vspipe's empty pipe) and vspipe's stderr turned into the job error (see Debugging Tips #11) |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
@@ -161,7 +171,8 @@ VapourBox/
 | `app/lib/services/worker_manager.dart` | Process spawning, IPC |
 | `app/lib/services/filter_loader.dart` | Load filter schemas from JSON |
 | `app/lib/services/preset_service.dart` | Save/load user presets |
-| `app/lib/services/timestamp_continuity_service.dart` | Runs the worker's reset scan and copy at analysis; `ContinuityProxy` is `QueueItem.decodePath` |
+| `app/lib/services/timestamp_continuity_service.dart` | Runs the worker's `--probe-source` and, on a reset, the copy at analysis; `ContinuityProxy` is `QueueItem.decodePath` |
+| `app/lib/models/source_model.dart` | The worker's `SourceModel` as the app reads it: typed getters over the JSON, sent back unchanged |
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/pitch_factor_file.dart` | Per-video pitch factor files: sidecar lookup + summary (see "Stabilize") |
 | `app/lib/services/overwrite_behavior_service.dart` | Default action for existing output files (see "Existing Output Files") |
@@ -883,7 +894,7 @@ padded to 1920x1080, say) came out squashed. Three invariants now hold:
 - **The preview job must carry `inputSar`.** `{{SOURCE_SAR}}` falls back to 1
   without it, so square-pixel fitting previewed a different frame from the
   one encoded (1350 vs 1440 wide in the #149 setup). `PreviewGenerator` reads it
-  through the same `FieldOrderDetector.normalizeSar` as the encode job.
+  from the same source model (`source_model::normalize_sar`) as the encode job.
 
 The panel reads both sides' aspects from the view model
 (`sourceDisplayAspect`, `comparisonAfterAspect`), not from its own arithmetic,
@@ -956,7 +967,7 @@ byte-identical twin `ColorTags.decodeNeutraliser` (app: before frame and
 thumbnails, via `PreviewGenerator.beforeFrameArgs`/`thumbnailArgs`) **first**
 in its one `-vf`. Never clear a valid tag (a valid matrix moves yuv → gray16le
 by up to 28 levels), which is why the job carries ffprobe's **raw** tags
-(`colorTag` forwards `reserved`) and `from_raw` drops them only for the
+(`source_model::color_tag` keeps `reserved`) and `from_raw` drops them only for the
 encoder's flags. A new decode of the source must use the same helper.
 **Every detector job carries the source's raw tags**
 (`MainViewModel._detectorJob`): the worker can only clear a `reserved` tag
@@ -1078,8 +1089,8 @@ the **single** builder of both decoders' arguments (encode + preview):
   passes the probed size untouched and fails the decode on anything else,
   including a mid-stream resolution change, reported via
   `explain_decoder_failure` ahead of the vspipe/encoder status. A job that
-  omits `inputWidth`/`inputHeight` gets them probed by the worker
-  (`fill_frame_size`), not the old 720x480 fallback.
+  omits `inputWidth`/`inputHeight` gets them from the source model
+  (`resolve_source`), not the old 720x480 fallback.
 - **A decoder that seeks resets PTS first (issue #157).** `rawvideo` gets
   constant-rate output timing, and after an `-ss` to `(N - 0.5)/fps` that
   timing repeated the first kept frame on many time bases (MP4 1/2997, MOV
@@ -1111,9 +1122,10 @@ the **single** builder of both decoders' arguments (encode + preview):
   `setpts=PTS-<first picture>/TB` (the **same constant in every decoder**, so
   `fps` rounds half-slot ties identically), `fps=N/D`, `trim=start_pts=N`,
   `setpts=PTS-STARTPTS`. The grid comes from the video-start probe
-  (`grid_from_probe`, filled by `fill_source_grid`); the app's twin
-  `SourceGrid.fromProbe` / `startAt` drives the Original and thumbnails, pinned
-  by `Tests/TestResources/source_grid_vectors.json`. **No grid when a probed
+  (`grid_from_probe`, in the source model); the app's `SourceGrid.startAt`
+  (a twin of `decode_start` until R3b, see docs/TWINS.md) drives the Original
+  and thumbnails from the model's grid, pinned by
+  `Tests/TestResources/source_grid_vectors.json`. **No grid when a probed
   packet lacks PTS** (MPEG-2/MPEG-4/H.264 in AVI: decode-order timestamps);
   those keep the seek rules here. **Frame 0 of a TS/PS runs without
   `-copyts`** (a `SeekPlan` source; `filters_from_first_picture`, the grid
@@ -1126,8 +1138,8 @@ the **single** builder of both decoders' arguments (encode + preview):
   untrimmed encodes and counts against an independent timestamp placement
   (docs/reports/issue-174-source-grid).
 - **Soft Telecine decimates only at 29.97/30 fps** (`soft_telecine_decimates_at`,
-  app twin `VideoInfo.softTelecineDecimates`, shared
-  `soft_telecine_rates.json`). A DVD's header says 29.97 and ffprobe reports
+  reported to the app as the source model's `pulldownRate`, which
+  `VideoInfo.softTelecineDecimates` reads; `soft_telecine_rates.json`). A DVD's header says 29.97 and ffprobe reports
   that in VOB and MKV alike, so its decode holds 3:2 repeats; a source stored
   at its film rate already is the film, and VDecimate removed one real frame
   in five. The encode script pipes whole 5-frame cycles
@@ -1143,9 +1155,8 @@ the **single** builder of both decoders' arguments (encode + preview):
   first 64 packets, less the container's `start_time`
   (`source_decode::video_start_from_probe`; an open GOP shows B pictures
   stored after the first packet, MPEG-2 in AVI stores packets with no PTS).
-  The worker probes it (`VideoJob.video_start_offset`, filled in `main.rs`);
-  the app's twin is `FieldOrderDetector.videoStartFromProbe`, run with the
-  same `videoStartProbeArgs` (a test pins them word for word).
+  It is in the source model (`VideoJob.video_start_offset`, filled by
+  `resolve_source`), which is where the app reads it too.
   - **Every seek goes through `source_decode::seek_time`** (encode, preview,
     every detector) and the app's `beforeFrameArgs` / `thumbnailArgs`; none
     keeps its own `(N - 0.5)/fps`. Frame 0 never seeks, on either side.
@@ -1153,16 +1164,22 @@ the **single** builder of both decoders' arguments (encode + preview):
     non-zero** (`resets_pts`): that drops ffmpeg's constant-rate copies of
     the first picture (MKV/MP4) and keeps an open GOP's leading pictures
     (TS). With offset 0 every argument list is byte-for-byte as before.
-  - **The frame count is the video's**, not the file's:
-    `FieldOrderDetector.frameCountFromDuration` (stream duration plus leading
-    pictures) when `nb_frames` is absent; with no stream duration either
-    (Matroska), the last picture's grid slot + 1
-    (`frameCountWithoutStoredCount`), since the container duration counts
-    repeat flags (issue #174). On an MPEG-TS/PS the stream duration misses a
-    last picture whose packet has no PTS (DVD: 149 of 150), so the app
-    decodes the last 3 s and counts it as ffmpeg's decoder stamps it
-    (previous frame + its duration; `untimedLastPicture`), never lowering
-    the count (task #26).
+  - **The frame count is the video's**, not the file's, and is the source
+    model's (`source_model::frame_count`): `nb_frames` when stored (an
+    AVI's null frames are slots: `interlaced_test.avi` stores 79 and the
+    grid decode makes 79, where `-count_frames` decodes 75); else
+    `frame_count_from_duration` (stream duration plus leading pictures);
+    with no stream duration either (Matroska), the last picture's grid slot
+    + 1 (`frame_count_from_last_picture`), since the container duration
+    counts repeat flags (issue #174). On an MPEG-TS/PS the stream duration
+    misses a last picture whose packet has no PTS (DVD: 149 of 150), so the
+    probe decodes the last 3 s and counts it as ffmpeg's decoder stamps it
+    (previous frame + its duration; `untimed_last_picture`), never lowering
+    the count (task #26). A job **without** a count (CLI, tests) is still
+    counted by decoding (`-count_frames`, `resolve_source`): it is wrong on
+    AVI null frames, open GOPs and soft-telecine repeats but right on an
+    MP4 whose edit list discards pre-roll, where `nb_frames` (and so the
+    model) is 3 over (docs/reports/task-50-source-model).
   - **The output keeps the source's layout: sound first, picture delayed.**
     `VideoJob::output_video_delay` is the one decision (0 when trimmed, when
     there is no sound, or with Audio Restoration's `startWithPicture`); the
@@ -1192,7 +1209,7 @@ the **single** builder of both decoders' arguments (encode + preview):
   `format_name` `mpegts`/`mpeg` (DVD rips and the DVD import's own output
   included) the job carries a `SeekPlan` (`source_decode::seek_plan_from_probe`:
   largest keyframe gap + largest PTS − DTS + 0.5 s, ≥ 1 s, from 20 s of
-  packets), filled by the worker (`fill_seek_plan`, `VideoJob.seek_plan`).
+  packets), in the source model (`VideoJob.seek_plan`).
   `source_decode::decoder_seek` is the one place a decoder's seek is built:
   with a plan, `-copyts -ss (T − preroll)` and `trim=start=container_start+T`
   in the one `-vf` after the tag fix and before the PTS reset; without one,
@@ -1200,11 +1217,9 @@ the **single** builder of both decoders' arguments (encode + preview):
   - **Never trim relative to the seek** (no `-copyts`): when the early seek
     falls before a late video's first packet, ffmpeg rebases the frames to
     the first picture and the trim keeps the wrong one.
-  - **The app's twin** is `FieldOrderDetector.seekPlanFromProbe` with
-    `seekProbeArgs` and `SeekPlan.seekArgs`, used by `beforeFrameArgs` and
-    `thumbnailArgs`; `mpeg_seek_plan_test.dart` pins the arguments and
-    constants to the Rust source, and both sides read
-    `Tests/TestResources/seek_probe_dvbt.json`.
+  - **The app reads the plan from the source model**; its `SeekPlan.seekArgs`
+    (used by `beforeFrameArgs` and `thumbnailArgs`) is a twin of
+    `decoder_seek` until R3b, pinned by `mpeg_seek_plan_test.dart`.
   - **Every other format has no plan and keeps its arguments byte for byte.**
     Raw elementary streams (`mpegvideo`, `h264`) are not covered: they have no
     timestamps to trim by.
@@ -1228,8 +1243,7 @@ the **single** builder of both decoders' arguments (encode + preview):
     k + D (1, or 2 for H.264). Probed only when a first packet has no PTS
     (`stores_decode_order`), by decoding a few packets
     (`decoder_delay_from_probe`, whole frames, 1..4); `VideoJob.decoder_delay_frames`
-    (worker, in `fill_video_start`), `PreviewGenerator._decoderDelayFrames`
-    (app, only when `has_b_frames` > 0). **It moves seeks only**, never
+    (in the source model, which the app's `PreviewGenerator` reads too). **It moves seeks only**, never
     `video_start_offset` or the output's sound/picture layout. A delayed
     source also **rebases PTS when it doesn't seek** (`DecoderSeek::rebase`):
     H.264 in AVI's two-frame gap made the untrimmed decode repeat frame 0
@@ -1427,9 +1441,11 @@ stored frames on the grid itself:
   inventing pixels for any other job is not ours to do.
 - **Count by duration, not `nb_frames`.** `nb_frames` counts stored frames,
   so the app's timeline was short, trims landed early and the encode lost its
-  tail. `FieldOrderDetector.frameCountFor` counts a VFR source as
-  duration × rate (its `vfrRateTolerance` must equal the worker's), and the
-  worker sets `total_frames` to the window's slot count regardless.
+  tail. The source model counts a VFR source as its timeline's slots (else,
+  if only the rates suggest VFR, duration × rate), and the worker sets
+  `total_frames` to the window's slot count regardless. The model carries the
+  stored times (`frameTimes`, VFR sources only), so a preview builds the
+  timeline without reading the file again.
 
 `integration_vfr_source_test.dart` (heavy) checks length, gap pixels against
 the dropped ground-truth frames, slot alignment and preview = encode.

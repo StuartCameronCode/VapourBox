@@ -10,7 +10,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:vapourbox/services/field_order_detector.dart';
+import 'package:vapourbox/services/field_order_detector.dart' show SeekPlan;
 import 'package:vapourbox/services/preview_generator.dart';
 
 Map<String, dynamic> _resource(String name) =>
@@ -20,45 +20,13 @@ Map<String, dynamic> _resource(String name) =>
 String _rust() => File('../worker/src/source_decode.rs').readAsStringSync();
 
 void main() {
-  group('the decoder delay (twin of source_decode::decoder_delay_from_probe)', () {
-    test('the probe arguments are the worker\'s, word for word', () {
-      final rust = _rust();
-      final start = rust.indexOf('pub const DECODER_DELAY_PROBE_ARGS');
-      final body = rust.substring(start, rust.indexOf('];', start));
-      final words = RegExp(r'"([^"]*)"').allMatches(body).map((m) => m.group(1)).toList();
-      expect(words, FieldOrderDetector.decoderDelayProbeArgs);
-      expect(rust, contains('pub const MAX_DECODER_DELAY: u32 = ${FieldOrderDetector.maxDecoderDelay};'));
-      expect(rust, contains('pub const COUNT_SEEK_BELOW: f64 = ${SeekPlan.countSeekBelow};'));
-    });
-
-    test('decode-order storage is recognised from the packet probe', () {
-      expect(FieldOrderDetector.storesDecodeOrder(_resource('video_start_probe_avi.json')), isTrue);
-      expect(FieldOrderDetector.storesDecodeOrder(_resource('video_start_probe_dvbt.json')), isFalse);
-      expect(FieldOrderDetector.storesDecodeOrder({}), isFalse);
-    });
-
-    test('the MPEG-2 AVI fixture is one frame late', () {
-      final probe = _resource('decoder_delay_probe_avi.json');
-      expect(FieldOrderDetector.decoderDelayFromProbe(probe, 0), 1);
-      expect(FieldOrderDetector.decoderDelayFromProbe(probe, 0.033367), 0);
-    });
-
-    test('implausible delays are ignored', () {
-      Map<String, dynamic> probe(String first, String rate) => {
-            'frames': [
-              {'best_effort_timestamp_time': first}
-            ],
-            'streams': [
-              {'r_frame_rate': rate}
-            ],
-            'format': {'start_time': '0.000000'},
-          };
-      expect(FieldOrderDetector.decoderDelayFromProbe(probe('0.066733', '30000/1001'), 0), 2);
-      expect(FieldOrderDetector.decoderDelayFromProbe(probe('0.000000', '30000/1001'), 0), 0);
-      expect(FieldOrderDetector.decoderDelayFromProbe(probe('0.200000', '25/1'), 0), 0);
-      expect(FieldOrderDetector.decoderDelayFromProbe(probe('0.040000', '0/0'), 0), 0);
-      expect(FieldOrderDetector.decoderDelayFromProbe({'frames': []}, 0), 0);
-    });
+  // The delay itself is the worker's (`decoder_delay_from_probe`, in the
+  // source model since task #50); only the seek's constants are still
+  // twins, until the app's source pictures go through the worker.
+  test('the seek constants are the worker\'s', () {
+    final rust = _rust();
+    expect(rust, contains('pub const MAX_DECODER_DELAY: u32 = ${SeekPlan.maxDecoderDelay};'));
+    expect(rust, contains('pub const COUNT_SEEK_BELOW: f64 = ${SeekPlan.countSeekBelow};'));
   });
 
   group('the seek (twin of source_decode::source_seek)', () {

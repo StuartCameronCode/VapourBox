@@ -1,0 +1,44 @@
+[
+ {
+  "file": "small_clip.mp4",
+  "probeSourceMs": 63,
+  "previewBeforeMs": 263,
+  "previewProbingMs": 215,
+  "previewWithModelMs": 160
+ },
+ {
+  "file": "pal-dvbt-fieldcoded-25i.ts",
+  "probeSourceMs": 200,
+  "previewBeforeMs": 385,
+  "previewProbingMs": 432,
+  "previewWithModelMs": 214
+ },
+ {
+  "file": "seek_dvd_pal.mpg",
+  "probeSourceMs": 111,
+  "previewBeforeMs": 342,
+  "previewProbingMs": 265,
+  "previewWithModelMs": 160
+ },
+ {
+  "file": "avi_h264_bframes.avi",
+  "probeSourceMs": 83,
+  "previewBeforeMs": 272,
+  "previewProbingMs": 226,
+  "previewWithModelMs": 157
+ },
+ {
+  "file": "soft_telecine_test.mkv",
+  "probeSourceMs": 79,
+  "previewBeforeMs": 265,
+  "previewProbingMs": 244,
+  "previewWithModelMs": 169
+ },
+ {
+  "file": "pal-sd-25.mov",
+  "probeSourceMs": 54,
+  "previewBeforeMs": 266,
+  "previewProbingMs": 226,
+  "previewWithModelMs": 177
+ }
+]

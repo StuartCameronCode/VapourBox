@@ -14,6 +14,7 @@ library;
 
 // ignore_for_file: avoid_print — these tests print diagnostics to the test log.
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -22,6 +23,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/hdr_display.dart';
+import 'package:vapourbox/models/source_model.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
@@ -210,8 +212,18 @@ void main() {
 
     // The control: the same preview without the tags is what every HDR
     // source looked like before — PQ read as SDR, grey and desaturated.
+    // The worker fills a job's missing tags from the source model (task #50),
+    // so the control sends a model with them cleared too.
+    final model = (await WorkerHarness.sourceModel(_fixture)).toJson();
+    final untagged = jsonDecode(jsonEncode(model)) as Map<String, dynamic>;
+    for (final k in ['colorMatrix', 'colorPrimaries', 'colorTransfer', 'colorRange']) {
+      (untagged['video'] as Map<String, dynamic>)[k] = null;
+    }
     final raw = await WorkerHarness.runPreview(
-        job('unused.mkv', VideoCodec.h265, tagged: false).toJson(), frame: frame);
+        job('unused.mkv', VideoCodec.h265, tagged: false)
+            .copyWith(source: SourceModel.fromJson(untagged))
+            .toJson(),
+        frame: frame);
     final washed = await WorkerHarness.imageToRgb24(raw.png!, label: 'hdr_raw');
 
     // The app's "before" frame: PreviewGenerator.getFrameAtIndex's command.

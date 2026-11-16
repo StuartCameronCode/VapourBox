@@ -31,7 +31,7 @@ import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
-import 'package:vapourbox/services/field_order_detector.dart';
+import 'package:vapourbox/models/source_model.dart';
 import 'package:vapourbox/services/preview_generator.dart';
 
 import 'support/worker_harness.dart';
@@ -41,7 +41,8 @@ String get _outDir => p.join(WorkerHarness.outputDir, 'reserved_colour_tags');
 String _resource(String name) =>
     p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', name);
 
-/// What the app reads from ffprobe for a source, through the same `colorTag`.
+/// What the app reads about a source: the worker's source model (task #50),
+/// whose colour tags keep `reserved` for the decoders to clear.
 class _Source {
   final String path;
   final int width, height, frames;
@@ -49,29 +50,19 @@ class _Source {
   final String pixFmt;
   final String? matrix, primaries, transfer, range;
 
-  _Source(this.path, Map<String, dynamic> s)
-      : width = s['width'] as int,
-        height = s['height'] as int,
-        frames = int.parse(s['nb_frames'].toString()),
-        fps = _rate(s['avg_frame_rate'] as String),
-        pixFmt = s['pix_fmt'] as String,
-        matrix = colorTag(s, 'color_space'),
-        primaries = colorTag(s, 'color_primaries'),
-        transfer = colorTag(s, 'color_transfer'),
-        range = colorTag(s, 'color_range');
+  _Source(this.path, SourceModel m)
+      : width = m.width,
+        height = m.height,
+        frames = m.frameCount,
+        fps = m.frameRate,
+        pixFmt = m.pixelFormat ?? 'yuv420p',
+        matrix = m.colorMatrix,
+        primaries = m.colorPrimaries,
+        transfer = m.colorTransfer,
+        range = m.colorRange;
 
-  static double _rate(String r) {
-    final parts = r.split('/');
-    return double.parse(parts[0]) / double.parse(parts[1]);
-  }
-
-  static Future<_Source> probe(String path) async {
-    final json = await WorkerHarness.ffprobeJson([
-      '-v', 'error', '-select_streams', 'v:0', '-show_streams', '-of', 'json',
-      path,
-    ]);
-    return _Source(path, (json['streams'] as List).first as Map<String, dynamic>);
-  }
+  static Future<_Source> probe(String path) async =>
+      _Source(path, await WorkerHarness.sourceModel(path));
 
   String? get tagFix => ColorTags.decodeNeutraliser(
       matrix: matrix, primaries: primaries, transfer: transfer);

@@ -7,6 +7,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vapourbox/models/crop_detect_report.dart';
+import 'package:vapourbox/models/source_model.dart';
 import 'package:vapourbox/models/video_job.dart';
 import 'package:vapourbox/services/timestamp_continuity_service.dart';
 import 'package:vapourbox/viewmodels/main_viewmodel.dart';
@@ -17,13 +18,22 @@ class _FakeContinuity extends TimestampContinuityService {
   final ContinuityProxy? proxy;
   final bool checked;
   final String? error;
+  final SourceModel? Function(String path)? model;
   final asked = <String>[];
-  _FakeContinuity({this.proxy, this.checked = true, this.error});
+  final probed = <String>[];
+  _FakeContinuity({this.proxy, this.checked = true, this.error, this.model});
+
+  @override
+  Future<SourceModel?> probeSource(String path) async {
+    probed.add(path);
+    return model?.call(path);
+  }
 
   @override
   Future<({bool checked, ContinuityProxy? proxy, ContinuityScan? scan, String? error})>
       prepare(String source, String id,
-          {void Function(ContinuityScan)? onJoining,
+          {ContinuityScan? scanned,
+          void Function(ContinuityScan)? onJoining,
           void Function(double)? onProgress}) async {
     asked.add(source);
     return (checked: checked, proxy: proxy, scan: null, error: error);
@@ -92,6 +102,34 @@ void main() {
     expect(vm.logMessages.map((m) => m.message).join('\n'), contains('disk full'));
     await vm.detectCrop();
     expect(detectorJobs.single.continuityChecked, isFalse);
+    vm.dispose();
+  });
+
+  // Task #50: the worker's model of the file every decode reads (the joined
+  // copy, when there is one) reaches every job, unchanged.
+  test('the source model of the decoded file is sent with every job', () async {
+    const proxy = ContinuityProxy(
+        path: '/tmp/continuous_abc_show.vob', resetCount: 1, sizeBytes: 1 << 20);
+    Map<String, dynamic> json(String path) => {
+          'schema': SourceModel.schema,
+          'identity': {'path': path, 'sizeBytes': 1, 'modifiedMs': 1},
+          'formatName': 'mpeg',
+          'video': {'width': 720, 'height': 576, 'frameRate': 25.0, 'frameCount': 300,
+                    'futureField': [1, 2]},
+          'audioStreams': [],
+        };
+    final c = _FakeContinuity(
+        proxy: proxy, model: (path) => SourceModel.fromJson(json(path)));
+    final vm = vmWith(c);
+    await vm.addToQueue('/videos/show.vob');
+    final item = vm.selectedItem!;
+
+    expect(c.probed, ['/videos/show.vob', proxy.path],
+        reason: 'the user\'s file is probed, then the copy that is decoded');
+    expect(item.sourceModel?.path, proxy.path);
+    await vm.detectCrop();
+    final sent = detectorJobs.single.toJson()['source'] as Map<String, dynamic>;
+    expect(sent, json(proxy.path), reason: 'sent back exactly as the worker wrote it');
     vm.dispose();
   });
 }

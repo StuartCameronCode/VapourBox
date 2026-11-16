@@ -136,14 +136,91 @@ pub struct VideoJob {
     pub continuity_checked: bool,
 
     /// Whether the source has an audio stream, probed by the worker only when
-    /// the video starts late (`source_decode::probe_has_audio`). `None` means
+    /// the video starts late (from the source model's audio streams). `None` means
     /// unknown and is treated as yes. Not on the wire.
     #[serde(skip)]
     pub source_has_audio: Option<bool>,
 
+    /// Everything probed about the source (`source_model`, task #50): sent
+    /// by the app with every job, or given by file with `--source`. The
+    /// worker probes it only when a job carries none, and fills the flat
+    /// fields above from it ([`Self::apply_source_model`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<crate::source_model::SourceModel>,
+
 }
 
 impl VideoJob {
+    /// Fill every source fact the job left unset from its [`SourceModel`]
+    /// (task #50). A value the job carries is never touched, as the old
+    /// `fill_*` probes never touched one: the projection only replaces them.
+    /// `total_frames` is not filled from it: a job without a count is
+    /// counted by decoding (`resolve_source`), which on some sources
+    /// disagrees with the model's count by a few frames (task #50 report).
+    ///
+    /// [`SourceModel`]: crate::source_model::SourceModel
+    pub fn apply_source_model(&mut self) {
+        let Some(m) = self.source.clone() else { return };
+        let v = &m.video;
+        if self.input_width.is_none() || self.input_height.is_none() {
+            if v.width > 0 && v.height > 0 {
+                self.input_width = Some(v.width);
+                self.input_height = Some(v.height);
+            }
+        }
+        if self.input_frame_rate.is_none() && v.frame_rate > 0.0 {
+            self.input_frame_rate = Some(v.frame_rate);
+        }
+        if self.input_pixel_format.is_none() {
+            self.input_pixel_format = v.pixel_format.clone();
+        }
+        if self.input_sar.is_none() {
+            self.input_sar = v.sar.clone();
+        }
+        if self.input_color_matrix.is_none()
+            && self.input_color_primaries.is_none()
+            && self.input_color_transfer.is_none()
+            && self.input_color_range.is_none()
+        {
+            self.input_color_matrix = v.color_matrix.clone();
+            self.input_color_primaries = v.color_primaries.clone();
+            self.input_color_transfer = v.color_transfer.clone();
+            self.input_color_range = v.color_range.clone();
+        }
+        if self.video_start_offset.is_none() {
+            self.video_start_offset = Some(v.video_start_offset);
+            if v.video_start_offset > 0.0 {
+                self.source_has_audio = Some(!m.audio_streams.is_empty());
+            }
+        }
+        if self.decoder_delay_frames.is_none() {
+            self.decoder_delay_frames = Some(v.decoder_delay_frames);
+        }
+        if self.seek_plan.is_none() {
+            self.seek_plan = v.seek_plan;
+        }
+        if self.source_grid.is_none() {
+            // The grid is at the job's rate, as `grid_from_probe` makes it:
+            // the probed rate's exact fraction when they agree, else the
+            // job's own rate from the same first picture.
+            self.source_grid = v.source_grid.and_then(|g| match self.input_frame_rate {
+                Some(f)
+                    if f > 0.0
+                        && ((g.fps() - f) / f).abs() > crate::source_decode::GRID_RATE_TOLERANCE =>
+                {
+                    let (n, d) = crate::models::fps_to_rational(f);
+                    let g = crate::source_decode::SourceGrid {
+                        rate_num: u32::try_from(n.max(1)).ok()?,
+                        rate_den: u32::try_from(d.max(1)).ok()?,
+                        origin: g.origin,
+                    };
+                    g.is_valid().then_some(g)
+                }
+                _ => Some(g),
+            });
+        }
+    }
+
     /// The seek plan, when the source needs one and it is usable.
     pub fn seek_plan(&self) -> Option<&crate::source_decode::SeekPlan> {
         self.seek_plan.as_ref().filter(|p| p.is_valid())

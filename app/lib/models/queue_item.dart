@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../services/field_order_detector.dart';
 import '../services/timestamp_continuity_service.dart';
 import 'noise_halo_report.dart';
+import 'source_model.dart';
 
 /// Status of a queue item.
 enum QueueItemStatus {
@@ -49,6 +50,12 @@ class QueueItem {
   final String inputPath;
   String outputPath;
   VideoInfo? videoInfo;
+
+  /// The worker's model of [decodePath] (`--probe-source`, task #50): every
+  /// fact about the source that a decode depends on. Set at analysis and
+  /// sent in every job; null until then, or when the worker could not read
+  /// the file.
+  SourceModel? sourceModel;
 
   /// How noisy the source is and how strongly its edges ring, measured in the
   /// background after [videoInfo] (app 1.7.0); null until it comes back.
@@ -110,6 +117,7 @@ class QueueItem {
     required this.inputPath,
     required this.outputPath,
     this.videoInfo,
+    this.sourceModel,
     this.dvdSourceInfo,
     this.continuityProxy,
     this.continuityChecked = false,
