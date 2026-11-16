@@ -32,6 +32,7 @@ import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
+import 'package:vapourbox/models/source_model.dart';
 import 'package:vapourbox/services/field_order_detector.dart';
 import 'package:vapourbox/services/preview_generator.dart';
 
@@ -87,28 +88,6 @@ VideoJob _job(
     endFrame: end,
     totalFrames: start != null && end != null ? end - start + 1 : _frames,
   );
-}
-
-Future<VideoStart> _videoStart(String video) async {
-  final v = await WorkerHarness.ffprobeJson([
-    '-v', 'error', '-select_streams', 'v:0',
-    '-show_entries', 'stream=start_time:format=start_time', '-of', 'json', video,
-  ]);
-  return FieldOrderDetector.probeVideoStart(
-    WorkerHarness.ffprobePath,
-    video,
-    streamStart: double.tryParse('${(v['streams'] as List).first['start_time']}'),
-    containerStart: double.tryParse('${v['format']['start_time']}'),
-  );
-}
-
-/// The app's seek plan for [video], as `PreviewGenerator` probes it: null
-/// unless it is an MPEG-TS/PS.
-Future<SeekPlan?> _seekPlan(String video) async {
-  final f = await WorkerHarness.ffprobeJson(
-      ['-v', 'error', '-show_entries', 'format=format_name', '-of', 'json', video]);
-  return FieldOrderDetector.probeSeekPlan(WorkerHarness.ffprobePath, video,
-      formatName: f['format']?['format_name'] as String?);
 }
 
 /// The app's before picture of [frame], through `beforeFrameArgs` (PNG).
@@ -369,33 +348,21 @@ void main() {
     group(file, () {
       final video = _resource(file);
       final stem = p.basenameWithoutExtension(file);
-      late VideoStart start;
+      late SourceModel model;
       late SeekPlan? plan;
 
       setUpAll(() async {
         expect(await File(video).exists(), isTrue, reason: 'missing $video');
-        start = await _videoStart(video);
-        plan = await _seekPlan(video);
+        model = await WorkerHarness.sourceModel(video);
+        plan = model.seekPlan;
         expect(plan != null, file.endsWith('.ts'),
             reason: 'a TS seeks with a plan, nothing else does ($plan)');
       });
 
       test('the app finds the 1 s gap and counts the video, not the file', () async {
         // TS muxing adds ~10 ms between the streams.
-        expect(start.offset, closeTo(1.0, 0.02));
-        final v = await WorkerHarness.ffprobeJson([
-          '-v', 'error', '-select_streams', 'v:0', '-show_entries',
-          'stream=nb_frames,duration:format=duration', '-of', 'json', video,
-        ]);
-        final stream = (v['streams'] as List).first as Map<String, dynamic>;
-        final stored = int.tryParse('${stream['nb_frames']}');
-        final count = stored ??
-            FieldOrderDetector.frameCountFromDuration(
-              streamDuration: double.tryParse('${stream['duration']}'),
-              containerDuration: double.tryParse('${v['format']['duration']}'),
-              start: start,
-              frameRate: _fps,
-            );
+        expect(model.videoStartOffset, closeTo(1.0, 0.02));
+        final count = model.frameCount;
         expect(count, _frames);
       });
 
@@ -406,7 +373,7 @@ void main() {
           expect(pv.success, isTrue, reason: '${pv.error}\n${pv.errorTail}');
           await _expectFrame('the preview', await WorkerHarness.imageToRgb24(pv.png!), video, n);
           await _expectFrame(
-              'the before frame', await _beforeFrame(video, n, start.offset, plan), video, n);
+              'the before frame', await _beforeFrame(video, n, model.videoStartOffset, plan), video, n);
         });
       }
 
@@ -434,7 +401,7 @@ void main() {
             _job(video, 'sync_copy_$stem', audio: AudioMode.passthrough), 'vstart_sync_copy');
         await _expectInSync('copied', out, flashes: 2);
         final e = await _events(out);
-        expect(e.videoStart, closeTo(start.offset, _syncTolerance),
+        expect(e.videoStart, closeTo(model.videoStartOffset, _syncTolerance),
             reason: 'the output keeps the source\'s layout');
       });
 
@@ -622,7 +589,7 @@ void main() {
 
   test('a source whose streams start together gets no delay', () async {
     final video = _resource('seek_timebase_2997.mov');
-    expect((await _videoStart(video)).offset, 0);
+    expect((await WorkerHarness.sourceModel(video)).videoStartOffset, 0);
     final job = VideoJob(
       id: const Uuid().v4(),
       inputPath: video,

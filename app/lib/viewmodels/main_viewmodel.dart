@@ -324,6 +324,7 @@ class MainViewModel extends ChangeNotifier {
         !trimmed || point == null ? null : (point * frameCount).round();
     return VideoJob(
       inputPath: item.decodePath,
+      source: item.sourceModel,
       continuityChecked: item.continuityChecked,
       outputPath: item.outputPath,
       processingPipeline: pipeline,
@@ -977,14 +978,24 @@ class MainViewModel extends ChangeNotifier {
     }
   }
 
-  /// Scans [item] for timestamp resets and, finding one, makes the joined
-  /// copy it is decoded from ([QueueItem.continuityProxy]). Never blocks: a
-  /// failed scan or copy leaves the source as it is, and says so.
+  /// Probes [item] ([QueueItem.sourceModel]) and, when its timestamps reset,
+  /// makes the joined copy it is decoded from ([QueueItem.continuityProxy])
+  /// and probes that. Never blocks: a failed scan or copy leaves the source
+  /// as it is, and says so.
   Future<void> _prepareContinuity(QueueItem item) async {
-    if (item.continuityProxy != null) return;
+    if (item.continuityProxy != null) {
+      item.sourceModel ??= await _continuity.probeSource(item.decodePath);
+      return;
+    }
+    // One worker call answers everything about the source, its reset scan
+    // included (task #50); only a source that resets needs a second, of
+    // the joined copy.
+    final model = await _continuity.probeSource(item.inputPath);
+    item.sourceModel = model;
     final r = await _continuity.prepare(
       item.inputPath,
       item.id,
+      scanned: model?.continuity,
       onJoining: (scan) {
         _log(LogLevel.info,
             '${item.filename}: timestamps reset ${scan.resetCount == 1 ? "once" : "${scan.resetCount} times"} '
@@ -1007,6 +1018,7 @@ class MainViewModel extends ChangeNotifier {
       }
       item.continuityProxy = r.proxy;
       _log(LogLevel.info, '${item.filename}: ${r.proxy!.note}');
+      item.sourceModel = await _continuity.probeSource(item.decodePath);
     } else if (r.error != null) {
       _log(LogLevel.warning,
           '${item.filename}: its timestamps reset, but joining them failed (${r.error}). '
@@ -1032,9 +1044,16 @@ class MainViewModel extends ChangeNotifier {
     // item itself from here, not on the index found before it.
     if (!_queue.contains(item)) return;
 
-    // Analyze video
+    // Analyze video: the worker's model, plus the scan type.
     try {
-      item.videoInfo = await _fieldOrderDetector.getVideoInfo(item.decodePath);
+      final model = item.sourceModel;
+      if (model == null) {
+        _log(LogLevel.warning,
+            'Failed to analyze ${item.filename}: the worker could not read it');
+      } else {
+        item.videoInfo =
+            await _fieldOrderDetector.getVideoInfo(item.decodePath, model);
+      }
     } catch (e) {
       _logMessages.add(LogMessage(
         level: LogLevel.warning,
@@ -1113,9 +1132,11 @@ class MainViewModel extends ChangeNotifier {
     }
 
     // Load thumbnails if this is the selected item
-    if (_selectedItemId == item.id) {
+    final model = item.sourceModel;
+    if (_selectedItemId == item.id && model != null) {
       try {
-        item.thumbnails = await _previewGenerator.loadVideo(item.decodePath);
+        item.thumbnails =
+            await _previewGenerator.loadVideo(item.decodePath, model);
         item.thumbnailRangeStart = 0.0;
         item.thumbnailRangeEnd = 1.0;
         item.currentFrame = await _previewGenerator.getFrameAtIndex(0);
@@ -1227,10 +1248,14 @@ class MainViewModel extends ChangeNotifier {
     final item = selectedItem;
     if (item == null) return;
 
+    final model = item.sourceModel;
     // Load thumbnails if not already loaded
-    if (item.thumbnails.isEmpty && item.status != QueueItemStatus.analyzing) {
+    if (model == null) {
+      // Not analysed yet (or unreadable): nothing to show.
+    } else if (item.thumbnails.isEmpty && item.status != QueueItemStatus.analyzing) {
       try {
-        item.thumbnails = await _previewGenerator.loadVideo(item.decodePath);
+        item.thumbnails =
+            await _previewGenerator.loadVideo(item.decodePath, model);
         item.thumbnailRangeStart = 0.0;
         item.thumbnailRangeEnd = 1.0;
         if (item.timelineZoom > 1.0) _requestThumbnailRegeneration();
@@ -1245,9 +1270,9 @@ class MainViewModel extends ChangeNotifier {
         ));
       }
     } else if (item.thumbnails.isNotEmpty) {
-      // Reload video in preview generator to sync duration
+      // Point the preview generator at this video (its thumbnails are kept).
       try {
-        await _previewGenerator.loadVideo(item.decodePath);
+        await _previewGenerator.selectSource(item.decodePath, model);
       } catch (e) {
         // Ignore errors
       }
@@ -1473,8 +1498,11 @@ class MainViewModel extends ChangeNotifier {
     final rangeStart = timelineViewStart;
     final rangeEnd = timelineViewEnd;
     try {
+      final model = item.sourceModel;
+      if (model == null) return;
       item.thumbnails = await _previewGenerator.loadVideoRange(
         videoPath: item.decodePath,
+        model: model,
         startTime: rangeStart * videoDuration,
         endTime: rangeEnd * videoDuration,
         thumbnailCount: 20,
@@ -1860,6 +1888,7 @@ class MainViewModel extends ChangeNotifier {
     final job = VideoJob(
       id: item.id,
       inputPath: item.decodePath,
+      source: item.sourceModel,
       continuityChecked: item.continuityChecked,
       outputPath: item.outputPath,
       qtgmcParameters: _qtgmcParams.copyWith(

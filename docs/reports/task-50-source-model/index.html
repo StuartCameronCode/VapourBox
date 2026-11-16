@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>One source model</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#666;--line:#ddd;--hl:#fff4d6}
+@media (prefers-color-scheme:dark){:root{--bg:#16181b;--fg:#e8e8e8;--mut:#9a9a9a;--line:#333;--hl:#3a3320}}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,system-ui,sans-serif;max-width:920px;margin:0 auto;padding:24px 16px}
+h1{font-size:1.6em} h2{margin-top:2em;border-bottom:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:4px 8px;text-align:left} td:not(:first-child){text-align:right}
+tr.diff td{background:var(--hl)} code{font-size:.92em} .note{color:var(--mut)}
+</style></head><body>
+<h1>One source model, owned by the worker</h1>
+<p class="note">Task #50 (task #42's plan, R3a and R5). 2026-11-16. macOS arm64 (M-series), deps 1.16.0, debug worker.</p>
+
+<h2>What was built</h2>
+<p><code>vapourbox-worker --probe-source &lt;path&gt;</code> prints a <code>SourceModel</code>: size, picture rate,
+frame count, video start offset, decoder delay, seek plan, grid, the stored frame times of a variable-rate source,
+colour tags, Dolby Vision, audio streams and the timestamp-reset scan. The app stores it on the queue item at
+analysis and sends it, unchanged, in every job (inline, or <code>--source &lt;file&gt;</code> for previews).
+The worker probes only when a job carries none. The app's own probe rules for the same facts (video start,
+decoder delay, seek plan, grid, frame count, rate choice, VFR test, SAR, colour tags) are deleted; its remaining
+twins are listed with their dispositions in <code>docs/TWINS.md</code>.</p>
+<p>Not built: the app's Original picture and thumbnails through the worker (R3b, stage C of the plan). It waits for
+a go-ahead and its own latency measurement.</p>
+
+<h2>1. Nothing a decoder does changed</h2>
+<p><code>scripts/compare_preview.py</code> runs the worker before the change and after it on every committed fixture
+(30 files) at frames 0, 1, 7, 40 and the third from last: the preview's decode-plan line (seek, trim, grid, delay)
+and the PNG it writes. <strong>All 146 cases identical, plan line and PNG bytes.</strong></p>
+<p class="note">Limits: no variable-frame-rate fixture is committed (the heavy VFR suite, which generates them,
+passed); every pass off, so this tests the decode, not the passes; one platform.</p>
+
+<h2>2. The model says what the app used to compute</h2>
+<p><code>scripts/app_count_parity_test.dart</code> ran the app's Dart probe rules (before they were deleted) next to
+<code>--probe-source</code> on the 30 fixtures: frame count, video start offset, decoder delay, seek-plan preroll,
+grid and picture rate. <strong>No difference on any fixture.</strong> The port is therefore a move, not a change,
+for every job the app sends.</p>
+
+<h2>3. Which frame count is right</h2>
+<p>The plan asked to settle a disagreement: the app counts from <code>nb_frames</code> (or its derivations), while a
+job without a count was counted by <code>-count_frames</code>, a full decode. <code>scripts/count_table.py</code> puts
+both beside what the worker's own untrimmed decode actually produces (its frame-0 grid filters through ffmpeg).
+Highlighted rows disagree.</p>
+<table><tr><th>Fixture</th><th>model</th><th>nb_frames</th><th>-count_frames</th><th>grid decode</th></tr>
+<tr><td>avi_aac_overshoot.mkv</td><td>200</td><td>—</td><td>200</td><td>200</td></tr>
+<tr><td>avi_h264_bframes.avi</td><td>90</td><td>90</td><td>90</td><td>—</td></tr>
+<tr><td>avi_ntsc_intra.avi</td><td>90</td><td>90</td><td>90</td><td>90</td></tr>
+<tr><td>blended_film_50i.mkv</td><td>150</td><td>—</td><td>150</td><td>150</td></tr>
+<tr><td>blended_pal_5994i.mkv</td><td>150</td><td>—</td><td>150</td><td>150</td></tr>
+<tr><td>colorize_test.mp4</td><td>120</td><td>120</td><td>120</td><td>120</td></tr>
+<tr><td>face_restore_test.mp4</td><td>150</td><td>150</td><td>150</td><td>150</td></tr>
+<tr><td>hard_telecine_test.avi</td><td>90</td><td>90</td><td>90</td><td>—</td></tr>
+<tr class="diff"><td>interlaced_test.avi</td><td>79</td><td>79</td><td>75</td><td>79</td></tr>
+<tr><td>late_video.mkv</td><td>100</td><td>—</td><td>100</td><td>100</td></tr>
+<tr><td>late_video.mp4</td><td>100</td><td>100</td><td>100</td><td>100</td></tr>
+<tr><td>late_video_gop.ts</td><td>100</td><td>—</td><td>100</td><td>100</td></tr>
+<tr><td>late_video_intra.ts</td><td>100</td><td>—</td><td>100</td><td>100</td></tr>
+<tr class="diff"><td>null_frames_mid.avi</td><td>200</td><td>200</td><td>195</td><td>200</td></tr>
+<tr class="diff"><td>pal-dvbt-fieldcoded-25i.ts</td><td>128</td><td>—</td><td>126</td><td>128</td></tr>
+<tr><td>pal-sd-25.mov</td><td>125</td><td>125</td><td>125</td><td>125</td></tr>
+<tr><td>primed_aac.mkv</td><td>100</td><td>—</td><td>100</td><td>100</td></tr>
+<tr><td>primed_mp3.mp4</td><td>100</td><td>100</td><td>100</td><td>100</td></tr>
+<tr><td>prores422_10bit_telecine.mov</td><td>30</td><td>30</td><td>30</td><td>30</td></tr>
+<tr><td>reserved_colour_tags.mov</td><td>15</td><td>15</td><td>15</td><td>15</td></tr>
+<tr><td>reserved_colour_tags_4444a.mov</td><td>10</td><td>10</td><td>10</td><td>10</td></tr>
+<tr><td>seek_dvd_pal.mpg</td><td>150</td><td>—</td><td>150</td><td>—</td></tr>
+<tr><td>seek_gop_late_video.ts</td><td>150</td><td>—</td><td>150</td><td>150</td></tr>
+<tr class="diff"><td>seek_reset_dvd_pal.mpg</td><td>150</td><td>—</td><td>300</td><td>—</td></tr>
+<tr class="diff"><td>seek_reset_h264.ts</td><td>150</td><td>—</td><td>300</td><td>300</td></tr>
+<tr><td>seek_timebase_2997.mov</td><td>90</td><td>90</td><td>90</td><td>90</td></tr>
+<tr class="diff"><td>small_clip.mp4</td><td>3154</td><td>3154</td><td>3151</td><td>3151</td></tr>
+<tr class="diff"><td>soft_telecine_dvd.mkv</td><td>150</td><td>—</td><td>120</td><td>150</td></tr>
+<tr class="diff"><td>soft_telecine_dvd.vob</td><td>149</td><td>—</td><td>120</td><td>149</td></tr>
+<tr><td>soft_telecine_test.mkv</td><td>120</td><td>—</td><td>120</td><td>120</td></tr>
+</table>
+<ul>
+<li><strong>The model equals the decode on every fixture with a grid but one.</strong> <code>-count_frames</code> is
+wrong on AVI null frames (interlaced_test 75 vs 79, null_frames_mid 195 vs 200), the DVB-T clip's leading open-GOP
+pictures (126 vs 128) and soft-telecine repeats (120 vs 150/149).</li>
+<li><strong>The exception, <code>small_clip.mp4</code>:</strong> its edit list discards three pre-roll frames;
+<code>nb_frames</code> counts them (3154) and the decode delivers 3151. This is the app's count today, so an
+untrimmed encode of such an MP4 is asked for three frames more than its decoder gives. Pre-existing; filed as a
+follow-up, not changed here.</li>
+<li>The two <code>seek_reset_*</code> rows are the original files: the app decodes their joined copy and probes that.</li>
+</ul>
+<p><strong>Correction made during the work.</strong> The first version also filled a job's missing count from the model,
+replacing <code>-count_frames</code>. Two heavy AVI tests that send no count then failed (DVB-T to AVI 128 vs 126,
+small_clip to AVI 3154 vs 3151), and small_clip's row shows <code>-count_frames</code> is the right one there. A job
+without a count is counted by decoding again, as before, until the follow-up settles the model's count for edit lists.
+Jobs from the app always carry a count, so this affects only the CLI and tests.</p>
+
+<h2>4. Time</h2>
+<p><code>scripts/timing.py</code>, median of 7 runs, milliseconds. <em>before</em>: the old worker's preview, which
+probed the source itself; <em>probing</em>: the new worker given no model (CLI); <em>with model</em>: the new worker
+given <code>--source</code>, as the app now calls it.</p>
+<table><tr><th>Fixture</th><th>--probe-source</th><th>preview, before</th><th>preview, probing</th><th>preview, with model</th></tr>
+<tr><td>small_clip.mp4</td><td>63</td><td>263</td><td>215</td><td>160</td></tr>
+<tr><td>pal-dvbt-fieldcoded-25i.ts</td><td>200</td><td>385</td><td>432</td><td>214</td></tr>
+<tr><td>seek_dvd_pal.mpg</td><td>111</td><td>342</td><td>265</td><td>160</td></tr>
+<tr><td>avi_h264_bframes.avi</td><td>83</td><td>272</td><td>226</td><td>157</td></tr>
+<tr><td>soft_telecine_test.mkv</td><td>79</td><td>265</td><td>244</td><td>169</td></tr>
+<tr><td>pal-sd-25.mov</td><td>54</td><td>266</td><td>226</td><td>177</td></tr>
+</table>
+<p>The app's previews (every scrub) are 89–182 ms faster (about a third): the worker no longer probes on each one. On a
+variable-frame-rate source the old preview also read every packet of the file; the model carries those times.
+The new probe adds the reset scan to a job without a model (the DVB-T row's "probing" column).</p>
+<p class="note">Limits: small fixtures on an internal SSD. The two whole-file reads (the reset scan of a TS/PS and a
+VFR source's timestamps) already ran at analysis or on every preview; a 2-hour DVD or a NAS file was not timed.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>The app sends the model back unchanged</strong> (<code>SourceModel.toJson</code> is the worker's JSON), so a
+field the app doesn't read still reaches the worker and the Dart side derives nothing.</li>
+<li><strong>Values a job carries win</strong> over the model's, as the old <code>fill_*</code> probes never overwrote one;
+a model that no longer describes the file (path, size, modification time or schema) is re-probed.</li>
+<li><strong>idet and the soft-telecine flags stay in the app</strong>: they look at pictures, are not twins, and moving
+them deletes nothing.</li>
+<li><strong>The frame count of a job without one stays <code>-count_frames</code></strong> (section 3).</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul><li>Windows and Linux; x86.</li><li>Large or network files (probe time).</li>
+<li>A variable-frame-rate fixture in the before/after comparison (covered by the heavy VFR suite only).</li></ul>
+</body></html>

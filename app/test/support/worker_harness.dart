@@ -30,6 +30,7 @@ import 'package:path/path.dart' as p;
 // importing this file does NOT initialize the app's rhttp HTTP client, which is
 // why the harness does its own dart:io download below (rhttp's native bindings
 // don't load under the headless `flutter test` VM).
+import 'package:vapourbox/models/source_model.dart';
 import 'package:vapourbox/services/addon_manager.dart';
 import 'package:vapourbox/services/addon_service.dart';
 import 'package:vapourbox/services/manifest_addon.dart';
@@ -535,6 +536,18 @@ class WorkerHarness {
   // ---------------------------------------------------------------------------
   // ffprobe / ffmpeg verification helpers
   // ---------------------------------------------------------------------------
+
+  /// The worker's [SourceModel] of [path] (`--probe-source`, task #50): what
+  /// the app reads every source fact from.
+  static Future<SourceModel> sourceModel(String path) async {
+    final r = await Process.run(workerPath, ['--probe-source', path],
+        environment: workerEnv, workingDirectory: p.dirname(workerPath));
+    final model = SourceModel.parse(r.stdout as String);
+    if (model == null) {
+      throw Exception('--probe-source failed for $path: ${r.stdout}${r.stderr}');
+    }
+    return model;
+  }
 
   /// Run ffprobe and return decoded JSON.
   static Future<Map<String, dynamic>> ffprobeJson(List<String> args) async {

@@ -29,7 +29,6 @@ import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
-import 'package:vapourbox/services/field_order_detector.dart';
 import 'package:vapourbox/services/preview_generator.dart';
 
 import 'support/worker_harness.dart';
@@ -165,26 +164,9 @@ VideoJob _job(String input, _Reference s, String name,
   );
 }
 
-/// The app's frame count for [path], as `FieldOrderDetector.getVideoInfo`
-/// computes it for a constant-rate source.
-Future<int> _appCount(String path, double fps) async {
-  final v = await WorkerHarness.firstStream(path,
-      selector: 'v:0', entries: ['nb_frames', 'duration', 'start_time']);
-  final nb = int.tryParse('${v!['nb_frames']}');
-  if (nb != null) return nb;
-  final f = await WorkerHarness.ffprobeJson(['-v', 'error', '-show_entries',
-      'format=duration,format_name', '-of', 'json', path]);
-  return FieldOrderDetector.frameCountWithoutStoredCount(
-    WorkerHarness.ffprobePath,
-    path,
-    streamDuration: double.tryParse('${v['duration']}'),
-    containerDuration: double.tryParse('${(f['format'] as Map)['duration']}'),
-    start: VideoStart.none,
-    frameRate: fps,
-    streamStart: double.tryParse('${v['start_time']}'),
-    formatName: (f['format'] as Map)['format_name'] as String?,
-  );
-}
+/// The app's frame count for [path]: the worker's source model's (task #50).
+Future<int> _appCount(String path, double fps) async =>
+    (await WorkerHarness.sourceModel(path)).frameCount;
 
 /// [img] (RGB) must be stored frame [k]: the closest of its stored
 /// neighbours, and the same picture.
@@ -204,13 +186,9 @@ Future<void> _expectStored(String what, String video, Uint8List img, int k,
 }
 
 Future<Uint8List> _original(String video, int frame, _Reference ref) async {
-  final grid = await FieldOrderDetector.probeSourceGrid(
-      WorkerHarness.ffprobePath, video, frameRate: ref.fps);
-  final plan = await FieldOrderDetector.probeSeekPlan(
-      WorkerHarness.ffprobePath, video,
-      formatName: (await WorkerHarness.ffprobeJson([
-        '-v', 'error', '-show_entries', 'format=format_name', '-of', 'json', video
-      ]))['format']['format_name'] as String?);
+  final model = await WorkerHarness.sourceModel(video);
+  final grid = model.sourceGrid;
+  final plan = model.seekPlan;
   final out = File(p.join(Directory.systemTemp.path,
       'vb_grid_before_${DateTime.now().microsecondsSinceEpoch}.png'));
   try {

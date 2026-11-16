@@ -1,0 +1,212 @@
+[
+ {
+  "file": "avi_aac_overshoot.mkv",
+  "model": 200,
+  "nb": null,
+  "read": 200,
+  "grid": 200
+ },
+ {
+  "file": "avi_h264_bframes.avi",
+  "model": 90,
+  "nb": 90,
+  "read": 90,
+  "grid": null
+ },
+ {
+  "file": "avi_ntsc_intra.avi",
+  "model": 90,
+  "nb": 90,
+  "read": 90,
+  "grid": 90
+ },
+ {
+  "file": "blended_film_50i.mkv",
+  "model": 150,
+  "nb": null,
+  "read": 150,
+  "grid": 150
+ },
+ {
+  "file": "blended_pal_5994i.mkv",
+  "model": 150,
+  "nb": null,
+  "read": 150,
+  "grid": 150
+ },
+ {
+  "file": "colorize_test.mp4",
+  "model": 120,
+  "nb": 120,
+  "read": 120,
+  "grid": 120
+ },
+ {
+  "file": "face_restore_test.mp4",
+  "model": 150,
+  "nb": 150,
+  "read": 150,
+  "grid": 150
+ },
+ {
+  "file": "hard_telecine_test.avi",
+  "model": 90,
+  "nb": 90,
+  "read": 90,
+  "grid": null
+ },
+ {
+  "file": "interlaced_test.avi",
+  "model": 79,
+  "nb": 79,
+  "read": 75,
+  "grid": 79
+ },
+ {
+  "file": "late_video.mkv",
+  "model": 100,
+  "nb": null,
+  "read": 100,
+  "grid": 100
+ },
+ {
+  "file": "late_video.mp4",
+  "model": 100,
+  "nb": 100,
+  "read": 100,
+  "grid": 100
+ },
+ {
+  "file": "late_video_gop.ts",
+  "model": 100,
+  "nb": null,
+  "read": 100,
+  "grid": 100
+ },
+ {
+  "file": "late_video_intra.ts",
+  "model": 100,
+  "nb": null,
+  "read": 100,
+  "grid": 100
+ },
+ {
+  "file": "null_frames_mid.avi",
+  "model": 200,
+  "nb": 200,
+  "read": 195,
+  "grid": 200
+ },
+ {
+  "file": "pal-dvbt-fieldcoded-25i.ts",
+  "model": 128,
+  "nb": null,
+  "read": 126,
+  "grid": 128
+ },
+ {
+  "file": "pal-sd-25.mov",
+  "model": 125,
+  "nb": 125,
+  "read": 125,
+  "grid": 125
+ },
+ {
+  "file": "primed_aac.mkv",
+  "model": 100,
+  "nb": null,
+  "read": 100,
+  "grid": 100
+ },
+ {
+  "file": "primed_mp3.mp4",
+  "model": 100,
+  "nb": 100,
+  "read": 100,
+  "grid": 100
+ },
+ {
+  "file": "prores422_10bit_telecine.mov",
+  "model": 30,
+  "nb": 30,
+  "read": 30,
+  "grid": 30
+ },
+ {
+  "file": "reserved_colour_tags.mov",
+  "model": 15,
+  "nb": 15,
+  "read": 15,
+  "grid": 15
+ },
+ {
+  "file": "reserved_colour_tags_4444a.mov",
+  "model": 10,
+  "nb": 10,
+  "read": 10,
+  "grid": 10
+ },
+ {
+  "file": "seek_dvd_pal.mpg",
+  "model": 150,
+  "nb": null,
+  "read": 150,
+  "grid": null
+ },
+ {
+  "file": "seek_gop_late_video.ts",
+  "model": 150,
+  "nb": null,
+  "read": 150,
+  "grid": 150
+ },
+ {
+  "file": "seek_reset_dvd_pal.mpg",
+  "model": 150,
+  "nb": null,
+  "read": 300,
+  "grid": null
+ },
+ {
+  "file": "seek_reset_h264.ts",
+  "model": 150,
+  "nb": null,
+  "read": 300,
+  "grid": 300
+ },
+ {
+  "file": "seek_timebase_2997.mov",
+  "model": 90,
+  "nb": 90,
+  "read": 90,
+  "grid": 90
+ },
+ {
+  "file": "small_clip.mp4",
+  "model": 3154,
+  "nb": 3154,
+  "read": 3151,
+  "grid": 3151
+ },
+ {
+  "file": "soft_telecine_dvd.mkv",
+  "model": 150,
+  "nb": null,
+  "read": 120,
+  "grid": 150
+ },
+ {
+  "file": "soft_telecine_dvd.vob",
+  "model": 149,
+  "nb": null,
+  "read": 120,
+  "grid": 149
+ },
+ {
+  "file": "soft_telecine_test.mkv",
+  "model": 120,
+  "nb": null,
+  "read": 120,
+  "grid": 120
+ }
+]

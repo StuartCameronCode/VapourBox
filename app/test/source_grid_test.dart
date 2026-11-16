@@ -1,9 +1,8 @@
 // The source grid (issue #174): every decode of the source places its frames
 // on one constant-rate grid, so a null frame or a pulldown repeat is a slot
 // showing the stored frame before it, the same picture everywhere. These pin
-// the app's half (the Original, the thumbnails, the frame count, the Soft
-// Telecine decision) to the worker's (`source_decode::grid_from_probe`,
-// `decode_start`, `soft_telecine_decimates_at`) through shared files; the
+// the app's half (the Original, the thumbnails, the starts) to the
+// worker's (`decode_start`) through a shared file; the
 // heavy integration_seek_alignment_test checks the pictures.
 import 'dart:convert';
 import 'dart:io';
@@ -16,7 +15,7 @@ Map<String, dynamic> _json(String name) =>
     jsonDecode(File('../Tests/TestResources/$name').readAsStringSync())
         as Map<String, dynamic>;
 
-VideoInfo _info(ScanType scan, double fps) => VideoInfo(
+VideoInfo _info(ScanType scan, double fps, {bool pulldown = false}) => VideoInfo(
       width: 720,
       height: 480,
       frameRate: fps,
@@ -26,6 +25,7 @@ VideoInfo _info(ScanType scan, double fps) => VideoInfo(
       pixelFormat: 'yuv420p',
       scanType: scan,
       hasAudio: false,
+      pulldownRate: pulldown,
     );
 
 void main() {
@@ -34,20 +34,15 @@ void main() {
         .cast<Map<String, dynamic>>();
     for (final c in cases) {
       test(c['name'], () {
-        final grid = SourceGrid.fromProbe(
-            c['probe'] as Map<String, dynamic>, (c['jobFps'] as num).toDouble());
+        // The grid itself is the worker's (`grid_from_probe`, in the source
+        // model since task #50); the starts are still built here.
         final want = c['grid'] as Map<String, dynamic>?;
-        if (want == null) {
-          expect(grid, isNull);
-          return;
-        }
-        expect(
-            grid,
-            SourceGrid(
-              rateNum: want['rateNum'] as int,
-              rateDen: want['rateDen'] as int,
-              origin: (want['origin'] as num).toDouble(),
-            ));
+        if (want == null) return;
+        final grid = SourceGrid(
+          rateNum: want['rateNum'] as int,
+          rateDen: want['rateDen'] as int,
+          origin: (want['origin'] as num).toDouble(),
+        );
         for (final s in (c['starts'] as List).cast<Map<String, dynamic>>()) {
           final p = s['plan'] as Map<String, dynamic>?;
           final plan = p == null
@@ -55,7 +50,7 @@ void main() {
               : SeekPlan(
                   preroll: (p['preroll'] as num).toDouble(),
                   containerStart: (p['containerStart'] as num).toDouble());
-          final start = grid!.startAt(
+          final start = grid.startAt(
               s['frame'] as int, (s['videoStart'] as num).toDouble(), plan);
           expect(start.input, [
             if (s['copyts'] as bool? ?? true) '-copyts',
@@ -140,28 +135,17 @@ void main() {
     });
   });
 
-  test('the frame count from the last picture is its slot plus one', () {
-    // soft_telecine_test.mkv: last picture 4.963 s at 24000/1001 -> 120 (its
-    // container duration, 5.047 s, counted 121).
-    const film = SourceGrid(rateNum: 24000, rateDen: 1001, origin: 0);
-    expect(FieldOrderDetector.frameCountFromLastPicture(4.963, film), 120);
-    // A late picture counts from its own start.
-    const late = SourceGrid(rateNum: 25, rateDen: 1, origin: 1.0);
-    expect(FieldOrderDetector.frameCountFromLastPicture(4.96, late), 100);
-  });
-
-  test('Soft Telecine decimates at the same rates as the worker', () {
-    for (final row in (_json('soft_telecine_rates.json')['rates'] as List)
-        .cast<Map<String, dynamic>>()) {
-      final fps = (row['fps'] as num).toDouble();
-      final info = _info(ScanType.softTelecine, fps);
-      expect(info.softTelecineDecimates, row['decimates'], reason: '$fps');
-      expect(info.contentFrameRate,
-          row['decimates'] as bool ? closeTo(fps * 4 / 5, 1e-9) : fps);
-    }
+  test('Soft Telecine decimates where the worker says the rate holds repeats', () {
+    // The rate rule is the worker's (`soft_telecine_decimates_at`, the
+    // model's `pulldownRate`); VideoInfo combines it with the scan type.
+    expect(_info(ScanType.softTelecine, 29.97, pulldown: true).softTelecineDecimates, true);
+    expect(_info(ScanType.softTelecine, 29.97, pulldown: true).contentFrameRate,
+        closeTo(29.97 * 4 / 5, 1e-9));
+    expect(_info(ScanType.softTelecine, 23.976).softTelecineDecimates, false);
+    expect(_info(ScanType.softTelecine, 23.976).contentFrameRate, 23.976);
     // Hard telecine always reports its film rate.
     expect(_info(ScanType.telecine, 29.97).contentFrameRate,
         closeTo(23.976, 0.001));
-    expect(_info(ScanType.progressive, 29.97).softTelecineDecimates, false);
+    expect(_info(ScanType.progressive, 29.97, pulldown: true).softTelecineDecimates, false);
   });
 }

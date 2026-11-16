@@ -11,6 +11,7 @@ import '../models/encoding_settings.dart';
 import '../models/hdr_display.dart';
 import '../models/preview_frame_info.dart';
 import '../models/processing_pipeline.dart';
+import '../models/source_model.dart';
 import '../models/video_job.dart';
 import 'field_order_detector.dart';
 import 'temp_directory_service.dart';
@@ -46,7 +47,6 @@ class PreviewGenerator {
   static const sourceDecodeOptions = ['-apply_cropping', 'codec'];
 
   String? _ffmpegPath;
-  String? _ffprobePath;
   String? _workerPath;
   String? _tempDir;
 
@@ -55,6 +55,10 @@ class PreviewGenerator {
 
   /// Currently loaded video path.
   String? _currentVideoPath;
+
+  /// The worker's model of the loaded source, written for
+  /// `--preview --source`.
+  String? _modelPath;
 
   /// Video duration in seconds.
   double _duration = 0;
@@ -225,7 +229,6 @@ class PreviewGenerator {
   Future<void> initialize() async {
     final toolLocator = ToolLocator.instance;
     _ffmpegPath = toolLocator.ffmpegPath;
-    _ffprobePath = toolLocator.ffprobePath;
     _workerPath = toolLocator.workerPath;
 
     // Create temp directory for thumbnails and previews
@@ -235,20 +238,26 @@ class PreviewGenerator {
     await Directory(_tempDir!).create(recursive: true);
   }
 
-  /// Load a video and extract thumbnails for the scrubber.
-  Future<List<Uint8List>> loadVideo(String videoPath, {int thumbnailCount = 20}) async {
-    if (_ffmpegPath == null || _ffprobePath == null) {
+  /// Load a video, described by the worker's [model] of it, and extract
+  /// thumbnails for the scrubber.
+  Future<List<Uint8List>> loadVideo(String videoPath, SourceModel model,
+      {int thumbnailCount = 20}) async {
+    if (_ffmpegPath == null) {
       throw Exception('FFmpeg tools not found');
     }
 
-    _currentVideoPath = videoPath;
-    _thumbnailCache.clear();
-
-    // Get video info
-    await _probeVideo(videoPath);
+    await selectSource(videoPath, model);
 
     // Generate thumbnails
     return await _extractThumbnails(videoPath, thumbnailCount);
+  }
+
+  /// Make [videoPath], described by [model], the source every later call
+  /// reads, without extracting thumbnails.
+  Future<void> selectSource(String videoPath, SourceModel model) async {
+    _currentVideoPath = videoPath;
+    _thumbnailCache.clear();
+    await _useModel(model);
   }
 
   /// Load thumbnails for a specific time range of the video.
@@ -257,18 +266,19 @@ class PreviewGenerator {
   /// for a portion of the video.
   Future<List<Uint8List>> loadVideoRange({
     required String videoPath,
+    required SourceModel model,
     required double startTime,
     required double endTime,
     required int thumbnailCount,
   }) async {
-    if (_ffmpegPath == null || _ffprobePath == null) {
+    if (_ffmpegPath == null) {
       throw Exception('FFmpeg tools not found');
     }
 
     // Ensure video info is loaded
     if (_currentVideoPath != videoPath) {
       _currentVideoPath = videoPath;
-      await _probeVideo(videoPath);
+      await _useModel(model);
     }
 
     // Extract thumbnails for the specified range
@@ -538,6 +548,7 @@ class PreviewGenerator {
           '--preview',
           '--frame', frame.toString(),
           '--sub-frame', subFrame.toString(),
+          if (_modelPath != null) ...['--source', _modelPath!],
         ],
         environment: ToolLocator.instance.workerEnvironment,
         workingDirectory: path.dirname(_workerPath!),
@@ -696,138 +707,33 @@ class PreviewGenerator {
     }
   }
 
-  Future<void> _probeVideo(String videoPath) async {
-    final result = await Process.run(
-      _ffprobePath!,
-      [
-        '-v', 'quiet',
-        '-print_format', 'json',
-        '-show_streams',
-        '-show_format',
-        '-select_streams', 'v:0',
-        videoPath,
-      ],
-    );
-
-    if (result.exitCode != 0) {
-      throw Exception('Failed to probe video');
+  /// Takes every fact about the loaded source from the worker's [model]
+  /// (`--probe-source`, task #50), and writes it where `--preview --source`
+  /// reads it, so a preview probes nothing.
+  Future<void> _useModel(SourceModel model) async {
+    _frameRate = model.frameRate > 0 ? model.frameRate : 29.97;
+    _videoStartOffset = model.videoStartOffset;
+    _decoderDelayFrames = model.decoderDelayFrames;
+    _seekPlan = model.seekPlan;
+    _sourceGrid = model.sourceGrid;
+    _totalFrames = model.frameCount;
+    // The timeline is the video's: with the sound starting first, the
+    // file's duration includes time before the first picture.
+    _duration = model.duration;
+    _videoWidth = model.width;
+    _videoHeight = model.height;
+    _pixelFormat = model.pixelFormat ?? 'yuv420p';
+    _colorMatrix = model.colorMatrix;
+    _colorPrimaries = model.colorPrimaries;
+    _colorTransfer = model.colorTransfer;
+    _colorRange = model.colorRange;
+    _sar = model.sar;
+    final dir = _tempDir;
+    if (dir != null) {
+      final file = File('$dir/source_model_${DateTime.now().microsecondsSinceEpoch}.json');
+      await model.writeTo(file);
+      _modelPath = file.path;
     }
-
-    final json = jsonDecode(result.stdout as String) as Map<String, dynamic>;
-    final streams = json['streams'] as List<dynamic>?;
-    final format = json['format'] as Map<String, dynamic>?;
-
-    if (streams == null || streams.isEmpty) {
-      throw Exception('No video stream found');
-    }
-
-    final videoStream = streams[0] as Map<String, dynamic>;
-
-    // Parse duration
-    _duration = double.tryParse(format?['duration']?.toString() ?? '') ?? 0;
-
-    // Parse frame rate. Prefer the picture rate (avg_frame_rate) over the
-    // field/base rate (r_frame_rate) for field-coded interlaced sources — see
-    // FieldOrderDetector.selectFrameRate (issue #13).
-    final rFrameRate = _parseRational(videoStream['r_frame_rate'] as String?);
-    final avgFrameRate = _parseRational(videoStream['avg_frame_rate'] as String?);
-    final selected = FieldOrderDetector.selectFrameRate(rFrameRate, avgFrameRate);
-    if (selected != null && selected > 0) {
-      _frameRate = selected;
-    }
-
-    // Where the video's first picture sits: frame N counts from it, so every
-    // seek adds the offset (FieldOrderDetector's twin of the worker's probe).
-    final videoStart = await FieldOrderDetector.probeVideoStart(
-      _ffprobePath!,
-      videoPath,
-      streamStart: double.tryParse('${videoStream['start_time']}'),
-      containerStart: double.tryParse('${format?['start_time']}'),
-    );
-    _videoStartOffset = videoStart.offset;
-
-    // An AVI holding MPEG-2/MPEG-4/H.264 with a decoder delay stamps every
-    // picture that many frames late (issue #173): seeks add it.
-    _decoderDelayFrames = await FieldOrderDetector.probeDecoderDelay(
-      _ffprobePath!,
-      videoPath,
-      hasBFrames: videoStream['has_b_frames'] as int?,
-      videoStart: _videoStartOffset,
-    );
-
-    // An MPEG-TS/PS has no keyframe index, so its seeks start a GOP early
-    // and trim to the frame (the twin of the worker's seek plan, #169).
-    _seekPlan = await FieldOrderDetector.probeSeekPlan(
-      _ffprobePath!,
-      videoPath,
-      formatName: format?['format_name'] as String?,
-    );
-
-    // The grid the worker's decoders place the frames on (issue #174): the
-    // Original and the thumbnails start on it too, so a null frame or a
-    // pulldown repeat shows the same picture on both sides.
-    _sourceGrid = await FieldOrderDetector.probeSourceGrid(
-      _ffprobePath!,
-      videoPath,
-      frameRate: _frameRate,
-    );
-
-    // Parse frame count: the same length the job is built with, which for a
-    // variable-frame-rate source is its duration, not its stored frames.
-    final streamDuration =
-        double.tryParse(videoStream['duration']?.toString() ?? '');
-    _totalFrames = FieldOrderDetector.frameCountFor(
-          storedFrames:
-              int.tryParse(videoStream['nb_frames']?.toString() ?? ''),
-          rFrameRate: rFrameRate,
-          avgFrameRate: avgFrameRate,
-          duration: streamDuration ?? _duration,
-          frameRate: _frameRate,
-        ) ??
-        await FieldOrderDetector.frameCountWithoutStoredCount(
-          _ffprobePath!,
-          videoPath,
-          streamDuration: streamDuration,
-          containerDuration: _duration,
-          start: videoStart,
-          frameRate: _frameRate,
-          streamStart: double.tryParse('${videoStream['start_time']}'),
-          formatName: format?['format_name'] as String?,
-        );
-
-    // The timeline is the video's: with the sound starting first, the file's
-    // duration includes time before the first picture, which no frame shows.
-    if (_videoStartOffset > 0 && _frameRate > 0) {
-      _duration = _totalFrames / _frameRate;
-    }
-
-    // Parse video dimensions and pixel format
-    _videoWidth = videoStream['width'] as int? ?? 0;
-    _videoHeight = videoStream['height'] as int? ?? 0;
-    _pixelFormat = videoStream['pix_fmt'] as String? ?? 'yuv420p';
-
-    _colorMatrix = colorTag(videoStream, 'color_space');
-    _colorPrimaries = colorTag(videoStream, 'color_primaries');
-    _colorTransfer = colorTag(videoStream, 'color_transfer');
-    _colorRange = colorTag(videoStream, 'color_range');
-    _sar = FieldOrderDetector.normalizeSar(
-        videoStream['sample_aspect_ratio'] as String?);
-  }
-
-  /// Parses an ffprobe rational frame-rate string (e.g. "25/1") to a double.
-  /// Returns null for null/"0/0"/unparseable input.
-  double? _parseRational(String? rateStr) {
-    if (rateStr == null) return null;
-    final parts = rateStr.split('/');
-    if (parts.length == 2) {
-      final num = double.tryParse(parts[0]);
-      final den = double.tryParse(parts[1]);
-      if (num != null && den != null && den != 0) {
-        return num / den;
-      }
-      return null;
-    }
-    return double.tryParse(rateStr);
   }
 
   Future<List<Uint8List>> _extractThumbnails(String videoPath, int count) async {

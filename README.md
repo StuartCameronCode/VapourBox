@@ -256,7 +256,7 @@ The shutdown is never forced, so an app with unsaved work can stop it. VapourBox
 
 ## Building from source
 
-See [docs/BUILDING.md](docs/BUILDING.md) for build instructions, project structure and the development workflow, and [docs/ADDONS.md](docs/ADDONS.md) for how optional downloads (AI models and the AI runtime) are described, installed and tested.
+See [docs/BUILDING.md](docs/BUILDING.md) for build instructions, project structure and the development workflow, and [docs/ADDONS.md](docs/ADDONS.md) for how optional downloads (AI models and the AI runtime) are described, installed and tested. [docs/TWINS.md](docs/TWINS.md) lists the decisions both the worker and the app still make, and why each is kept.
 
 The investigations behind feature decisions (measurements, screenshots and the reasoning, including ideas that weren't built) are written up in [docs/reports/](docs/reports/README.md).
 

@@ -4,6 +4,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../models/source_model.dart';
+
 import 'temp_directory_service.dart';
 import 'tool_locator.dart';
 
@@ -124,6 +126,22 @@ class TimestampContinuityService {
   Map<String, String>? get _env =>
       environment ?? ToolLocator.instance.workerEnvironment;
 
+  /// The worker's [SourceModel] of [path] (`--probe-source`, task #50):
+  /// every fact about the source, the reset scan included. Null when the
+  /// worker could not answer.
+  Future<SourceModel?> probeSource(String path) async {
+    final worker = _worker;
+    if (worker == null) return null;
+    try {
+      final r = await Process.run(worker, ['--probe-source', path],
+          environment: _env, workingDirectory: File(worker).parent.path);
+      if (r.exitCode != 0) return null;
+      return SourceModel.parse(r.stdout.toString());
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Scans [path]. Null when the worker could not answer (the source is then
   /// used as it is, exactly as before this existed).
   Future<ContinuityScan?> scan(String path) async {
@@ -190,14 +208,16 @@ class TimestampContinuityService {
     return error ?? (stderr.isEmpty ? 'exit code $code' : stderr.toString().trim());
   }
 
-  /// Scans [source] and, when its timestamps reset, makes the joined copy.
+  /// Scans [source] (unless [scanned], the source model's scan, is given)
+  /// and, when its timestamps reset, makes the joined copy.
   /// `checked` says whether the scan answered at all; `proxy` is the copy
   /// (null when none was needed or it failed, `error` saying why).
   Future<({bool checked, ContinuityProxy? proxy, ContinuityScan? scan, String? error})>
       prepare(String source, String id,
-          {void Function(ContinuityScan)? onJoining,
+          {ContinuityScan? scanned,
+          void Function(ContinuityScan)? onJoining,
           void Function(double)? onProgress}) async {
-    final s = await scan(source);
+    final s = scanned ?? await scan(source);
     if (s == null) return (checked: false, proxy: null, scan: null, error: null);
     if (!s.needsCopy) return (checked: true, proxy: null, scan: s, error: null);
     onJoining?.call(s);

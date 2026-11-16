@@ -4738,3 +4738,26 @@ Full evidence:
   cycle (the trim 23..70 drops film 55), as Soft Telecine did before
   `pipe_frames` (issue #174). The preview now shows the same.
 
+### One source model, owned by the worker (task #50, 2026-11-16)
+
+- **What.** `--probe-source` prints a `SourceModel` (`worker/src/source_model.rs`)
+  holding every source fact a decoder needs. The app stores it at analysis
+  and sends it unchanged in every job; the worker probes only for a job
+  without one. The app's Dart copies of the probe rules (video start,
+  decoder delay, seek plan, grid, frame count, rate choice, VFR test, SAR,
+  colour tags) are deleted. Remaining twins: `docs/TWINS.md`, kept honest by
+  `twin_registry_test.dart`.
+- **Nothing a decoder does changed**: the preview's decode plan and PNG were
+  identical before and after on all 30 fixtures at five frames (146 cases),
+  and the model equals the app's old Dart values on all 30.
+- **Frame counts.** Against what the worker's own untrimmed decode
+  produces, the model is right on every fixture with a grid except an MP4
+  whose edit list discards pre-roll (`small_clip.mp4`: `nb_frames` 3154,
+  decode 3151; the app's count, so pre-existing, filed as a follow-up).
+  `-count_frames`, used for a job without a count, is wrong on AVI null
+  frames, the DVB-T clip's leading pictures and soft-telecine repeats, but
+  right on that MP4, so it is kept for such jobs until the follow-up.
+- **Time.** An app preview no longer probes the source: 157–214 ms against
+  263–385 ms before on the fixtures (and no whole-file packet read per
+  scrub on a VFR source).
+- Evidence: [docs/reports/task-50-source-model/](reports/task-50-source-model/index.html).
