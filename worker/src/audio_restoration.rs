@@ -1717,15 +1717,7 @@ impl AudioRestorer {
         let trimmed = job.start_frame.is_some() || job.end_frame.is_some();
         // Drift is a property of the recording, so it is measured over all of
         // it: a trimmed window's audio is cut to the window by construction.
-        let frames = if trimmed {
-            job.source
-                .as_ref()
-                .map(|m| m.video.frame_count as i32)
-                .filter(|n| *n > 0)
-                .or_else(|| self.deps.probe_frame_count(&job.input_path))
-        } else {
-            job.total_frames
-        };
+        let frames = if trimmed { self.deps.probe_frame_count(&job.input_path) } else { job.total_frames };
         let video = frames
             .filter(|n| *n > 0)
             .and_then(|n| job.effective_pipeline().output_duration_secs(n as u64, fps));

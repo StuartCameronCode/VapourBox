@@ -154,7 +154,9 @@ impl VideoJob {
     /// Fill every source fact the job left unset from its [`SourceModel`]
     /// (task #50). A value the job carries is never touched, as the old
     /// `fill_*` probes never touched one: the projection only replaces them.
-    /// `total_frames` is the model's count over the trim.
+    /// `total_frames` is not filled from it: a job without a count is
+    /// counted by decoding (`resolve_source`), which on some sources
+    /// disagrees with the model's count by a few frames (task #50 report).
     ///
     /// [`SourceModel`]: crate::source_model::SourceModel
     pub fn apply_source_model(&mut self) {
@@ -199,15 +201,6 @@ impl VideoJob {
         }
         if self.source_grid.is_none() {
             self.source_grid = v.source_grid;
-        }
-        if self.total_frames.is_none() && v.frame_count > 0 {
-            let full = v.frame_count as i32;
-            self.total_frames = Some(match (self.start_frame, self.end_frame) {
-                (Some(s), Some(e)) => (e - s + 1).max(0),
-                (None, Some(e)) => e + 1,
-                (Some(s), None) => (full - s).max(0),
-                (None, None) => full,
-            });
         }
     }
 

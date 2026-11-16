@@ -383,7 +383,7 @@ fn run_audio_plan(args: &Args) -> ExitCode {
             .ok_or_else(|| anyhow::anyhow!("--config is required with --audio-plan"))?;
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
-        resolve_source(&mut job, Some(&deps), args.source.as_deref(), |m| eprintln!("{m}"));
+        resolve_source(&mut job, Some(&deps), args.source.as_deref(), true, |m| eprintln!("{m}"));
         let reporter = ProgressReporter::new_to_stderr();
         let Some((plan, source)) = audio_restoration::AudioRestorer::new(reporter, deps).plan(&job)? else {
             return Ok(serde_json::json!({ "active": false }));
@@ -430,7 +430,7 @@ fn run_detect_native(args: &Args) -> ExitCode {
             .ok_or_else(|| anyhow::anyhow!("--config is required with --detect-native"))?;
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
-        resolve_source(&mut job, Some(&deps), args.source.as_deref(), |m| eprintln!("{m}"));
+        resolve_source(&mut job, Some(&deps), args.source.as_deref(), false, |m| eprintln!("{m}"));
         native_res::detect(&deps, &job)
     })();
     match result {
@@ -455,7 +455,7 @@ fn run_detect_crop(args: &Args) -> ExitCode {
             .ok_or_else(|| anyhow::anyhow!("--config is required with --detect-crop"))?;
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
-        resolve_source(&mut job, Some(&deps), args.source.as_deref(), |m| eprintln!("{m}"));
+        resolve_source(&mut job, Some(&deps), args.source.as_deref(), false, |m| eprintln!("{m}"));
         crop_detect::detect(&deps, &job)
     })();
     match result {
@@ -480,7 +480,7 @@ fn run_detect_noise_halo(args: &Args) -> ExitCode {
             .ok_or_else(|| anyhow::anyhow!("--config is required with --detect-noise-halo"))?;
         let mut job: models::VideoJob = serde_json::from_str(&std::fs::read_to_string(config)?)?;
         let deps = dependency_locator::DependencyLocator::new()?;
-        resolve_source(&mut job, Some(&deps), args.source.as_deref(), |m| eprintln!("{m}"));
+        resolve_source(&mut job, Some(&deps), args.source.as_deref(), false, |m| eprintln!("{m}"));
         noise_halo::detect(&deps, &job)
     })();
     match result {
@@ -862,7 +862,7 @@ fn run_preview_mode(args: &Args) -> ExitCode {
         }
     };
     let deps = dependency_locator::DependencyLocator::new().ok();
-    resolve_source(&mut job, deps.as_ref(), args.source.as_deref(), |msg| eprintln!("{}", msg));
+    resolve_source(&mut job, deps.as_ref(), args.source.as_deref(), false, |msg| eprintln!("{}", msg));
 
     // The frame index is passed straight through to the worker — no
     // time-conversion round-trip — so the rendered frame is exactly the one the
@@ -898,6 +898,7 @@ fn resolve_source(
     job: &mut VideoJob,
     deps: Option<&dependency_locator::DependencyLocator>,
     source_file: Option<&Path>,
+    count_frames: bool,
     log: impl Fn(&str) + Sync,
 ) {
     if job.source.is_none() {
@@ -932,6 +933,22 @@ fn resolve_source(
         }
     }
     job.apply_source_model();
+    // A job without a count (the app always sends one) is counted by
+    // decoding, as before: the model's count and the decoded one disagree
+    // on some sources (task #50 report). Only the encode and the audio plan
+    // need it (`count_frames`); a preview or a detector never did.
+    if count_frames && job.total_frames.is_none() {
+        if let Some(full) = deps.and_then(|d| d.probe_frame_count(&job.input_path)) {
+            let effective = match (job.start_frame, job.end_frame) {
+                (Some(s), Some(e)) => (e - s + 1).max(0),
+                (None, Some(e)) => e + 1,
+                (Some(s), None) => (full - s).max(0),
+                (None, None) => full,
+            };
+            log(&format!("Counted the input's frames by decoding: {} (effective after trim: {})", full, effective));
+            job.total_frames = Some(effective);
+        }
+    }
     if job.source.is_some() {
         if job.video_start() > 0.0 {
             log(&format!(
@@ -1065,7 +1082,7 @@ fn run_worker(
     // Every source fact the decoders need, from the model the app sent (or
     // a file given with --source), probed only when the job carries none:
     // a direct caller's job, the CLI (source_model, task #50).
-    resolve_source(&mut job, deps.as_ref(), source_file, |msg| {
+    resolve_source(&mut job, deps.as_ref(), source_file, true, |msg| {
         reporter.send_log(models::LogLevel::Info, msg)
     });
     // An MPEG-TS/PS's clock may reset mid-file (source_continuity), which the
