@@ -4904,3 +4904,69 @@ Full evidence:
   77 s for that 4.48 GB title on the share (task #55). The real title had no
   timestamp reset; its DVD PS packets often lack PTS (key packets too, in
   the small fixture), so DVD PS gets no source grid.
+
+
+### The generated format sweep (task #47, 2026-11-16)
+
+Task #42's plan, R2a. The sweep is `app/test/integration_format_sweep_test.dart`;
+its cases come from `app/test/support/format_sweep.dart` and are checked
+without the worker by `format_sweep_cases_test.dart`. CLAUDE.md, "High Bit
+Depth Sources", states the rules; this entry has the why.
+
+- **Cases are generated, so nothing is skipped silently.** Variants come from
+  `PassType` (a switch with no `default`), each schema's `methods` or
+  `implementation` `activeWhen`, and three enum axes. They are built through
+  `ParameterConverter` from an all-off pipeline and deduplicated by the
+  pipeline JSON: 111 variants, 99 of them CPU with no add-on. Rows are
+  depth × subsampling plus every other `NATIVE_FORMATS` entry, × progressive
+  / TFF, × 96x64 / 98x64 / 720x480. Before this, the high-bit-depth test ran
+  52 hand-written cases on six hand-picked formats, all TFF at 352x288, and
+  missed five passes and most methods.
+- **9 and 14-bit run only on two rotating rows per variant.** The decoder
+  maps them losslessly to 10 and 16, so every pass sees the 10/16-bit
+  script. In the full product they would cost about a third of the nightly
+  time for no pass coverage.
+- **Rows that can't exist are not rows.** A 98-wide 4:1:1 picture fails in
+  `BlankClip` before any pass runs. `tinySizeFor` keeps every format on a
+  width its chroma grid holds.
+- **Cap the cache when running vspipes in parallel.** With 7 concurrent SD
+  previews, each vspipe sized its cache from the machine's memory: the mean
+  went from 1.4 s to 26.5 s, Auto White Balance from 0.56 s to 272 s, BM3D
+  to 410 s. Every sweep job carries `maxCacheSizeMb: 512`, and the pool is
+  half the cores (`VAPOURBOX_SWEEP_JOBS`).
+- **Deep fixtures are one picture, with real low bits.** First try: fixtures
+  rendered per depth from lavfi. They were not the same picture. Second
+  try: converted from the 8-bit file. Same picture, but zero low bits (#34's
+  trap). Now each depth is computed from the 8-bit file's samples
+  (`chainSample`: f10 = 4·f8 + q1, f12 = 4·f10 + q2, f16 = 16·f12 + q3,
+  f9 = 2·f8 + q1, f14 = f16 >> 2). The low part stays under half an 8-bit
+  level, so each rounds back exactly, by floor or to nearest. The low parts
+  fill about a third of each 8-bit level's sub-values, which matters for
+  CLAHE (#56, F7).
+- **Compare depths above the passthrough's own difference.** swscale converts
+  8-bit 4:2:0 to RGB without chroma interpolation and deeper formats with
+  it. A passthrough preview is 4.47 levels apart (8 vs 10-bit) on noisy
+  chroma, more than the 2.0 tolerance. `accurate_rnd+full_chroma_int` makes
+  the two identical (#56, F8: display only, and the app's before-frame would
+  have to change with it).
+- **A tiny fixture defeats scene-change tests.** LUTDeCrawl skips a frame
+  whose mean luma moves by over 25/255, and the shaken 96x64 picture did on
+  every frame. MVTools (SpotLess) called every tiny frame a scene change
+  while a quarter of its blocks flipped with the crawl checker. The master's
+  left half is now still, and the checker covers the top-left eighth.
+  SpotLess still finds no usable vectors at 96x64; it acts at SD and is
+  allowlisted for the tiny rows.
+- **Findings** (task #56, each pinned in `knownFailures`):
+  - QTGMC Super Fast / Ultra Fast and MCTemporalDenoise fail when the width
+    is 2 mod 4 on subsampled chroma (854x480 is such a source).
+  - A quarter turn keeps `_FieldBased`.
+  - Deband outputs 16-bit from an 8-bit source under Color Format
+    "original".
+  - Bifrost gives different output run to run at width 2 mod 4.
+  - CLAHE differs from 8-bit by up to 9 levels on genuine 16-bit content.
+  - The plan's probe also found Resize of a still-interlaced 4:2:0 clip to
+    a height ≡ 2 mod 4 failing.
+- **Time** (M1 Pro, 7 at a time): the push-gate rows are 495 tiny previews,
+  ~1.5–2.5 min. The nightly product is ~6,100 previews plus ~110 FFV1
+  encodes, ~16 min; on a hosted runner (pool 2, slower cores), ~1.5 h, in
+  its own matrix leg.

@@ -1169,68 +1169,13 @@ void main() {
   });
 
   // ===========================================================================
-  // 1. Does every pass survive a >8-bit source at all?
-  // ===========================================================================
-  group('preview runs on a 10-bit 4:2:2 source', () {
-    for (final pass in _passes()) {
-      test(pass.name, () async {
-        if (await _skipWithoutDevice(pass)) return;
-        final fixture = await _fixtureFor(pass, 'yuv422p10le');
-        final result = await WorkerHarness.runPreview(
-          _job(
-                  fixture: fixture,
-                  pixFmt: 'yuv422p10le',
-                  pipeline: pass.pipeline)
-              .toJson(),
-          frame: _previewFrame,
-          label: '${pass.name}_10bit',
-        );
-        expect(result.success, isTrue,
-            reason: '${pass.name} failed on yuv422p10le: $result');
-        print('  ${pass.name}: ${result.png!.length} byte PNG');
-      }, timeout: const Timeout(Duration(minutes: 4)));
-    }
-  });
-
-  // ===========================================================================
-  // 2. Do the deeper formats work too? 9-bit is some H.264 High 4:4:4 and
-  //    FFV1 files (decoded as 10-bit, task #31: Dehalo's YAHR failed on it
-  //    before, as CTMF has no 9-bit format); 12-bit is ProRes 4444 XQ;
-  //    14-bit is FFV1 film scans (decoded as 16-bit, task #23: QTGMC,
-  //    santiag and Deblock QED all failed on it before); 16-bit is what the
-  //    high-precision paths convert to internally, so a pass that rejects it
-  //    is a latent failure even for a 10-bit source. yuv420p14le gives every
-  //    pass a field-flagged 4:2:0 source (DeScratch failed on it, task #29).
-  // ===========================================================================
-  group('preview runs on deeper formats', () {
-    for (final pixFmt in [
-      'yuv422p9le',
-      'yuv444p12le',
-      'yuv420p14le',
-      'yuv422p14le',
-      'yuv422p16le',
-    ]) {
-      for (final pass in _passes()) {
-        test('${pass.name} on $pixFmt', () async {
-          if (await _skipWithoutDevice(pass)) return;
-          final fixture = await _fixtureFor(pass, pixFmt);
-          final result = await WorkerHarness.runPreview(
-            _job(fixture: fixture, pixFmt: pixFmt, pipeline: pass.pipeline)
-                .toJson(),
-            frame: _previewFrame,
-            label: '${pass.name}_$pixFmt',
-          );
-          expect(result.success, isTrue,
-              reason: '${pass.name} failed on $pixFmt: $result');
-        }, timeout: const Timeout(Duration(minutes: 4)));
-      }
-    }
-  });
-
-  // ===========================================================================
   // 3. Does each pass do the SAME thing at 10-bit that it does at 8-bit?
   //    This is the one that catches a filter silently misbehaving rather than
-  //    failing — the Levels and Tweak-brightness class of bug.
+  //    failing — the Levels and Tweak-brightness class of bug. Here at
+  //    352x288 with hand-tuned parameters; whether every pass and method
+  //    RUNS on every depth, subsampling, field flag and frame size (what
+  //    groups 1 and 2 used to check on six hand-picked formats) is the
+  //    generated format sweep's job: integration_format_sweep_test.dart.
   // ===========================================================================
   group('8-bit vs 10-bit result parity', () {
     for (final pass in _passes()) {
