@@ -436,7 +436,7 @@ class _PreviewPanelState extends State<PreviewPanel> {
           tooltip: AppShortcut.setInPoint.tooltipFor(inTime != null
               ? 'Set in point — currently $inTime'
               : 'Set in point — start of the export range'),
-          onPressed: viewModel.setInPointToCurrent,
+          onPressed: viewModel.continuityPending ? null : viewModel.setInPointToCurrent,
           child: point(Icons.first_page, inTime, 'Set In', _inColor),
         ),
         _GroupButton(
@@ -444,7 +444,7 @@ class _PreviewPanelState extends State<PreviewPanel> {
           tooltip: AppShortcut.setOutPoint.tooltipFor(outTime != null
               ? 'Set out point — currently $outTime'
               : 'Set out point — end of the export range'),
-          onPressed: viewModel.setOutPointToCurrent,
+          onPressed: viewModel.continuityPending ? null : viewModel.setOutPointToCurrent,
           child: point(Icons.last_page, outTime, 'Set Out', _outColor),
         ),
         _GroupButton(
@@ -564,10 +564,13 @@ class _PreviewPanelState extends State<PreviewPanel> {
                     Positioned.fill(
                       child: Center(
                         child: Text(
-                          viewModel.isAnalyzing ||
-                                  viewModel.isLoadingZoomedThumbnails
-                              ? 'Generating thumbnails...'
-                              : 'No thumbnails',
+                          viewModel.continuityPending
+                              ? viewModel.timestampCheckText
+                              : viewModel.isAnalyzing ||
+                                      viewModel.isLoadingZoomedThumbnails
+                                  ? 'Generating thumbnails...'
+                                  : 'No thumbnails',
+                          textAlign: TextAlign.center,
                           style: TextStyle(
                             color: colorScheme.onSurface.withValues(alpha: 0.5),
                           ),

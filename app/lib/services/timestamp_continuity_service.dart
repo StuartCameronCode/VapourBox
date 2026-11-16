@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 import '../models/source_model.dart';
@@ -129,17 +130,76 @@ class TimestampContinuityService {
   /// The worker's [SourceModel] of [path] (`--probe-source`, task #50):
   /// every fact about the source, the reset scan included. Null when the
   /// worker could not answer.
-  Future<SourceModel?> probeSource(String path) async {
+  ///
+  /// With [deferScan], an MPEG-PS/TS's reset scan (a read of every byte,
+  /// minutes on a network share) is left out and the model says so
+  /// ([SourceModel.continuityDeferred]); [completeSource] runs it (task #55).
+  Future<SourceModel?> probeSource(String path, {bool deferScan = false}) async {
     final worker = _worker;
     if (worker == null) return null;
     try {
-      final r = await Process.run(worker, ['--probe-source', path],
+      final r = await Process.run(
+          worker, ['--probe-source', path, if (deferScan) '--defer-scan'],
           environment: _env, workingDirectory: File(worker).parent.path);
       if (r.exitCode != 0) return null;
       return SourceModel.parse(r.stdout.toString());
     } catch (_) {
       return null;
     }
+  }
+
+  /// Runs a deferred [model]'s reset scan (`--complete-source`, task #55):
+  /// [onProgress] gets the fraction of the file read, and the result is the
+  /// completed model (null when the worker could not answer). The scan can
+  /// be stopped with [ContinuityScanTask.cancel], which completes it with
+  /// null.
+  ContinuityScanTask completeSource(SourceModel model,
+      {void Function(double)? onProgress}) {
+    final task = ContinuityScanTask._();
+    task._run(() async {
+      final worker = _worker;
+      if (worker == null) return null;
+      final file = File(await TempDirectoryService.instance.filePath(
+          'source_model_${DateTime.now().microsecondsSinceEpoch}.json'));
+      try {
+        await model.writeTo(file);
+        if (task.isCancelled) return null;
+        final process = await Process.start(
+            worker, ['--complete-source', file.path],
+            environment: _env, workingDirectory: File(worker).parent.path);
+        task._process = process;
+        if (task.isCancelled) process.kill();
+        final err = process.stderr.drain<void>();
+        SourceModel? result;
+        await for (final line in process.stdout
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())) {
+          final t = line.trim();
+          if (!t.startsWith('{')) continue;
+          try {
+            final j = jsonDecode(t) as Map<String, dynamic>;
+            if (j['type'] == 'progress') {
+              final total = (j['totalFrames'] as num?)?.toDouble() ?? 0;
+              final frame = (j['frame'] as num?)?.toDouble() ?? 0;
+              if (total > 0) onProgress?.call((frame / total).clamp(0.0, 1.0));
+            } else {
+              result = SourceModel.fromJson(j) ?? result;
+            }
+          } catch (_) {}
+        }
+        final code = await process.exitCode;
+        await err;
+        if (task.isCancelled || code != 0) return null;
+        return result;
+      } catch (_) {
+        return null;
+      } finally {
+        try {
+          if (file.existsSync()) file.deleteSync();
+        } catch (_) {}
+      }
+    });
+    return task;
   }
 
   /// Scans [path]. Null when the worker could not answer (the source is then
@@ -172,12 +232,39 @@ class TimestampContinuityService {
   /// Writes the continuous copy of [source] to [output]. Returns the error
   /// when the worker refused or the copy failed its check (it then leaves no
   /// file), else null. [onProgress] gets 0..1.
+  ///
+  /// Given the source's [model] (with its scan), the worker uses that scan
+  /// rather than reading the whole source a second time (task #55).
   Future<String?> join(String source, String output,
-      {void Function(double)? onProgress}) async {
+      {void Function(double)? onProgress, SourceModel? model}) async {
     final worker = _worker;
     if (worker == null) return 'The VapourBox worker could not be found';
+    File? modelFile;
+    if (model != null) {
+      modelFile = File('$output.source.json');
+      try {
+        await model.writeTo(modelFile);
+      } catch (_) {
+        modelFile = null;
+      }
+    }
+    try {
+      return await _join(worker, source, output, onProgress, modelFile);
+    } finally {
+      try {
+        if (modelFile != null && modelFile.existsSync()) modelFile.deleteSync();
+      } catch (_) {}
+    }
+  }
+
+  Future<String?> _join(String worker, String source, String output,
+      void Function(double)? onProgress, File? modelFile) async {
     final process = await Process.start(
-        worker, ['--make-continuous', source, '--output', output],
+        worker,
+        [
+          '--make-continuous', source, '--output', output,
+          if (modelFile != null) ...['--source', modelFile.path],
+        ],
         environment: _env, workingDirectory: File(worker).parent.path);
     final stderr = StringBuffer();
     final err = process.stderr.transform(utf8.decoder).listen(stderr.write);
@@ -208,21 +295,24 @@ class TimestampContinuityService {
     return error ?? (stderr.isEmpty ? 'exit code $code' : stderr.toString().trim());
   }
 
-  /// Scans [source] (unless [scanned], the source model's scan, is given)
-  /// and, when its timestamps reset, makes the joined copy.
+  /// Scans [source] (unless [scanned], or the scan in its [model], is
+  /// given) and, when its timestamps reset, makes the joined copy (from the
+  /// [model]'s scan when there is one, so the worker doesn't read the source
+  /// again to find it).
   /// `checked` says whether the scan answered at all; `proxy` is the copy
   /// (null when none was needed or it failed, `error` saying why).
   Future<({bool checked, ContinuityProxy? proxy, ContinuityScan? scan, String? error})>
       prepare(String source, String id,
           {ContinuityScan? scanned,
+          SourceModel? model,
           void Function(ContinuityScan)? onJoining,
           void Function(double)? onProgress}) async {
-    final s = scanned ?? await scan(source);
+    final s = scanned ?? model?.continuity ?? await scan(source);
     if (s == null) return (checked: false, proxy: null, scan: null, error: null);
     if (!s.needsCopy) return (checked: true, proxy: null, scan: s, error: null);
     onJoining?.call(s);
     final out = await proxyPathFor(source, id);
-    final error = await join(source, out, onProgress: onProgress);
+    final error = await join(source, out, onProgress: onProgress, model: model);
     if (error != null) {
       return (checked: false, proxy: null, scan: s, error: error);
     }
@@ -233,5 +323,42 @@ class TimestampContinuityService {
       scan: s,
       error: null,
     );
+  }
+}
+
+/// A running `--complete-source` ([TimestampContinuityService.completeSource]).
+class ContinuityScanTask {
+  ContinuityScanTask._();
+
+  /// Lets a test stand in for the worker: [result] is what the scan answers.
+  @visibleForTesting
+  ContinuityScanTask.of(Future<SourceModel?> result) {
+    _run(() => result);
+  }
+
+  final _done = Completer<SourceModel?>();
+  Process? _process;
+  bool _cancelled = false;
+
+  bool get isCancelled => _cancelled;
+
+  /// The completed model, or null when the scan failed or was cancelled.
+  Future<SourceModel?> get result => _done.future;
+
+  void _run(Future<SourceModel?> Function() body) {
+    body().then((m) {
+      if (!_done.isCompleted) _done.complete(_cancelled ? null : m);
+    }, onError: (Object _) {
+      if (!_done.isCompleted) _done.complete(null);
+    });
+  }
+
+  /// Stops the scan (the worker is killed, and its ffprobe dies on its next
+  /// write); [result] completes with null.
+  void cancel() {
+    if (_cancelled) return;
+    _cancelled = true;
+    _process?.kill();
+    if (!_done.isCompleted) _done.complete(null);
   }
 }
