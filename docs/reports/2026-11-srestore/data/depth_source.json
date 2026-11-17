@@ -1,0 +1,141 @@
+{
+ "qtgmc_output_luma_mad_8_vs_10": {
+  "median": 0.3524609375,
+  "max": 0.5159244791666666
+ },
+ "detector_props": {
+  "SrBMin": {
+   "frames_differing": 213,
+   "max_abs_diff": 16
+  },
+  "SrBMax": {
+   "frames_differing": 258,
+   "max_abs_diff": 31
+  },
+  "SrDMax": {
+   "frames_differing": 175,
+   "max_abs_diff": 5
+  },
+  "SrMDiff": {
+   "frames_differing": 297,
+   "max_abs_diff": 0.0005746416213544244
+  }
+ },
+ "decisions": {
+  "frames": 300,
+  "differing": 30,
+  "at": [
+   20,
+   52,
+   74,
+   75,
+   103,
+   104,
+   107,
+   108,
+   109,
+   110,
+   111,
+   112,
+   113,
+   153,
+   161,
+   162,
+   163,
+   164,
+   182,
+   183,
+   184,
+   185,
+   186,
+   187,
+   199,
+   201,
+   212,
+   249,
+   250,
+   251
+  ]
+ },
+ "output_frames": 143,
+ "same_original": 132,
+ "moved_to_a_neighbour": [
+  {
+   "output": 25,
+   "pick8": 25,
+   "pick10": 24
+  },
+  {
+   "output": 50,
+   "pick8": 50,
+   "pick10": 49
+  },
+  {
+   "output": 52,
+   "pick8": 52,
+   "pick10": 51
+  },
+  {
+   "output": 53,
+   "pick8": 53,
+   "pick10": 52
+  },
+  {
+   "output": 54,
+   "pick8": 54,
+   "pick10": 53
+  },
+  {
+   "output": 78,
+   "pick8": 78,
+   "pick10": 77
+  },
+  {
+   "output": 79,
+   "pick8": 79,
+   "pick10": 78
+  },
+  {
+   "output": 88,
+   "pick8": 88,
+   "pick10": 87
+  },
+  {
+   "output": 89,
+   "pick8": 89,
+   "pick10": 88
+  },
+  {
+   "output": 90,
+   "pick8": 90,
+   "pick10": 89
+  },
+  {
+   "output": 120,
+   "pick8": 120,
+   "pick10": 119
+  }
+ ],
+ "luma_8_vs_10_where_same": {
+  "median": 0.34638020833333333,
+  "max": 1.2550130208333332
+ },
+ "worst_8_vs_10_frame": 10.97484375,
+ "clean_le_2.0": {
+  "8bit": 143,
+  "10bit": 143
+ },
+ "clean_le_1.5": {
+  "8bit": 136,
+  "10bit": 140
+ },
+ "worst_to_truth": {
+  "8bit": 1.7725390625,
+  "10bit": 1.752578125
+ },
+ "distinct_originals": {
+  "8bit": 117,
+  "10bit": 117,
+  "of": 144
+ }
+}

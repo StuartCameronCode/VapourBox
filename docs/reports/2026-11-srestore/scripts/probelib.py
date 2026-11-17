@@ -32,6 +32,7 @@ FIRST = 1350
 
 _FMT = {
     'yuv420p': (vs.YUV420P8, 1, 1, 1),
+    'yuv420p10le': (vs.YUV420P10, 2, 1, 1),
     'yuv422p10le': (vs.YUV422P10, 2, 1, 0),
 }
 
@@ -154,7 +155,8 @@ def summarise(label, picks, clean_limit):
 def cache_raw(clip, name):
     """Render ``clip`` once to SCRATCH/name.raw (slow steps like QTGMC) and
     return a reader over the file."""
-    pix = {vs.YUV420P8: 'yuv420p', vs.YUV422P10: 'yuv422p10le'}[clip.format.id]
+    pix = {vs.YUV420P8: 'yuv420p', vs.YUV420P10: 'yuv420p10le',
+           vs.YUV422P10: 'yuv422p10le'}[clip.format.id]
     out = os.path.join(SCRATCH, name + '.raw')
     if not os.path.exists(out):
         tmp = out + '.part'
