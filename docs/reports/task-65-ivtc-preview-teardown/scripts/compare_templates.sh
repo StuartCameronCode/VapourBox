@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 BIN=worker/target/debug
 mkdir -p "$OUT"
 for side in main branch; do
-  rm -rf "$BIN/$side"; mkdir -p "$BIN/$side"
+  rm -rf "${BIN:?}/${side:?}"; mkdir -p "$BIN/$side"
   cp "$BIN/vapourbox-worker" "$BIN/$side/"
   cp -R worker/templates "$BIN/$side/templates"
 done
