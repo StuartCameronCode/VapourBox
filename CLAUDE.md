@@ -3202,7 +3202,8 @@ full-encode integration tests run separately in `.github/workflows/nightly.yml`
 4-platform matrix, running each x64 platform against **both** CPU-tier bundles,
 with the format sweep (`--tags sweep`) as a parallel leg of each.
 Fixtures (`small_clip.mp4`, telecine/interlaced clips) are
-committed under `Tests/TestResources/`.
+committed under `Tests/TestResources/`. The Linux jobs of both keep core
+dumps and print a gdb backtrace when a step fails (see Debugging Tips #11).
 
 > **Old-CPU behaviour cannot be tested on the runners, or on Apple Silicon.**
 > Every hosted runner is a v3 CPU, and Rosetta 2 translates AVX/AVX2 on macOS
@@ -3540,6 +3541,21 @@ Rules:
     MVTools' AVX2 tables, `SIGILL` = signal 4 on macOS/Linux). Commenting out
     passes cannot find it; the OS crash report (`.ips` on macOS) names the image,
     and `Scripts/probe-plugin-compat.sh` tests each plugin in isolation.
+    **A crash in CI names its plugin on macOS and Linux** (task #66): the
+    on-failure step `.github/scripts/print-crash-reports.py` reads macOS's
+    `.ips` reports, and on Linux runs gdb over the cores
+    `.github/scripts/enable-core-dumps.sh` keeps (piped to a handler, at most
+    5, whatever `ulimit -c` says): faulting thread, registers, every thread's
+    top frames, the library map. The harness banner prints the CPU model
+    (`cpuModel=`). **An intermittent one is reproduced with
+    `.github/workflows/repro-native-crash.yml`** (Linux x64; dispatch, or
+    push a change to it on a branch): it runs one test with a capturing
+    `vspipe-bin` (`replay-vspipe.sh`; the worker runs `vspipe-bin`, never the
+    `vspipe` wrapper), then replays the captured runs directly, hundreds a
+    minute, plain / single-thread / under valgrind, and runs the report's
+    `bare.vpy` calls under valgrind. Valgrind is the instrument for an
+    intermittent crash: it reports an uninitialised or out-of-bounds read
+    whether or not that run crashes.
 
 ## Platform-Specific Notes
 

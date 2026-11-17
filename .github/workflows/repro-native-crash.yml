@@ -13,8 +13,13 @@ name: Reproduce a native crash (Linux x64)
 #                  here is a race between threads
 #   valgrind       `valgrind_repeat` runs under memcheck, which reports an
 #                  out-of-bounds or uninitialised read whether or not it crashes
-# Optionally it also runs Scripts/probe-plugin-formats.py for `probe_calls`
-# (e.g. mv.FlowFPS, whose 64x48 cells crashed in the 11-16 nightly).
+# Optional, each off unless given:
+#   bisect       call:WxH:format runs of docs/reports/task-66-qtgmc-draft-sigsegv/
+#                scripts/bare.vpy (one call on a synthetic clip) under valgrind
+#   locate       the same through scripts/locate.py: which output samples are
+#                uninitialised (one memcheck process per region; slow)
+#   probe_calls  Scripts/probe-plugin-formats.py --calls, probe_repeat times
+#                (mv.FlowFPS at 64x48: task #69)
 #
 # Dispatch it, or push a change to this file on a branch: a workflow that is
 # not on the default branch cannot be dispatched, and a push then runs it with
@@ -56,9 +61,6 @@ on:
       locate:
         description: 'call:WxH:format runs of scripts/locate.py (which samples are uninitialised)'
         default: ''
-      unwritten:
-        description: 'unwritten.py calls (buffer-pool probe)'
-        default: ''
       deps_run_id:
         description: 'Optional build-deps-linux run ID to take the bundle from'
         required: false
@@ -76,14 +78,13 @@ env:
   MATCH: ${{ inputs.match || 'Preset="Draft"' }}
   REPEAT: ${{ inputs.repeat || '300' }}
   PARALLEL: ${{ inputs.parallel || '8' }}
-  MODES: ${{ inputs.modes }}
+  MODES: ${{ inputs.modes || 'plain single-thread valgrind' }}
   VALGRIND_REPEAT: ${{ inputs.valgrind_repeat || '2' }}
   PROBE_CALLS: ${{ inputs.probe_calls }}
   PROBE_REPEAT: ${{ inputs.probe_repeat || '3' }}
-  # call:WxH:format runs of bare.vpy under valgrind, and unwritten.py calls.
+  # call:WxH:format runs of the report's bare.vpy under valgrind / locate.py.
   BISECT: ${{ inputs.bisect }}
-  LOCATE: ${{ inputs.locate || 'qtgmc_draft:98x96:YUV420P12 qtgmc_slower:98x96:YUV420P12' }}
-  UNWRITTEN: ${{ inputs.unwritten }}
+  LOCATE: ${{ inputs.locate }}
   CAPTURE: ${{ github.workspace }}/repro/capture
   OUT: ${{ github.workspace }}/repro/out
   VAPOURBOX_CORE_DIR: /tmp/cores
@@ -205,12 +206,6 @@ jobs:
             origin=$(grep -A12 'Uninitialised value was created\|Invalid' "$log" | grep -m1 -o 'by 0x[0-9A-F]*: [A-Za-z_:<>0-9]*[Gg]et[Ff]rame[^ ]*\|by 0x[0-9A-F]*: [a-zA-Z_]*[(]' | head -1)
             echo "$spec: exit $rc, $(grep -m1 'ERROR SUMMARY' "$log" | sed 's/==[0-9]*== //') ${origin}"
           done | tee "$OUT/bisect/summary.txt"
-          echo "--- unwritten samples (buffer-pool probe, no valgrind)"
-          r=$(ls -d "$CAPTURE"/run.* 2>/dev/null | head -1)
-          ( while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
-            for c in $UNWRITTEN; do
-              deps/linux-x64/python/bin/python3 $SCRIPTS/unwritten.py $c 96x96 98x96 2>&1 | grep -v 'already loaded'
-            done ) | tee "$OUT/bisect/unwritten.txt"
 
       - name: Locate uninitialised samples
         if: always() && env.LOCATE != ''

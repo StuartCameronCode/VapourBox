@@ -1,0 +1,23 @@
+# CI run 44089474128 (Intel Xeon 6975P-C, avx512f)
+  1x run.ZOs3DE exit 99
+  run.8foZBL: Preset="Draft" width=96 height=64 pix_fmt="yuv422p" 
+  run.AYZNwq: Preset="Draft" width=98 height=64 pix_fmt="yuv444p10le" 
+  run.riVZc1: Preset="Draft" width=96 height=64 pix_fmt="yuv422p16le" 
+  run.U8Gwy4: Preset="Draft" width=98 height=64 pix_fmt="yuvj422p" 
+  run.Wozc6T: Preset="Draft" width=96 height=66 pix_fmt="yuv420p12le" 
+  run.ZOs3DE: Preset="Draft" width=98 height=64 pix_fmt="yuv420p12le" 
+replay (plain): 6 captured run(s) x 100, 4 at once: 600 runs, 0 failed, 18 s
+replay (single-thread): 6 captured run(s) x 100, 4 at once: 600 runs, 0 failed, 17 s
+replay (valgrind): 6 captured run(s) x 1, 4 at once: 6 runs, 1 failed, 45 s
+
+# CI run 44090845711 (AMD EPYC 9V74)
+  2x run.FqN8NM exit 99
+  run.eG2A85: Preset="Draft" width=98 height=64 pix_fmt="yuv444p10le" 
+  run.FqN8NM: Preset="Draft" width=98 height=64 pix_fmt="yuv420p12le" 
+  run.hHLgJa: Preset="Draft" width=96 height=64 pix_fmt="yuv422p" 
+  run.pcvhtA: Preset="Draft" width=96 height=64 pix_fmt="yuv422p16le" 
+  run.pGm7rp: Preset="Draft" width=96 height=66 pix_fmt="yuv420p12le" 
+  run.XKEqeV: Preset="Draft" width=98 height=64 pix_fmt="yuvj422p" 
+replay (plain): 6 captured run(s) x 300, 8 at once: 1800 runs, 0 failed, 66 s
+replay (single-thread): 6 captured run(s) x 300, 8 at once: 1800 runs, 0 failed, 66 s
+replay (valgrind): 6 captured run(s) x 2, 4 at once: 12 runs, 2 failed, 79 s
