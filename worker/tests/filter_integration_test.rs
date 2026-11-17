@@ -1979,7 +1979,7 @@ fn test_55_preview_selects_exact_frame() {
     let script = std::fs::read_to_string(&script_path).expect("read preview script");
 
     assert!(
-        script.contains("min(7 if _dec_corr else 7,"),
+        script.contains("for _i in (7, 7)]"),
         "preview must select the exact computed output index, script was:\n{}",
         script
     );
@@ -9308,7 +9308,7 @@ fn test_251_ivtc_and_soft_telecine_preview_decimates_in_the_encodes_phase() {
             "_skip = 0\n",
             "_pad, _real, _len = 1, 11, ",
             &format!("_t, _cycle = 7, 5\n"),
-            &format!("min({} if _dec_corr else {},", d.after_drop.0, out.local_index),
+            &format!("for _i in ({}, {})]", out.local_index, d.after_drop.0),
         ] {
             assert!(preview.contains(value), "{name}: preview lacks {value:?}");
         }
@@ -9331,7 +9331,7 @@ fn test_251_ivtc_and_soft_telecine_preview_decimates_in_the_encodes_phase() {
         unblend_origin: 0, decimate: None::<DecimatePreview>, source_frame_offset: 0,
     };
     let preview = std::fs::read_to_string(generator.generate_preview(&plain, &params).unwrap()).unwrap();
-    assert!(preview.contains("min(10 if _dec_corr else 10,"));
+    assert!(preview.contains("for _i in (10, 10)]"));
     assert!(!preview.contains("core.vivtc.VDecimate("));
 }
 
@@ -9875,4 +9875,55 @@ fn test_258_field_splits_are_padded() {
     }
     assert!(problems.is_empty(), "{}", problems.join("\n"));
     assert!(sites >= 3, "the scan found only {sites} field splits");
+}
+
+#[test]
+fn test_259_the_template_requests_no_frame_while_it_is_evaluated() {
+    // Task #65. The IVTC / Soft Telecine preview read VDecimate's drop with
+    // `get_frame()` while the script was evaluated, which ran the whole
+    // source graph once before vspipe started; vspipe then exited non-zero
+    // after writing its frame, intermittently, on x86. The drop is read in
+    // the graph (`_preview_decimate_pick`'s FrameEval). The one frame the
+    // template requests itself is the border colour's swatch, a one-frame
+    // BlankClip that reaches no source.
+    let template = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates/pipeline_template.vpy"),
+    )
+    .unwrap()
+    .replace("\r\n", "\n");
+    let calls: Vec<&str> = template
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#') && l.contains("get_frame("))
+        .collect();
+    assert_eq!(calls, vec!["    frame = swatch.get_frame(0)"],
+        "a frame requested while the script is evaluated: {calls:?}");
+
+    // The preview of a decimating job picks its frame in the graph.
+    let mut job = create_base_job("test_259_decimate_pick");
+    job.qtgmc_parameters.enabled = true;
+    job.qtgmc_parameters.method = DeinterlaceMethod::Ivtc;
+    job.qtgmc_parameters.tff = Some(true);
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: job.qtgmc_parameters.clone(),
+        ..ProcessingPipeline::default()
+    });
+    let pipeline = job.effective_pipeline();
+    let out = pipeline.preview_output_in(0, 34, 40, 0, Some((13, 44)));
+    let params = PreviewParams {
+        width: 720, height: 480, pix_fmt: "yuv420p".into(), num_frames: 13,
+        fps_num: 30000, fps_den: 1001,
+        output_index: out.local_index as i32,
+        rate_pad: out.rate_pad, unblend_pad: 0, unblend_origin: 0,
+        decimate: out.decimate, source_frame_offset: 34,
+    };
+    let generator = ScriptGenerator::new().unwrap();
+    let preview = std::fs::read_to_string(generator.generate_preview(&job, &params).unwrap()).unwrap();
+    for needle in [
+        "_dec_probe, _dec_target = c[_j], _t",
+        "core.std.FrameEval(_shown[0], _pick, prop_src=_dec_probe)",
+        "clip = _preview_decimate_pick(clip, _keep, _after_drop)",
+    ] {
+        assert!(preview.contains(needle), "preview lacks {needle:?}");
+    }
+    assert!(!preview.contains("get_frame(_j)"));
 }

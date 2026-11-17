@@ -23,8 +23,9 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
       - name: System packages
-        run: sudo apt-get update && sudo apt-get install -y gdb file
+        run: sudo apt-get update && sudo apt-get install -y gdb file stress-ng
       - name: Deps
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
@@ -41,20 +42,18 @@ jobs:
           sudo sysctl -w kernel.core_pattern="$GITHUB_WORKSPACE/repro/cores/core.%e.%p"
           ulimit -c unlimited
           export CORE_DIR="$GITHUB_WORKSPACE/repro/cores"
-          L=docs/reports/task-65-ivtc-preview-teardown/scripts/preview_loop.sh
-          W=worker/target/debug/vapourbox-worker
-          bash $L $W ivtc 10 repro | tee repro/ivtc.log
-          bash $L $W bwdif 10 repro | tee repro/bwdif.log
-          bash $L $W ivtc-avi 3 repro | tee repro/ivtc-avi.log
+          bash docs/reports/task-65-ivtc-preview-teardown/scripts/compare_templates.sh \
+            origin/main repro
           echo "## ${{ matrix.asset }}" >> "$GITHUB_STEP_SUMMARY"
-          tail -qn1 repro/*.log >> "$GITHUB_STEP_SUMMARY"
+          cat repro/summary.txt >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: repro-${{ matrix.asset }}
           path: |
-            repro/*.log
-            repro/*.err
+            repro/**/*.log
+            repro/**/*.err
+            repro/summary.txt
             repro/cores/*.bt
           if-no-files-found: ignore
 
@@ -69,6 +68,7 @@ jobs:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-x64
     steps:
       - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
       - name: Deps
         env: {GH_TOKEN: '${{ github.token }}'}
         run: |
@@ -77,17 +77,12 @@ jobs:
           xattr -cr deps/macos-x64 2>/dev/null || true
       - uses: dtolnay/rust-toolchain@stable
       - name: Build worker
-        run: cd worker && cargo build
+        run: cd worker && cargo build && brew install stress-ng
       - name: Loops
         run: |
-          mkdir -p repro
-          L=docs/reports/task-65-ivtc-preview-teardown/scripts/preview_loop.sh
-          W=worker/target/debug/vapourbox-worker
-          bash $L $W ivtc 10 repro | tee repro/ivtc.log
-          bash $L $W bwdif 10 repro | tee repro/bwdif.log
-          bash $L $W ivtc-avi 3 repro | tee repro/ivtc-avi.log
+          bash docs/reports/task-65-ivtc-preview-teardown/scripts/compare_templates.sh origin/main repro
           echo "## ${{ matrix.asset }}" >> "$GITHUB_STEP_SUMMARY"
-          tail -qn1 repro/*.log >> "$GITHUB_STEP_SUMMARY"
+          cat repro/summary.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Crash reports
         if: always()
         run: python3 .github/scripts/print-crash-reports.py
@@ -96,6 +91,7 @@ jobs:
         with:
           name: repro-${{ matrix.asset }}
           path: |
-            repro/*.log
-            repro/*.err
+            repro/**/*.log
+            repro/**/*.err
+            repro/summary.txt
           if-no-files-found: ignore
