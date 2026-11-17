@@ -218,11 +218,12 @@ jobs:
           # scripts/locate.py: one memcheck process per region of the output.
           r=$(ls -d "$CAPTURE"/run.* 2>/dev/null | head -1)
           [ -n "$r" ] || { echo "no captured run to take the environment from"; exit 0; }
+          W="${{ github.workspace }}"
+          PY=$W/deps/linux-x64/python/bin/python3
           while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
-          PY=$PWD/deps/linux-x64/python/bin/python3
           for spec in $LOCATE; do
             IFS=: read -r call size fmt <<< "$spec"
-            $PY docs/reports/task-66-qtgmc-draft-sigsegv/scripts/locate.py "$PY" $call $size $fmt $(nproc) 2>&1 \
+            $PY $W/docs/reports/task-66-qtgmc-draft-sigsegv/scripts/locate.py "$PY" $call $size $fmt $(nproc) 2>&1 \
               | grep -v 'already loaded' || true
           done | tee "$OUT/locate.txt"
 
