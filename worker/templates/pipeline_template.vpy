@@ -1991,8 +1991,9 @@ clip = _pf.run_within(clip, 'havsfunc.LUTDeRainbow', _derainbow, label='LUTDeRai
 # every chroma block it leaves alone from its input, so those stay bit-exact.
 # (v3.0 was 8-bit only, ran on an 8-bit copy here, and left the chroma past
 # the last whole 4x4 block uninitialised: task #60,
-# docs/reports/task-60-bifrost-v4.) run_within() converts nothing now; it is
-# kept for the plugin's frame-size limit (plugin_formats.py).
+# docs/reports/task-60-bifrost-v4.) Its contract now accepts every depth, so
+# run_within() converts nothing; the call stays behind it so a contract change
+# (task #57's height padding for 4:2:0 at 720x486) reaches it (test_252).
 def _bifrost(clip):
     return core.bifrost.Bifrost(
         clip,

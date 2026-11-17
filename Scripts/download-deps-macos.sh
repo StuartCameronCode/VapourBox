@@ -1718,8 +1718,9 @@ fi
 # packaging guard failed on all three missing dylibs. x64 takes pre-built
 # binaries for most plugins, but Stefan-Olt ships none of these: fluxsmooth
 # (one C file) and retinex (a small meson project) are built from source, and
-# bifrost comes from its PyPI wheel, one per arch (task #60). MACOSX_DEPLOYMENT_TARGET is exported near the top, so the x64
-# builds inherit the 12.0 floor and pass the minos guard (issue #39).
+# bifrost comes from its PyPI wheel, one per arch (task #60).
+# MACOSX_DEPLOYMENT_TARGET is exported near the top, so the x64 builds
+# inherit the 12.0 floor and pass the minos guard (issue #39).
 
 # FluxSmooth (core.flux.SmoothT / SmoothST). Also what havsfunc's STPresso calls
 # internally — without this plugin STPresso raises "No attribute with the name
@@ -2032,7 +2033,8 @@ fi
 #
 # Pinned to v2: v3 and v4 exist as tags but publish NO release assets, and
 # download-deps-windows.ps1 has no from-source path, so every platform tracks
-# the newest version Windows can get (the same rule fluxsmooth follows). One C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
+# the newest version Windows can get (the same rule fluxsmooth follows). One
+# C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
 # is compiled directly rather than through its autotools or meson build — no
 # new toolchain in CI, and MACOSX_DEPLOYMENT_TARGET (exported near the top)
 # gives the x64 build the 12.0 floor the minos guard demands.
