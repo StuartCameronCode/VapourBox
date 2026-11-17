@@ -2,7 +2,7 @@ name: Reproduce a native crash (Linux x64)
 
 # Reproduces an intermittent vspipe crash on a Linux x64 runner (task #66: QTGMC
 # Draft SIGSEGV at 96x66 4:2:0 in the push gate's format sweep). It runs one
-# test once with a capturing vspipe wrapper (.github/scripts/replay-vspipe.sh),
+# test once with a capturing vspipe-bin (.github/scripts/replay-vspipe.sh),
 # which saves the script, arguments, environment and stdin of every vspipe run
 # whose script matches `match`. It then replays those runs directly through
 # vspipe, with no Flutter or worker in the loop, so hundreds of runs take
@@ -143,7 +143,7 @@ jobs:
         run: |
           bash .github/scripts/replay-vspipe.sh install deps/linux-x64/vapoursynth "$MATCH" "$CAPTURE"
           (cd app && flutter test "$TEST_FILE" --plain-name "$PLAIN_NAME") || echo "::warning::the test failed while capturing"
-          # The wrapper stays: the replays call vspipe.orig / vspipe.valgrind.
+          # The capture script stays: the replays run vspipe-bin.real.
           ls "$CAPTURE"
           for r in "$CAPTURE"/run.*; do echo "$(basename "$r"): exit $(cat "$r/rc" 2>/dev/null)"; done
 
@@ -176,7 +176,8 @@ jobs:
         run: |
           # The bundle's Python and environment, as WorkerHarness.workerEnv
           # gives the heavy probe test.
-          r=$(ls -d "$CAPTURE"/run.* | head -1)
+          r=$(ls -d "$CAPTURE"/run.* 2>/dev/null | head -1)
+          [ -n "$r" ] || { echo "no captured run to take the environment from"; exit 0; }
           while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
           export VAPOURBOX_PLATFORM=linux-x64
           PY=deps/linux-x64/python/bin/python3
@@ -209,7 +210,7 @@ jobs:
           mkdir -p repro/bundle
           cp -r "$CAPTURE" "$OUT" repro/bundle/ 2>/dev/null || true
           # The binaries a backtrace needs to be symbolised offline.
-          cp deps/linux-x64/vapoursynth/vspipe-bin repro/bundle/ 2>/dev/null || true
+          cp deps/linux-x64/vapoursynth/vspipe-bin.real repro/bundle/vspipe-bin 2>/dev/null || true
           mkdir -p repro/bundle/plugins
           cp deps/linux-x64/vapoursynth/plugins/libmvtools* deps/linux-x64/vapoursynth/plugins/libfmtconv* repro/bundle/plugins/ 2>/dev/null || true
           ls -la /tmp/cores || true
