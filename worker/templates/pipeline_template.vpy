@@ -1986,12 +1986,14 @@ clip = _pf.run_within(clip, 'havsfunc.LUTDeRainbow', _derainbow, label='LUTDeRai
 # rainbowing that shimmers rather than sits still. Measured on an alternating-
 # chroma clip: frame-to-frame chroma swing halved.
 #
-# 8-BIT ONLY: "Bifrost: Only constant format 8 bit integer YUV input supported",
-# verified against the bundle at 10/12/16-bit and 4:2:2. On a deeper source
-# (a 10-bit ProRes capture of the same tape) it runs on an 8-bit copy and only
-# its change is applied at full depth (run_within), so every sample it
-# leaves alone, luma included, stays bit-exact. Up-converting its whole 8-bit
-# result, dithered, quantised and noised every sample (task #37).
+# Bifrost v4.0 runs at the clip's own depth, 8 to 16 bits, with luma_thresh
+# and variation in 8-bit units scaled by the plugin itself. It copies luma and
+# every chroma block it leaves alone from its input, so those stay bit-exact.
+# (v3.0 was 8-bit only, ran on an 8-bit copy here, and left the chroma past
+# the last whole 4x4 block uninitialised: task #60,
+# docs/reports/task-60-bifrost-v4.) Its contract now accepts every depth, so
+# run_within() converts nothing; the call stays behind it so a contract change
+# (task #57's height padding for 4:2:0 at 720x486) reaches it (test_252).
 def _bifrost(clip):
     return core.bifrost.Bifrost(
         clip,

@@ -367,112 +367,92 @@
      "ok": false
     },
     "420p10/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p10/f1/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p10/f2/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p12/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p12/f1/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p12/f2/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p14/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": true
     },
     "420p16/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f0/1920x1080": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f0/352x240": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f0/64x48": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f0/718x480": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f0/720x486": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
+     "error": "Bifrost: SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
      "ok": false,
      "within": "ok"
     },
     "420p16/f0/720x576": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f1/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f2/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f2/1920x1080": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f2/352x240": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f2/64x48": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f2/718x480": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p16/f2/720x486": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
+     "error": "Bifrost: SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
      "ok": false,
      "within": "ok"
     },
     "420p16/f2/720x576": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "420p8/f0/160x120": {
@@ -496,7 +476,7 @@
      "within": "ok"
     },
     "420p8/f0/720x486": {
-     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "error": "Bifrost: SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
      "ok": false,
      "within": "ok"
     },
@@ -529,7 +509,7 @@
      "within": "ok"
     },
     "420p8/f2/720x486": {
-     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "error": "Bifrost: SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
      "ok": false,
      "within": "ok"
     },
@@ -538,112 +518,90 @@
      "within": "ok"
     },
     "420p9/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": true
     },
     "422p10/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p10/f1/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p10/f2/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p12/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p12/f1/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p12/f2/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f0/1920x1080": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f0/352x240": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f0/64x48": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f0/718x480": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f0/720x486": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f0/720x576": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f1/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f2/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f2/1920x1080": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f2/352x240": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f2/64x48": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f2/718x480": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f2/720x486": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p16/f2/720x576": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "422p8/f0/160x120": {
@@ -707,108 +665,87 @@
      "within": "ok"
     },
     "444p10/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p10/f1/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p10/f2/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p12/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p12/f1/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p12/f2/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f0/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f0/1920x1080": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f0/352x240": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f0/64x48": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f0/718x480": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f0/720x486": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f0/720x576": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f1/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f2/160x120": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f2/1920x1080": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f2/352x240": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f2/64x48": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f2/718x480": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f2/720x486": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p16/f2/720x576": {
-     "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false,
+     "ok": true,
      "within": "ok"
     },
     "444p8/f0/160x120": {
@@ -874,12 +811,17 @@
    },
    "summary": {
     "depths": [
-     8
+     8,
+     10,
+     12,
+     16
     ],
     "field_based": true,
     "sizes_refused": [
      "420p8/f0/720x486",
-     "420p8/f2/720x486"
+     "420p8/f2/720x486",
+     "420p16/f0/720x486",
+     "420p16/f2/720x486"
     ],
     "subsampling": [
      "420",
@@ -27085,7 +27027,7 @@
    }
   }
  },
- "platform": "macos-arm64",
+ "platform": "",
  "platforms": {
   "linux-x64": {
    "vivtc.VFM": {

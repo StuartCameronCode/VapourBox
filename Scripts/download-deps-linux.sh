@@ -982,40 +982,66 @@ else
 fi
 
 # Bifrost (core.bifrost.Bifrost) - temporal rainbow / dot-crawl removal for
-# composite captures. Pinned to v3.0, the newest tag with a published Windows
-# binary; see the fluxsmooth note above for why every platform tracks that.
+# composite captures. The PyPI wheel 4.0 (git tag v4.0), pinned by hash, on
+# every platform: v4.0 publishes no GitHub release asset, so Windows takes the
+# same wheel. v3.0 (built here from bifrost.c until task #60) never wrote the
+# chroma past the last whole 4x4 block, so a width or height that was not a
+# whole number of blocks came out different run to run; v4.0 starts chroma as
+# a copy of altclip, and runs at 8-16 bits with its thresholds in 8-bit units
+# (docs/reports/task-60-bifrost-v4).
 #
-# Its source is one C file, so it is compiled directly rather than through its
-# autotools build — no autoconf/automake/libtool needed in CI. It includes
-# <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
-# directory called vapoursynth. Unlike macOS, this script already maintains
-# exactly that: $VS_INCLUDE_DIR/vapoursynth/ is a farm of symlinks created near
-# the top for plugins using this include style, so point -I at its parent and
-# stage nothing.
-BIFROST_TAG="v3.0"
-if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbifrost.so" ]; then
-    echo ""
-    echo "=== Building bifrost ($BIFROST_TAG) ==="
-    rm -rf bifrost
-    : "${VS_INCLUDE_DIR:?VS_INCLUDE_DIR is unset — bifrost cannot find the VapourSynth headers}"
-    [ -f "$VS_INCLUDE_DIR/vapoursynth/VapourSynth4.h" ] || {
-        echo "  ERROR: $VS_INCLUDE_DIR/vapoursynth/VapourSynth4.h missing — the"
-        echo "         include symlink farm did not get created."
-        exit 1
-    }
-    if git clone --depth 1 --branch "$BIFROST_TAG" -q \
-        https://github.com/dubhater/vapoursynth-bifrost.git bifrost 2>/dev/null \
-       && cc -std=c99 -O2 -fPIC -shared \
-            -o "$PLUGINS_DIR/libbifrost.so" \
-            bifrost/src/bifrost.c -I"$VS_INCLUDE_DIR"; then
-        echo "  Built bifrost -> libbifrost.so"
+# manylinux_2_28 (it needs glibc 2.17, libstdc++ 3.4.21) is under our 2.39
+# floor. The x86_64 build has no AVX, so one file serves both CPU tiers.
+# Installed under its old name, libbifrost.so: a second file registering
+# com.nodame.bifrost would fail to load. Keep BIFROST_VERSION in step with
+# download-deps-{macos.sh,windows.ps1}.
+BIFROST_VERSION="4.0"
+case "$ARCH" in
+    x86_64)  BIFROST_WHEEL_TAG="manylinux_2_28_x86_64"
+             BIFROST_SHA256="f0144ea7596aa0bfcd9780da0a8979a3a150b4552bd8364d93111be090ba52b9" ;;
+    aarch64) BIFROST_WHEEL_TAG="manylinux_2_28_aarch64"
+             BIFROST_SHA256="9a33bc0f47b68a2d39595c4232976051aabe386908d3b3d46661a254e00d7ca7" ;;
+    *)       BIFROST_WHEEL_TAG="" ;;
+esac
+BIFROST_OUT="$PLUGINS_DIR/libbifrost.so"
+echo ""
+echo "=== Installing bifrost $BIFROST_VERSION ==="
+if [ "$FORCE" = false ] && [ -f "$BIFROST_OUT" ]; then
+    echo "  bifrost already exists, skipping"
+else
+    rm -f "$BIFROST_OUT"
+    # Run on its own, not as `if ( set -e ... ); then`: bash ignores set -e in
+    # anything that is an if/&&/|| condition, subshells included.
+    set +e
+    (
+        set -e
+        [ -n "$BIFROST_WHEEL_TAG" ]
+        cd "$BUILD_DIR"
+        rm -rf bifrost-whl bifrost.whl
+        url=$("$PYTHON_BIN" - "$BIFROST_VERSION" "$BIFROST_WHEEL_TAG" <<'PYEOF2'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-bifrost/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF2
+)
+        curl -fsSL -o bifrost.whl "$url"
+        echo "$BIFROST_SHA256  bifrost.whl" | sha256sum -c -
+        mkdir bifrost-whl && unzip -q bifrost.whl -d bifrost-whl
+        cp bifrost-whl/vapoursynth/plugins/bifrost.so "$BIFROST_OUT"
+        chmod 755 "$BIFROST_OUT"
+        rm -rf bifrost-whl bifrost.whl
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
+        echo "  Installed bifrost -> libbifrost.so"
         BUILT_PLUGINS+=("bifrost")
     else
-        echo "  Failed to build bifrost"
+        rm -f "$BIFROST_OUT"
+        echo "  Failed to install bifrost"
         FAILED_PLUGINS+=("bifrost")
     fi
-else
-    echo "  bifrost already exists, skipping"
 fi
 
 # Retinex (core.retinex.MSRCP) - see the macOS script for the rationale.
@@ -1335,8 +1361,8 @@ fi
 #
 # Pinned to v2: v3 and v4 exist as tags but publish NO release assets, and
 # download-deps-windows.ps1 has no from-source path, so every platform tracks
-# the newest version Windows can get (the same rule fluxsmooth and bifrost
-# follow). One C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
+# the newest version Windows can get (the same rule fluxsmooth follows).
+# One C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
 # is compiled directly rather than through its autotools or meson build.
 FILLBORDERS_TAG="v2"
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfillborders.so" ]; then

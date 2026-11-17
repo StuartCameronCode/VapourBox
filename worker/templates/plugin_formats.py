@@ -48,14 +48,14 @@ Contract.__new__.__defaults__ = (('420', '422', '444'), 0, 0, 1, 1, False)
 ALL_DEPTHS = (8, 10, 12, 16)
 
 CONTRACTS = {
-    # Bifrost v3.0 writes chroma one whole 4x4 luma block at a time (per field
-    # with interlaced=True) and never initialises the rest of the output's
-    # chroma, so the columns and rows past the last whole block held whatever
-    # memory it got: different run to run at width 98, and at 720x486 4:2:2
-    # (task #56 F6, docs/reports/task-56-format-sweep-findings). Padded to whole
-    # blocks, every sample it returns is defined. Task #60 (Bifrost v4.0, which
-    # starts chroma from altclip) can drop the steps.
-    'bifrost.Bifrost': Contract(depths=(8,), width_step=4, height_step=8),
+    # Bifrost v4.0 (task #60) runs at every depth, with its thresholds in 8-bit
+    # units, so this contract converts nothing. v4.0 starts chroma from
+    # altclip, so the strip past the last whole 4x4 block is defined and needs
+    # no padding (v3.0 left it uninitialised, task #56 F6, which padded to
+    # whole blocks). One refusal stays: with interlaced=True it splits fields
+    # itself, whatever _FieldBased says, so a 4:2:0 frame 2 mod 4 high
+    # (720x486) is padded to whole field chroma rows (task #57).
+    'bifrost.Bifrost': Contract(depths=ALL_DEPTHS, height_step=CHROMA),
     'dedot.Dedot': Contract(depths=(8,)),
     'descratch.DeScratch': Contract(depths=(8,)),
     'havsfunc.LUTDeCrawl': Contract(depths=(8, 10)),

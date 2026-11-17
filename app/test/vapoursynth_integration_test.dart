@@ -184,6 +184,28 @@ else:
       expect(result.stdout.toString(), contains('All plugins loaded'));
     });
 
+    test('the bundled Bifrost is v4.0 or later: it runs at 10-bit', () async {
+      // A namespace is not a version (the vszip.NLMeans note above). Bifrost
+      // v3.0 (deps <= 1.17.0-rc2) refuses anything but 8-bit, and from task
+      // #60 the template hands it the source's own depth, so a stale bundle
+      // would pass the namespace check and fail every deeper Bifrost job. It
+      // also left chroma past the last whole 4x4 block uninitialised.
+      final script = '''
+import vapoursynth as vs
+core = vs.core
+clip = core.std.BlankClip(width=98, height=64, format=vs.YUV420P10, length=5)
+v = core.bifrost.version
+assert (v.major, v.minor) >= (4, 0), 'bifrost %d.%d, need 4.0' % (v.major, v.minor)
+core.bifrost.Bifrost(clip, interlaced=True).get_frame(2)
+print("bifrost OK")
+clip.set_output()
+''';
+
+      final result = await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
+      expect(result.stdout.toString(), contains('bifrost OK'));
+    });
+
     test('the bundled zsmooth build runs on this CPU', () async {
       // zsmooth has no runtime dispatch: a build above this CPU's baseline
       // loads fine and then dies with an illegal instruction the instant a
