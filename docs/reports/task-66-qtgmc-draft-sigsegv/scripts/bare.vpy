@@ -1,6 +1,6 @@
 # One MVTools call (or QTGMC) on a synthetic clip, for valgrind (task #66).
 # vspipe -a call=<name> -a size=WxH -a fmt=<vs format name> bare.vpy -
-#   call: qtgmc_draft | degrain_qtgmc | compensate_qtgmc | degrain | compensate
+#   call: qtgmc_draft | qtgmc_fast | qtgmc_slower | degrain_qtgmc | compensate_qtgmc | degrain | compensate
 import vapoursynth as vs
 core = vs.core
 
@@ -25,7 +25,7 @@ def _fill(n, f):
         for y in range(ph):
             for x in range(pw):
                 v = (math.sin((x + 3 * n) / 5) + math.cos(y / 7)) * peak / 5 + peak / 2
-                m[y, x] = int(v + ((x * y + n) % 13) * peak / 64)
+                m[y, x] = min(peak, int(v + ((x * y + n) % 13) * peak / 64))
     return fo
 
 
@@ -41,9 +41,10 @@ def vectors(clip):
     return srch, core.mv.Analyse(srch, isb=True, delta=1, **a), core.mv.Analyse(srch, isb=False, delta=1, **a)
 
 
-if call == 'qtgmc_draft':
+if call.startswith('qtgmc_'):
     import havsfunc as haf
-    out = haf.QTGMC(c, Preset='Draft', TFF=True)
+    preset = {'draft': 'Draft', 'fast': 'Fast', 'slower': 'Slower'}[call[6:]]
+    out = haf.QTGMC(c, Preset=preset, TFF=True)
 elif call == 'degrain_qtgmc':
     srch, bv, fv = vectors(c)
     sup = core.mv.Super(c, pel=1, levels=1, hpad=8, vpad=8)

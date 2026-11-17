@@ -73,13 +73,13 @@ env:
   MATCH: ${{ inputs.match || 'Preset="Draft"' }}
   REPEAT: ${{ inputs.repeat || '300' }}
   PARALLEL: ${{ inputs.parallel || '8' }}
-  MODES: ${{ inputs.modes || 'valgrind' }}
+  MODES: ${{ inputs.modes }}
   VALGRIND_REPEAT: ${{ inputs.valgrind_repeat || '2' }}
   PROBE_CALLS: ${{ inputs.probe_calls }}
   PROBE_REPEAT: ${{ inputs.probe_repeat || '3' }}
   # call:WxH:format runs of bare.vpy under valgrind, and unwritten.py calls.
-  BISECT: ${{ inputs.bisect || 'qtgmc_draft:98x96:YUV420P12 qtgmc_draft:96x96:YUV420P12 qtgmc_draft:98x96:YUV420P8 degrain_qtgmc:98x96:YUV420P12 degrain_qtgmc:96x96:YUV420P12 compensate_qtgmc:98x96:YUV420P12 degrain:98x96:YUV420P12 compensate:98x96:YUV420P12 qtgmc_draft:104x104:YUV420P12' }}
-  UNWRITTEN: ${{ inputs.unwritten || 'degrain compensate qtgmc_draft' }}
+  BISECT: ${{ inputs.bisect || 'qtgmc_draft:98x96:YUV420P12 qtgmc_draft:98x96:YUV420P8 qtgmc_draft:98x96:YUV420P16 qtgmc_draft:100x96:YUV420P12 qtgmc_draft:98x96:YUV422P12 qtgmc_draft:98x96:YUV444P12 qtgmc_draft:722x480:YUV420P12 qtgmc_draft:722x480:YUV420P8 qtgmc_draft:720x480:YUV420P12 qtgmc_fast:98x96:YUV420P12 qtgmc_slower:98x96:YUV420P12 qtgmc_draft:96x96:YUV420P12' }}
+  UNWRITTEN: ${{ inputs.unwritten }}
   CAPTURE: ${{ github.workspace }}/repro/capture
   OUT: ${{ github.workspace }}/repro/out
   VAPOURBOX_CORE_DIR: /tmp/cores
