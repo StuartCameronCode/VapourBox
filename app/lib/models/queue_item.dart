@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:uuid/uuid.dart';
 
 import '../services/field_order_detector.dart';
+import '../services/frame_math.dart';
 import '../services/timestamp_continuity_service.dart';
 import 'noise_halo_report.dart';
 import 'source_model.dart';
@@ -176,13 +177,27 @@ class QueueItem {
   /// Returns the effective out point (1.0 if not set).
   double get effectiveOutPoint => outPoint ?? 1.0;
 
-  /// Returns the in point as a frame number (or null if not set).
-  int? get inPointFrame =>
-      inPoint != null ? (inPoint! * (videoInfo?.frameCount ?? 0)).round() : null;
+  /// The in point as a source frame (null if not set): the frame the preview
+  /// shows at that position. Every job (encode, preview, detectors) takes its
+  /// `startFrame` from here, through the same rule as the scrubber
+  /// ([FrameMath.frameForPosition]). `round(pos × N)` put an in point in the
+  /// second half of a source one frame late (task #59).
+  int? get inPointFrame => inPoint == null
+      ? null
+      : FrameMath.frameForPosition(inPoint!, videoInfo?.frameCount ?? 0);
 
-  /// Returns the out point as a frame number (or null if not set).
-  int? get outPointFrame =>
-      outPoint != null ? (outPoint! * (videoInfo?.frameCount ?? 0)).round() : null;
+  /// The out point as a source frame (null if not set), by the same rule as
+  /// [inPointFrame]: an out point at the end is the last frame, `N - 1`.
+  int? get outPointFrame => outPoint == null
+      ? null
+      : FrameMath.frameForPosition(outPoint!, videoInfo?.frameCount ?? 0);
+
+  /// How many source frames the in/out range covers (null without one).
+  int? get trimmedFrameCount {
+    if (!hasInOutRange) return null;
+    final frameCount = videoInfo?.frameCount ?? 0;
+    return (outPointFrame ?? (frameCount - 1)) - (inPointFrame ?? 0) + 1;
+  }
 
   /// Returns the visible range in formatted time string.
   String get inOutRangeFormatted {

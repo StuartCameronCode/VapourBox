@@ -1866,6 +1866,15 @@ asserted in `shutdown_when_done_test.dart`:
   view, so they stay in place during the regeneration debounce. Controls in
   the transport and zoom bars are always present (disabled, not removed) so
   nothing shifts as the zoom changes.
+- **In/out points are scrubber positions, and only `FrameMath` turns them
+  into frames** (task #59). `QueueItem.inPointFrame` / `outPointFrame` use
+  `FrameMath.frameForPosition` (`round(pos × (N − 1))`), the scrubber's own
+  rule, and the encode, preview and detector jobs all read them. The old
+  `round(pos × N)` started a second-half in point one frame late and turned
+  an out point at the end into frame N, one past the last (the output
+  repeated its last picture). `trim_points_test.dart` fails on any other
+  position × frame count in `app/lib`; `integration_trim_points_test.dart`
+  (heavy) checks the encode against an independent decode.
 - **Preview 1:1 (issue #8) means one stored pixel per *physical* screen
   pixel**, so `BeforeAfterComparisonWidget` derives the scale from the frame's
   real size (`encodedImageSize`, read from the PNG/JPEG header), the fitted
