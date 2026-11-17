@@ -1361,8 +1361,8 @@ fi
 #
 # Pinned to v2: v3 and v4 exist as tags but publish NO release assets, and
 # download-deps-windows.ps1 has no from-source path, so every platform tracks
-# the newest version Windows can get (the same rule fluxsmooth
-# follows). One C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
+# the newest version Windows can get (the same rule fluxsmooth follows).
+# One C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
 # is compiled directly rather than through its autotools or meson build.
 FILLBORDERS_TAG="v2"
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfillborders.so" ]; then
