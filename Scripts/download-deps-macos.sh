@@ -1138,7 +1138,7 @@ if [ -n "$VS_INC_DIR" ] && [ -d "$VS_BUILD_DIR/include" ]; then
 fi
 
 # Some plugins spell their includes <vapoursynth/VapourSynth.h> rather than
-# <VapourSynth.h> — retinex (API3) and bifrost (API4) both do — so they need an
+# <VapourSynth.h> — retinex (API3) does — so it needs an
 # include root whose CHILD is a directory called vapoursynth. Mirror the
 # permanent symlink farm download-deps-linux.sh keeps, so that on both platforms
 # a single -I"$VS_INC_DIR" satisfies either include style and no plugin has to
@@ -1713,12 +1713,12 @@ else
     echo "  fmtconv already exists, skipping"
 fi
 
-# The three plugins below are built from source on BOTH arches, so they sit
-# outside the arch split above. They started inside its arm64 branch, where
-# x64 never reached them and the packaging guard failed on all three missing
-# dylibs. x64 takes pre-built binaries for most plugins, but Stefan-Olt ships
-# none of these, and building them is cheap: two single C files and one small
-# meson project. MACOSX_DEPLOYMENT_TARGET is exported near the top, so the x64
+# The three plugins below sit outside the arch split above, on BOTH arches.
+# They started inside its arm64 branch, where x64 never reached them and the
+# packaging guard failed on all three missing dylibs. x64 takes pre-built
+# binaries for most plugins, but Stefan-Olt ships none of these: fluxsmooth
+# (one C file) and retinex (a small meson project) are built from source, and
+# bifrost comes from its PyPI wheel, one per arch (task #60). MACOSX_DEPLOYMENT_TARGET is exported near the top, so the x64
 # builds inherit the 12.0 floor and pass the minos guard (issue #39).
 
 # FluxSmooth (core.flux.SmoothT / SmoothST). Also what havsfunc's STPresso calls
@@ -1754,33 +1754,67 @@ else
 fi
 
 # Bifrost (core.bifrost.Bifrost) - temporal rainbow / dot-crawl removal for
-# composite captures. Pinned to v3.0, the newest tag with a published Windows
-# binary; see the fluxsmooth note above for why every platform tracks that.
+# composite captures. The PyPI wheel 4.0 (git tag v4.0), pinned by hash, on
+# every platform: v4.0 publishes no GitHub release asset, so Windows takes the
+# same wheel. v3.0 (built here from bifrost.c until task #60) never wrote the
+# chroma past the last whole 4x4 block, so a width or height that was not a
+# whole number of blocks (98, 718, 720x486) came out different run to run;
+# v4.0 starts chroma as a copy of altclip. v4.0 also runs at 8-16 bits with
+# its thresholds in 8-bit units (docs/reports/task-60-bifrost-v4).
 #
-# Its source is one C file, so it is compiled directly rather than through its
-# autotools build. It includes
-# <vapoursynth/VapourSynth4.h>, so the include path has to be the PARENT of a
-# directory called vapoursynth — which is what the symlink farm created next to
-# VS_INC_DIR above provides.
-BIFROST_TAG="v3.0"
-if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libbifrost.dylib" ]; then
-    echo ""
-    echo "=== Building bifrost ($BIFROST_TAG) ==="
-    rm -rf bifrost
-    if git clone --depth 1 --branch "$BIFROST_TAG" -q \
-        https://github.com/dubhater/vapoursynth-bifrost.git bifrost 2>/dev/null \
-       && cc -std=c99 -O2 -fPIC -shared \
-            -o "$PLUGINS_DIR/libbifrost.dylib" \
-            bifrost/src/bifrost.c -I"$VS_INC_DIR"; then
-        codesign -s - -f "$PLUGINS_DIR/libbifrost.dylib" 2>/dev/null || true
-        echo "  Built bifrost -> libbifrost.dylib"
+# arm64 is minos 11.0 and x86_64 10.15, both under their bundle's floor. Both
+# link only libc++ and libSystem; the x86_64 dylib has no AVX and no static
+# initializers (check-load-time-simd.py), so one file serves both CPU tiers.
+# Installed under its old name, libbifrost.dylib: a second file registering
+# com.nodame.bifrost would fail to load. Keep BIFROST_VERSION in step with
+# download-deps-{linux.sh,windows.ps1}.
+BIFROST_VERSION="4.0"
+if [ "$ARCH" = "arm64" ]; then
+    BIFROST_WHEEL_TAG="macosx_11_0_arm64"
+    BIFROST_SHA256="1d535817d9902f5b8caa7114d8d8238eb7b702e5e56972f4b88ea2b9e7efdcb8"
+else
+    BIFROST_WHEEL_TAG="macosx_10_15_x86_64"
+    BIFROST_SHA256="1add287386313c9a984f161e8976e28db3f0d0365f82d4ca965f4c4fa327464e"
+fi
+BIFROST_OUT="$PLUGINS_DIR/libbifrost.dylib"
+echo ""
+echo "=== Installing bifrost $BIFROST_VERSION ==="
+if [ "$FORCE" = false ] && [ -f "$BIFROST_OUT" ]; then
+    echo "  bifrost already exists, skipping"
+else
+    rm -f "$BIFROST_OUT"
+    # Run on its own, not as `if ( set -e ... ); then` (see descale below).
+    set +e
+    (
+        set -e
+        cd "$BUILD_DIR"
+        rm -rf bifrost-whl bifrost.whl
+        url=$("$PYTHON_BIN" - "$BIFROST_VERSION" "$BIFROST_WHEEL_TAG" <<'PYEOF2'
+import json, sys, urllib.request
+ver, tag = sys.argv[1], sys.argv[2]
+d = json.load(urllib.request.urlopen(f"https://pypi.org/pypi/vapoursynth-bifrost/{ver}/json"))
+print(next(f["url"] for f in d["urls"] if f["filename"].endswith(tag + ".whl")))
+PYEOF2
+)
+        curl -fsSL -o bifrost.whl "$url"
+        echo "$BIFROST_SHA256  bifrost.whl" | shasum -a 256 -c -
+        mkdir bifrost-whl && unzip -q bifrost.whl -d bifrost-whl
+        cp bifrost-whl/vapoursynth/plugins/bifrost.dylib "$BIFROST_OUT"
+        chmod u+w "$BIFROST_OUT"
+        install_name_tool -id "@loader_path/libbifrost.dylib" "$BIFROST_OUT"
+        codesign -s - -f "$BIFROST_OUT"
+        rm -rf bifrost-whl bifrost.whl
+    )
+    _block_status=$?
+    set -e
+    if [ "$_block_status" -eq 0 ]; then
+        echo "  Installed bifrost -> libbifrost.dylib"
         BUILT_PLUGINS+=("bifrost")
     else
-        echo "  Failed to build bifrost"
+        rm -f "$BIFROST_OUT"
+        echo "  Failed to install bifrost"
         FAILED_PLUGINS+=("bifrost")
     fi
-else
-    echo "  bifrost already exists, skipping"
 fi
 
 # Retinex (core.retinex.MSRCP) - multi-scale retinex, used here to lift shadow
@@ -1998,8 +2032,7 @@ fi
 #
 # Pinned to v2: v3 and v4 exist as tags but publish NO release assets, and
 # download-deps-windows.ps1 has no from-source path, so every platform tracks
-# the newest version Windows can get (the same rule fluxsmooth and bifrost
-# follow). One C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
+# the newest version Windows can get (the same rule fluxsmooth follows). One C++ file including <VapourSynth.h> / <VSHelper.h> (API3), so it
 # is compiled directly rather than through its autotools or meson build — no
 # new toolchain in CI, and MACOSX_DEPLOYMENT_TARGET (exported near the top)
 # gives the x64 build the 12.0 floor the minos guard demands.

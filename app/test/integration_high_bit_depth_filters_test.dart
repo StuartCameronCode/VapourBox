@@ -946,8 +946,9 @@ List<_Pass> _passes() => [
           chromaFixes: const ChromaFixParameters(enabled: true, applyDeCrawl: true),
         ),
       ),
-      // DeDot and Bifrost are 8-bit only, LUTDeRainbow 8-10 bit; deeper
-      // sources get only their change applied at full depth (task #37). The
+      // DeDot is 8-bit only, LUTDeRainbow 8-10 bit; deeper sources get only
+      // their change applied at full depth (task #37). Bifrost runs natively
+      // since v4.0 (task #60). The
       // master holds no crawl or rainbow, so they run on one that does.
       _Pass(
         'chroma_dedot',
@@ -1799,8 +1800,9 @@ void main() {
   });
 
   // ===========================================================================
-  // 3f. Chroma Fixes keep >8-bit precision (task #37). DeDot and Bifrost are
-  //     8-bit only, LUTDeCrawl and LUTDeRainbow 8-10 bit. Their guards used to
+  // 3f. Chroma Fixes keep >8-bit precision (task #37). DeDot is 8-bit only,
+  //     LUTDeCrawl and LUTDeRainbow 8-10 bit. (Bifrost was 8-bit only too
+  //     until v4.0; it now runs natively, group 3g, task #60.) Their guards used to
   //     up-convert the filter's whole low-depth result, quantising every sample
   //     of a deeper source. Each now adds only the filter's change to the
   //     source, so the output must be the source wherever the low-depth run
@@ -1817,13 +1819,6 @@ void main() {
         lowBits: 8,
         chroma: const ChromaFixParameters(enabled: true, applyDedot: true),
         changes: [0, 1, 2],
-        layouts: ['yuv422p', 'yuv420p'],
-      ),
-      (
-        name: 'bifrost',
-        lowBits: 8,
-        chroma: const ChromaFixParameters(enabled: true, applyBifrost: true),
-        changes: [1, 2],
         layouts: ['yuv422p', 'yuv420p'],
       ),
       (
@@ -1975,6 +1970,114 @@ void main() {
         expect(diff, lessThan(0.5));
       }, timeout: const Timeout(Duration(minutes: 6)));
     }
+  });
+
+  // ===========================================================================
+  // 3g. Bifrost v4.0 runs at the source's depth (task #60). v3.0 was 8-bit only
+  //     and ran on an 8-bit copy (group 3f's delta path). v4.0 scales its
+  //     thresholds itself and copies luma and every chroma block it leaves
+  //     alone from its input. So at 10-bit: luma bit-exact, chroma changed,
+  //     some changes not a multiple of 4 (it ran at 10 bits, not on an 8-bit
+  //     copy), and its decisions and result agree with the 8-bit run's except
+  //     at the threshold. docs/reports/task-60-bifrost-v4
+  // ===========================================================================
+  group('Bifrost runs at the source depth (task #60)', () {
+    const chroma = ChromaFixParameters(enabled: true, applyBifrost: true);
+
+    Future<Uint8List> encode(String fixture, String pixFmt, String name) async {
+      final result = await WorkerHarness.runJob(
+          _losslessJob(
+                  fixture: fixture,
+                  pixFmt: pixFmt,
+                  pipeline: _only(chromaFixes: chroma),
+                  outputName: name)
+              .toJson(),
+          label: name);
+      expect(result.success, isTrue, reason: result.error);
+      return _rawFrames(result.outputPath!, pixFmt);
+    }
+
+    for (final layout in ['yuv422p', 'yuv420p']) {
+      test('bifrost on ${layout}10le: native, luma bit-exact, parity with 8-bit',
+          () async {
+        const cw = _width ~/ 2;
+        final ch = layout == 'yuv420p' ? _height ~/ 2 : _height;
+        final deepFmt = '${layout}10le';
+        final src8 = await _crawlFixture(layout);
+        final src10 = await _deepCrawlFixture(layout, 10);
+        final in8 = await _rawFrames(src8, layout);
+        final in10 = await _rawFrames(src10, deepFmt);
+        final out8 = await encode(src8, layout, 'bifrost_native_ref_$layout');
+        final out10 = await encode(src10, deepFmt, 'bifrost_native_$deepFmt');
+
+        for (final plane in [0, 1, 2]) {
+          final i8 = _planes(in8, plane, cw, ch);
+          final o8 = _planes(out8, plane, cw, ch);
+          final i10 = _planes16(in10, plane, cw, ch);
+          final o10 = _planes16(out10, plane, cw, ch);
+          expect(o10.length, i10.length);
+          expect(o8.length, i10.length);
+          var changed = 0, notByFour = 0, setMismatch = 0;
+          var sumDiff = 0.0;
+          for (var i = 0; i < i10.length; i++) {
+            final d10 = o10[i] - i10[i];
+            if (d10 != 0) changed++;
+            if (d10 % 4 != 0) notByFour++;
+            if ((d10 != 0) != (o8[i] != i8[i])) setMismatch++;
+            sumDiff += (o10[i] / 4 - o8[i]).abs();
+          }
+          final meanDiff = sumDiff / i10.length;
+          print('  bifrost $deepFmt plane $plane: changed $changed of '
+              '${i10.length}, not by four $notByFour, decisions differing '
+              '$setMismatch, mean |10-bit/4 - 8-bit| ${meanDiff.toStringAsFixed(3)}');
+          if (plane == 0) {
+            expect(changed, 0, reason: 'Bifrost must leave luma bit-exact');
+            continue;
+          }
+          expect(changed, greaterThan(0),
+              reason: 'Bifrost changed nothing in plane $plane, so the test '
+                  'proves nothing');
+          expect(notByFour, greaterThan(0),
+              reason: 'plane $plane: every change is a multiple of 4, as if '
+                  'Bifrost ran on an 8-bit copy');
+          expect(setMismatch, lessThanOrEqualTo(i10.length ~/ 100),
+              reason: 'plane $plane: the 10-bit run must decide like the '
+                  '8-bit run except at the threshold');
+          expect(meanDiff, lessThan(0.5),
+              reason: 'plane $plane: thresholds not scaled to the depth?');
+        }
+      }, timeout: const Timeout(Duration(minutes: 6)));
+    }
+
+    test('bifrost: preview matches the encode on yuv422p10le', () async {
+      final src = await _deepCrawlFixture('yuv422p', 10);
+      final preview = await WorkerHarness.runPreview(
+          _losslessJob(
+                  fixture: src,
+                  pixFmt: 'yuv422p10le',
+                  pipeline: _only(chromaFixes: chroma),
+                  outputName: 'bifrost_native_pv')
+              .toJson(),
+          frame: _previewFrame,
+          label: 'bifrost_native_pv');
+      expect(preview.success, isTrue, reason: '$preview');
+      final result = await WorkerHarness.runJob(
+          _losslessJob(
+                  fixture: src,
+                  pixFmt: 'yuv422p10le',
+                  pipeline: _only(chromaFixes: chroma),
+                  outputName: 'bifrost_native_pv_encode')
+              .toJson(),
+          label: 'bifrost_native_pv_encode');
+      expect(result.success, isTrue, reason: result.error);
+      final diff = WorkerHarness.meanAbsDiff(
+          await WorkerHarness.imageToRgb24(preview.png!, label: 'bfp'),
+          await WorkerHarness.frameRgb24(result.outputPath!, _previewFrame,
+              label: 'bfe'));
+      print('  bifrost preview vs encode: mean abs diff '
+          '${diff.toStringAsFixed(3)}');
+      expect(diff, lessThan(0.5));
+    }, timeout: const Timeout(Duration(minutes: 6)));
   });
 
   // ===========================================================================

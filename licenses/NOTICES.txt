@@ -585,7 +585,8 @@ FluxSmooth — no copyright asserted
 
 Bifrost — WTFPL
   VapourSynth port by dubhater; the original AviSynth derainbowing filter was
-  created by Fredrik Mellbin
+  created by Fredrik Mellbin, who also wrote the VapourSynth API 4 conversion
+  and version 4.0 (the version bundled, from its PyPI wheels)
   https://github.com/dubhater/vapoursynth-bifrost
 
 Bwdif — LGPL-3.0-or-later

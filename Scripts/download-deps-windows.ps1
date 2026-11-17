@@ -318,13 +318,6 @@ $Plugins7z = @(
         Check = "libawarpsharp2.dll"
     },
     @{
-        # Bifrost (core.bifrost.Bifrost) - temporal rainbow / dot-crawl removal.
-        # The archive ships x86\ and x64\ folders; the loop below prefers x64.
-        Name = "bifrost"
-        Url = "https://github.com/dubhater/vapoursynth-bifrost/releases/download/v3.0/Bifrost-3.0.7z"
-        Check = "bifrost.dll"
-    },
-    @{
         # Retinex (core.retinex.MSRCP) - lifts shadow detail out of
         # underexposed footage. Ships Win32\ and x64\ folders.
         Name = "retinex"
@@ -782,7 +775,7 @@ if (-not (Test-Path "$PluginsDir\libakarin.dll")) {
 }
 
 # =============================================================================
-# Bwdif + DeDot + vszip + BM3D + descale + KNLMeansCL + SangNom - PyPI wheels
+# Bwdif + DeDot + vszip + BM3D + descale + KNLMeansCL + SangNom + Bifrost - PyPI wheels
 # =============================================================================
 # None of these upstreams publishes a Windows release asset, so each comes from
 # its PyPI wheel, resolved through the JSON API the same way akarin is (never
@@ -831,7 +824,14 @@ $WheelPlugins = @(
     # tag r45, the same release the macOS/Linux wheels give. SSE2 only (no AVX
     # in the DLL), so one file serves both tiers; imports only the UCRT. Source
     # is MIT, upstream states its binaries are GPL v2 (licenses\NOTICES.txt).
-    @{ Name = "sangnom"; Package = "vapoursynth-sangnom"; Version = "45.0"; Dll = "sangnom.dll" }
+    @{ Name = "sangnom"; Package = "vapoursynth-sangnom"; Version = "45.0"; Dll = "sangnom.dll" },
+    # core.bifrost.Bifrost (Chroma Fixes' temporal rainbow removal). Wheel 4.0
+    # is git tag v4.0, which publishes no release asset (v3.0 was a 7z here
+    # until task #60), the same release the macOS/Linux wheels give. v4.0
+    # initialises the chroma past the last whole 4x4 block, which v3.0 left as
+    # uninitialised memory, and runs at 8-16 bits. No AVX in the DLL, so one
+    # file serves both tiers; imports only the UCRT. WTFPL.
+    @{ Name = "bifrost"; Package = "vapoursynth-bifrost"; Version = "4.0"; Dll = "bifrost.dll" }
 )
 
 foreach ($W in $WheelPlugins) {

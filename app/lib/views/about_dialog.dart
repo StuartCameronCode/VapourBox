@@ -517,8 +517,8 @@ class _AboutDialogState extends State<AboutDialog> {
                       _ComponentTile(
                         name: 'Bifrost',
                         license: 'WTFPL',
-                        copyright: 'Port by dubhater; original by '
-                            'Fredrik Mellbin',
+                        copyright: 'Port by dubhater; original, API 4 '
+                            'conversion and v4.0 by Fredrik Mellbin',
                         url: 'https://github.com/dubhater/vapoursynth-bifrost',
                       ),
                       _ComponentTile(
