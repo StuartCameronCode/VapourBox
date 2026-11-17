@@ -1212,6 +1212,27 @@ class JobResult {
       : 'FAILED: $error (exit code: $exitCode)';
 }
 
+/// The last few lines of a failed preview's stderr (the VapourSynth error,
+/// without the traceback noise above it), led by the worker's own
+/// `Error generating preview:` line when that has scrolled out of them. That
+/// line carries vspipe's exit status (task #56 F9b); in the 2026-11-16
+/// nightly the tail held only plugin warnings and vspipe's "Output 1 frames"
+/// line, so the status that said "crashed after writing" was never shown
+/// (task #65).
+String previewErrorTail(String logs, String? error) {
+  final lines = logs
+      .split('\n')
+      .map((l) => l.trim())
+      .where((l) => l.isNotEmpty)
+      .toList();
+  // A preview killed at its timeout has no logs; say so rather than nothing.
+  if (lines.isEmpty) return error ?? '';
+  final tail = lines.length <= 4 ? lines : lines.sublist(lines.length - 4);
+  final head = lines.indexWhere((l) => l.contains('Error generating preview:'));
+  if (head < 0 || head >= lines.length - tail.length) return tail.join(' | ');
+  return [lines[head], '…', ...tail].join(' | ');
+}
+
 /// Outcome of a `--preview` run: the PNG bytes, or an error plus the worker's
 /// stderr (which carries the VapourSynth traceback for a failed pass).
 class PreviewResult {
@@ -1223,18 +1244,9 @@ class PreviewResult {
 
   bool get success => png != null && png!.isNotEmpty;
 
-  /// The last few stderr lines — the VapourSynth error, without the traceback
-  /// noise above it.
-  String get errorTail {
-    final lines = logs
-        .split('\n')
-        .map((l) => l.trim())
-        .where((l) => l.isNotEmpty)
-        .toList();
-    // A preview killed at its timeout has no logs; say so rather than nothing.
-    if (lines.isEmpty) return error ?? '';
-    return lines.length <= 4 ? lines.join(' | ') : lines.sublist(lines.length - 4).join(' | ');
-  }
+  /// The worker's own error line and the last few stderr lines; see
+  /// [previewErrorTail].
+  String get errorTail => previewErrorTail(logs, error);
 
   @override
   String toString() => success ? 'SUCCESS (${png!.length} bytes)' : 'FAILED: $error\n$errorTail';
