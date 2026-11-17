@@ -5317,5 +5317,6 @@ Both faults came in with task #46 (the preview runs VDecimate in the encode's ph
   the wrong frame. The case now runs on the master telecined 3:2 (5.2 levels;
   8 vs 10-bit 0.19).
 - **Concurrent previews of one job id share a scratch directory**
-  (`vapourbox_preview_<id>`); the first repro run gave every loop one id and
-  measured the collision, not the crash.
+  (`vapourbox_preview_<id>`). The app gives every preview a fresh id; the
+  first repro run gave every loop one id and measured the collision, not the
+  crash.
