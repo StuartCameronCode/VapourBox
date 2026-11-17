@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deferred reset scan</title>
+<style>
+  :root { --fg:#1d1f23; --muted:#5d636e; --bg:#ffffff; --panel:#f4f5f7; --line:#d9dce1; --accent:#2457c5; --warn:#9a5b00; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e6e8eb; --muted:#a2a8b3; --bg:#16181c; --panel:#1f2228; --line:#343842; --accent:#86a8ff; --warn:#f0b35c; }
+  }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color:var(--fg); background:var(--bg); max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6em; margin-bottom: .2em; }
+  h2 { font-size: 1.2em; margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+  .meta { color: var(--muted); font-size: .9em; }
+  .outcome { background: var(--panel); border-left: 4px solid var(--accent); padding: 12px 16px; margin: 1em 0; }
+  .note { border-left: 4px solid var(--warn); background: var(--panel); padding: 10px 14px; margin: 1em 0; }
+  table { border-collapse: collapse; width: 100%; margin: .8em 0; font-size: .93em; }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  code { font: .9em ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--panel); padding: 0 3px; border-radius: 3px; }
+  caption { caption-side: bottom; text-align: left; color: var(--muted); font-size: .9em; padding-top: 6px; }
+  .bar { display:inline-block; height: 10px; background: var(--accent); vertical-align: middle; border-radius: 2px; }
+</style>
+</head>
+<body>
+<h1>Task #55: the timestamp-reset scan no longer blocks analysis</h1>
+<p class="meta">2026-11-17 · follows task #51's report (2026-11-packet-index-seek, §3 and §9) and task #21's (2026-11-timestamp-resets) ·
+measured on an Apple M-series Mac (macOS arm64), deps 1.16.0 (FFmpeg 9.0.2), debug workers built from <code>dc9e36c</code> (before) and this branch (after)</p>
+
+<div class="outcome">
+<p><b>Outcome: built.</b> Analysis of an MPEG-PS/TS no longer waits for its whole-file timestamp-reset scan.
+The worker's model now comes back without the scan (<code>--probe-source --defer-scan</code>). The scan runs
+afterwards in the background (<code>--complete-source</code>), one source at a time, with progress. On a 1 GB
+program stream on the internal SSD, Video Info, frame 0 and the processed preview of frame 0 now wait for
+<b>0.35 s</b> instead of <b>0.98 s</b>. On a network share the old wait was 17.3 s/GB (77 s for #51's 2 h DVD
+title). The new wait reads only the head and tail of the file, but <b>was not measured on the share</b> (§4).</p>
+<p>Anything that seeks waits for the scan's answer: thumbnails, the scrubber, in/out points, zoom, the
+detectors and jobs. <b>A seek is not safe anywhere in an unscanned file</b>, not even before a reset (§2), so the
+task's "block only seeks past a reset" could not be built as stated. When a reset is found, the join now uses
+the model's scan instead of reading the source a second time: 2.7 s instead of 4.2 s for 2 GB on the SSD.</p>
+</div>
+
+<h2>1. What analysis waited for</h2>
+<p>Since task #50, <code>--probe-source</code> runs four probes in parallel threads. One of them, the reset
+scan (<code>ffprobe -show_entries packet=stream_index,dts_time</code>), reads every byte of a TS/PS. Analysis
+waited for the slowest probe, and on a TS/PS that is the scan. Task #51 measured it on a 4.48 GB PAL DVD title on an
+SMB share at about 60 MB/s: 17.3 s/GB cold, the speed of <code>cat</code> (16.5 s/GB). The link is the limit, not ffprobe.
+So nothing about an item appeared for about 77 s: not Video Info, not frame 0, not the
+deinterlace auto-switch.</p>
+<p>A source that does reset was read <b>three</b> times in full:</p>
+<ol>
+  <li>by the probe's scan;</li>
+  <li>by <code>--make-continuous</code>, which scanned again because it was given nothing;</li>
+  <li>by the copy itself.</li>
+</ol>
+
+<h2>2. Why seeks wait for the whole scan</h2>
+<p>The task suggested blocking only jobs and seeks <i>past</i> a reset, perhaps with a frontier that grows as
+the scan reads. Task #21's own measurements rule that out. On <code>seek_reset_h264.ts</code> (the reset is at picture
+150), a seek to frame <b>140</b> delivered pictures from the second segment, from 290 on (2026-11-timestamp-resets,
+§2). The cause is how libavformat finds a time in a TS/PS: it bisects the file by bytes, and every timestamp
+occurs once per segment. So the search can settle in any segment, whichever side of the reset the target is on.
+Until the whole file has been scanned, no seek is known to be safe.</p>
+<p>What is safe is a decode from the start without <code>-copyts</code>. ffmpeg's discontinuity correction joins
+the segments there, which is exactly what the joined copy relies on. So while the scan runs:</p>
+<table>
+<tr><th>Runs at once</th><th>Waits for the scan's answer</th></tr>
+<tr><td>
+  <ul>
+    <li>Video Info (from the model);</li>
+    <li>the soft-telecine flags (the first 30 frames);</li>
+    <li>idet, which on a TS/PS now decodes from the start and drops its first 2 s by frame count (<code>trim=start_frame=50</code> at 25 fps) instead of <code>-ss 2</code>;</li>
+    <li>the frame-0 Original (frame 0 never seeks);</li>
+    <li>the processed preview of frame 0;</li>
+    <li>the pass list;</li>
+    <li>the deinterlace auto-switch.</li>
+  </ul>
+</td>
+<td>
+  <ul>
+    <li>Thumbnails;</li>
+    <li>the scrubber, in/out points and zoom (the controls do nothing, and the timeline says why, with the scan's progress);</li>
+    <li>Crop Detect and Descale Detect (they wait, then run on whatever the item is decoded from);</li>
+    <li>noise / halo;</li>
+    <li>jobs. The queue waits with "Waiting for the timestamp check of …", and Cancel stops the wait.</li>
+  </ul>
+</td></tr>
+</table>
+<p>When the answer is "no reset" (the common case: the one real DVD title measured so far had none), the
+model is completed and the timeline opens. When the answer is "reset", the join runs as before, the copy is
+probed, Video Info is read again from it (the frame count changes), and then the timeline opens on the copy.
+The original is never seeked.</p>
+
+<h2>3. Measurements on the internal SSD</h2>
+<p>There was no long DVD or broadcast file on the internal disk, so these use a synthetic one, built by
+<code>scripts/run.sh</code>: 16 minutes of PAL MPEG-2 at 8 Mbit/s, GOP 12, with AC-3 sound, 0.995 GB. The reset
+file is the same stream twice over (1.99 GB), so its clock goes back at the join. The file was in the page
+cache (it had just been written), so these are CPU-bound times and the share's are not. Each figure is the median of 3 runs.</p>
+<table>
+<tr><th>Step</th><th>Before (wall / CPU)</th><th>After (wall / CPU)</th></tr>
+<tr><td>What analysis waits for before anything shows</td><td class="n">0.98 s / 1.09 s (<code>--probe-source</code>, scan included)</td><td class="n">0.35 s / 0.60 s</td></tr>
+<tr><td>&nbsp;&nbsp;of which: <code>--probe-source --defer-scan</code></td><td class="n">—</td><td class="n">0.21 s / 0.23 s</td></tr>
+<tr><td>&nbsp;&nbsp;idet (now from the start, 2 s dropped by frame count)</td><td class="n">—</td><td class="n">0.12 s / 0.34 s</td></tr>
+<tr><td>&nbsp;&nbsp;frame 0</td><td class="n">—</td><td class="n">0.03 s / 0.03 s</td></tr>
+<tr><td>The scan, run afterwards (<code>--complete-source</code>)</td><td class="n">—</td><td class="n">0.75 s / 0.91 s</td></tr>
+<tr><td><code>--scan-timestamps</code> alone: buffered (before) vs streamed with the <code>pos</code> column (after)</td><td class="n">0.83 s / 0.90 s</td><td class="n">0.75 s / 0.91 s</td></tr>
+<tr><td>Join of the 1.99 GB reset file: <code>--make-continuous</code> scanning again (before) vs with <code>--source</code> (after)</td><td class="n">4.18 s / 5.40 s</td><td class="n">2.73 s / 3.58 s</td></tr>
+<caption>Data: <code>data/local.json</code>, <code>data/reset_local.json</code>; script: <code>scripts/analysis_probe.py</code> (modes <code>local</code>, <code>reset</code>).
+The joined copies are byte-identical either way (checked by the Rust test <code>the_join_uses_the_models_scan</code>).</caption>
+</table>
+<p>The plan set a criterion of ≤ 1.15× today's CPU for the streamed scan. It is 1.00–1.17× here: one run of three
+took 1.06 s against 0.89 s. The <code>pos</code> column adds output for progress, and #51 measured it as free on a
+share (17.5 vs 17.3 s/GB). The synthetic stream has fewer packets per GB than the real title (#51 measured 1.58 CPU
+s/GB for the real title's scan, 0.9 here), so the real title's absolute times will be higher.</p>
+
+<h2>4. On the network share: not measured</h2>
+<div class="note">
+<p><b>The share measurement did not run.</b> The SMB share holding #51's title was mounted when this work
+started. It was gone (unmounted) when the measurement began, and it can't be remounted without the owner's
+credentials. <code>scripts/analysis_probe.py share</code> is written and ready. It rotates the title's four 1 GB VOB parts across the
+measures, as #51 did, and flags any read faster than 5 s/GB as cached. Rerun <code>run.sh</code> with <code>T55_VOBS</code> set to fill
+this section.</p>
+</div>
+<p>What can be said without it:</p>
+<ul>
+  <li><b>Before:</b> 17.3 s/GB cold for the scan (#51's measurement of the same code path), so 77 s for the 2 h title before anything showed.</li>
+  <li><b>After, unmeasured:</b> before anything shows, the share serves only the probes that read the head
+  and tail of the file:
+    <ul>
+      <li>the seek plan's 20 s of packets;</li>
+      <li>the video start's first 64 packets;</li>
+      <li>the last 3 s for the untimed last picture;</li>
+      <li>idet's first ~10 s;</li>
+      <li>frame 0.</li>
+    </ul>
+  #51 measured the first 1 000 packets of the title at 0.49 s on the share. These reads are a few tens of MB, so
+  a few seconds at 60 MB/s is the expectation, <b>not a measurement</b>.</li>
+  <li><b>The scan itself still takes the whole read</b> (about 17 s/GB), now in the background with progress, and
+  jobs still wait for it. Deferring moves the wait off analysis; it doesn't remove it.</li>
+  <li><b>Not measured:</b> whether the background scan slows the next video's analysis or the user's frame-0
+  previews over the same link (the script's <code>contention</code> step).</li>
+</ul>
+
+<h2>5. Decisions</h2>
+<table>
+<tr><th>Decision</th><th>Reason</th></tr>
+<tr><td>Strict gate: nothing seeks until the scan answers (the plan's option A; the user did not choose before Implement, so the recommendation was taken)</td><td>The constraint "<code>decodePath</code> correct before any decode that could cross a reset", given §2. The alternative was provisional thumbnails, redone (and trims cleared) when a reset turns up. It shows the timeline sooner, but it shows the wrong frames on a file that resets.</td></tr>
+<tr><td>The scan starts after the item's analysis, not during it</td><td>The analysis's own reads aren't fighting the scan for the link; and a join can't swap <code>decodePath</code> under an analysis that is still reading the original.</td></tr>
+<tr><td>One scan at a time across the queue</td><td>On a share, two scans would only share the link.</td></tr>
+<tr><td>The worker completes the model (<code>--complete-source</code>); the app never edits the model's JSON</td><td>"A new source fact goes in the model, computed in the worker" (task #50). A deferred model completed this way is byte-identical to one probed in one go: checked on four fixtures, two of them with a reset, by the Rust and heavy Dart tests.</td></tr>
+<tr><td><code>continuityDeferred</code> is a new optional field, absent when false; the schema number is unchanged</td><td>Every model that isn't deferred, and every non-TS/PS model, is byte-for-byte what it was: checked against the old worker on four fixtures.</td></tr>
+<tr><td>idet on a TS/PS: from the start, with a frame-count trim</td><td>It runs before the scan answers. Every other format keeps <code>-ss 2</code>.</td></tr>
+<tr><td>A failed scan lets everything go ahead, unchecked, with a warning</td><td>As before: never block. The job then carries <code>continuityChecked: false</code>, so the worker scans and warns.</td></tr>
+<tr><td>Not done: a sampled pre-check at byte positions</td><td>It can prove a reset exists but never that none does, so it couldn't lift the gate.</td></tr>
+<tr><td>Not done: folding the frame-time probe into the scan's pass (plan W6)</td><td>Only a TS/PS whose two rates disagree runs that probe. None of the eleven TS/PS fixtures does (the DVB-T clip's 50 vs 25 is the excluded 2:1 case).</td></tr>
+<tr><td>Not done: a packet index riding on the scan</td><td>#51 recommended against building one.</td></tr>
+</table>
+
+<h2>6. Checked</h2>
+<ul>
+  <li><b>Rust</b> (<code>source_continuity</code> unit tests, <code>continuity_integration_test.rs</code>):
+    <ul>
+      <li>the line-by-line scanner equals the old whole-list rule;</li>
+      <li>positions are read and never go back;</li>
+      <li>a deferred model completes, with rising progress ending at 1.0, to exactly the model <code>--probe-source</code> gives;</li>
+      <li>a non-TS/PS model is identical with or without <code>--defer-scan</code>;</li>
+      <li><code>--make-continuous --source</code> uses the model's scan only when the model describes the file, and makes the same copy.</li>
+    </ul>
+  </li>
+  <li><b>Dart, push gate</b> (<code>timestamp_continuity_deferred_test.dart</code>). The worker, preview generator and
+  field-order detector are faked and record every decode. It checks that:
+    <ul>
+      <li>while the scan is pending, Video Info, frame 0 and the frame-0 preview arrive and nothing seeks: scrubber, in/out points, zoom, Crop Detect and the job are all held;</li>
+      <li>after "no reset" the timeline opens and the held detector and job run;</li>
+      <li>after "reset" the join gets the model, Video Info is read from the copy, and the only seeking decode is of the copy;</li>
+      <li>a failed scan warns;</li>
+      <li>removing the video stops its scan;</li>
+      <li>Cancel during the wait returns to idle;</li>
+      <li>scans run one at a time;</li>
+      <li>idet's arguments are as described in §2.</li>
+    </ul>
+  </li>
+  <li><b>Heavy</b> (<code>integration_deferred_reset_scan_test.dart</code>): the same chain through the real worker on both reset fixtures. A cancelled scan returns nothing, and an MP4 has nothing to defer.</li>
+  <li><b>Killing the worker mid-scan leaves no ffprobe running.</b> ffprobe dies on its next write to the closed pipe (checked on a 4 GB file).</li>
+</ul>
+
+<h2>7. Limits and what wasn't tested</h2>
+<ul>
+  <li><b>The network share, cold reads, and contention</b> (§4). This is the case the task was about, and its "after" is an expectation, not a measurement.</li>
+  <li><b>Windows and Linux:</b> not tried.
+    <ul>
+      <li>Whether ffprobe exits when the worker is killed: checked on macOS only.</li>
+      <li>The app's <code>Process.kill</code> of the worker.</li>
+    </ul>
+  </li>
+  <li><b>Synthetic sources:</b> one synthetic stream (testsrc2 with noise), not a real DVD or a broadcast capture; the reset is a byte-for-byte concatenation.</li>
+  <li><b>Not looked at in the running app:</b> no screenshot of the waiting state. The waiting state's text was checked through the view model only.</li>
+  <li><b>The DVD import's output is still scanned twice</b> (by the import, then by analysis). It is local temp, and now off the critical path.</li>
+</ul>
+</body>
+</html>

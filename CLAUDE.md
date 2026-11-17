@@ -65,7 +65,9 @@ VapourBox is a **cross-platform** (macOS + Windows + Linux) video processing app
 - **Cancel**: SIGTERM (Unix) or TerminateProcess (Windows)
 - **Source facts**: `--probe-source <path>` prints the `SourceModel` (task #50)
   — size, rate, frame count, video start, decoder delay, seek plan, grid, VFR
-  times, colour tags, Dolby Vision, audio streams, the reset scan. The app
+  times, colour tags, Dolby Vision, audio streams, the reset scan. Analysis
+  asks with `--defer-scan`, leaving a TS/PS's whole-file reset scan for
+  `--complete-source <model>` in the background (task #55). The app
   stores it on `QueueItem.sourceModel` at analysis and sends it in every job
   (inline `source`, or `--source <file>` for previews); the worker probes only
   when a job carries none. **A new source fact goes in the model, computed in
@@ -139,7 +141,7 @@ VapourBox/
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
 | `worker/src/dvd_reader.rs` | DVD import: IFO parsing for the title picker, `title_cells` (a title's cells for a chapter range and angle), the copy plan, the NAV walk for interleaved cells, and the libdvdread copy (see "DVD Import") |
 | `worker/src/source_model.rs` | `SourceModel` and `--probe-source`: every fact about a source a decoder needs, probed once (the frame-count rules included, an MP4 edit list's discards too); `VideoJob::apply_source_model` fills a job from it, its frame count included |
-| `worker/src/source_continuity.rs` | Timestamp resets in an MPEG-PS/TS: the rule, `--scan-timestamps`, and the continuous same-container copy decoded instead (see "Source Frame Size") |
+| `worker/src/source_continuity.rs` | Timestamp resets in an MPEG-PS/TS: the rule (`ResetScanner`, one packet line at a time), `--scan-timestamps` (streamed, with progress), and the continuous same-container copy decoded instead (see "Source Frame Size") |
 | `worker/src/vspipe_failure.rs` | A failed encode's blame (encoder first, unless it only saw vspipe's empty pipe) and vspipe's stderr turned into the job error (see Debugging Tips #11) |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
@@ -173,7 +175,7 @@ VapourBox/
 | `app/lib/services/worker_manager.dart` | Process spawning, IPC |
 | `app/lib/services/filter_loader.dart` | Load filter schemas from JSON |
 | `app/lib/services/preset_service.dart` | Save/load user presets |
-| `app/lib/services/timestamp_continuity_service.dart` | Runs the worker's `--probe-source` and, on a reset, the copy at analysis; `ContinuityProxy` is `QueueItem.decodePath` |
+| `app/lib/services/timestamp_continuity_service.dart` | Runs the worker's `--probe-source` (deferred scan), `--complete-source` (the scan, cancellable, with progress) and, on a reset, the copy; `ContinuityProxy` is `QueueItem.decodePath` |
 | `app/lib/models/source_model.dart` | The worker's `SourceModel` as the app reads it: typed getters over the JSON, sent back unchanged |
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/pitch_factor_file.dart` | Per-video pitch factor files: sidecar lookup + summary (see "Stabilize") |
@@ -1330,8 +1332,24 @@ the **single** builder of both decoders' arguments (encode + preview):
   per A/V stream), and the fix is a **same-container stream copy without
   `-copyts`**, checked (no reset left, every video packet) before use and
   made only when a reset is found — a file without one keeps every argument.
-  - **The app makes it at analysis** (`TimestampContinuityService`,
-    `--scan-timestamps` / `--make-continuous`) into the temp directory.
+  - **The app makes it after analysis, in the background (task #55).**
+    The scan reads every byte (77 s for a 2 h DVD title on a network
+    share), so analysis probes with `--probe-source --defer-scan` (the model
+    says `continuityDeferred`), shows what needs no seek, then runs
+    `--complete-source` on a serial queue, one source at a time, with
+    progress. On a reset, `--make-continuous --source <model>` copies into
+    the temp directory using the model's scan (never a second full read).
+    **While `QueueItem.continuityPending`, nothing may seek the source**:
+    a seek on a file whose clock resets can land in any segment, *before*
+    the reset too (the #21 report's frame 140 landed at 290), so no
+    "frontier" makes a seek safe. Only frame 0 (never seeks), the processed
+    preview at frame 0 and sequential decodes from the start without
+    `-copyts` run (idet on a TS/PS drops its first 2 s by frame count, not
+    `-ss`; `FieldOrderDetector.idetArgs`). Thumbnails, the scrubber, in/out
+    points, zoom, the detectors (they await `continuityReady`) and jobs
+    (`_processNextItem` awaits it; Cancel stops the wait) hold until it
+    answers. Gate a new seeking decode on `QueueItem.seeksAllowed`;
+    `timestamp_continuity_deferred_test.dart` records every decode.
     **`QueueItem.decodePath` is what every probe and decode reads;
     `inputPath` stays the user's file** (output name, display, Show in
     Folder, sidecars). `queue_item_decode_path_test.dart` fails on any new
@@ -1341,7 +1359,8 @@ the **single** builder of both decoders' arguments (encode + preview):
   - **Never per-segment offsets in the decoders** (copied sound can't be
     filtered, `-ss` can't target a segment) and never an MKV copy (leaves
     the TS/PS rules). `integration_seek_alignment_test.dart` checks the
-    `seek_reset_*` fixtures through the copy (docs/reports/2026-11-timestamp-resets).
+    `seek_reset_*` fixtures through the copy (docs/reports/2026-11-timestamp-resets;
+    deferral: docs/reports/task-55-deferred-reset-scan).
 - **A copied sound trimmed into AVI is cut, not pre-rolled (task #24).** A
   stream copy keeps packets from where the seek lands (the keyframe before
   the in-point); MKV/MP4/MOV store that as a later video start, but AVI

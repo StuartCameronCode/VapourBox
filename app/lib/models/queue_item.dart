@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:uuid/uuid.dart';
@@ -78,6 +79,43 @@ class QueueItem {
 
   /// Extraction progress (0.0 to 1.0), used during DVD extraction.
   double extractionProgress;
+
+  /// Whether this source's timestamp-reset scan is still running in the
+  /// background (task #55: an MPEG-PS/TS is read whole, minutes on a network
+  /// share). Until it answers, nothing may seek in [decodePath] — on a file
+  /// whose clock resets, a seek can land in any segment, before the reset
+  /// too — and no job may start: see [seeksAllowed] and [continuityReady].
+  bool get continuityPending =>
+      _continuityDone != null && !_continuityDone!.isCompleted;
+
+  /// How much of the file the pending scan has read (0..1).
+  double continuityProgress = 0.0;
+
+  /// The running scan, so removing the item can stop it.
+  ContinuityScanTask? continuityTask;
+
+  Completer<void>? _continuityDone;
+
+  /// Mark the scan as running (it then gates seeks and jobs).
+  void beginContinuityScan() {
+    if (continuityPending) return;
+    continuityProgress = 0.0;
+    _continuityDone = Completer<void>();
+  }
+
+  /// Mark the scan as answered (or abandoned): seeks and jobs may go ahead.
+  void endContinuityScan() {
+    continuityTask = null;
+    final done = _continuityDone;
+    if (done != null && !done.isCompleted) done.complete();
+  }
+
+  /// Completes when no scan is pending (at once if none is).
+  Future<void> get continuityReady => _continuityDone?.future ?? Future.value();
+
+  /// Whether a decode of this source may seek: false while its reset scan
+  /// is pending. Frame 0 never seeks, so it is always allowed.
+  bool get seeksAllowed => !continuityPending;
 
   /// Pitch factor file for the Stabilize pass in "From File" mode. Per video,
   /// because a factor log belongs to one film. Found automatically as a

@@ -156,7 +156,13 @@ class SourceModel {
 
   bool get hasAudio => audioStreams.isNotEmpty;
 
-  /// The timestamp-reset scan, null when it could not be made.
+  /// Whether the timestamp-reset scan was left for later (`--defer-scan`,
+  /// task #55): [continuity] is then null until the worker completes the
+  /// model.
+  bool get continuityDeferred => _json['continuityDeferred'] == true;
+
+  /// The timestamp-reset scan, null when it could not be made (or was
+  /// deferred).
   ContinuityScan? get continuity {
     final c = _json['continuity'];
     return c is Map<String, dynamic> ? ContinuityScan.fromJson(c) : null;

@@ -575,12 +575,23 @@ class MainWindow extends StatelessWidget {
       statusText = 'Extracting DVD title... $pct%';
     } else if (viewModel.isAnalyzing) {
       statusText = 'Analyzing videos...';
+    } else if (viewModel.waitingForContinuity == null &&
+        viewModel.queue.any((q) => q.continuityPending)) {
+      final checking = viewModel.queue.firstWhere(
+          (q) => q.continuityPending && q.continuityTask != null,
+          orElse: () => viewModel.queue.firstWhere((q) => q.continuityPending));
+      statusText = 'Checking timestamps of ${checking.displayName}'
+          ' (${(checking.continuityProgress * 100).round()}%)...';
     } else if (viewModel.isGeneratingPreview) {
       statusText = 'Generating preview... (click for log)';
       isClickable = true;
     } else if (viewModel.previewError != null) {
       statusText = 'Preview failed (click for details)';
       isClickable = true;
+    } else if (viewModel.waitingForContinuity != null) {
+      final item = viewModel.waitingForContinuity!;
+      statusText = 'Waiting for the timestamp check of ${item.displayName}'
+          ' (${(item.continuityProgress * 100).round()}%)...';
     } else if (viewModel.isProcessing) {
       final progress = viewModel.currentProgress;
       final queueInfo = viewModel.isQueueProcessing

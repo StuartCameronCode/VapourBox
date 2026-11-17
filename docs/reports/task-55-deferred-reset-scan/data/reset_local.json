@@ -1,0 +1,48 @@
+{
+ "file": "pal_reset.vob",
+ "gb": 1.99036928,
+ "rows": [
+  {
+   "round": 0,
+   "step": "joinRescans",
+   "wall": 4.225501707999683,
+   "cpu": 5.40926,
+   "usedModel": false
+  },
+  {
+   "round": 0,
+   "step": "joinFromModel",
+   "wall": 2.717102999999952,
+   "cpu": 3.582140999999999,
+   "usedModel": true
+  },
+  {
+   "round": 1,
+   "step": "joinRescans",
+   "wall": 4.175630084000659,
+   "cpu": 5.393263000000001,
+   "usedModel": false
+  },
+  {
+   "round": 1,
+   "step": "joinFromModel",
+   "wall": 2.7294788750004955,
+   "cpu": 3.614431999999998,
+   "usedModel": true
+  },
+  {
+   "round": 2,
+   "step": "joinRescans",
+   "wall": 4.157250624999506,
+   "cpu": 5.399676999999999,
+   "usedModel": false
+  },
+  {
+   "round": 2,
+   "step": "joinFromModel",
+   "wall": 2.7616473339994627,
+   "cpu": 3.557107000000001,
+   "usedModel": true
+  }
+ ]
+}

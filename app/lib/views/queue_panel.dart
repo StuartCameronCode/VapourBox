@@ -378,13 +378,28 @@ class _QueueItemTile extends StatelessWidget {
                                 color: colorScheme.tertiary,
                               ),
                         ),
-                      ] else if (item.status == QueueItemStatus.analyzing &&
-                          item.extractionProgress > 0) ...[
+                      ] else if (item.extractionProgress > 0 &&
+                          (item.status == QueueItemStatus.analyzing ||
+                              item.status == QueueItemStatus.ready)) ...[
                         Text(
                           'Joining timestamps... ${(item.extractionProgress * 100).round()}%',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: colorScheme.tertiary,
                               ),
+                        ),
+                      ] else if (item.continuityPending) ...[
+                        // The deferred reset scan (task #55): a whole read
+                        // of the file, minutes on a network share.
+                        Flexible(
+                          child: Text(
+                            item.continuityTask == null
+                                ? 'Timestamp check queued'
+                                : 'Checking timestamps... ${(item.continuityProgress * 100).round()}%',
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.tertiary,
+                                ),
+                          ),
                         ),
                       ] else ...[
                       if (item.resolution.isNotEmpty) ...[
@@ -508,6 +523,21 @@ class _QueueItemTile extends StatelessWidget {
           child: CircularProgressIndicator(
             strokeWidth: 2,
             value: item.extractionProgress > 0 ? item.extractionProgress : null,
+          ),
+        );
+      case QueueItemStatus.ready when item.continuityPending || item.extractionProgress > 0:
+        // Analysed, but its timestamp check (or the join it found needed)
+        // is still running: no seek or job until it answers (task #55).
+        final f = item.extractionProgress > 0
+            ? item.extractionProgress
+            : item.continuityProgress;
+        return SizedBox(
+          width: 18,
+          height: 18,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            value: f > 0 ? f : null,
+            color: Theme.of(context).colorScheme.tertiary,
           ),
         );
       case QueueItemStatus.ready:

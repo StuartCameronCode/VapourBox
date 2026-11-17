@@ -142,8 +142,22 @@ pub struct SourceModel {
     pub duration: Option<f64>,
     pub video: VideoFacts,
     pub audio_streams: Vec<AudioStreamFacts>,
-    /// The timestamp-reset scan (`source_continuity`), `None` if it failed.
+    /// The timestamp-reset scan (`source_continuity`), `None` if it failed
+    /// or was deferred.
     pub continuity: Option<ContinuityScan>,
+    /// The scan has not run yet (`--probe-source --defer-scan`, task #55): an
+    /// MPEG-PS/TS whose whole-file read is left to `--complete-source`, so
+    /// analysis need not wait for it. Absent (false) in every other model.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub continuity_deferred: bool,
+}
+
+/// Whether [`probe_source_with`] reads the whole file for the reset scan now
+/// or leaves it to [`complete_source`] (task #55).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScanMode {
+    Now,
+    Deferred,
 }
 
 impl SourceModel {
@@ -519,6 +533,20 @@ pub fn probe_source(
     input: &str,
     log: impl Fn(&str) + Sync,
 ) -> anyhow::Result<SourceModel> {
+    probe_source_with(ffprobe, env, input, ScanMode::Now, log)
+}
+
+/// [`probe_source`], with the reset scan of an MPEG-PS/TS (the one probe
+/// that reads every byte) run now or deferred. A deferred model has
+/// `continuity: None` and `continuity_deferred: true`, and is otherwise the
+/// same model; any other format has nothing to defer and is unchanged.
+pub fn probe_source_with(
+    ffprobe: &Path,
+    env: &HashMap<String, String>,
+    input: &str,
+    scan_mode: ScanMode,
+    log: impl Fn(&str) + Sync,
+) -> anyhow::Result<SourceModel> {
     let identity = SourceIdentity::of(input)
         .ok_or_else(|| anyhow::anyhow!("{input} could not be read"))?;
     let main_args: Vec<String> = ["-v", "error", "-show_streams", "-show_format", "-of", "json"]
@@ -556,6 +584,8 @@ pub fn probe_source(
     // last kept picture (task #54). Every other source reads it only if its
     // count needs the last picture.
     let reads_tail = stored_frames.is_some() && is_mov_family(&format_name);
+    let continuity_deferred =
+        scan_mode == ScanMode::Deferred && source_continuity::applies_to(&format_name);
 
     // The independent probes run at once: analysis waits for the slowest,
     // not their sum.
@@ -563,6 +593,9 @@ pub fn probe_source(
         let a = s.spawn(|| source_decode::probe_json(ffprobe, env, &source_decode::VIDEO_START_PROBE_ARGS, input));
         let b = s.spawn(|| source_decode::probe_seek_plan(ffprobe, env, input));
         let c = s.spawn(|| {
+            if continuity_deferred {
+                return None;
+            }
             source_continuity::scan_packets(ffprobe, env, input, format_name.clone(), &types).ok()
         });
         let d = s.spawn(|| match (r, avg) {
@@ -693,7 +726,34 @@ pub fn probe_source(
         },
         audio_streams,
         continuity,
+        continuity_deferred,
     })
+}
+
+/// Finish a deferred model (`--complete-source`, task #55): run its reset
+/// scan, reporting the fraction of the file read, and return the model with
+/// `continuity` filled. A model that no longer describes its file (or has
+/// another schema) is probed again in full; a model with nothing deferred is
+/// returned as it is. A failed scan leaves `continuity: None`, as
+/// [`probe_source`] does.
+pub fn complete_source(
+    ffprobe: &Path,
+    env: &HashMap<String, String>,
+    mut model: SourceModel,
+    progress: impl FnMut(f64),
+    log: impl Fn(&str) + Sync,
+) -> anyhow::Result<SourceModel> {
+    let path = model.identity.path.clone();
+    if !model.describes(&path) {
+        log("The source model no longer describes the file; probing it again");
+        model = probe_source_with(ffprobe, env, &path, ScanMode::Deferred, &log)?;
+    }
+    if !model.continuity_deferred {
+        return Ok(model);
+    }
+    model.continuity = source_continuity::scan_with_progress(ffprobe, env, &path, progress).ok();
+    model.continuity_deferred = false;
+    Ok(model)
 }
 
 #[cfg(test)]
@@ -924,6 +984,17 @@ mod tests {
     }
 
     #[test]
+    fn a_deferred_scan_is_said_and_otherwise_absent() {
+        let mut m = sample_model();
+        let s = serde_json::to_string(&m).unwrap();
+        assert!(!s.contains("continuityDeferred"), "absent unless deferred: {s}");
+        m.continuity_deferred = true;
+        let s = serde_json::to_string(&m).unwrap();
+        assert!(s.contains("\"continuityDeferred\":true"), "{s}");
+        assert_eq!(serde_json::from_str::<SourceModel>(&s).unwrap(), m);
+    }
+
+    #[test]
     fn model_round_trips_and_omits_absent_times() {
         let m = sample_model();
         let s = serde_json::to_string(&m).unwrap();
@@ -1076,6 +1147,7 @@ mod tests {
             },
             audio_streams: vec![],
             continuity: None,
+            continuity_deferred: false,
         }
     }
 

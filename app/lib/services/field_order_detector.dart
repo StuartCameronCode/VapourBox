@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/hdr_display.dart';
 import '../models/source_model.dart';
 import '../models/video_job.dart';
@@ -23,7 +25,10 @@ class FieldOrderDetector {
       final frameRate = model.frameRate;
       final duration = model.containerDuration ?? 0;
       final results = await Future.wait([
-        _runIdet(videoPath, duration: duration),
+        _runIdet(videoPath,
+            duration: duration,
+            frameRate: frameRate,
+            sequential: model.seekPlan != null),
         _detectSoftTelecine(videoPath),
       ]);
       final idet = results[0] as _IdetResult?;
@@ -77,26 +82,16 @@ class FieldOrderDetector {
   ///
   /// When [duration] is known and > 4s, skips the first 2s to avoid
   /// VHS leader/tracking instability.
-  Future<_IdetResult?> _runIdet(String videoPath, {double? duration}) async {
+  Future<_IdetResult?> _runIdet(String videoPath,
+      {double? duration, double frameRate = 0, bool sequential = false}) async {
     final ffmpeg = ToolLocator.instance.ffmpegPath;
     if (ffmpeg == null) return null;
-
-    // Skip first 2s for longer videos to avoid VHS leader/tracking instability
-    final skipSeconds = (duration != null && duration > 4.0) ? 2 : 0;
 
     try {
       final result = await Process.run(
         ffmpeg,
-        [
-          if (skipSeconds > 0) ...['-ss', '$skipSeconds'],
-          '-i', videoPath,
-          '-vf', 'idet',
-          '-frames:v', '200',
-          '-an',
-          '-f', 'rawvideo',
-          '-y',
-          if (Platform.isWindows) 'NUL' else '/dev/null',
-        ],
+        idetArgs(videoPath,
+            duration: duration, frameRate: frameRate, sequential: sequential),
       ).timeout(const Duration(seconds: 15), onTimeout: () {
         return ProcessResult(0, 1, '', 'timeout');
       });
@@ -237,6 +232,35 @@ class FieldOrderDetector {
 
   /// Check for soft telecine by analyzing frame repeat_pict flags.
   ///
+  /// ffmpeg's arguments for the idet sample: 200 frames after the first
+  /// 2 s (when the video is longer than 4 s), which skips a VHS leader's
+  /// tracking instability.
+  ///
+  /// An MPEG-PS/TS ([sequential]) decodes from the start and drops the 2 s
+  /// by frame count instead of seeking (task #55): idet runs before its
+  /// timestamp-reset scan has answered, and on a file whose clock resets a
+  /// seek can land in any segment. A sequential decode without `-copyts`
+  /// is joined across a reset by ffmpeg itself. Every other source keeps
+  /// its `-ss 2`.
+  @visibleForTesting
+  static List<String> idetArgs(String videoPath,
+      {double? duration, double frameRate = 0, bool sequential = false}) {
+    final skipSeconds = (duration != null && duration > 4.0) ? 2 : 0;
+    final dropFrames = sequential && skipSeconds > 0 && frameRate > 0
+        ? (skipSeconds * frameRate).round()
+        : 0;
+    return [
+      if (skipSeconds > 0 && !sequential) ...['-ss', '$skipSeconds'],
+      '-i', videoPath,
+      '-vf', dropFrames > 0 ? 'trim=start_frame=$dropFrames,idet' : 'idet',
+      '-frames:v', '200',
+      '-an',
+      '-f', 'rawvideo',
+      '-y',
+      if (Platform.isWindows) 'NUL' else '/dev/null',
+    ];
+  }
+
   /// Soft telecine uses repeat_pict to indicate which fields should be
   /// repeated to create 3:2 or 2:2 pulldown. idet can't detect this because
   /// the actual frames are progressive — only the repeat flags reveal it.

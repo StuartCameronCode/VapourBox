@@ -56,11 +56,11 @@ class MainViewModel extends ChangeNotifier {
   /// Runs jobs. Injectable so the queue state machine can be driven from a
   /// test — see JobRunner for why that matters.
   final JobRunner _workerManager;
-  final FieldOrderDetector _fieldOrderDetector = FieldOrderDetector();
+  final FieldOrderDetector _fieldOrderDetector;
 
   /// Scans an MPEG-PS/TS for timestamp resets and joins them (task #21).
   final TimestampContinuityService _continuity;
-  final PreviewGenerator _previewGenerator = PreviewGenerator();
+  final PreviewGenerator _previewGenerator;
   final DvdService _dvdService = DvdService();
   final DiscDetector _discDetector = DiscDetector();
   final SystemShutdown _systemShutdown;
@@ -134,6 +134,16 @@ class MainViewModel extends ChangeNotifier {
   // time in the order they were added; the result lives on its QueueItem.
   final Future<NoiseHaloReport> Function(VideoJob job) _detectNoiseHalo;
   Future<void> _noiseHaloQueue = Future.value();
+
+  /// Deferred timestamp-reset scans, one at a time (task #55).
+  Future<void> _continuityQueue = Future.value();
+
+  /// The queue item whose job is waiting for its reset scan, and the way to
+  /// stop waiting (Cancel).
+  ({QueueItem item, Completer<void> cancelled})? _continuityWait;
+
+  /// The queue item whose job is waiting for its timestamp check, or null.
+  QueueItem? get waitingForContinuity => _continuityWait?.item;
 
   // Set in dispose() so the async OpenCL probe doesn't notifyListeners() after
   // teardown (the top-level view model normally lives for the app's lifetime).
@@ -214,6 +224,21 @@ class MainViewModel extends ChangeNotifier {
   VideoInfo? get videoInfo => selectedItem?.videoInfo;
   bool get isExtracting =>
       _queue.any((q) => q.status == QueueItemStatus.extracting);
+  /// Whether the selected video's timestamp-reset scan is still running
+  /// (task #55): its timeline, seeks and jobs wait for it.
+  bool get continuityPending => selectedItem?.continuityPending ?? false;
+
+  /// What the timeline says while [continuityPending].
+  String get timestampCheckText {
+    final item = selectedItem;
+    if (item == null || !item.continuityPending) return '';
+    if (item.continuityTask == null) {
+      return 'Timestamp check queued \u2014 the timeline opens once it is done';
+    }
+    return 'Checking timestamps\u2026 ${(item.continuityProgress * 100).round()}% '
+        '\u2014 the whole file is read once; the timeline opens when it is done';
+  }
+
   bool get isAnalyzing =>
       selectedItem?.status == QueueItemStatus.analyzing ||
       _queue.any((q) => q.status == QueueItemStatus.analyzing);
@@ -364,6 +389,9 @@ class MainViewModel extends ChangeNotifier {
     if (item == null || _detectingNativeResFor != null) return;
     _detectingNativeResFor = item.id;
     notifyListeners();
+    // A detector samples the whole source by seeking: it waits for the reset
+    // scan (task #55), then reads whatever the item is decoded from.
+    await item.continuityReady;
     final report = await _detectNative(_detectorJob(item));
     if (_disposed) return;
     _nativeRes = (itemId: item.id, report: report);
@@ -404,6 +432,8 @@ class MainViewModel extends ChangeNotifier {
     if (item == null || _detectingCropFor != null) return;
     _detectingCropFor = item.id;
     notifyListeners();
+    // Waits for the reset scan, as detectNativeResolution does (task #55).
+    await item.continuityReady;
     final fieldOrder = _getEffectiveFieldOrder(item);
     final job = _detectorJob(
       item,
@@ -866,7 +896,11 @@ class MainViewModel extends ChangeNotifier {
     Future<CropDetectReport> Function(VideoJob job)? cropDetector,
     Future<NoiseHaloReport> Function(VideoJob job)? noiseHaloDetector,
     TimestampContinuityService? continuityService,
+    PreviewGenerator? previewGenerator,
+    FieldOrderDetector? fieldOrderDetector,
   })  : _workerManager = runner ?? WorkerManager(),
+        _previewGenerator = previewGenerator ?? PreviewGenerator(),
+        _fieldOrderDetector = fieldOrderDetector ?? FieldOrderDetector(),
         _continuity = continuityService ?? const TimestampContinuityService(),
         _systemShutdown = systemShutdown ?? PlatformSystemShutdown(),
         _detectNative = nativeResDetector ?? WorkerManager.detectNativeResolution,
@@ -982,24 +1016,40 @@ class MainViewModel extends ChangeNotifier {
     }
   }
 
-  /// Probes [item] ([QueueItem.sourceModel]) and, when its timestamps reset,
-  /// makes the joined copy it is decoded from ([QueueItem.continuityProxy])
-  /// and probes that. Never blocks: a failed scan or copy leaves the source
-  /// as it is, and says so.
+  /// Probes [item] ([QueueItem.sourceModel]). Any format but MPEG-PS/TS is
+  /// then complete. A TS/PS's reset scan reads every byte of the file
+  /// (77 s for a 2 h DVD title on a network share), so it is deferred (task
+  /// #55): the item is marked [QueueItem.continuityPending], which holds
+  /// every seek and job until [_runContinuityScan] answers, and analysis
+  /// goes on with what needs no seek.
   Future<void> _prepareContinuity(QueueItem item) async {
     if (item.continuityProxy != null) {
       item.sourceModel ??= await _continuity.probeSource(item.decodePath);
       return;
     }
-    // One worker call answers everything about the source, its reset scan
-    // included (task #50); only a source that resets needs a second, of
-    // the joined copy.
-    final model = await _continuity.probeSource(item.inputPath);
+    // One worker call answers everything about the source but its reset
+    // scan (task #50); only a source that resets needs a second, of the
+    // joined copy.
+    final model = await _continuity.probeSource(item.inputPath, deferScan: true);
     item.sourceModel = model;
+    if (model != null && model.continuityDeferred) {
+      item.beginContinuityScan();
+      return;
+    }
+    await _applyContinuity(item);
+  }
+
+  /// Acts on [item]'s scan (in its model): when its timestamps reset, makes
+  /// the joined copy it is decoded from ([QueueItem.continuityProxy]) and
+  /// probes that. Never blocks: a failed scan or copy leaves the source as it
+  /// is, and says so. Returns whether [QueueItem.decodePath] changed.
+  Future<bool> _applyContinuity(QueueItem item) async {
+    final model = item.sourceModel;
     final r = await _continuity.prepare(
       item.inputPath,
       item.id,
       scanned: model?.continuity,
+      model: model,
       onJoining: (scan) {
         _log(LogLevel.info,
             '${item.filename}: timestamps reset ${scan.resetCount == 1 ? "once" : "${scan.resetCount} times"} '
@@ -1018,16 +1068,115 @@ class MainViewModel extends ChangeNotifier {
     if (r.proxy != null) {
       if (!_queue.contains(item)) {
         r.proxy!.delete();
-        return;
+        return false;
       }
       item.continuityProxy = r.proxy;
       _log(LogLevel.info, '${item.filename}: ${r.proxy!.note}');
       item.sourceModel = await _continuity.probeSource(item.decodePath);
+      return true;
     } else if (r.error != null) {
       _log(LogLevel.warning,
           '${item.filename}: its timestamps reset, but joining them failed (${r.error}). '
           'Frames after the first reset may be missing or wrong.');
     }
+    return false;
+  }
+
+  /// Runs [item]'s deferred reset scan (`--complete-source`), one source at a
+  /// time (on a network share they would only share the link), after its
+  /// analysis has shown what needs no seek. Then joins the segments if the
+  /// clock resets, re-reading Video Info from the copy, and lets seeks and
+  /// jobs go ahead: thumbnails, noise / halo and the timeline follow.
+  void _queueContinuityScan(QueueItem item) {
+    if (!item.continuityPending) return;
+    // A scan that throws (its join, or the probe of the copy) must not break
+    // the chain: every later item would stay pending, and its job wait
+    // forever. The item itself is released by _runContinuityScan's finally.
+    _continuityQueue = _continuityQueue
+        .then((_) => _runContinuityScan(item))
+        .catchError((Object e) {
+      if (!_disposed) {
+        _log(LogLevel.warning, '${item.filename}: the timestamp check failed ($e)');
+      }
+    });
+  }
+
+  Future<void> _runContinuityScan(QueueItem item) async {
+    try {
+      final model = item.sourceModel;
+      if (_disposed || !_queue.contains(item) || !item.continuityPending || model == null) {
+        return;
+      }
+      final task = _continuity.completeSource(model, onProgress: (f) {
+        item.continuityProgress = f;
+        if (!_disposed) notifyListeners();
+      });
+      item.continuityTask = task;
+      notifyListeners();
+      final completed = await task.result;
+      if (_disposed || !_queue.contains(item) || task.isCancelled) return;
+      if (completed == null || completed.continuityDeferred) {
+        item.continuityChecked = false;
+        _log(LogLevel.warning,
+            '${item.filename}: its timestamps could not be checked for resets; it is '
+            'decoded as it is (a job will check again and warn)');
+        return;
+      }
+      item.sourceModel = completed;
+      final joined = await _applyContinuity(item);
+      if (_disposed || !_queue.contains(item)) return;
+      final copy = item.sourceModel;
+      if (joined && copy != null) {
+        // The copy counts every segment (the source's own count stopped at
+        // the first reset): Video Info is read again from it.
+        try {
+          item.videoInfo = await _fieldOrderDetector.getVideoInfo(item.decodePath, copy);
+        } catch (e) {
+          _log(LogLevel.warning, 'Failed to analyze the joined copy of ${item.filename}: $e');
+        }
+      }
+    } finally {
+      item.endContinuityScan();
+      // Answered, failed or never started: what waited for it goes ahead
+      // (a removed item, or a disposed view model, has nothing waiting).
+      if (!_disposed && _queue.contains(item)) {
+        notifyListeners();
+        await _afterContinuity(item);
+      }
+    }
+  }
+
+  /// What waited for [item]'s scan: its thumbnails and timeline (when it is
+  /// the selected video), its preview from the file it is now decoded from,
+  /// and the noise / halo measurement.
+  Future<void> _afterContinuity(QueueItem item) async {
+    if (_selectedItemId == item.id && item.status != QueueItemStatus.analyzing) {
+      final model = item.sourceModel;
+      if (model != null) {
+        try {
+          item.thumbnails =
+              await _previewGenerator.loadVideo(item.decodePath, model);
+          item.thumbnailRangeStart = 0.0;
+          item.thumbnailRangeEnd = 1.0;
+          if (item.timelineZoom > 1.0) _requestThumbnailRegeneration();
+          item.currentFrame = await _previewGenerator.getFrameAtIndex(
+              _frameForPosition(item.scrubberPosition));
+        } catch (e) {
+          _log(LogLevel.warning, 'Failed to generate thumbnails for ${item.filename}: $e');
+        }
+        if (_disposed) return;
+        notifyListeners();
+        _requestPreviewUpdate();
+      }
+    }
+    _measureNoiseHalo(item);
+  }
+
+  /// Stops [item]'s reset scan, if one is running or waiting (the item is
+  /// leaving the queue).
+  void _stopContinuityScan(QueueItem item) {
+    item.continuityTask?.cancel();
+    item.endContinuityScan();
   }
 
   void _log(LogLevel level, String message) =>
@@ -1135,14 +1284,20 @@ class MainViewModel extends ChangeNotifier {
       }
     }
 
-    // Load thumbnails if this is the selected item
+    // Load thumbnails if this is the selected item. While the reset scan is
+    // pending only frame 0, which never seeks, is decoded (task #55); the
+    // thumbnails follow the scan.
     final model = item.sourceModel;
     if (_selectedItemId == item.id && model != null) {
       try {
-        item.thumbnails =
-            await _previewGenerator.loadVideo(item.decodePath, model);
-        item.thumbnailRangeStart = 0.0;
-        item.thumbnailRangeEnd = 1.0;
+        if (item.seeksAllowed) {
+          item.thumbnails =
+              await _previewGenerator.loadVideo(item.decodePath, model);
+          item.thumbnailRangeStart = 0.0;
+          item.thumbnailRangeEnd = 1.0;
+        } else {
+          await _previewGenerator.selectSource(item.decodePath, model);
+        }
         item.currentFrame = await _previewGenerator.getFrameAtIndex(0);
       } catch (e) {
         _logMessages.add(LogMessage(
@@ -1160,7 +1315,11 @@ class MainViewModel extends ChangeNotifier {
       _requestPreviewUpdate();
     }
 
-    _measureNoiseHalo(item);
+    if (item.continuityPending) {
+      _queueContinuityScan(item);
+    } else {
+      _measureNoiseHalo(item);
+    }
   }
 
   /// The selected source's noise / halo measurement, or null until it is in
@@ -1177,7 +1336,7 @@ class MainViewModel extends ChangeNotifier {
   /// measured field by field, so combing can't be read as noise.
   void _measureNoiseHalo(QueueItem item) {
     final info = item.videoInfo;
-    if (info == null || item.noiseHalo != null) return;
+    if (info == null || item.noiseHalo != null || !item.seeksAllowed) return;
     _noiseHaloQueue = _noiseHaloQueue.then((_) async {
       if (_disposed || !_queue.any((q) => q.id == item.id)) return;
       final progressive = info.scanType == ScanType.progressive ||
@@ -1209,6 +1368,7 @@ class MainViewModel extends ChangeNotifier {
 
     // Clean up DVD temp file when item leaves the queue
     _cleanupDvdTempFile(_queue[index]);
+    _stopContinuityScan(_queue[index]);
 
     _queue.removeAt(index);
 
@@ -1256,6 +1416,18 @@ class MainViewModel extends ChangeNotifier {
     // Load thumbnails if not already loaded
     if (model == null) {
       // Not analysed yet (or unreadable): nothing to show.
+    } else if (!item.seeksAllowed) {
+      // Its reset scan is pending: frame 0 only, which never seeks; the
+      // thumbnails follow the scan (task #55).
+      if (item.status != QueueItemStatus.analyzing) {
+        try {
+          await _previewGenerator.selectSource(item.decodePath, model);
+          item.currentFrame = await _previewGenerator.getFrameAtIndex(0);
+          notifyListeners();
+        } catch (e) {
+          // Ignore errors
+        }
+      }
     } else if (item.thumbnails.isEmpty && item.status != QueueItemStatus.analyzing) {
       try {
         item.thumbnails =
@@ -1292,6 +1464,7 @@ class MainViewModel extends ChangeNotifier {
 
     // Clean up DVD temp files before clearing
     _cleanupDvdTempFiles();
+    _queue.forEach(_stopContinuityScan);
 
     _queue.clear();
     _selectedItemId = null;
@@ -1344,7 +1517,9 @@ class MainViewModel extends ChangeNotifier {
   /// Sets the scrubber position and updates the preview.
   Future<void> setScrubberPosition(double position) async {
     final item = selectedItem;
-    if (item == null) return;
+    // Until the reset scan answers, no frame but 0 can be decoded safely
+    // (task #55): the timeline stays at the start.
+    if (item == null || !item.seeksAllowed) return;
 
     item.scrubberPosition = position.clamp(0.0, 1.0);
 
@@ -1424,7 +1599,7 @@ class MainViewModel extends ChangeNotifier {
   /// Sets the in point to the current scrubber position.
   void setInPointToCurrent() {
     final item = selectedItem;
-    if (item == null) return;
+    if (item == null || !item.seeksAllowed) return;
 
     item.inPoint = item.scrubberPosition;
     // Ensure in point is before out point
@@ -1437,7 +1612,7 @@ class MainViewModel extends ChangeNotifier {
   /// Sets the out point to the current scrubber position.
   void setOutPointToCurrent() {
     final item = selectedItem;
-    if (item == null) return;
+    if (item == null || !item.seeksAllowed) return;
 
     item.outPoint = item.scrubberPosition;
     // Ensure out point is after in point
@@ -1450,7 +1625,7 @@ class MainViewModel extends ChangeNotifier {
   /// Sets the in point directly (normalized 0.0-1.0).
   void setInPoint(double position) {
     final item = selectedItem;
-    if (item == null) return;
+    if (item == null || !item.seeksAllowed) return;
 
     item.inPoint = position.clamp(0.0, 1.0);
     if (item.outPoint != null && item.inPoint! > item.outPoint!) {
@@ -1462,7 +1637,7 @@ class MainViewModel extends ChangeNotifier {
   /// Sets the out point directly (normalized 0.0-1.0).
   void setOutPoint(double position) {
     final item = selectedItem;
-    if (item == null) return;
+    if (item == null || !item.seeksAllowed) return;
 
     item.outPoint = position.clamp(0.0, 1.0);
     if (item.inPoint != null && item.outPoint! < item.inPoint!) {
@@ -1492,7 +1667,9 @@ class MainViewModel extends ChangeNotifier {
   /// Regenerates thumbnails for the current zoom level.
   Future<void> _regenerateThumbnailsForZoom() async {
     final item = selectedItem;
-    if (item == null) return;
+    // Thumbnails seek; while the reset scan is pending they wait for it, and
+    // it regenerates them for the zoom it finds (task #55).
+    if (item == null || !item.seeksAllowed) return;
 
     _isLoadingZoomedThumbnails = true;
     notifyListeners();
@@ -1560,7 +1737,9 @@ class MainViewModel extends ChangeNotifier {
 
     final cancelToken = CancelToken();
     _previewCancelToken = cancelToken;
-    final frameNumber = _frameForPosition(item.scrubberPosition);
+    // While the reset scan is pending only frame 0 is decoded (task #55).
+    final frameNumber =
+        item.seeksAllowed ? _frameForPosition(item.scrubberPosition) : 0;
     // A different frame starts again from its first output frame.
     final subFrameFor = (itemId: item.id, frame: frameNumber);
     if (_previewSubFrameFor != subFrameFor) {
@@ -1859,6 +2038,30 @@ class MainViewModel extends ChangeNotifier {
     _currentProgress = null;
     notifyListeners();
 
+    // A job decodes and seeks the whole source: it waits for the reset scan,
+    // then reads whatever the item is decoded from (task #55). Cancelling
+    // while it waits returns the queue to idle; the item never started.
+    if (item.continuityPending) {
+      final cancelled = Completer<void>();
+      _continuityWait = (item: item, cancelled: cancelled);
+      _logForItem(LogMessage(
+        level: LogLevel.info,
+        message: '${item.filename}: waiting for its timestamp check to finish',
+      ));
+      notifyListeners();
+      await Future.any([item.continuityReady, cancelled.future]);
+      _continuityWait = null;
+      if (cancelled.isCompleted || _disposed) {
+        _stopProcessing();
+        notifyListeners();
+        return;
+      }
+      if (!_queue.contains(item)) {
+        await _processNextItem();
+        return;
+      }
+    }
+
     // The frame range from the in/out points: the frames the preview showed
     // there (QueueItem.inPointFrame / outPointFrame). The trimmed count makes
     // pipe_source build the right clip length and the progress accurate.
@@ -2143,6 +2346,13 @@ class MainViewModel extends ChangeNotifier {
   /// Cancels the current job.
   Future<void> cancelProcessing() async {
     if (!_state.canCancel) return;
+
+    // Waiting for a source's reset scan: no worker is running yet.
+    final wait = _continuityWait;
+    if (wait != null) {
+      if (!wait.cancelled.isCompleted) wait.cancelled.complete();
+      return;
+    }
 
     _state = ProcessingState.cancelling;
     notifyListeners();
@@ -2549,6 +2759,7 @@ class MainViewModel extends ChangeNotifier {
     _workerManager.dispose();
     _previewGenerator.dispose();
     _cleanupDvdTempFiles();
+    _queue.forEach(_stopContinuityScan);
     super.dispose();
   }
 }
