@@ -530,8 +530,7 @@ class _Pass {
   /// for DeScratch (task #34); [_crawlFixture] for the dot-crawl and rainbow
   /// filters (task #37); [_telecineFixture] for IVTC, which keeps a frame
   /// with no pulldown unchanged (task #65). The passthrough reference is
-  /// rendered from the same
-  /// fixture.
+  /// rendered from the same fixture.
   final Future<String> Function(String pixFmt)? fixture;
 
   /// Whether the pass needs a working KNLMeansCL OpenCL device. Without one the
