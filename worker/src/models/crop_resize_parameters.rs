@@ -765,6 +765,17 @@ impl CropResizeParameters {
     /// the worker needs to decide things that must be fixed before the script
     /// runs, such as the colour tags on both sides of the encoder.
     pub fn output_size(&self, width: i32, height: i32, sar: f64) -> (i32, i32) {
+        self.output_size_stepped(width, height, sar, 2)
+    }
+
+    /// [`output_size`](Self::output_size) for a picture whose resized height
+    /// must be a multiple of `height_step` (4 for a still-interlaced 4:2:0
+    /// picture, `ScriptGenerator::framing_steps`; task #56). The script's
+    /// `_height()` rounds the same way: to the nearest whole line, then down
+    /// to the step, never below one step; an explicit target height too when
+    /// the step is above 2.
+    pub fn output_size_stepped(&self, width: i32, height: i32, sar: f64, height_step: i32) -> (i32, i32) {
+        let step = height_step.max(2);
         if !self.enabled {
             return (width, height);
         }
@@ -789,6 +800,7 @@ impl CropResizeParameters {
             }
             if self.resize_enabled || squares {
                 let even = |v: f64| ((v.round() as i32) & !1).max(2) as f64;
+                let stepped = |v: f64| (((v.round() as i32) / step) * step).max(step) as f64;
                 let display = self.display_aspect_ratio().unwrap_or(w * sar / h.max(1.0));
                 let fit = if squares { display } else { w / h.max(1.0) };
                 let mut tw = if self.resize_enabled { self.target_width.unwrap_or(-1) } else { -1 } as f64;
@@ -796,15 +808,18 @@ impl CropResizeParameters {
                 if squares && tw <= 0.0 && th <= 0.0 {
                     th = h;
                 }
+                if th > 0.0 && step > 2 && self.resize_enabled && self.target_height.unwrap_or(-1) > 0 {
+                    th = stepped(th);
+                }
                 if self.maintain_aspect || (squares && tw <= 0.0 && th <= 0.0) {
                     if tw > 0.0 && th <= 0.0 {
-                        th = even(tw / fit);
+                        th = stepped(tw / fit);
                     } else if th > 0.0 && tw <= 0.0 {
                         tw = even(th * fit);
                     } else if tw > 0.0 && th > 0.0 {
                         let scale = (tw / (h * fit)).min(th / h);
                         tw = even(h * fit * scale);
-                        th = even(h * scale);
+                        th = stepped(h * scale);
                     }
                 }
                 if tw > 0.0 {
@@ -815,7 +830,10 @@ impl CropResizeParameters {
                 }
                 if self.pads_to_aspect() {
                     w = w.max(f64::from(self.target_width.unwrap_or(0)));
-                    h = h.max(f64::from(self.target_height.unwrap_or(0)));
+                    // The script's box is `_height(target_h)`: stepped too.
+                    let box_h = self.target_height.unwrap_or(0);
+                    let box_h = if step > 2 && box_h > 0 { stepped(f64::from(box_h)) } else { f64::from(box_h) };
+                    h = h.max(box_h);
                 }
             }
         }
@@ -1197,6 +1215,41 @@ mod tests {
         for (v, s) in [(UpscaleMethod::LiveAction, "liveAction"), (UpscaleMethod::RealEsrganPlus, "realEsrganPlus")] {
             assert_eq!(serde_json::to_string(&v).unwrap(), format!("\"{s}\""));
         }
+    }
+
+    #[test]
+    fn output_size_rounds_heights_to_the_field_step() {
+        // Task #56: a still-interlaced 4:2:0 picture resized to width 160 from
+        // 720x480 asks for 106.67 lines; zimg refuses 106 per field, so the
+        // height goes to a multiple of 4 (104), as the script's _height() does.
+        let r = CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(160),
+            maintain_aspect: true,
+            ..Default::default()
+        };
+        assert_eq!(r.output_size(720, 480, 1.0), (160, 106));
+        assert_eq!(r.output_size_stepped(720, 480, 1.0, 2), (160, 106));
+        assert_eq!(r.output_size_stepped(720, 480, 1.0, 4), (160, 104));
+        // An explicit height is rounded too when the step is above 2 ...
+        let explicit = CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(720),
+            target_height: Some(486),
+            maintain_aspect: false,
+            ..Default::default()
+        };
+        assert_eq!(explicit.output_size_stepped(720, 480, 1.0, 4), (720, 484));
+        // ... and left exactly as typed otherwise.
+        assert_eq!(explicit.output_size_stepped(720, 480, 1.0, 2), (720, 486));
+        // Pad to Fill's box is the script's `_height(target_h)`: stepped too.
+        let boxed = CropResizeParameters { pad_to_aspect: true, maintain_aspect: true, ..explicit.clone() };
+        assert_eq!(boxed.output_size_stepped(720, 480, 1.0, 4), (720, 484));
+        // Never below one step.
+        let tiny = CropResizeParameters { target_width: Some(4), ..r.clone() };
+        assert_eq!(tiny.output_size_stepped(720, 480, 1.0, 4).1, 4);
     }
 
     #[test]

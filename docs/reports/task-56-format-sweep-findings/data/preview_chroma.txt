@@ -1,0 +1,3 @@
+conversion                               mean |8-bit - 10-bit|, 8-bit levels   max
+scale (before task #56)                     1.357                           70.9
+scale, accurate_rnd+full_chroma_int         0.176                            1.4

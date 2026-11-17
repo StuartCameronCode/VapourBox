@@ -122,6 +122,28 @@ impl GeometryParameters {
         }
         Some(format!("{}:{}", den, num))
     }
+
+    /// The field order of a still-interlaced picture after this pass, given
+    /// the one it arrives with (`true` = top field first) and its height.
+    /// `None` = progressive (task #56).
+    ///
+    /// - A quarter turn makes the fields columns: nothing after it can treat
+    ///   the picture as two fields, so it is progressive from here on.
+    /// - A vertical mirror of an even-height frame moves row r to h-1-r, an
+    ///   odd row: the field captured first now holds the bottom lines, so top
+    ///   first becomes bottom first. A half turn is a vertical and a horizontal
+    ///   mirror and swaps the same way; a half turn plus a vertical mirror
+    ///   cancel. A horizontal mirror leaves rows where they are.
+    pub fn field_order_after(&self, tff: bool, height: i32) -> Option<bool> {
+        if !self.has_effect() {
+            return Some(tff);
+        }
+        if self.rotation.swaps_axes() {
+            return None;
+        }
+        let mirrored = (self.rotation == Rotation::Rotate180) != self.flip_vertical;
+        Some(if mirrored && height % 2 == 0 { !tff } else { tff })
+    }
 }
 
 #[cfg(test)]
@@ -225,5 +247,35 @@ mod tests {
         assert!(json.contains("\"enabled\":false"));
         assert!(json.contains("\"rotation\":\"none\""));
         assert!(json.contains("\"flipHorizontal\":false"));
+    }
+
+    #[test]
+    fn field_order_after_every_rotation_and_flip() {
+        // (rotation, flip_h, flip_v) -> what a TFF picture becomes (task #56).
+        for rotation in [Rotation::None, Rotation::Cw90, Rotation::Rotate180, Rotation::Ccw90] {
+            for flip_h in [false, true] {
+                for flip_v in [false, true] {
+                    let g = GeometryParameters { enabled: true, rotation, flip_horizontal: flip_h, flip_vertical: flip_v };
+                    for tff in [true, false] {
+                        let got = g.field_order_after(tff, 480);
+                        let want = if rotation.swaps_axes() {
+                            None
+                        } else if (rotation == Rotation::Rotate180) != flip_v {
+                            Some(!tff)
+                        } else {
+                            Some(tff)
+                        };
+                        assert_eq!(got, want, "{rotation:?} h={flip_h} v={flip_v} tff={tff}");
+                        // An odd height keeps every row's parity.
+                        if want.is_some() {
+                            assert_eq!(g.field_order_after(tff, 481), Some(tff));
+                        }
+                    }
+                }
+            }
+        }
+        // Disabled: unchanged whatever is set.
+        let off = GeometryParameters { enabled: false, rotation: Rotation::Cw90, flip_horizontal: false, flip_vertical: true };
+        assert_eq!(off.field_order_after(true, 480), Some(true));
     }
 }

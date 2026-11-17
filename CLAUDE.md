@@ -418,10 +418,20 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   doesn't list). If the table shows it refusing a depth or subsampling a pass
   can be handed, add a `Contract` to `worker/templates/plugin_formats.py` and
   call it through `_pf.run_within(clip, '<ns.Fn>', fn, label='<Pass>')`
-  (test_252 fails on a contracted plugin called any other way); a refusal no
-  contract expresses (a field flag, a frame size) is handled in the pass and
+  (test_252 fails on a contracted plugin called any other way). A frame
+  size the plugin refuses is a Contract's `width_step` / `height_step`
+  (luma samples, or `CHROMA`): `run_within` pads to it with `pad_around`
+  and crops back (tasks #56, #57). A refusal no contract expresses (a field
+  flag) is handled in the pass and
   explained in `plugin_formats.HANDLED`, or filed as a task and listed in
-  `plugin_formats.KNOWN` until it is. Check on a fixture with real low
+  `plugin_formats.KNOWN` until it is. **Anything that reaches MVTools'
+  Compensate, Degrain or BlockFPS with an overlap** (directly or through
+  havsfunc / a vendored module) goes through `_pf.mvtools_blocks(clip, fn)`
+  (test_256): MVTools picks the overlap window with
+  `(by + nBlkY - 3) / (nBlkY - 2)`, so a picture two block rows tall is
+  SIGFPE on x86 and silently 100+ levels off on arm64, and one block row or
+  column is that far off everywhere; the helper pads a picture under 64x96
+  (task #56 F9). Check on a fixture with real low
   bits that the plugin leaves the samples it doesn't change exact — see
   "High Bit Depth Sources"
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**
@@ -1509,12 +1519,19 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    saturation/hue are ratios and must **not** be scaled). Both scalings are
    computed **in the script from `clip.format`**, since a preceding pass may
    have changed the depth.
-3. **A limit counted per histogram bin scales with the CONTENT's depth, not
-   the container's.** `vszip.CLAHE` (8/16-bit only before vszip 23; the template still runs deeper clips at
-   16-bit) needs `limit << (16 - content_depth)`: 8-bit content in a 16-bit
-   histogram fills every 256th bin, genuine 10-bit every 64th, and ProRes 4444
-   decodes as 12-bit whatever it holds. The template measures the content depth
-   per frame; container-depth scaling was 9.85 levels off in the parity test.
+3. **A limit counted per histogram bin can't be scaled to a deeper
+   histogram.** `vszip.CLAHE`'s clip limit is a whole count per bin
+   (`limit x tile pixels / bins`, at least 1). The per-bin limit that matches
+   an 8-bit picture's is a fraction at 16-bit, so genuinely deep content was
+   barely clipped. So Local Contrast **decides on an 8-bit copy at every
+   depth and adds only its change at the clip's depth**
+   (`plugin_formats.change_at`, task #56 F7): genuine 10–16-bit content lands
+   ~1 level from the 8-bit result at 720x480 (it was 3–22 with the old
+   `limit << (16 - content_depth)` scaling, which assumed each 8-bit level's
+   samples fill its sub-bins evenly), and 8-bit content in a deeper
+   container is exactly the 8-bit result. The cost: samples of one 8-bit
+   level get the same change, so a smooth deep ramp steps about as the
+   8-bit result does (docs/reports/task-56-format-sweep-findings).
 
 **Test this class of bug with a reference, not an expected value** — a
 correctly-scaled filter produces the same picture at 10-bit as at 8-bit, to
@@ -1555,7 +1572,7 @@ does, and decides bit depth as well as chroma:
 
 | Option | Output | For |
 |---|---|---|
-| `original` (default) | source format, depth included (a 9-bit source comes out 10-bit, a 14-bit one 16-bit, see "Source Pixel Formats") | archival; a 10-bit source stays 10-bit |
+| `original` (default) | source format, depth included (a 9-bit source comes out 10-bit, a 14-bit one 16-bit, see "Source Pixel Formats"); a pass that changed the depth (Deband's Working Depth) is dithered back to the source's after the passes (`{{#DEPTH_RESTORE}}`, task #56) | archival; a 10-bit source stays 10-bit |
 | `yuv420` | `vs.YUV420P8` | compatibility — the only one every player opens |
 | `yuv420p10` | `vs.YUV420P10` | the only 10-bit layout NVENC/QSV/AMF encode (issue #74) |
 | `yuv422` | `vs.YUV422P8` | more chroma detail, 8-bit |
@@ -2788,8 +2805,9 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
     unflagged (these codecs, or a container-only codec in AVI). Said, never
     refused.
 - **A pass that makes a still-interlaced clip progressive must be taught to
-  `output_field_order`** (today: Stabilize pitch, Deblock mpeg2stinx, the
-  Frame Rate pass). `test_221` counts every `SetFieldBased(` in the template
+  `output_field_order`** (today: Stabilize pitch, Deblock mpeg2stinx, a
+  quarter turn in Rotate / Flip, the Frame Rate pass; a vertical flip or half
+  turn swaps the order). `test_221` counts every `SetFieldBased(` in the template
   and fails on one it doesn't know.
 - **The stored format comes from the script, never from ffmpeg's
   `-pix_fmt`**, which blends interlaced 4:2:0 chroma across the fields; zimg
@@ -2912,6 +2930,14 @@ derivation both the encode and preview paths must use.
   interlaced"; Deblock uses it to run every method per field
   (`{{#DEBLOCK_PER_FIELD}}`) — DCTFilter on the woven frame scored 1.5–3.7 dB
   *below no filtering* (docs/reports/2026-11-deblock-order).
+- **After Rotate / Flip, the field order is `ScriptGenerator::field_order_at_framing`**
+  (task #56 F3): a quarter turn makes the picture progressive (its "fields"
+  would be columns) and a vertical flip or half turn swaps TFF and BFF; the
+  geometry block stamps it (`{{#GEOM_SET_FIELD_BASED}}`) before its format
+  restore. Everything after it reads that, not `still_interlaced_tff`: the
+  border alignment, the crop step and the resize height step
+  (`framing_steps`: a still-interlaced 4:2:0 picture is resized to a height
+  that is a multiple of 4, F5), and `output_field_order`.
 
 ### Deinterlace Working Format (issue #49)
 
@@ -3320,7 +3346,10 @@ bundle at 1.16.0 or older, the known skew.
     Bisect a crash by generating the script (`--config`, keep the `.vpy`) and
     running it under vspipe with passes commented out; on Windows `0xC0000005`
     = access violation, `0xC000001D` = illegal instruction (CPU feature the
-    machine lacks) — both decoded by `format_exit_status`, as are SIGILL/SIGSEGV.
+    machine lacks), `0xC0000094` = integer divide by zero (SIGFPE elsewhere:
+    exit 136) — decoded by `format_exit_status`, as are SIGILL/SIGSEGV/SIGFPE.
+    The preview reports a failure the same way (task #56 F9b: it used to quote
+    vspipe's first stderr line, a plugin warning, instead of the crash).
     `Header too large` in a job error now means vspipe exited cleanly (or by
     SIGPIPE) with nothing to send.
     **If it happens with every pass disabled, it is load-time, not a filter**:

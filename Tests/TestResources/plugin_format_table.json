@@ -368,27 +368,33 @@
     },
     "420p10/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p10/f1/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p10/f2/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f1/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f2/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p14/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
@@ -396,110 +402,140 @@
     },
     "420p16/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/1920x1080": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/352x240": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/64x48": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/718x480": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x486": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x576": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f1/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/1920x1080": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/352x240": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/64x48": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/718x480": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x486": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x576": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x486": {
      "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x486": {
      "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p9/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
@@ -507,261 +543,333 @@
     },
     "422p10/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p10/f1/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p10/f2/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f1/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f2/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/1920x1080": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/352x240": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/64x48": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/718x480": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x486": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x576": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f1/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/1920x1080": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/352x240": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/64x48": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/718x480": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x486": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x576": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p10/f1/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p10/f2/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f1/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f2/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/1920x1080": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/352x240": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/64x48": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/718x480": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x486": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x576": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f1/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/160x120": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/1920x1080": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/352x240": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/64x48": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/718x480": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x486": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x576": {
      "error": "Bifrost: Only constant format 8 bit integer YUV allowed.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     }
    },
    "summary": {
@@ -777,7 +885,8 @@
      "420",
      "422",
      "444"
-    ]
+    ],
+    "within_refused": []
    }
   },
   "bm3d": {
@@ -2931,27 +3040,33 @@
     },
     "420p10/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p10/f1/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p10/f2/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f1/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f2/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p14/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
@@ -2959,108 +3074,138 @@
     },
     "420p16/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/1920x1080": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/352x240": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/64x48": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/718x480": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x486": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x576": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f1/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/1920x1080": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/352x240": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/64x48": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/718x480": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x486": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x576": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p9/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
@@ -3068,261 +3213,333 @@
     },
     "422p10/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p10/f1/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p10/f2/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f1/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f2/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/1920x1080": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/352x240": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/64x48": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/718x480": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x486": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x576": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f1/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/1920x1080": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/352x240": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/64x48": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/718x480": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x486": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x576": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p10/f1/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p10/f2/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f1/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f2/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/1920x1080": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/352x240": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/64x48": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/718x480": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x486": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x576": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f1/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/160x120": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/1920x1080": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/352x240": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/64x48": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/718x480": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x486": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x576": {
      "error": "Dedot: the input clip must be 8 bit YUV or Gray with constant format and dimensions.",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     }
    },
    "summary": {
@@ -3335,7 +3552,8 @@
      "420",
      "422",
      "444"
-    ]
+    ],
+    "within_refused": []
    }
   },
   "deflicker.global_deflicker": {
@@ -4060,27 +4278,33 @@
     },
     "420p10/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p10/f1/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p10/f2/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p12/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f1/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p12/f2/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p14/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
@@ -4088,115 +4312,145 @@
     },
     "420p16/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/1920x1080": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/352x240": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/64x48": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/718x480": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x486": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x576": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f1/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p16/f2/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p16/f2/1920x1080": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p16/f2/352x240": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p16/f2/64x48": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p16/f2/718x480": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p16/f2/720x486": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p16/f2/720x576": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f1/160x120": {
      "error": "Resize error 1027: image dimensions must be divisible by subsampling factor",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p8/f2/160x120": {
      "error": "Resize error 1027: image dimensions must be divisible by subsampling factor",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p8/f2/1920x1080": {
      "error": "Resize error 1027: image dimensions must be divisible by subsampling factor",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p8/f2/352x240": {
      "error": "Resize error 1027: image dimensions must be divisible by subsampling factor",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p8/f2/64x48": {
      "error": "Resize error 1027: image dimensions must be divisible by subsampling factor",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p8/f2/718x480": {
      "error": "Resize error 1027: image dimensions must be divisible by subsampling factor",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p8/f2/720x486": {
      "error": "Resize error 1027: image dimensions must be divisible by subsampling factor",
-     "ok": false
+     "ok": false,
+     "within": "Resize error 1027: image dimensions must be divisible by subsampling factor"
     },
     "420p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p9/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
@@ -4204,261 +4458,333 @@
     },
     "422p10/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p10/f1/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p10/f2/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f1/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f2/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/1920x1080": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/352x240": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/64x48": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/718x480": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x486": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x576": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f1/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/1920x1080": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/352x240": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/64x48": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/718x480": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x486": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x576": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p10/f1/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p10/f2/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f1/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f2/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/1920x1080": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/352x240": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/64x48": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/718x480": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x486": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x576": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f1/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/160x120": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/1920x1080": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/352x240": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/64x48": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/718x480": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x486": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x576": {
      "error": "Descratch: Video must be YV12, YV16 or YV24!",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     }
    },
    "summary": {
@@ -4481,6 +4807,26 @@
      "420",
      "422",
      "444"
+    ],
+    "within_refused": [
+     "420p8/f1/160x120",
+     "420p8/f2/160x120",
+     "420p10/f1/160x120",
+     "420p10/f2/160x120",
+     "420p12/f1/160x120",
+     "420p12/f2/160x120",
+     "420p16/f1/160x120",
+     "420p16/f2/160x120",
+     "420p8/f2/64x48",
+     "420p16/f2/64x48",
+     "420p8/f2/352x240",
+     "420p16/f2/352x240",
+     "420p8/f2/718x480",
+     "420p16/f2/718x480",
+     "420p8/f2/720x486",
+     "420p16/f2/720x486",
+     "420p8/f2/1920x1080",
+     "420p16/f2/1920x1080"
     ]
    }
   },
@@ -10899,25 +11245,31 @@
      "ok": true
     },
     "420p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f0/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f1/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f2/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p14/f0/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
@@ -10925,363 +11277,465 @@
     },
     "420p16/f0/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/1920x1080": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/352x240": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/64x48": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/718x480": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x486": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x576": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f1/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/1920x1080": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/352x240": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/64x48": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/718x480": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x486": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x576": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p9/f0/160x120": {
      "ok": true
     },
     "422p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f0/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f1/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f2/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/1920x1080": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/352x240": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/64x48": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/718x480": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x486": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x576": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f1/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/1920x1080": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/352x240": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/64x48": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/718x480": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x486": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x576": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f0/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f1/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f2/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/1920x1080": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/352x240": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/64x48": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/718x480": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x486": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x576": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f1/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/160x120": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/1920x1080": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/352x240": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/64x48": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/718x480": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x486": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x576": {
      "error": "LUTDeCrawl: This is not an 8-10 bit YUV clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     }
    },
    "summary": {
@@ -11295,7 +11749,8 @@
      "420",
      "422",
      "444"
-    ]
+    ],
+    "within_refused": []
    }
   },
   "havsfunc.LUTDeRainbow": {
@@ -11307,25 +11762,31 @@
      "ok": true
     },
     "420p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f0/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f1/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p12/f2/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p14/f0/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
@@ -11333,363 +11794,465 @@
     },
     "420p16/f0/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/1920x1080": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/352x240": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/64x48": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/718x480": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x486": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x576": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f1/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/1920x1080": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/352x240": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/64x48": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/718x480": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x486": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x576": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p9/f0/160x120": {
      "ok": true
     },
     "422p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f0/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f1/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p12/f2/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/1920x1080": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/352x240": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/64x48": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/718x480": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x486": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x576": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f1/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/1920x1080": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/352x240": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/64x48": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/718x480": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x486": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x576": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f0/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f1/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p12/f2/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/1920x1080": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/352x240": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/64x48": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/718x480": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x486": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f0/720x576": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f1/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/160x120": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/1920x1080": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/352x240": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/64x48": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/718x480": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x486": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p16/f2/720x576": {
      "error": "LUTDeRainbow: This is not an 8-10 bit YUV or YCoCg clip",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "444p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     }
    },
    "summary": {
@@ -11703,7 +12266,8 @@
      "420",
      "422",
      "444"
-    ]
+    ],
+    "within_refused": []
    }
   },
   "havsfunc.MCTemporalDenoise": {
@@ -11717,346 +12281,454 @@
      "ok": false
     },
     "420p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p14/f0/160x120": {
      "ok": true
     },
     "420p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/718x480": {
      "error": "Crop: cropped area needs to have mod 2 width offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x486": {
      "error": "Crop: cropped area needs to have mod 2 height offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/718x480": {
      "error": "Crop: cropped area needs to have mod 2 width offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x486": {
      "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/718x480": {
      "error": "Crop: cropped area needs to have mod 2 width offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f0/720x486": {
      "error": "Crop: cropped area needs to have mod 2 height offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/718x480": {
      "error": "Crop: cropped area needs to have mod 2 width offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f2/720x486": {
      "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p9/f0/160x120": {
      "ok": true
     },
     "422p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/718x480": {
      "error": "Crop: cropped area needs to have mod 2 width offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/718x480": {
      "error": "Crop: cropped area needs to have mod 2 width offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/718x480": {
      "error": "Crop: cropped area needs to have mod 2 width offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/718x480": {
      "error": "Crop: cropped area needs to have mod 2 width offset",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "422p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     }
    },
    "summary": {
@@ -12085,7 +12757,8 @@
      "420",
      "422",
      "444"
-    ]
+    ],
+    "within_refused": []
    }
   },
   "havsfunc.QTGMC": {
@@ -12099,339 +12772,447 @@
      "ok": false
     },
     "420p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p14/f0/160x120": {
      "error": "bitdepth: output pixel bitdepth not supported.",
      "ok": false
     },
     "420p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/720x486": {
      "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/720x486": {
      "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x486": {
      "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x486": {
      "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
-     "ok": false
+     "ok": false,
+     "within": "ok"
     },
     "420p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p9/f0/160x120": {
      "ok": true
     },
     "422p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     }
    },
    "summary": {
@@ -12452,7 +13233,500 @@
      "420",
      "422",
      "444"
-    ]
+    ],
+    "within_refused": []
+   }
+  },
+  "havsfunc.QTGMC[SrchClipPP=1]": {
+   "cells": {
+    "411p8/f0/160x120": {
+     "error": "Super: input clip must be GRAY, 420, 422, 440, or 444, up to 16 bits, with constant dimensions.",
+     "ok": false
+    },
+    "411p8/f2/160x120": {
+     "error": "Super: input clip must be GRAY, 420, 422, 440, or 444, up to 16 bits, with constant dimensions.",
+     "ok": false
+    },
+    "420p10/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p10/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p10/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p12/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p12/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p12/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p14/f0/160x120": {
+     "error": "bitdepth: output pixel bitdepth not supported.",
+     "ok": false
+    },
+    "420p16/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f0/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f0/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f0/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f0/718x480": {
+     "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f0/720x486": {
+     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f0/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f2/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f2/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f2/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p16/f2/718x480": {
+     "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f2/720x486": {
+     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f2/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f0/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f0/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f0/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f0/718x480": {
+     "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f0/720x486": {
+     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f0/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f2/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f2/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f2/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p8/f2/718x480": {
+     "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f2/720x486": {
+     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f2/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "420p9/f0/160x120": {
+     "ok": true
+    },
+    "422p10/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p10/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p10/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p12/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p12/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p12/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f0/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f0/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f0/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f0/718x480": {
+     "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
+     "ok": false,
+     "within": "ok"
+    },
+    "422p16/f0/720x486": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f0/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f2/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f2/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f2/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f2/718x480": {
+     "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
+     "ok": false,
+     "within": "ok"
+    },
+    "422p16/f2/720x486": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p16/f2/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f0/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f0/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f0/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f0/718x480": {
+     "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
+     "ok": false,
+     "within": "ok"
+    },
+    "422p8/f0/720x486": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f0/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f2/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f2/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f2/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f2/718x480": {
+     "error": "Analyse: failed to retrieve first frame from super clip. Error message: Resize error 1027: image dimensions must be divisible by subsampling factor",
+     "ok": false,
+     "within": "ok"
+    },
+    "422p8/f2/720x486": {
+     "ok": true,
+     "within": "ok"
+    },
+    "422p8/f2/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p10/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p10/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p10/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p12/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p12/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p12/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f0/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f0/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f0/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f0/718x480": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f0/720x486": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f0/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f2/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f2/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f2/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f2/718x480": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f2/720x486": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p16/f2/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f0/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f0/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f0/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f0/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f0/718x480": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f0/720x486": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f0/720x576": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f1/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f2/160x120": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f2/1920x1080": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f2/352x240": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f2/64x48": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f2/718x480": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f2/720x486": {
+     "ok": true,
+     "within": "ok"
+    },
+    "444p8/f2/720x576": {
+     "ok": true,
+     "within": "ok"
+    }
+   },
+   "summary": {
+    "depths": [
+     8,
+     10,
+     12,
+     16
+    ],
+    "field_based": true,
+    "sizes_refused": [
+     "420p8/f0/718x480",
+     "420p8/f2/718x480",
+     "420p16/f0/718x480",
+     "420p16/f2/718x480",
+     "422p8/f0/718x480",
+     "422p8/f2/718x480",
+     "422p16/f0/718x480",
+     "422p16/f2/718x480",
+     "420p8/f0/720x486",
+     "420p8/f2/720x486",
+     "420p16/f0/720x486",
+     "420p16/f2/720x486"
+    ],
+    "subsampling": [
+     "420",
+     "422",
+     "444"
+    ],
+    "within_refused": []
    }
   },
   "havsfunc.SMDegrain": {

@@ -302,6 +302,21 @@ pub fn field_order_args(job: &VideoJob) -> FieldOrderArgs {
     }
 }
 
+/// The preview's YUV -> RGB conversion for an SDR picture (task #56 F8).
+/// `full_chroma_int` interpolates chroma for every source: without it swscale
+/// converted 8-bit 4:2:0 on its fast path with nearest-neighbour chroma and
+/// deeper formats with interpolation, so the same picture previewed 4.5 levels
+/// apart at 8 and 10 bits on noisy chroma (0.000 with it). `accurate_rnd`
+/// rounds instead of truncating. The app's before frame and thumbnails are
+/// JPEGs that stay YUV (the image decoder interpolates their chroma), so they
+/// have no twin of this.
+pub fn preview_scale_filter(input_opts: &[String]) -> String {
+    let mut opts = input_opts.to_vec();
+    opts.push("out_range=pc".to_string());
+    opts.push("flags=accurate_rnd+full_chroma_int".to_string());
+    format!("scale={}", opts.join(":"))
+}
+
 /// The job-log line for a picture left interlaced that the output cannot
 /// declare as such, or `None` when it can (or the picture is progressive).
 ///
@@ -1834,11 +1849,9 @@ impl PipelineExecutor {
         // BT.601 source to BT.709, the pipe carries 709 samples, and reading
         // them as 601 would show a colour shift the encode does not have.
         let color = job.output_color_metadata();
-        let scale_filter = color.display_tonemap_filter().unwrap_or_else(|| {
-            let mut scale_opts = color.swscale_input_opts();
-            scale_opts.push("out_range=pc".to_string());
-            format!("scale={}", scale_opts.join(":"))
-        });
+        let scale_filter = color
+            .display_tonemap_filter()
+            .unwrap_or_else(|| preview_scale_filter(&color.swscale_input_opts()));
         let ffmpeg_enc = Command::new(&ffmpeg_path)
             .args([
                 "-f", "yuv4mpegpipe",
@@ -1893,10 +1906,17 @@ impl PipelineExecutor {
 
         // Check for errors
         if !vspipe_status.success() {
-            if !errors.is_empty() {
-                bail!("vspipe failed: {}", errors.join("\n"));
-            }
-            bail!("vspipe exited with {}", format_exit_status(&vspipe_status));
+            // The encode's wording (task #28), so a native crash says so
+            // rather than quoting the first warning vspipe printed (task #56
+            // F9b: a SIGFPE inside MVTools read as "plugin already loaded").
+            bail!(
+                "{}",
+                vspipe_failure::vspipe_failure_message(
+                    &format_exit_status(&vspipe_status),
+                    is_native_crash(&vspipe_status),
+                    &errors.join("\n"),
+                )
+            );
         }
 
         if !output.status.success() {
@@ -4102,6 +4122,16 @@ mod tests {
     /// unflagged: x265, the hardware encoders, and the container-only codecs
     /// in AVI (FFV1's own bitstream carries it there). Never for a picture
     /// that is progressive.
+    #[test]
+    fn preview_scale_filter_interpolates_chroma_at_every_depth() {
+        // Task #56 F8: the same flags whatever the input options are.
+        assert_eq!(
+            preview_scale_filter(&["in_range=tv".to_string()]),
+            "scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+        );
+        assert!(preview_scale_filter(&[]).ends_with(":flags=accurate_rnd+full_chroma_int"));
+    }
+
     #[test]
     fn test_field_order_note() {
         use crate::models::FieldOrder;

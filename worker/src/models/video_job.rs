@@ -416,7 +416,8 @@ impl VideoJob {
             .as_deref()
             .and_then(super::parse_ratio)
             .unwrap_or(1.0);
-        Some(pipeline.crop_resize.output_size(w, h, sar))
+        let step = crate::script_generator::ScriptGenerator::framing_steps(self, &pipeline).1;
+        Some(pipeline.crop_resize.output_size_stepped(w, h, sar, step))
     }
 
     /// Whether the script converts the samples from BT.601 to BT.709 (Crop &

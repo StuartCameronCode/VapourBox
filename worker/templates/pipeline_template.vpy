@@ -149,6 +149,10 @@ clip = core.std.FrameEval(core.std.BlankClip(_vfr_src, length=_vfr_slots), _vfr_
 clip = core.std.SetFieldBased(clip, {{FIELD_BASED}})
 {{/SET_FIELD_BASED}}
 
+# The format every pass starts from (after the 4:1:1 conversion above). Color
+# Format "original" delivers its depth at the end (task #56).
+_source_format = clip.format
+
 # Get input properties for progress tracking
 input_fps_num = clip.fps.numerator
 input_fps_den = clip.fps.denominator
@@ -198,253 +202,277 @@ def _expr(clips, expr, **kwargs):
 # ============================================================================
 {{#DEINTERLACE}}
 {{#DEINT_QTGMC}}
+# QTGMC runs through run_within() for its frame-size contract
+# (plugin_formats.CONTRACTS): a 4:2:0 frame whose height is 2 mod 4 (720x486)
+# has an odd number of chroma rows, and QTGMC's SeparateFields refuses it (task
+# #57); at a 4:2:x width 2 mod 4, Super/Ultra Fast halve the frame to an odd
+# chroma width for the motion search (task #56 F2), so for them the width is
+# padded too. The frame is padded and cropped back after. The working-format conversion below is inside the padding, since a
+# field-aware zimg conversion refuses the same frames.
+def _deinterlace_qtgmc(clip):
 {{#DEINT_WORKING_FORMAT}}
-# Working format for the deinterlace pass (issue #49).
-#  - Interlaced 4:2:0 stores chroma per field, so interpolating it at 4:2:0
-#    mixes the two fields' chroma. Upsampling to 4:2:2 first is field-aware
-#    because zimg honours the _FieldBased prop set above.
-#  - QTGMC runs many merge/expr steps that round at the working depth, so 16-bit
-#    avoids accumulating 8-bit rounding error.
-# The source format is restored immediately after the pass, so nothing
-# downstream sees a different format than it did before.
-_deint_src_format = clip.format
-if clip.format.color_family == vs.YUV:
-    _deint_ss_h = clip.format.subsampling_h
-    _deint_bits = clip.format.bits_per_sample
+    # Working format for the deinterlace pass (issue #49).
+    #  - Interlaced 4:2:0 stores chroma per field, so interpolating it at 4:2:0
+    #    mixes the two fields' chroma. Upsampling to 4:2:2 first is field-aware
+    #    because zimg honours the _FieldBased prop set above.
+    #  - QTGMC runs many merge/expr steps that round at the working depth, so 16-bit
+    #    avoids accumulating 8-bit rounding error.
+    # The source format is restored immediately after the pass, so nothing
+    # downstream sees a different format than it did before.
+    _deint_src_format = clip.format
+    if clip.format.color_family == vs.YUV:
+        _deint_ss_h = clip.format.subsampling_h
+        _deint_bits = clip.format.bits_per_sample
 {{#DEINT_WF_CHROMA}}
-    _deint_ss_h = 0
+        _deint_ss_h = 0
 {{/DEINT_WF_CHROMA}}
 {{#DEINT_WF_BITS}}
-    _deint_bits = max(_deint_bits, 16)
+        _deint_bits = max(_deint_bits, 16)
 {{/DEINT_WF_BITS}}
-    if _deint_ss_h != clip.format.subsampling_h or _deint_bits != clip.format.bits_per_sample:
-        clip = core.resize.Bicubic(clip, format=clip.format.replace(
-            subsampling_h=_deint_ss_h, bits_per_sample=_deint_bits).id)
+        if _deint_ss_h != clip.format.subsampling_h or _deint_bits != clip.format.bits_per_sample:
+            clip = core.resize.Bicubic(clip, format=clip.format.replace(
+                subsampling_h=_deint_ss_h, bits_per_sample=_deint_bits).id)
 {{/DEINT_WORKING_FORMAT}}
-clip = haf.QTGMC(
-    clip,
-    Preset="{{PRESET}}",
+    clip = haf.QTGMC(
+        clip,
+        Preset="{{PRESET}}",
 {{#TFF}}
-    TFF={{TFF}},
+        TFF={{TFF}},
 {{/TFF}}
 {{#INPUT_TYPE}}
-    InputType={{INPUT_TYPE}},
+        InputType={{INPUT_TYPE}},
 {{/INPUT_TYPE}}
 {{#FPS_DIVISOR}}
-    FPSDivisor={{FPS_DIVISOR}},
+        FPSDivisor={{FPS_DIVISOR}},
 {{/FPS_DIVISOR}}
 {{#TR0}}
-    TR0={{TR0}},
+        TR0={{TR0}},
 {{/TR0}}
 {{#TR1}}
-    TR1={{TR1}},
+        TR1={{TR1}},
 {{/TR1}}
 {{#TR2}}
-    TR2={{TR2}},
+        TR2={{TR2}},
 {{/TR2}}
 {{#REP0}}
-    Rep0={{REP0}},
+        Rep0={{REP0}},
 {{/REP0}}
 {{#REP1}}
-    Rep1={{REP1}},
+        Rep1={{REP1}},
 {{/REP1}}
 {{#REP2}}
-    Rep2={{REP2}},
+        Rep2={{REP2}},
 {{/REP2}}
 {{#REP_CHROMA}}
-    RepChroma={{REP_CHROMA}},
+        RepChroma={{REP_CHROMA}},
 {{/REP_CHROMA}}
 {{#EDI_MODE}}
-    EdiMode="{{EDI_MODE}}",
+        EdiMode="{{EDI_MODE}}",
 {{/EDI_MODE}}
 {{#NN_SIZE}}
-    NNSize={{NN_SIZE}},
+        NNSize={{NN_SIZE}},
 {{/NN_SIZE}}
 {{#NN_NEURONS}}
-    NNeurons={{NN_NEURONS}},
+        NNeurons={{NN_NEURONS}},
 {{/NN_NEURONS}}
 {{#EDI_QUAL}}
-    EdiQual={{EDI_QUAL}},
+        EdiQual={{EDI_QUAL}},
 {{/EDI_QUAL}}
 {{#EDI_MAX_D}}
-    EdiMaxD={{EDI_MAX_D}},
+        EdiMaxD={{EDI_MAX_D}},
 {{/EDI_MAX_D}}
 {{#CHROMA_EDI}}
-    ChromaEdi="{{CHROMA_EDI}}",
+        ChromaEdi="{{CHROMA_EDI}}",
 {{/CHROMA_EDI}}
 {{#BLOCK_SIZE}}
-    BlockSize={{BLOCK_SIZE}},
+        BlockSize={{BLOCK_SIZE}},
 {{/BLOCK_SIZE}}
 {{#OVERLAP}}
-    Overlap={{OVERLAP}},
+        Overlap={{OVERLAP}},
 {{/OVERLAP}}
 {{#SEARCH}}
-    Search={{SEARCH}},
+        Search={{SEARCH}},
 {{/SEARCH}}
 {{#SEARCH_PARAM}}
-    SearchParam={{SEARCH_PARAM}},
+        SearchParam={{SEARCH_PARAM}},
 {{/SEARCH_PARAM}}
 {{#PEL_SEARCH}}
-    PelSearch={{PEL_SEARCH}},
+        PelSearch={{PEL_SEARCH}},
 {{/PEL_SEARCH}}
 {{#CHROMA_MOTION}}
-    ChromaMotion={{CHROMA_MOTION}},
+        ChromaMotion={{CHROMA_MOTION}},
 {{/CHROMA_MOTION}}
 {{#TRUE_MOTION}}
-    TrueMotion={{TRUE_MOTION}},
+        TrueMotion={{TRUE_MOTION}},
 {{/TRUE_MOTION}}
 {{#LAMBDA}}
-    Lambda={{LAMBDA}},
+        Lambda={{LAMBDA}},
 {{/LAMBDA}}
 {{#LSAD}}
-    LSAD={{LSAD}},
+        LSAD={{LSAD}},
 {{/LSAD}}
 {{#P_NEW}}
-    PNew={{P_NEW}},
+        PNew={{P_NEW}},
 {{/P_NEW}}
 {{#P_LEVEL}}
-    PLevel={{P_LEVEL}},
+        PLevel={{P_LEVEL}},
 {{/P_LEVEL}}
 {{#GLOBAL_MOTION}}
-    GlobalMotion={{GLOBAL_MOTION}},
+        GlobalMotion={{GLOBAL_MOTION}},
 {{/GLOBAL_MOTION}}
 {{#DCT}}
-    DCT={{DCT}},
+        DCT={{DCT}},
 {{/DCT}}
 {{#SUB_PEL}}
-    SubPel={{SUB_PEL}},
+        SubPel={{SUB_PEL}},
 {{/SUB_PEL}}
 {{#SUB_PEL_INTERP}}
-    SubPelInterp={{SUB_PEL_INTERP}},
+        SubPelInterp={{SUB_PEL_INTERP}},
 {{/SUB_PEL_INTERP}}
 {{#TH_SAD1}}
-    ThSAD1={{TH_SAD1}},
+        ThSAD1={{TH_SAD1}},
 {{/TH_SAD1}}
 {{#TH_SAD2}}
-    ThSAD2={{TH_SAD2}},
+        ThSAD2={{TH_SAD2}},
 {{/TH_SAD2}}
 {{#TH_SCD1}}
-    ThSCD1={{TH_SCD1}},
+        ThSCD1={{TH_SCD1}},
 {{/TH_SCD1}}
 {{#TH_SCD2}}
-    ThSCD2={{TH_SCD2}},
+        ThSCD2={{TH_SCD2}},
 {{/TH_SCD2}}
 {{#SHARPNESS}}
-    Sharpness={{SHARPNESS}},
+        Sharpness={{SHARPNESS}},
 {{/SHARPNESS}}
 {{#S_MODE}}
-    SMode={{S_MODE}},
+        SMode={{S_MODE}},
 {{/S_MODE}}
 {{#SL_MODE}}
-    SLMode={{SL_MODE}},
+        SLMode={{SL_MODE}},
 {{/SL_MODE}}
 {{#SL_RAD}}
-    SLRad={{SL_RAD}},
+        SLRad={{SL_RAD}},
 {{/SL_RAD}}
 {{#S_OVS}}
-    SOvs={{S_OVS}},
+        SOvs={{S_OVS}},
 {{/S_OVS}}
 {{#SV_THIN}}
-    SVThin={{SV_THIN}},
+        SVThin={{SV_THIN}},
 {{/SV_THIN}}
 {{#SBB}}
-    Sbb={{SBB}},
+        Sbb={{SBB}},
 {{/SBB}}
 {{#SRCH_CLIP_PP}}
-    SrchClipPP={{SRCH_CLIP_PP}},
+        SrchClipPP={{SRCH_CLIP_PP}},
 {{/SRCH_CLIP_PP}}
 {{#NOISE_PROCESS}}
-    NoiseProcess={{NOISE_PROCESS}},
+        NoiseProcess={{NOISE_PROCESS}},
 {{/NOISE_PROCESS}}
 {{#EZ_DENOISE}}
-    EZDenoise={{EZ_DENOISE}},
+        EZDenoise={{EZ_DENOISE}},
 {{/EZ_DENOISE}}
 {{#EZ_KEEP_GRAIN}}
-    EZKeepGrain={{EZ_KEEP_GRAIN}},
+        EZKeepGrain={{EZ_KEEP_GRAIN}},
 {{/EZ_KEEP_GRAIN}}
 {{#NOISE_PRESET}}
-    NoisePreset="{{NOISE_PRESET}}",
+        NoisePreset="{{NOISE_PRESET}}",
 {{/NOISE_PRESET}}
 {{#DENOISER}}
-    Denoiser="{{DENOISER}}",
+        Denoiser="{{DENOISER}}",
 {{/DENOISER}}
 {{#FFT_THREADS}}
-    FftThreads={{FFT_THREADS}},
+        FftThreads={{FFT_THREADS}},
 {{/FFT_THREADS}}
 {{#DENOISE_MC}}
-    DenoiseMC={{DENOISE_MC}},
+        DenoiseMC={{DENOISE_MC}},
 {{/DENOISE_MC}}
 {{#NOISE_TR}}
-    NoiseTR={{NOISE_TR}},
+        NoiseTR={{NOISE_TR}},
 {{/NOISE_TR}}
 {{#SIGMA}}
-    Sigma={{SIGMA}},
+        Sigma={{SIGMA}},
 {{/SIGMA}}
 {{#CHROMA_NOISE}}
-    ChromaNoise={{CHROMA_NOISE}},
+        ChromaNoise={{CHROMA_NOISE}},
 {{/CHROMA_NOISE}}
 {{#SHOW_NOISE}}
-    ShowNoise={{SHOW_NOISE}},
+        ShowNoise={{SHOW_NOISE}},
 {{/SHOW_NOISE}}
 {{#GRAIN_RESTORE}}
-    GrainRestore={{GRAIN_RESTORE}},
+        GrainRestore={{GRAIN_RESTORE}},
 {{/GRAIN_RESTORE}}
 {{#NOISE_RESTORE}}
-    NoiseRestore={{NOISE_RESTORE}},
+        NoiseRestore={{NOISE_RESTORE}},
 {{/NOISE_RESTORE}}
 {{#NOISE_DEINT}}
-    NoiseDeint="{{NOISE_DEINT}}",
+        NoiseDeint="{{NOISE_DEINT}}",
 {{/NOISE_DEINT}}
 {{#STABILIZE_NOISE}}
-    StabilizeNoise={{STABILIZE_NOISE}},
+        StabilizeNoise={{STABILIZE_NOISE}},
 {{/STABILIZE_NOISE}}
 {{#SOURCE_MATCH}}
-    SourceMatch={{SOURCE_MATCH}},
+        SourceMatch={{SOURCE_MATCH}},
 {{/SOURCE_MATCH}}
 {{#MATCH_PRESET}}
-    MatchPreset="{{MATCH_PRESET}}",
+        MatchPreset="{{MATCH_PRESET}}",
 {{/MATCH_PRESET}}
 {{#MATCH_EDI}}
-    MatchEdi="{{MATCH_EDI}}",
+        MatchEdi="{{MATCH_EDI}}",
 {{/MATCH_EDI}}
 {{#MATCH_PRESET2}}
-    MatchPreset2="{{MATCH_PRESET2}}",
+        MatchPreset2="{{MATCH_PRESET2}}",
 {{/MATCH_PRESET2}}
 {{#MATCH_EDI2}}
-    MatchEdi2="{{MATCH_EDI2}}",
+        MatchEdi2="{{MATCH_EDI2}}",
 {{/MATCH_EDI2}}
 {{#MATCH_TR2}}
-    MatchTR2={{MATCH_TR2}},
+        MatchTR2={{MATCH_TR2}},
 {{/MATCH_TR2}}
 {{#MATCH_ENHANCE}}
-    MatchEnhance={{MATCH_ENHANCE}},
+        MatchEnhance={{MATCH_ENHANCE}},
 {{/MATCH_ENHANCE}}
 {{#LOSSLESS}}
-    Lossless={{LOSSLESS}},
+        Lossless={{LOSSLESS}},
 {{/LOSSLESS}}
 {{#BORDER}}
-    Border={{BORDER}},
+        Border={{BORDER}},
 {{/BORDER}}
 {{#PRECISE}}
-    Precise={{PRECISE}},
+        Precise={{PRECISE}},
 {{/PRECISE}}
 {{#FORCE_TR}}
-    ForceTR={{FORCE_TR}},
+        ForceTR={{FORCE_TR}},
 {{/FORCE_TR}}
 {{#OPENCL}}
-    opencl={{OPENCL}},
+        opencl={{OPENCL}},
 {{/OPENCL}}
 {{#DEVICE}}
-    device={{DEVICE}},
+        device={{DEVICE}},
 {{/DEVICE}}
-)
+    )
 {{#DEINT_RESTORE_FORMAT}}
-# Back to the source format. QTGMC has already reset _FieldBased to 0, so this
-# downsample is progressive — which is correct for the now-deinterlaced frames.
-if clip.format.id != _deint_src_format.id:
-    clip = core.resize.Bicubic(clip, format=_deint_src_format.id,
-                               dither_type="error_diffusion")
+    # Back to the source format. QTGMC has already reset _FieldBased to 0, so this
+    # downsample is progressive — which is correct for the now-deinterlaced frames.
+    if clip.format.id != _deint_src_format.id:
+        clip = core.resize.Bicubic(clip, format=_deint_src_format.id,
+                                   dither_type="error_diffusion")
 {{/DEINT_RESTORE_FORMAT}}
+    return clip
+
+
+def _deinterlace_qtgmc_rows(clip):
+    # MVTools inside QTGMC divides by zero on a picture two block rows tall
+    # (Very Fast..Draft: 32-px blocks, overlap 8, so 56..79 rows; task #56 F9).
+    return _pf.mvtools_blocks(clip, _deinterlace_qtgmc, label='Deinterlace')
+
+
+# SrchClipPP 1 (Super / Ultra Fast) halves the frame for the motion search, so
+# a 4:2:x width 2 mod 4 is padded too (task #56 F2); the other values resample
+# the whole frame at a size that follows the width, so they are left unpadded.
+if {{QTGMC_HALVES_SEARCH}}:
+    clip = _pf.run_within(clip, 'havsfunc.QTGMC[SrchClipPP=1]', _deinterlace_qtgmc_rows, delta_only=False, label='Deinterlace')
+else:
+    clip = _pf.run_within(clip, 'havsfunc.QTGMC', _deinterlace_qtgmc_rows, delta_only=False, label='Deinterlace')
 {{/DEINT_QTGMC}}
 {{#DEINT_BWDIF}}
 # Bwdif — the fast tier. Roughly 4-5x QTGMC Fast on the same clip, for long
@@ -789,27 +817,34 @@ clip = _pf.run_within(clip, 'descratch.DeScratch', _descratch_pass, label='DeScr
 # ============================================================================
 {{#SPOTLESS}}
 {{#SPOTLESS_CLASSIC}}
-import sys as _spotless_sys
-_spotless_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
-from spotless import SpotLess as _SpotLess
-clip = _SpotLess(
-    clip,
+def _spotless_classic(clip):
+    import sys as _spotless_sys
+    _spotless_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+    from spotless import SpotLess as _SpotLess
+    clip = _SpotLess(
+        clip,
 {{#SPOTLESS_CHROMA}}
-    chroma={{SPOTLESS_CHROMA}},
+        chroma={{SPOTLESS_CHROMA}},
 {{/SPOTLESS_CHROMA}}
 {{#SPOTLESS_REC}}
-    rec={{SPOTLESS_REC}},
+        rec={{SPOTLESS_REC}},
 {{/SPOTLESS_REC}}
 {{#SPOTLESS_BLKSIZE}}
-    blksize={{SPOTLESS_BLKSIZE}},
+        blksize={{SPOTLESS_BLKSIZE}},
 {{/SPOTLESS_BLKSIZE}}
 {{#SPOTLESS_OVERLAP}}
-    overlap={{SPOTLESS_OVERLAP}},
+        overlap={{SPOTLESS_OVERLAP}},
 {{/SPOTLESS_OVERLAP}}
 {{#SPOTLESS_PEL}}
-    pel={{SPOTLESS_PEL}},
+        pel={{SPOTLESS_PEL}},
 {{/SPOTLESS_PEL}}
-)
+    )
+    return clip
+
+
+# MVTools divides by zero on a picture two block rows tall: mvtools_blocks()
+# pads a short one (task #56 F9, plugin_formats.MVTOOLS_MIN_ROWS).
+clip = _pf.mvtools_blocks(clip, _spotless_classic, label='SpotLess')
 {{/SPOTLESS_CLASSIC}}
 {{#SPOTLESS_REMOVEDIRT}}
 # RemoveDirt — the fast alternative to SpotLess. Measured 908 fps against
@@ -895,44 +930,65 @@ _nr_presharp_src = clip
 import mvsfunc as mvf
 
 {{#NR_SMDEGRAIN}}
-# SMDegrain noise reduction
-clip = haf.SMDegrain(
-    clip,
+def _nr_smdegrain(clip):
+    # SMDegrain noise reduction
+    clip = haf.SMDegrain(
+        clip,
 {{#NR_TR}}
-    tr={{NR_TR}},
+        tr={{NR_TR}},
 {{/NR_TR}}
 {{#NR_TH_SAD}}
-    thSAD={{NR_TH_SAD}},
+        thSAD={{NR_TH_SAD}},
 {{/NR_TH_SAD}}
 {{#NR_TH_SADC}}
-    thSADC={{NR_TH_SADC}},
+        thSADC={{NR_TH_SADC}},
 {{/NR_TH_SADC}}
 {{#NR_REFINE_MOTION}}
-    RefineMotion={{NR_REFINE_MOTION}},
+        RefineMotion={{NR_REFINE_MOTION}},
 {{/NR_REFINE_MOTION}}
 {{#NR_PREFILTER}}
-    prefilter={{NR_PREFILTER}},
+        prefilter={{NR_PREFILTER}},
 {{/NR_PREFILTER}}
 {{#NR_CONTRASHARP}}
-    contrasharp={{NR_CONTRASHARP}},
+        contrasharp={{NR_CONTRASHARP}},
 {{/NR_CONTRASHARP}}
-)
+    )
+    return clip
+
+
+# MVTools divides by zero on a picture two block rows tall: mvtools_blocks()
+# pads a short one (task #56 F9, plugin_formats.MVTOOLS_MIN_ROWS).
+clip = _pf.mvtools_blocks(clip, _nr_smdegrain, label='Noise Reduction')
 {{/NR_SMDEGRAIN}}
 
 {{#NR_MCTD}}
 # MCTemporalDenoise noise reduction
-clip = haf.MCTemporalDenoise(
-    clip,
+def _nr_mctd(clip):
+    clip = haf.MCTemporalDenoise(
+        clip,
 {{#NR_SETTINGS}}
-    settings="{{NR_SETTINGS}}",
+        settings="{{NR_SETTINGS}}",
 {{/NR_SETTINGS}}
 {{#NR_SIGMA}}
-    sigma={{NR_SIGMA}},
+        sigma={{NR_SIGMA}},
 {{/NR_SIGMA}}
 {{#NR_RADIUS}}
-    radius={{NR_RADIUS}},
+        radius={{NR_RADIUS}},
 {{/NR_RADIUS}}
-)
+    )
+    return clip
+
+
+def _nr_mctd_rows(clip):
+    return _pf.mvtools_blocks(clip, _nr_mctd, label='Noise Reduction')
+
+
+# Through run_within() for its frame-size contract: a 4:2:x frame whose width
+# (task #56 F1) or 4:2:0 height (task #57) is 2 mod 4 is padded to whole
+# field chroma samples and cropped back; and through mvtools_blocks(), since
+# MCTD's MVTools blocks divide by zero on a picture two block rows tall
+# (task #56 F9).
+clip = _pf.run_within(clip, 'havsfunc.MCTemporalDenoise', _nr_mctd_rows, label='Noise Reduction')
 {{/NR_MCTD}}
 
 {{#NR_DFTTEST}}
@@ -1043,77 +1099,84 @@ clip = core.ctmf.CTMF(
 {{/NR_CTMF}}
 
 {{#NR_MCDEGRAINSHARP}}
-# MCDegrainSharp (Didée) — motion-compensated degrain that sharpens where the
-# motion match is good and blurs where it is poor.
-#
-# Three clips do the work: a blurred one is what gets averaged (so badly-matched
-# areas end up soft rather than smeared with wrong pixels), a sharpened one
-# supplies the pixels the averaging draws from (so well-matched areas come back
-# sharper than the source), and the motion search runs on the blurred clip when
-# asked, which finds steadier vectors on a noisy source.
-#
-# The blurs are TCanny's Gaussian (mode -1) through `gauss_blur`, never
-# `core.tcanny.TCanny` itself: TCanny r14 races on its per-thread buffers and
-# aborts vspipe now and then (see gauss_blur.py).
-from gauss_blur import gaussian_blur as _gaussian_blur
-_mcds_planes = {{NR_MCDS_PLANES}}
-_mcds_blurred = _gaussian_blur(clip, {{NR_MCDS_BLUR_SIGMA}}, _mcds_planes)
-# Unsharp mask: original plus the difference between it and its own blur.
-_mcds_sharpened = _expr(
-    [clip, _gaussian_blur(clip, {{NR_MCDS_SHARP_SIGMA}}, _mcds_planes)],
-    ['x x + y -'],
-)
-# Larger blocks for HD; 8 is the classic SD value.
-_mcds_blksize = 16 if clip.width > 960 else 8
-_mcds_super_search = core.mv.Super({{NR_MCDS_SEARCH_CLIP}}, pel=2, sharp=1)
-_mcds_super_render = core.mv.Super(_mcds_sharpened, pel=2, sharp=1, levels=1)
-
-
-def _mcds_vectors(delta, backward):
-    return core.mv.Analyse(
-        _mcds_super_search,
-        isb=backward,
-        delta=delta,
-        blksize=_mcds_blksize,
-        overlap=_mcds_blksize // 2,
+def _nr_mcds(clip):
+    # MCDegrainSharp (Didée) — motion-compensated degrain that sharpens where the
+    # motion match is good and blurs where it is poor.
+    #
+    # Three clips do the work: a blurred one is what gets averaged (so badly-matched
+    # areas end up soft rather than smeared with wrong pixels), a sharpened one
+    # supplies the pixels the averaging draws from (so well-matched areas come back
+    # sharper than the source), and the motion search runs on the blurred clip when
+    # asked, which finds steadier vectors on a noisy source.
+    #
+    # The blurs are TCanny's Gaussian (mode -1) through `gauss_blur`, never
+    # `core.tcanny.TCanny` itself: TCanny r14 races on its per-thread buffers and
+    # aborts vspipe now and then (see gauss_blur.py).
+    from gauss_blur import gaussian_blur as _gaussian_blur
+    _mcds_planes = {{NR_MCDS_PLANES}}
+    _mcds_blurred = _gaussian_blur(clip, {{NR_MCDS_BLUR_SIGMA}}, _mcds_planes)
+    # Unsharp mask: original plus the difference between it and its own blur.
+    _mcds_sharpened = _expr(
+        [clip, _gaussian_blur(clip, {{NR_MCDS_SHARP_SIGMA}}, _mcds_planes)],
+        ['x x + y -'],
     )
+    # Larger blocks for HD; 8 is the classic SD value.
+    _mcds_blksize = 16 if clip.width > 960 else 8
+    _mcds_super_search = core.mv.Super({{NR_MCDS_SEARCH_CLIP}}, pel=2, sharp=1)
+    _mcds_super_render = core.mv.Super(_mcds_sharpened, pel=2, sharp=1, levels=1)
+
+
+    def _mcds_vectors(delta, backward):
+        return core.mv.Analyse(
+            _mcds_super_search,
+            isb=backward,
+            delta=delta,
+            blksize=_mcds_blksize,
+            overlap=_mcds_blksize // 2,
+        )
 
 {{#NR_MCDS_DEGRAIN1}}
-clip = core.mv.Degrain1(
-    clip=_mcds_blurred,
-    super=_mcds_super_render,
-    mvbw=_mcds_vectors(1, True),
-    mvfw=_mcds_vectors(1, False),
-    thsad={{NR_MCDS_TH_SAD}},
-    plane={{NR_MCDS_PLANE}},
-)
+    clip = core.mv.Degrain1(
+        clip=_mcds_blurred,
+        super=_mcds_super_render,
+        mvbw=_mcds_vectors(1, True),
+        mvfw=_mcds_vectors(1, False),
+        thsad={{NR_MCDS_TH_SAD}},
+        plane={{NR_MCDS_PLANE}},
+    )
 {{/NR_MCDS_DEGRAIN1}}
 {{#NR_MCDS_DEGRAIN2}}
-clip = core.mv.Degrain2(
-    clip=_mcds_blurred,
-    super=_mcds_super_render,
-    mvbw=_mcds_vectors(1, True),
-    mvfw=_mcds_vectors(1, False),
-    mvbw2=_mcds_vectors(2, True),
-    mvfw2=_mcds_vectors(2, False),
-    thsad={{NR_MCDS_TH_SAD}},
-    plane={{NR_MCDS_PLANE}},
-)
+    clip = core.mv.Degrain2(
+        clip=_mcds_blurred,
+        super=_mcds_super_render,
+        mvbw=_mcds_vectors(1, True),
+        mvfw=_mcds_vectors(1, False),
+        mvbw2=_mcds_vectors(2, True),
+        mvfw2=_mcds_vectors(2, False),
+        thsad={{NR_MCDS_TH_SAD}},
+        plane={{NR_MCDS_PLANE}},
+    )
 {{/NR_MCDS_DEGRAIN2}}
 {{#NR_MCDS_DEGRAIN3}}
-clip = core.mv.Degrain3(
-    clip=_mcds_blurred,
-    super=_mcds_super_render,
-    mvbw=_mcds_vectors(1, True),
-    mvfw=_mcds_vectors(1, False),
-    mvbw2=_mcds_vectors(2, True),
-    mvfw2=_mcds_vectors(2, False),
-    mvbw3=_mcds_vectors(3, True),
-    mvfw3=_mcds_vectors(3, False),
-    thsad={{NR_MCDS_TH_SAD}},
-    plane={{NR_MCDS_PLANE}},
-)
+    clip = core.mv.Degrain3(
+        clip=_mcds_blurred,
+        super=_mcds_super_render,
+        mvbw=_mcds_vectors(1, True),
+        mvfw=_mcds_vectors(1, False),
+        mvbw2=_mcds_vectors(2, True),
+        mvfw2=_mcds_vectors(2, False),
+        mvbw3=_mcds_vectors(3, True),
+        mvfw3=_mcds_vectors(3, False),
+        thsad={{NR_MCDS_TH_SAD}},
+        plane={{NR_MCDS_PLANE}},
+    )
 {{/NR_MCDS_DEGRAIN3}}
+    return clip
+
+
+# MVTools divides by zero on a picture two block rows tall: mvtools_blocks()
+# pads a short one (task #56 F9, plugin_formats.MVTOOLS_MIN_ROWS).
+clip = _pf.mvtools_blocks(clip, _nr_mcds, label='Noise Reduction')
 {{/NR_MCDEGRAINSHARP}}
 
 {{#NR_BM3D}}
@@ -1173,41 +1236,55 @@ else:
     clip = core.vszip.NLMeans(clip, d={{NR_NLM_D}}, a={{NR_NLM_A}}, s={{NR_NLM_S}}, h={{NR_NLM_H}})
 {{/NR_NLM}}
 {{#NR_MCLEAN}}
-# mClean — denoise, then put detail and grain back, so the result does not look
-# plastic. The only method here that is a goal rather than a mechanism.
-import sys as _mclean_sys
-_mclean_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
-from mclean import mClean as _mClean
-clip = _mClean(
-    clip,
-    thSAD={{NR_MCLEAN_THSAD}},
-    chroma={{NR_MCLEAN_CHROMA}},
-    sharp={{NR_MCLEAN_SHARP}},
-    rn={{NR_MCLEAN_RN}},
-    strength={{NR_MCLEAN_STRENGTH}},
-)
+def _nr_mclean(clip):
+    # mClean — denoise, then put detail and grain back, so the result does not look
+    # plastic. The only method here that is a goal rather than a mechanism.
+    import sys as _mclean_sys
+    _mclean_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+    from mclean import mClean as _mClean
+    clip = _mClean(
+        clip,
+        thSAD={{NR_MCLEAN_THSAD}},
+        chroma={{NR_MCLEAN_CHROMA}},
+        sharp={{NR_MCLEAN_SHARP}},
+        rn={{NR_MCLEAN_RN}},
+        strength={{NR_MCLEAN_STRENGTH}},
+    )
+    return clip
+
+
+# MVTools divides by zero on a picture two block rows tall: mvtools_blocks()
+# pads a short one (task #56 F9, plugin_formats.MVTOOLS_MIN_ROWS).
+clip = _pf.mvtools_blocks(clip, _nr_mclean, label='Noise Reduction')
 {{/NR_MCLEAN}}
 {{#NR_TD2}}
-# TemporalDegrain2 — the heavyweight. Multi-pass motion-compensated degraining
-# with an optional frequency-domain cleanup on top. About 21 fps, and the most
-# capable denoiser in the app.
-#
-# The vendored module clamps postFFT to 0-3 and grainLevel to -2..3, and scales
-# its depth-dependent limits from clip.format. Those are not cosmetic: postFFT
-# 4 and 5 abort the process rather than raising, and without the depth scaling
-# the filter is a near no-op at 12-bit and above.
-import sys as _td2_sys
-_td2_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
-from temporaldegrain2 import TemporalDegrain2 as _TemporalDegrain2
-clip = _TemporalDegrain2(
-    clip,
-    degrainTR={{NR_TD2_TR}},
-    grainLevel={{NR_TD2_GRAIN_LEVEL}},
-    postFFT={{NR_TD2_POST_FFT}},
-    postSigma={{NR_TD2_POST_SIGMA}},
-    postMix={{NR_TD2_POST_MIX}},
-    ChromaMotion={{NR_TD2_CHROMA_MOTION}},
-)
+def _nr_td2(clip):
+    # TemporalDegrain2 — the heavyweight. Multi-pass motion-compensated degraining
+    # with an optional frequency-domain cleanup on top. About 21 fps, and the most
+    # capable denoiser in the app.
+    #
+    # The vendored module clamps postFFT to 0-3 and grainLevel to -2..3, and scales
+    # its depth-dependent limits from clip.format. Those are not cosmetic: postFFT
+    # 4 and 5 abort the process rather than raising, and without the depth scaling
+    # the filter is a near no-op at 12-bit and above.
+    import sys as _td2_sys
+    _td2_sys.path.insert(0, r"{{PIPE_SOURCE_DIR}}")
+    from temporaldegrain2 import TemporalDegrain2 as _TemporalDegrain2
+    clip = _TemporalDegrain2(
+        clip,
+        degrainTR={{NR_TD2_TR}},
+        grainLevel={{NR_TD2_GRAIN_LEVEL}},
+        postFFT={{NR_TD2_POST_FFT}},
+        postSigma={{NR_TD2_POST_SIGMA}},
+        postMix={{NR_TD2_POST_MIX}},
+        ChromaMotion={{NR_TD2_CHROMA_MOTION}},
+    )
+    return clip
+
+
+# MVTools divides by zero on a picture two block rows tall: mvtools_blocks()
+# pads a short one (task #56 F9, plugin_formats.MVTOOLS_MIN_ROWS).
+clip = _pf.mvtools_blocks(clip, _nr_td2, label='Noise Reduction')
 {{/NR_TD2}}
 {{#NR_POST_CONTRASHARP}}
 # Give back the fine detail the denoiser removed, by adding back only the
@@ -2114,56 +2191,26 @@ else:
 # handed, so a YUV clip would have its chroma equalized as well. The luma plane
 # is lifted out, processed and put back, as shadow detail above does.
 #
-# vszip takes only 8- or 16-bit integer, and its limit is a count per
-# histogram bin. A 16-bit histogram has 256 bins per 8-bit level, but content
-# only fills the ones its real depth reaches: 8-bit content moved to 16-bit
-# uses every 256th, genuine 10-bit every 64th. The limit has to scale by that
-# ratio, 2^(16 - content depth), for a setting to mean the same thing at every
-# depth — and the content depth is not the container's. ProRes 4444 decodes as
-# 12-bit whatever it holds, and a 10-bit file may carry 8-bit content. Using the
-# container depth was measured 9-27 levels off the 8-bit result on 8-bit content
-# in a 10-bit clip; scaling by the content depth brings it to 1.3 (8-bit
-# content) and 1.4-2.2 (genuine 10-bit). CLAHE's per-bin clipping is not exactly
-# depth-invariant, so that is as close as it gets.
-#
-# The content depth is measured per frame: the coarsest candidate depth whose
-# step every luma sample is a multiple of. Expr has no bitwise or rounding
-# functions on every backend, but it rounds when it stores an integer, so
-# x - round(x / step) * step is computed in two steps. Float and genuinely
-# 16-bit content keep x1.
+# THE HISTOGRAM IS ALWAYS AN 8-BIT ONE (task #56). vszip's limit is a whole
+# count per histogram bin (limit x tile pixels / bins, at least 1). A deep
+# clip has 65536 bins, and the per-bin limit that would match the 8-bit
+# picture's per-level one is a fraction a count cannot hold: genuinely 10- to
+# 16-bit content was barely clipped and came out 3-22 levels from the 8-bit
+# result at 720x480 (the old scaling by the content depth assumed each 8-bit
+# level's samples fill its sub-bins evenly). So CLAHE decides on an 8-bit copy
+# and only its change is added at the clip's depth (plugin_formats.change_at):
+# about 1 level from the 8-bit result at every depth, and 8-bit content in a
+# deeper clip exactly the 8-bit picture's. The cost: samples of one 8-bit level
+# get the same change, so a smooth ramp steps like the 8-bit result does
+# (docs/reports/task-56-format-sweep-findings, F7).
 def _local_contrast(c, amount, tiles):
     limit_8bit = 2
     y = core.std.ShufflePlanes(c, planes=0, colorfamily=vs.GRAY)
-    bits = y.format.bits_per_sample
-    if y.format.sample_type == vs.INTEGER and bits == 8:
-        work = core.vszip.CLAHE(y, limit=limit_8bit, tiles=[tiles])
-    else:
-        y16 = core.resize.Point(y, format=vs.GRAY16)
-        def _clahe(content_bits):
-            return core.vszip.CLAHE(y16, limit=limit_8bit << (16 - content_bits),
-                                    tiles=[tiles])
-        cands = ([d for d in (8, 10, 12) if d < bits]
-                 if y.format.sample_type == vs.INTEGER else [])
-        if not cands:
-            work = _clahe(16)
-        else:
-            steps = [1 << (bits - d) for d in cands]
-            rounded = [_expr(y, 'x {} /'.format(s)) for s in steps]
-            # One term per candidate: 1 where the sample is NOT a multiple of
-            # its step. The steps nest, so the frame's maximum is the index of
-            # the coarsest candidate every sample fits (len = full depth).
-            terms = ['x {} {} * - abs 0 > 1 0 ?'.format(v, s)
-                     for v, s in zip('yzabc', steps)]
-            index = core.std.PlaneStats(
-                _expr([y] + rounded, ' '.join(terms) + ' +' * (len(terms) - 1)))
-            variants = [_clahe(d) for d in cands] + [_clahe(bits)]
 
-            def _pick(n, f):
-                return variants[min(int(f.props['PlaneStatsMax']), len(cands))]
+    def _clahe(y8):
+        return core.vszip.CLAHE(y8, limit=limit_8bit, tiles=[tiles])
 
-            work = core.std.FrameEval(y16, _pick, prop_src=index)
-    if work.format.id != y.format.id:
-        work = core.resize.Point(work, format=y.format.id)
+    work = _pf.change_at(y, vs.core.get_video_format(vs.GRAY8), _clahe, label='Local Contrast')
     if amount < 1:
         work = core.std.Merge(y, work, weight=amount)
     if c.format.color_family == vs.GRAY:
@@ -2285,6 +2332,14 @@ clip = core.std.FlipHorizontal(clip)
 {{#GEOM_FLIP_V}}
 clip = core.std.FlipVertical(clip)
 {{/GEOM_FLIP_V}}
+# On a still-interlaced picture (task #56): after a quarter turn the "fields"
+# are columns, so it is progressive from here on (a field-aware resample of it,
+# the restore below included, is wrong and on 4:2:2 at a width of 2 mod 4
+# fails); a vertical mirror of an even-height frame puts the field captured
+# first on the bottom lines. ScriptGenerator::field_order_at_framing decides.
+{{#GEOM_SET_FIELD_BASED}}
+clip = core.std.SetFieldBased(clip, {{GEOM_FIELD_BASED}})
+{{/GEOM_SET_FIELD_BASED}}
 if clip.format.id != _geom_src_format.id:
     clip = core.resize.Spline36(clip, format=_geom_src_format.id)
 {{/GEOMETRY}}
@@ -2505,6 +2560,18 @@ def _even(value):
     return max(2, int(round(value)) & ~1)
 
 
+# A height a still-interlaced 4:2:0 picture can take: each field needs a whole
+# chroma height, so a multiple of 4 (task #56; zimg refuses 106 lines with
+# "image dimensions must be divisible by subsampling factor"). Everything else
+# keeps _even. ScriptGenerator::framing_steps decides, and
+# CropResizeParameters::output_size rounds the same way.
+_height_step = {{RESIZE_HEIGHT_STEP}}
+
+
+def _height(value):
+    return max(_height_step, (int(round(value)) // _height_step) * _height_step)
+
+
 # Storage aspect when the pixel grid is left alone, display aspect when we are
 # resampling to square pixels: that is exactly what "square up" means.
 {{#ASPECT_SQUARE_PIXELS}}
@@ -2517,6 +2584,8 @@ _fit_aspect = clip.width / clip.height
 # Calculate target dimensions
 target_w = {{TARGET_WIDTH}}
 target_h = {{TARGET_HEIGHT}}
+if target_h > 0 and _height_step > 2:
+    target_h = _height(target_h)
 {{#ASPECT_SQUARE_PIXELS}}
 if target_w <= 0 and target_h <= 0:
     # Squaring the pixels with no target size: keep the height and widen (or
@@ -2527,14 +2596,14 @@ _box_w, _box_h = target_w, target_h
 {{#MAINTAIN_ASPECT}}
 # Maintain aspect ratio - calculate the missing dimension, or fit inside the box
 if target_w > 0 and target_h <= 0:
-    target_h = _even(target_w / _fit_aspect)
+    target_h = _height(target_w / _fit_aspect)
 elif target_h > 0 and target_w <= 0:
     target_w = _even(target_h * _fit_aspect)
 elif target_w > 0 and target_h > 0:
     # Both specified - fit within bounds while maintaining aspect
     scale = min(target_w / (clip.height * _fit_aspect), target_h / clip.height)
     target_w = _even(clip.height * _fit_aspect * scale)
-    target_h = _even(clip.height * scale)
+    target_h = _height(clip.height * scale)
 {{/MAINTAIN_ASPECT}}
 
 # filter_param_a/b carry the kernel's own tuning: b and c for Bicubic, taps
@@ -2556,7 +2625,7 @@ clip = core.resize.{{RESIZE_KERNEL}}(
 # letterbox/pillarbox out to it. The bars go on last so that nothing after this
 # (grain in particular) touches them. An axis with no target stays as it is.
 _aspect_box_w = _even(_box_w) if _box_w > 0 else 0
-_aspect_box_h = _even(_box_h) if _box_h > 0 else 0
+_aspect_box_h = _height(_box_h) if _box_h > 0 else 0
 {{/ASPECT_PAD}}
 {{/RESIZE_STANDARD}}
 {{/RESIZE}}
@@ -2881,6 +2950,17 @@ if clip.format.id != target_format:
     clip = core.resize.Bicubic(clip, format=target_format,
                                dither_type="error_diffusion")
 {{/CHROMA_CONVERT}}
+{{#DEPTH_RESTORE}}
+# Color Format "original" is the source's format, depth included (task #56). A
+# pass can change the depth on the way -- Deband's output_depth is the depth the
+# passes after it work at, 16 by default -- so it is brought back here, dithered
+# like the conversion above. Depth only: a pass that adds colour to a grey source
+# (Colourisation) keeps it. A no-op when nothing changed the depth.
+if (clip.format.bits_per_sample, clip.format.sample_type) != (_source_format.bits_per_sample, _source_format.sample_type):
+    clip = core.resize.Bicubic(clip, format=clip.format.replace(
+        bits_per_sample=_source_format.bits_per_sample,
+        sample_type=_source_format.sample_type).id, dither_type="error_diffusion")
+{{/DEPTH_RESTORE}}
 
 # ============================================================================
 # BORDERS (issue #86)

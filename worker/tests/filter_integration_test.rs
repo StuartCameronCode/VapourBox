@@ -6105,20 +6105,24 @@ fn test_163_local_contrast_runs_on_luma_with_a_depth_scaled_limit() {
     );
     let (encode, preview) = generate_both_scripts(&job);
     for (name, script) in [("encode", &encode), ("preview", &preview)] {
-        assert!(script.contains("core.vszip.CLAHE(y, limit=limit_8bit, tiles=[tiles])"),
-            "{name}: 8-bit CLAHE call missing");
-        assert!(script.contains("core.vszip.CLAHE(y16, limit=limit_8bit << (16 - content_bits),"),
-            "{name}: deep-clip CLAHE call missing");
+        assert!(script.contains("core.vszip.CLAHE(y8, limit=limit_8bit, tiles=[tiles])"),
+            "{name}: CLAHE call missing");
+        // Task #56 F7: CLAHE decides on an 8-bit copy at every depth and only
+        // its change is added at the clip's depth. A deep histogram's per-bin
+        // limit can't match the 8-bit one (genuine 10-16-bit content came out
+        // 4-6 levels from the 8-bit picture at SD); the old per-frame
+        // content-depth scaling is gone.
+        assert!(script.contains(
+            "work = _pf.change_at(y, vs.core.get_video_format(vs.GRAY8), _clahe, label='Local Contrast')"),
+            "{name}: CLAHE does not decide at 8-bit");
+        assert!(!script.contains("content_bits"), "{name}: the content-depth scaling is back");
+        assert!(!script.contains("core.std.FrameEval(y16, _pick"), "{name}: the content-depth scaling is back");
         assert!(script.contains("clip = _local_contrast(clip, 0.6, 6)"), "{name}: values not passed");
         assert!(script.contains("    limit_8bit = 2\n"), "{name}: clip limit not fixed");
         assert!(script.contains("work = core.std.Merge(y, work, weight=amount)"),
             "{name}: strength does not blend");
         assert!(script.contains("y = core.std.ShufflePlanes(c, planes=0, colorfamily=vs.GRAY)"),
             "{name}: not luma-only");
-        // The scale comes from the CONTENT depth, measured per frame — not the
-        // container's, which was 9-27 levels off on 8-bit content in 10-bit.
-        assert!(script.contains("core.std.FrameEval(y16, _pick, prop_src=index)"),
-            "{name}: no per-frame content-depth choice");
         assert!(!script.contains("LOCAL_CONTRAST"), "{name}: placeholder left behind");
     }
 }
@@ -8357,10 +8361,14 @@ fn test_221_template_field_based_sites_are_all_accounted_for() {
         ("core.std.SetFieldBased(c, 2 if _stx_tff else 1)", "mpeg2stinx internal"),
         ("core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)", "mpeg2stinx output: progressive"),
         ("core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})", "SangNom restores the source order"),
+        (
+            "core.std.SetFieldBased(clip, {{GEOM_FIELD_BASED}})",
+            "Rotate / Flip: a quarter turn is progressive, a vertical mirror swaps the order (field_order_at_framing, task #56)",
+        ),
     ];
     // How many of each: the bare `clip, 0` line appears three times (fade fix,
     // mpeg2stinx, Stabilize pitch), AA twice (two SangNom blocks).
-    let counts = [1usize, 1, 3, 1, 1, 1, 2];
+    let counts = [1usize, 1, 3, 1, 1, 1, 2, 1];
     for name in [vapourbox_worker::script_generator::TEMPLATE_FILE] {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates").join(name);
         let src = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n");
@@ -9416,7 +9424,12 @@ fn test_252_limited_plugins_are_called_within_run_within() {
                     let mut callers = Vec::new();
                     for n in &names {
                         for (j, l) in lines.iter().enumerate() {
-                            if !l.trim_start().starts_with("def ") && l.contains(&format!("{n}(")) {
+                            // Called, or handed on by name (task #56:
+                            // `_pf.mvtools_blocks(clip, fn, ...)` between
+                            // run_within() and the function).
+                            if !l.trim_start().starts_with("def ")
+                                && (l.contains(&format!("{n}(")) || l.contains(&format!(" {n},")))
+                            {
                                 callers.extend(enclosing_def(&lines, j));
                             }
                         }
@@ -9463,4 +9476,312 @@ fn test_252_limited_plugins_are_called_within_run_within() {
         assert!(norm < at, "the 4:1:1 normalisation must come before {later}");
     }
     assert_eq!(template.matches("subsampling_w > 1").count(), 1, "one 4:1:1 rule, at the top");
+}
+
+/// Task #56 F3: Rotate / Flip on a still-interlaced picture. A quarter turn
+/// makes it progressive (its "fields" are columns), a vertical mirror swaps the
+/// field order, and both are stamped on the clip before the format restore and
+/// told to the encoder (`output_field_order`). A progressive source, or a turn
+/// that changes nothing, emits no stamp.
+#[test]
+fn test_253_rotate_flip_field_order() {
+    create_output_dir();
+    let job_for = |rotation: Rotation, flip_v: bool, detected: Option<FieldOrder>| {
+        let mut job = create_base_job("test_253_rotate_flip_field_order");
+        job.qtgmc_parameters.enabled = false;
+        job.detected_field_order = detected;
+        job.input_height = Some(480);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..job.qtgmc_parameters.clone() },
+            geometry: GeometryParameters {
+                enabled: true,
+                rotation,
+                flip_horizontal: false,
+                flip_vertical: flip_v,
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    let tff = Some(FieldOrder::TopFieldFirst);
+    let bff = Some(FieldOrder::BottomFieldFirst);
+    let cases: &[(Rotation, bool, Option<FieldOrder>, Option<&str>, Option<bool>)] = &[
+        (Rotation::Cw90, false, tff, Some("0"), None),
+        (Rotation::Ccw90, false, bff, Some("0"), None),
+        (Rotation::Rotate180, false, tff, Some("1"), Some(false)),
+        (Rotation::None, true, bff, Some("2"), Some(true)),
+        // A half turn plus a vertical mirror is a horizontal mirror: no change.
+        (Rotation::Rotate180, true, tff, None, Some(true)),
+        // Progressive source: nothing to stamp.
+        (Rotation::Cw90, false, Some(FieldOrder::Progressive), None, None),
+        (Rotation::Rotate180, false, None, None, None),
+    ];
+    for &(rotation, flip_v, detected, stamp, encoder) in cases {
+        let job = job_for(rotation, flip_v, detected);
+        let pipeline = job.effective_pipeline();
+        assert_eq!(
+            ScriptGenerator::output_field_order(&job, &pipeline),
+            encoder,
+            "{rotation:?} flip_v={flip_v} {detected:?}"
+        );
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(!script.contains("GEOM_"), "{name}: unsubstituted geometry tag");
+            let line = stamp.map(|v| format!("clip = core.std.SetFieldBased(clip, {v})\n"));
+            match line {
+                Some(l) => {
+                    let at = script.find(&l).unwrap_or_else(|| panic!("{name} {rotation:?}: no `{l}`"));
+                    // After the turn, before the format restore.
+                    assert!(at > script.find("_geom_src_format = clip.format").unwrap(), "{name}");
+                    assert!(at < script.find("if clip.format.id != _geom_src_format.id").unwrap(), "{name}");
+                }
+                None => {
+                    let a = script.find("_geom_src_format = clip.format").unwrap();
+                    let b = script.find("if clip.format.id != _geom_src_format.id").unwrap();
+                    assert!(!script[a..b].contains("SetFieldBased("), "{name} {rotation:?}: stamped");
+                }
+            }
+        }
+    }
+}
+
+/// Task #56 F5: a still-interlaced 4:2:0 picture is resized to a height that
+/// is a multiple of 4 (each field needs a whole chroma height); everything else
+/// keeps the even rounding. A quarter turn before the resize makes it
+/// progressive, so the step goes back to 2.
+#[test]
+fn test_254_resize_height_step_follows_the_fields() {
+    create_output_dir();
+    let job_for = |detected: Option<FieldOrder>, pix: &str, rotation: Rotation| {
+        let mut job = create_base_job("test_254_resize_height_step");
+        job.qtgmc_parameters.enabled = false;
+        job.detected_field_order = detected;
+        job.input_pixel_format = Some(pix.to_string());
+        job.input_width = Some(720);
+        job.input_height = Some(480);
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..job.qtgmc_parameters.clone() },
+            geometry: GeometryParameters { enabled: rotation != Rotation::None, rotation, ..Default::default() },
+            crop_resize: CropResizeParameters {
+                enabled: true,
+                resize_enabled: true,
+                target_width: Some(160),
+                maintain_aspect: true,
+                ..Default::default()
+            },
+            ..ProcessingPipeline::default()
+        });
+        job
+    };
+    let tff = Some(FieldOrder::TopFieldFirst);
+    for (detected, pix, rotation, step, size) in [
+        (tff, "yuv420p", Rotation::None, 4, (160, 104)),
+        (tff, "yuv420p10le", Rotation::None, 4, (160, 104)),
+        (tff, "yuv422p", Rotation::None, 2, (160, 106)),
+        (Some(FieldOrder::Progressive), "yuv420p", Rotation::None, 2, (160, 106)),
+        (tff, "yuv420p", Rotation::Cw90, 2, (160, 240)),
+    ] {
+        let job = job_for(detected, pix, rotation);
+        let pipeline = job.effective_pipeline();
+        assert_eq!(ScriptGenerator::framing_steps(&job, &pipeline), (2, step), "{pix} {detected:?} {rotation:?}");
+        assert_eq!(job.estimated_output_size(), Some(size), "{pix} {detected:?} {rotation:?}");
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(&format!("_height_step = {step}\n")), "{name} {pix} {detected:?}");
+            assert!(script.contains("target_h = _height(target_w / _fit_aspect)"), "{name}");
+        }
+    }
+}
+
+/// Task #56 F4: Color Format "original" delivers the source's depth even when a
+/// pass changed it (Deband's output_depth, 16 by default, is the working depth
+/// of the passes after it). The restore sits where the output conversion
+/// would, after Deband, and only under "original"; any other Color Format
+/// converts anyway.
+#[test]
+fn test_255_original_color_format_restores_the_source_depth() {
+    create_output_dir();
+    for &cs in ChromaSubsampling::ALL.iter() {
+        let mut job = create_base_job("test_255_depth_restore");
+        job.qtgmc_parameters.enabled = false;
+        job.encoding_settings.chroma_subsampling = cs;
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: QTGMCParameters { enabled: false, ..job.qtgmc_parameters.clone() },
+            deband: DebandParameters { enabled: true, ..Default::default() },
+            ..ProcessingPipeline::default()
+        });
+        let original = job.output_chroma_subsampling().vapoursynth_format().is_none();
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(!script.contains("DEPTH_RESTORE"), "{name} {cs:?}: unsubstituted tag");
+            assert!(script.contains("output_depth=16,"), "{name} {cs:?}: Deband's working depth");
+            let restore = script.find("bits_per_sample=_source_format.bits_per_sample");
+            assert_eq!(restore.is_some(), original, "{name} {cs:?}");
+            if let Some(at) = restore {
+                assert!(at > script.find("core.neo_f3kdb.Deband(").unwrap(), "{name}: restore before Deband");
+                assert!(script.find("_source_format = clip.format").unwrap() < script.find("core.neo_f3kdb.Deband(").unwrap());
+                assert!(script[at..].contains("dither_type=\"error_diffusion\""), "{name}: undithered");
+            }
+        }
+    }
+}
+
+/// Task #56 F9: MVTools' Compensate, Degrain and BlockFPS divide by zero on a
+/// picture exactly two block rows tall (`(by + nBlkY - 3) / (nBlkY - 2)`):
+/// SIGFPE on x86, the bottom block row silently 100+ levels off on arm64,
+/// where nothing fails to say so; one block row or column is that far off
+/// on every CPU. So every template call that reaches them
+/// with an overlap must sit in a function handed to
+/// `_pf.mvtools_blocks(clip, fn, ...)` (directly, or through a function that is),
+/// which pads a picture under `MVTOOLS_MIN_COLS` x `MVTOOLS_MIN_ROWS`. And the template's
+/// modules that call them are only the ones the template wraps.
+#[test]
+fn test_256_mvtools_overlap_callers_pad_short_pictures() {
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let read = |name: &str| {
+        std::fs::read_to_string(templates_dir.join(name))
+            .unwrap_or_else(|e| panic!("read {name}: {e}"))
+            .replace("\r\n", "\n")
+    };
+    let formats = read("plugin_formats.py");
+    // Two block rows are 2b - o <= H < 3b - 2o, one column W < 2b - o: with
+    // b <= 32 and o >= 2, 94 rows and 62 columns are safe, rounded up to whole
+    // field chroma samples.
+    assert!(formats.contains("MVTOOLS_MIN_ROWS = 96"), "rows: 3 x 32 - 2 x 1 = 94, rounded up");
+    assert!(formats.contains("MVTOOLS_MIN_COLS = 64"), "columns: 2 x 32 - 2 = 62, rounded up");
+    assert!(formats.contains("def mvtools_blocks(clip, fn, *, label=None):"));
+
+    fn enclosing_def(lines: &[&str], at: usize) -> Option<String> {
+        let indent = |l: &str| l.len() - l.trim_start().len();
+        let own = indent(lines[at]);
+        lines[..at].iter().rev().find_map(|l| {
+            let t = l.trim_start();
+            (t.starts_with("def ") && indent(l) < own)
+                .then(|| t["def ".len()..].split('(').next().unwrap().to_string())
+        })
+    }
+
+    let template = read(vapourbox_worker::script_generator::TEMPLATE_FILE);
+    let lines: Vec<&str> = template.lines().collect();
+    // How the template reaches MVTools with an overlap: havsfunc's wrappers,
+    // the vendored modules, and the plugin's own functions.
+    let callers = [
+        "haf.QTGMC(",
+        "haf.SMDegrain(",
+        "haf.MCTemporalDenoise(",
+        "haf.TemporalDegrain(",
+        "haf.GSMC(",
+        "_SpotLess(",
+        "_mClean(",
+        "_TemporalDegrain2(",
+        "core.mv.Compensate(",
+        "core.mv.Degrain",
+        "core.mv.BlockFPS(",
+    ];
+    let mut sites = 0;
+    let mut problems = Vec::new();
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+        let Some(call) = callers.iter().find(|c| line.contains(*c)) else { continue };
+        sites += 1;
+        let mut names: Vec<String> = enclosing_def(&lines, i).into_iter().collect();
+        let mut ok = false;
+        for _ in 0..3 {
+            if names.iter().any(|n| template.contains(&format!("_pf.mvtools_blocks(clip, {n},"))) {
+                ok = true;
+                break;
+            }
+            let mut next = Vec::new();
+            for n in &names {
+                for (j, l) in lines.iter().enumerate() {
+                    if !l.trim_start().starts_with("def ")
+                        && (l.contains(&format!("{n}(")) || l.contains(&format!(" {n},")))
+                    {
+                        next.extend(enclosing_def(&lines, j));
+                    }
+                }
+            }
+            names = next;
+        }
+        if !ok {
+            problems.push(format!(
+                "pipeline_template.vpy:{}: {call} reaches MVTools outside mvtools_blocks(); wrap it in a \
+                 function and pass it as _pf.mvtools_blocks(clip, fn, label=...)",
+                i + 1
+            ));
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    assert!(sites >= 9, "the scan found only {sites} MVTools call sites");
+
+    // Modules that call MVTools' overlap functions themselves: each must be
+    // reached only through a wrapped name above (stabilize.py's
+    // DepanCompensate is a different function, with no overlap windows).
+    let wrapped_modules = ["spotless.py", "mclean.py", "temporaldegrain2.py", "hybrid_mv.py"];
+    for entry in std::fs::read_dir(&templates_dir).expect("templates dir") {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        if !name.ends_with(".py") || name == "plugin_formats.py" {
+            continue;
+        }
+        let body = read(&name);
+        let calls_overlap = body.lines().any(|l| {
+            !l.trim_start().starts_with('#')
+                && (l.contains(".Compensate(") && !l.contains("DepanCompensate(")
+                    || l.contains(".Degrain")
+                    || l.contains(".BlockFPS("))
+        });
+        assert!(
+            !calls_overlap || wrapped_modules.contains(&name.as_str()),
+            "{name} calls MVTools' Compensate/Degrain/BlockFPS: wrap its template call in mvtools_blocks() \
+             and add it here"
+        );
+    }
+}
+
+/// Task #56 F2: QTGMC with SrchClipPP 1 (Super / Ultra Fast, or set by hand)
+/// halves the frame for its motion search, which a 4:2:x width 2 mod 4 can't
+/// take, so the template runs it under the contract that pads the width.
+/// Every other SrchClipPP keeps QTGMC's plain contract: their search clip is
+/// resampled at a size that follows the width, so padding would move every
+/// column (docs/reports/task-56-format-sweep-findings).
+#[test]
+fn test_257_qtgmc_pads_the_width_only_for_srch_clip_pp_1() {
+    create_output_dir();
+    let cases = [
+        (QTGMCPreset::Placebo, None, 3),
+        (QTGMCPreset::Medium, None, 3),
+        (QTGMCPreset::Fast, None, 2),
+        (QTGMCPreset::VeryFast, None, 2),
+        (QTGMCPreset::SuperFast, None, 1),
+        (QTGMCPreset::UltraFast, None, 1),
+        (QTGMCPreset::Draft, None, 0),
+        (QTGMCPreset::Fast, Some(1), 1),
+        (QTGMCPreset::SuperFast, Some(3), 3),
+    ];
+    for (preset, srch, want) in cases {
+        let params = QTGMCParameters {
+            enabled: true,
+            preset,
+            tff: Some(true),
+            srch_clip_pp: srch,
+            ..QTGMCParameters::default()
+        };
+        assert_eq!(params.effective_srch_clip_pp(), want, "{preset:?} {srch:?}");
+        let mut job = create_base_job("test_257_qtgmc_srch_clip_pp");
+        job.qtgmc_parameters = params.clone();
+        job.processing_pipeline =
+            Some(ProcessingPipeline { deinterlace: params, ..ProcessingPipeline::default() });
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            let halves = if want == 1 { "True" } else { "False" };
+            assert!(script.contains(&format!("if {halves}:\n    clip = _pf.run_within(clip, 'havsfunc.QTGMC[SrchClipPP=1]'")),
+                "{name} {preset:?} {srch:?}: SrchClipPP {want} should pick {halves}");
+            assert!(!script.contains("QTGMC_HALVES_SEARCH"), "{name}: placeholder left behind");
+            assert!(script.contains("_pf.mvtools_blocks(clip, _deinterlace_qtgmc, label='Deinterlace')"),
+                "{name}: QTGMC is not guarded against two block rows (F9)");
+        }
+    }
 }

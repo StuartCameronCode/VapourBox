@@ -132,8 +132,8 @@
       "optional": true,
       "vapoursynth": { "name": "output_depth" },
       "ui": {
-        "label": "Output Depth",
-        "description": "Output bit depth (8, 10, 12, 14, 16)",
+        "label": "Working Depth",
+        "description": "The bit depth the passes after Deband work at (8, 10, 12, 14, 16). The file gets the Color Format's depth: \"Original\" is the source's",
         "widget": "dropdown"
       }
     }
