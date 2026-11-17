@@ -154,9 +154,10 @@ impl VideoJob {
     /// Fill every source fact the job left unset from its [`SourceModel`]
     /// (task #50). A value the job carries is never touched, as the old
     /// `fill_*` probes never touched one: the projection only replaces them.
-    /// `total_frames` is not filled from it: a job without a count is
-    /// counted by decoding (`resolve_source`), which on some sources
-    /// disagrees with the model's count by a few frames (task #50 report).
+    /// `total_frames` is the model's count over the trim (task #54: the
+    /// model counts what the decoders produce, so an MP4 edit list's discarded
+    /// pre-roll is left out). `resolve_source` replaces it by a decoded count
+    /// only where [`Self::counts_by_decoding`].
     ///
     /// [`SourceModel`]: crate::source_model::SourceModel
     pub fn apply_source_model(&mut self) {
@@ -218,6 +219,45 @@ impl VideoJob {
                 }
                 _ => Some(g),
             });
+        }
+        if self.total_frames.is_none() && v.frame_count > 0 {
+            let full = i32::try_from(v.frame_count).unwrap_or(i32::MAX);
+            self.total_frames = Some(match (self.start_frame, self.end_frame) {
+                (Some(s), Some(e)) => (e - s + 1).max(0),
+                (None, Some(e)) => e + 1,
+                (Some(s), None) => (full - s).max(0),
+                (None, None) => full,
+            });
+        }
+    }
+
+    /// The source's whole length in frames from its model, `None` when there
+    /// is no model or [`Self::counts_by_decoding`].
+    pub fn model_frame_count(&self) -> Option<i32> {
+        if self.counts_by_decoding() {
+            return None;
+        }
+        self.source
+            .as_ref()
+            .map(|m| m.video.frame_count)
+            .filter(|n| *n > 0)
+            .map(|n| i32::try_from(n).unwrap_or(i32::MAX))
+    }
+
+    /// Whether the source's length must be counted by decoding it
+    /// (`-count_frames`), not taken from its model: only when there is no
+    /// model, or for an MPEG-PS/TS whose timestamps reset read directly (a
+    /// job the app did not prepare, `continuity_checked` false). The model
+    /// counts such a file's last segment, while the decoder plays through the
+    /// reset (`seek_reset_h264.ts`: 150 vs 300). The app decodes the joined
+    /// copy and sends that copy's model (task #21).
+    pub fn counts_by_decoding(&self) -> bool {
+        match &self.source {
+            None => true,
+            Some(m) => {
+                !self.continuity_checked
+                    && m.continuity.as_ref().is_some_and(|c| c.needs_copy())
+            }
         }
     }
 

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Edit-list frame count</title>
+<style>
+:root{--bg:#fff;--fg:#1d1d1f;--mut:#666;--line:#ddd;--hl:#fff4d6}
+@media (prefers-color-scheme:dark){:root{--bg:#16181b;--fg:#e8e8e8;--mut:#9a9a9a;--line:#333;--hl:#3a3320}}
+body{background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,system-ui,sans-serif;max-width:920px;margin:0 auto;padding:24px 16px}
+h1{font-size:1.6em} h2{margin-top:2em;border-bottom:1px solid var(--line)}
+table{border-collapse:collapse;width:100%;font-size:13px;margin:12px 0;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:4px 8px;text-align:left} td:not(:first-child){text-align:right}
+tr.diff td{background:var(--hl)} code{font-size:.92em} .note{color:var(--mut)}
+</style></head><body>
+<h1>An MP4 edit list's discarded packets are not frames</h1>
+<p class="note">Task #54 (found in task #50). 2026-11-17. macOS arm64 (M-series), FFmpeg 9.0.2 (deps 1.16.0 for the
+tables, 1.17.0-rc1 for the heavy tests: the same FFmpeg build), debug worker.</p>
+
+<h2>The fault</h2>
+<p>The source model's frame count took <code>nb_frames</code> whenever the container stores it. In an MP4/MOV that is
+the sample table's count. An edit list that starts after the media's first sample keeps the samples from the keyframe
+before it, so the decoder can reach the first shown picture, and the mov demuxer marks them <em>discard</em>
+(<code>D</code> in ffprobe's <code>packet=flags</code>). No decode outputs them, but <code>nb_frames</code> counts them.
+<code>Tests/TestResources/small_clip.mp4</code> stores 3154 and decodes 3151.</p>
+<p>The app sends the model's count as <code>totalFrames</code>. So its timeline offered frames 3151–3153, which do
+not exist, and an untrimmed encode asked <code>pipe_source</code> for 3154 frames. <code>pipe_source</code> answers a
+frame past the end of the decode with the last one it read, so <strong>the output ended on three copies of the last
+picture</strong>. Pre-existing: the app counted this way before task #50.</p>
+
+<h2>1. "Packets not discarded" is not the count either</h2>
+<p>The task proposed counting the video packets not marked discard. A second fixture shows why that is wrong.
+<code>edit_list_bframes.mp4</code> (<code>Tests/TestResources/generate_edit_list_test.sh</code>) is an x264 clip with
+3 B-frames, stream-copied with <code>-ss 2.3 -t 4.1</code>. The cut's edit list discards 21 pre-roll packets, and the
+copy's <code>-t</code> also drops the last B pictures, so the kept pictures' timestamps have holes (4.104 → 4.238 s).
+The source grid (issue #174) fills each hole by repeating the slot before it, as it does for an AVI's null frames.</p>
+<table>
+<tr><th>file</th><th>stored (<code>nb_frames</code>)</th><th>kept (not <code>D</code>)</th><th><code>-count_frames</code></th><th>grid decode</th><th>last kept slot + 1</th></tr>
+<tr class="diff"><td>small_clip.mp4</td><td>3154</td><td>3151</td><td>3151</td><td>3151</td><td>3151</td></tr>
+<tr class="diff"><td>edit_list_bframes.mp4</td><td>146</td><td>125</td><td>125</td><td>128</td><td>128</td></tr>
+</table>
+<p>So the count is the rule the model already used for Matroska: the last <em>kept</em> picture's slot on the grid, plus
+one (<code>frame_count_from_last_picture</code>). Since issue #174 the grid decode is what every decoder produces, so
+it is the one count that matches them.</p>
+
+<h2>2. What was built</h2>
+<ul>
+<li><code>VIDEO_START_PROBE_ARGS</code> (the first 64 packets, already read) asks for <code>flags</code>;
+<code>source_decode::discards_from_probe</code> finds a <code>D</code>.</li>
+<li>For an MP4/MOV with a stored count, the tail probe (<code>probe_tail</code>: the last 3 s of video packets, with
+flags) runs alongside the other probes. It returns the last kept picture and whether any packet there was discarded
+(a demuxer can keep B pictures past an edit's end). Matroska's existing last-picture probe now skips discarded
+packets too; Matroska never marks video packets discard.</li>
+<li><code>frame_count</code> rule 2a: with a stored count and any discard, the last kept picture's slot + 1. If
+there is no grid or no last picture, the stored count is used, as before.</li>
+<li>A job without a count takes the model's (<code>VideoJob::apply_source_model</code>, over its trim). There are
+two exceptions (<code>counts_by_decoding</code>): a job with no model, and a raw MPEG-PS/TS whose timestamps reset,
+in a job the app did not prepare. That file's model counts its last segment (<code>seek_reset_h264.ts</code>: 150),
+while the decoder plays through the reset (300). Those two still use <code>-count_frames</code>. Audio
+Restoration's drift, which read the whole source with <code>-count_frames</code> on every trimmed job, takes the
+model's count the same way.</li>
+</ul>
+
+<h2>3. Every committed fixture</h2>
+<p><code>scripts/count_table.py</code> (task #50's script plus a <code>kept</code> column), with the new worker.
+"grid" is the frames the worker's own untrimmed decode produces (its frame-0 filters through ffmpeg). Highlighted:
+the model differs from the grid decode.</p>
+<table id="counts"><tr><th>file</th><th>model</th><th>nb_frames</th><th>kept</th><th>-count_frames</th><th>grid</th></tr></table>
+<p>The model equals the grid decode on every fixture that has a grid, except the raw reset TS. A job decodes that
+file from the joined copy, or counts it by decoding (above). The two edit-list rows are the only counts that
+changed: every other row is identical to task #50's table. The two <code>conf_reset*.mpg</code> rows (raw reset
+files, no grid) are the same case as <code>seek_reset_dvd_pal.mpg</code>.</p>
+<p class="note">Limits: these are committed fixtures. Only two have discards, both made by ffmpeg. No
+phone/camera MP4 with a real edit list was at hand; a multi-entry edit list (discards in mid-file only) is not
+detected: see "Not covered".</p>
+
+<h2>4. Cost</h2>
+<p><code>scripts/edit_list_cost.py</code> builds a 2 h MP4 with an edit list (small_clip stream-copied 70 times:
+480 MB, 220 780 samples) in a temporary directory. It times each way of counting, median of 5 runs, warm cache:</p>
+<table id="cost"><tr><th>how</th><th>seconds</th></tr></table>
+<p>All four counts agree: <span id="agree"></span>. The tail probe reads about 3 s of the file wherever it is.
+The whole-file read is cheap here only because the file is cached and local. Task #51 measured
+<strong>~16.5 s/GB</strong> reading from a network share, so on a 10 GB camera file it would take minutes. That is
+why the count is not "every packet".</p>
+<p class="note">Limits: warm-cache, local SSD; the network-share figure is task #51's, not re-measured here.</p>
+
+<h2>5. DVB-T to AVI: 126 or 128?</h2>
+<p>A heavy test encoded <code>pal-dvbt-fieldcoded-25i.ts</code> to AVI without a count and expected 126 frames, the
+<code>-count_frames</code> answer. Its grid decode is 128 slots holding 126 distinct pictures: two slots repeat the
+picture before them, where the field-coded stream leaves a gap (measured with <code>framemd5</code>: two duplicated
+hashes, one of them slots 125/126). An app job has always sent the model's 128, the timeline's length. A job without
+a count now encodes the same 128, and the test says so.</p>
+
+<h2>6. Tests</h2>
+<ul>
+<li>Rust unit tests: rule 2a on both fixtures' numbers (3151, 128); the fallbacks (no grid or last picture, the
+stored count; no discard, the tail never asked; VFR first); the tail parser (discards skipped, CRLF);
+<code>discards_from_probe</code>; <code>apply_source_model</code>'s count over every trim shape;
+<code>counts_by_decoding</code>.</li>
+<li>Heavy, <code>integration_source_grid_test.dart</code>: small_clip (frames 1, 1575, 3148, 3150) and
+edit_list_bframes (1, 60, 125, 127, two of them in holes). It checks that the app's count is the independent
+timestamp placement's slots, that the untrimmed encode is every slot, and that the preview, the app's Original and a
+trim are the right slot at each frame. A new group encodes interlaced_test.avi and edit_list_bframes with no count
+and expects every slot.</li>
+<li>Heavy, <code>integration_video_start_offset_test.dart</code>: DVB-T to AVI is 128; small_clip copied into AVI
+stores 3151 and ends on the source's last four pictures, not repeats.</li>
+<li><code>integration_v210_output_test.dart</code> compared a countless job's output with the source's
+<code>-count_frames</code> (75). It now compares with the model's 79.</li>
+</ul>
+<p id="results"><strong>Results</strong> (macOS arm64, 2026-11-17). <code>cargo test</code>: every suite passes
+except <code>subtitle_integration_test</code>, which needs the Whisper add-on (not installed on this machine).
+<code>flutter test --exclude-tags heavy,gpu</code>: 1639 passed, 7 skipped. Heavy:
+<code>integration_source_grid_test.dart</code> 37/37. <code>integration_video_start_offset_test.dart</code> plus
+<code>integration_v210_output_test.dart</code>: 89 passed, 1 failed. The failure was "late_video.mkv untrimmed to AVI
+with Convert": pictures 2–7 came out white, which is task #58's intermittent <code>pipe_source</code> fault, on a
+fixture whose count this change does not touch (100 either way). It passed 3 of 3 re-runs. A CLI job on the raw
+reset TS still counts by decoding (300 frames encoded); one on small_clip takes the model's 3151 and encodes 3151.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>Trigger on a discard, not on every MP4.</strong> Where the slot count and <code>nb_frames</code> differ
+without discards (timestamp holes in a plain MP4), the slot count would also be right. But that would change counts
+on files with no reported fault. Every source without discards keeps its count exactly as before.</li>
+<li><strong>Keep <code>-count_frames</code> for a raw reset TS/PS outside the app.</strong> Dropping it would halve
+such a CLI encode. Making the model count through a reset is a change to task #21's rules, not to this one's.</li>
+<li><strong>No schema bump.</strong> No field's meaning changed; <code>storedFrames</code> stays the container's
+raw count.</li>
+</ul>
+
+<h2>Not covered</h2>
+<ul>
+<li>A file whose discards are only in mid-file (a multi-entry edit list, as some editors write), none in the first
+64 packets or the last 3 s, still counts <code>nb_frames</code>. Nothing cheap detects it, and no such file was at
+hand.</li>
+<li>One platform. The change is ffprobe-output parsing with no platform branch.</li>
+<li>The app was not driven by hand. The heavy test checks what its timeline uses: the model's count, and the preview
+and Original at the last frames.</li>
+<li>Found while checking trims at the end, filed as task #59: in/out points become frames by
+<code>round(pos × N)</code>, while the scrubber uses <code>pos × (N − 1)</code>. An out point at the last frame
+therefore asks for one frame past the end.</li>
+</ul>
+
+<script>
+const counts = [{"file": "avi_aac_overshoot.mkv", "model": 200, "nb": null, "kept": 200, "read": 200, "grid": 200}, {"file": "avi_h264_bframes.avi", "model": 90, "nb": 90, "kept": 90, "read": 90, "grid": null}, {"file": "avi_ntsc_intra.avi", "model": 90, "nb": 90, "kept": 90, "read": 90, "grid": 90}, {"file": "blended_film_50i.mkv", "model": 150, "nb": null, "kept": 150, "read": 150, "grid": 150}, {"file": "blended_pal_5994i.mkv", "model": 150, "nb": null, "kept": 150, "read": 150, "grid": 150}, {"file": "colorize_test.mp4", "model": 120, "nb": 120, "kept": 120, "read": 120, "grid": 120}, {"file": "conf_delayed.avi", "model": 100, "nb": 100, "kept": 100, "read": 100, "grid": null}, {"file": "conf_late_video.ts", "model": 100, "nb": null, "kept": 100, "read": 100, "grid": 100}, {"file": "conf_plain.mp4", "model": 100, "nb": 100, "kept": 100, "read": 100, "grid": 100}, {"file": "conf_reset.mpg", "model": 51, "nb": null, "kept": 100, "read": 100, "grid": null}, {"file": "conf_reset_offgrid.mpg", "model": 50, "nb": null, "kept": 100, "read": 100, "grid": null}, {"file": "edit_list_bframes.mp4", "model": 128, "nb": 146, "kept": 125, "read": 125, "grid": 128}, {"file": "face_restore_test.mp4", "model": 150, "nb": 150, "kept": 150, "read": 150, "grid": 150}, {"file": "hard_telecine_test.avi", "model": 90, "nb": 90, "kept": 90, "read": 90, "grid": null}, {"file": "interlaced_test.avi", "model": 79, "nb": 79, "kept": 75, "read": 75, "grid": 79}, {"file": "late_video.mkv", "model": 100, "nb": null, "kept": 100, "read": 100, "grid": 100}, {"file": "late_video.mp4", "model": 100, "nb": 100, "kept": 100, "read": 100, "grid": 100}, {"file": "late_video_gop.ts", "model": 100, "nb": null, "kept": 100, "read": 100, "grid": 100}, {"file": "late_video_intra.ts", "model": 100, "nb": null, "kept": 100, "read": 100, "grid": 100}, {"file": "null_frames_mid.avi", "model": 200, "nb": 200, "kept": 195, "read": 195, "grid": 200}, {"file": "pal-dvbt-fieldcoded-25i.ts", "model": 128, "nb": null, "kept": 252, "read": 126, "grid": 128}, {"file": "pal-sd-25.mov", "model": 125, "nb": 125, "kept": 125, "read": 125, "grid": 125}, {"file": "primed_aac.mkv", "model": 100, "nb": null, "kept": 100, "read": 100, "grid": 100}, {"file": "primed_mp3.mp4", "model": 100, "nb": 100, "kept": 100, "read": 100, "grid": 100}, {"file": "prores422_10bit_telecine.mov", "model": 30, "nb": 30, "kept": 30, "read": 30, "grid": 30}, {"file": "reserved_colour_tags.mov", "model": 15, "nb": 15, "kept": 15, "read": 15, "grid": 15}, {"file": "reserved_colour_tags_4444a.mov", "model": 10, "nb": 10, "kept": 10, "read": 10, "grid": 10}, {"file": "seek_dvd_pal.mpg", "model": 150, "nb": null, "kept": 150, "read": 150, "grid": null}, {"file": "seek_gop_late_video.ts", "model": 150, "nb": null, "kept": 150, "read": 150, "grid": 150}, {"file": "seek_reset_dvd_pal.mpg", "model": 150, "nb": null, "kept": 300, "read": 300, "grid": null}, {"file": "seek_reset_h264.ts", "model": 150, "nb": null, "kept": 300, "read": 300, "grid": 300}, {"file": "seek_timebase_2997.mov", "model": 90, "nb": 90, "kept": 90, "read": 90, "grid": 90}, {"file": "small_clip.mp4", "model": 3151, "nb": 3154, "kept": 3151, "read": 3151, "grid": 3151}, {"file": "soft_telecine_dvd.mkv", "model": 150, "nb": null, "kept": 120, "read": 120, "grid": 150}, {"file": "soft_telecine_dvd.vob", "model": 149, "nb": null, "kept": 120, "read": 120, "grid": 149}, {"file": "soft_telecine_test.mkv", "model": 120, "nb": null, "kept": 120, "read": 120, "grid": 120}];
+const cost = {"file": {"bytes": 479333979, "duration": 7366.599933, "nb_frames": 220780}, "seconds": {"tail": 0.05354274995625019, "head": 0.052038292051292956, "probe": 0.12831670802552253, "packets": 0.6480534169822931, "decode": 20.69403770903591}, "counts": {"tail_slot_plus_one": 220777, "head_discards": 3, "kept_packets": 220777, "decoded": 220777, "model": 220777}};
+const t = document.getElementById('counts');
+for (const r of counts) {
+  const tr = document.createElement('tr');
+  if (r.grid !== null && r.grid !== r.model) tr.className = 'diff';
+  for (const v of [r.file, r.model, r.nb, r.kept, r.read, r.grid]) {
+    const td = document.createElement('td'); td.textContent = v === null ? '—' : v; tr.appendChild(td);
+  }
+  t.appendChild(tr);
+}
+const names = {tail: 'tail probe (last 3 s, flags)', head: 'head probe (64 packets, flags)',
+  probe: 'the whole --probe-source', packets: 'every packet’s flags (whole-file read)',
+  decode: 'ffprobe -count_frames (whole decode, one run)'};
+const c = document.getElementById('cost');
+for (const [k, v] of Object.entries(cost.seconds)) {
+  const tr = document.createElement('tr');
+  for (const x of [names[k], v.toFixed(2)]) { const td = document.createElement('td'); td.textContent = x; tr.appendChild(td); }
+  c.appendChild(tr);
+}
+const k = cost.counts;
+document.getElementById('agree').textContent =
+  `tail slot + 1 ${k.tail_slot_plus_one}, kept packets ${k.kept_packets}, decoded ${k.decoded}, model ${k.model} ` +
+  `(nb_frames ${cost.file.nb_frames}; ${k.head_discards} discarded in the head)`;
+</script>
+</body></html>

@@ -193,7 +193,7 @@ pub const VIDEO_START_PACKETS: u32 = 64;
 pub const VIDEO_START_PROBE_ARGS: [&str; 10] = [
     "-v", "error",
     "-select_streams", "v:0",
-    "-show_entries", "packet=pts_time:stream=start_time,r_frame_rate,avg_frame_rate:format=start_time",
+    "-show_entries", "packet=pts_time,flags:stream=start_time,r_frame_rate,avg_frame_rate:format=start_time",
     "-read_intervals", "%+#64",
     "-of", "json",
 ];
@@ -235,6 +235,19 @@ pub fn video_start_from_probe(json: &serde_json::Value) -> f64 {
         (Some(c), Some(f)) if f > c => f - c,
         _ => 0.0,
     }
+}
+
+/// Whether any packet [`VIDEO_START_PROBE_ARGS`] listed is one the demuxer
+/// marks discard (`D` in its flags): an MP4/MOV edit list's pre-roll, kept
+/// so the decoder can reach the first shown picture but never output. Such a
+/// source's stored count (`nb_frames`) counts pictures no decode delivers
+/// (task #54, `source_model::frame_count`).
+pub fn discards_from_probe(json: &serde_json::Value) -> bool {
+    json.get("packets")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+        .any(|p| p.get("flags").and_then(|f| f.as_str()).is_some_and(|f| f.contains('D')))
 }
 
 /// ffprobe's JSON answer to `args` for a file, `None` on any failure.
@@ -1286,6 +1299,23 @@ mod tests {
     }
 
     #[test]
+    fn discarded_packets_are_found_in_the_head_probe() {
+        // small_clip.mp4: its edit list keeps three pre-roll packets.
+        let json = serde_json::json!({ "packets": [
+            { "pts_time": "-0.100100", "flags": "KD_" },
+            { "pts_time": "-0.066733", "flags": "_D_" },
+            { "pts_time": "0.000000", "flags": "___" },
+        ]});
+        assert!(discards_from_probe(&json));
+        let json = serde_json::json!({ "packets": [
+            { "pts_time": "0.000000", "flags": "K__" },
+            { "pts_time": "0.040000" },
+        ]});
+        assert!(!discards_from_probe(&json));
+        assert!(!discards_from_probe(&serde_json::json!({})));
+    }
+
+    #[test]
     fn the_probe_reads_as_many_packets_as_it_says() {
         assert!(VIDEO_START_PROBE_ARGS.contains(&format!("%+#{VIDEO_START_PACKETS}").as_str()));
     }
@@ -1642,7 +1672,7 @@ mod tests {
     #[test]
     fn the_probe_args_ask_for_the_rates_too() {
         assert!(VIDEO_START_PROBE_ARGS.contains(
-            &"packet=pts_time:stream=start_time,r_frame_rate,avg_frame_rate:format=start_time"
+            &"packet=pts_time,flags:stream=start_time,r_frame_rate,avg_frame_rate:format=start_time"
         ));
     }
 

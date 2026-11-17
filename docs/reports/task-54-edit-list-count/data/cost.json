@@ -1,0 +1,21 @@
+{
+ "file": {
+  "bytes": 479333979,
+  "duration": 7366.599933,
+  "nb_frames": 220780
+ },
+ "seconds": {
+  "tail": 0.05354274995625019,
+  "head": 0.052038292051292956,
+  "probe": 0.12831670802552253,
+  "packets": 0.6480534169822931,
+  "decode": 20.69403770903591
+ },
+ "counts": {
+  "tail_slot_plus_one": 220777,
+  "head_discards": 3,
+  "kept_packets": 220777,
+  "decoded": 220777,
+  "model": 220777
+ }
+}

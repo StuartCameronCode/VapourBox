@@ -15,6 +15,12 @@
 // stored frame decoded once (`-fps_mode passthrough`) and placed on the grid
 // by its ffprobe timestamp. Never one pipeline path against another.
 // See docs/reports/issue-174-source-grid.
+//
+// Task #54 added the MP4s whose edit list discards pre-roll: their stored
+// count (`nb_frames`) counts packets no decode outputs, so the app's
+// timeline, and a job sent without a count, asked for frames that do not
+// exist (small_clip.mp4: 3154 for 3151). See
+// docs/reports/task-54-edit-list-count.
 @Tags(['heavy'])
 library;
 
@@ -58,6 +64,13 @@ const _fixtures = [
       'DVD-shaped soft telecine, MPEG-PS at 29.97: 3:2 repeats', [3, 10, 43]),
   _Fixture('soft_telecine_dvd.mkv',
       'the same stream with MakeMKV-like 23.976 timestamps', [3, 10, 43]),
+  _Fixture('small_clip.mp4',
+      'edit list discarding 3 pre-roll packets: 3154 stored, 3151 slots',
+      [1, 1575, 3148, 3150]),
+  _Fixture('edit_list_bframes.mp4',
+      'edit list pre-roll and holes before the end: 146 stored, 125 kept, '
+          '128 slots',
+      [1, 60, 125, 127]),
 ];
 
 /// The reference: the source as the app numbers it.
@@ -270,6 +283,26 @@ void main() {
       }
     });
   }
+
+  // A job without a count (the CLI, a hand-written job) takes the source
+  // model's, as the app's does (task #54). `-count_frames`, which such a job
+  // used before, counted 75 for interlaced_test.avi's 79 slots and 125 for
+  // edit_list_bframes.mp4's 128.
+  group('a job sent without a count encodes every slot', () {
+    for (final file in ['interlaced_test.avi', 'edit_list_bframes.mp4']) {
+      test(file, () async {
+        final video = _resource(file);
+        final ref = await _reference(video);
+        final stem = p.basenameWithoutExtension(file);
+        final r = await WorkerHarness.runJob(
+            _job(video, ref, 'nocount_$stem').toJson(),
+            label: 'grid_no_count');
+        expect(r.success, isTrue, reason: r.error);
+        expect(await _lumaHashes(r.outputPath!, []),
+            ref.slotHashes(0, ref.slots.length - 1));
+      });
+    }
+  });
 
   group('the Soft Telecine method keeps every film frame', () {
     for (final (file, fps) in [

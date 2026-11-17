@@ -327,6 +327,46 @@ pub fn frame_count_with_untimed_tail(
     n.max(by_duration)
 }
 
+/// What the tail probe ([`probe_tail`]) found among the last
+/// [`TAIL_FRAMES_PROBE_SECONDS`] of a file's video packets.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct TailPictures {
+    /// The largest PTS of a packet the demuxer does not mark discard: the
+    /// last picture a decode outputs.
+    pub last_kept: Option<f64>,
+    /// Whether any packet was marked discard (`D`): an MP4/MOV edit list can
+    /// keep pictures past its end for B-frame reorder.
+    pub discards: bool,
+}
+
+/// [`TailPictures`] from `ffprobe -show_entries packet=pts_time,flags -of
+/// csv=p=0` output. Packets marked discard never reach the decoder's output,
+/// so they never set the last picture; a packet without a time is skipped.
+pub fn tail_pictures_from_csv(csv: &str) -> TailPictures {
+    let mut tail = TailPictures::default();
+    for line in csv.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let (pts, flags) = line.split_once(',').unwrap_or((line, ""));
+        if flags.contains('D') {
+            tail.discards = true;
+            continue;
+        }
+        if let Some(t) = pts.trim().parse::<f64>().ok().filter(|t| t.is_finite()) {
+            tail.last_kept = Some(tail.last_kept.map_or(t, |m: f64| m.max(t)));
+        }
+    }
+    tail
+}
+
+/// Whether ffprobe's `format_name` is the QuickTime/MP4 family, whose
+/// stored count (`nb_frames`) is the sample table's, edit list or not.
+pub fn is_mov_family(format_name: &str) -> bool {
+    format_name.split(',').any(|f| f == "mov" || f == "mp4")
+}
+
 /// The length on `grid` from the last picture's time: its slot, plus one.
 /// Matroska's container duration can count the last frame's repeat flags.
 pub fn frame_count_from_last_picture(last_pts: f64, grid: &SourceGrid) -> i64 {
@@ -348,6 +388,10 @@ pub struct CountInputs<'a> {
     pub grid: Option<&'a SourceGrid>,
     /// Slots of the VFR timeline, when the times are irregular.
     pub timeline_slots: Option<usize>,
+    /// Whether the demuxer marks some video packets discard (an MP4/MOV
+    /// edit list's pre-roll, [`source_decode::discards_from_probe`], or
+    /// pictures kept past its end, [`TailPictures::discards`]).
+    pub discards: bool,
 }
 
 /// The length in frames every decoder, trim and timeline counts in:
@@ -356,7 +400,14 @@ pub struct CountInputs<'a> {
 ///    produce), else, if only the rates suggest VFR, duration × rate;
 /// 2. `nb_frames` when stored (an AVI's null frames are slots: the grid
 ///    decode of `interlaced_test.avi` gives the 79 it stores, not the 75
-///    `-count_frames` decodes);
+///    `-count_frames` decodes), except
+///    2a. when the demuxer discards packets (an MP4/MOV edit list's
+///    pre-roll, which `nb_frames` counts): the last kept picture's slot on
+///    the grid, plus one ([`frame_count_from_last_picture`], task #54).
+///    `small_clip.mp4` stores 3154 and decodes 3151; a stream-copy cut
+///    with holes in its timestamps (`edit_list_bframes.mp4`) stores 146,
+///    keeps 125 and decodes 128 slots. Without a grid or a last picture,
+///    `nb_frames` as before;
 /// 3. otherwise [`frame_count_from_duration`]; an MPEG-TS/PS adds an untimed
 ///    last picture, and a source with no stream duration (Matroska) is
 ///    counted from its last picture on its grid.
@@ -379,6 +430,16 @@ pub fn frame_count(
         }
     }
     if let Some(n) = i.stored_frames {
+        if i.discards && i.fps > 0.0 {
+            if let (Some(grid), Some(container)) = (i.grid, i.container_duration) {
+                if let Some(slots) = last_picture(container)
+                    .map(|t| frame_count_from_last_picture(t, grid))
+                    .filter(|s| *s > 0)
+                {
+                    return slots;
+                }
+            }
+        }
         return n;
     }
     let by_duration =
@@ -420,10 +481,11 @@ fn run_json(ffprobe: &Path, env: &HashMap<String, String>, args: &[String], inpu
     serde_json::from_slice(&out.stdout).ok()
 }
 
-/// The largest packet PTS in the last 3 s of the file.
-fn probe_last_picture(ffprobe: &Path, env: &HashMap<String, String>, input: &str, container: f64) -> Option<f64> {
-    let from = container - 3.0;
-    let mut args: Vec<String> = ["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time"]
+/// The video packets of the last [`TAIL_FRAMES_PROBE_SECONDS`] of the file
+/// ([`TailPictures`]). `None` when ffprobe fails.
+fn probe_tail(ffprobe: &Path, env: &HashMap<String, String>, input: &str, container: f64) -> Option<TailPictures> {
+    let from = container - TAIL_FRAMES_PROBE_SECONDS;
+    let mut args: Vec<String> = ["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,flags"]
         .iter()
         .map(|s| s.to_string())
         .collect();
@@ -437,11 +499,7 @@ fn probe_last_picture(ffprobe: &Path, env: &HashMap<String, String>, input: &str
     if !out.status.success() {
         return None;
     }
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .filter_map(|l| l.trim().trim_end_matches(',').parse::<f64>().ok())
-        .filter(|t| t.is_finite())
-        .fold(None, |m: Option<f64>, t| Some(m.map_or(t, |m| m.max(t))))
+    Some(tail_pictures_from_csv(&String::from_utf8_lossy(&out.stdout)))
 }
 
 fn num_str(v: Option<&serde_json::Value>) -> Option<f64> {
@@ -492,10 +550,16 @@ pub fn probe_source(
     let stream_duration = num_str(video.get("duration"));
     let stream_start = num_str(video.get("start_time"));
     let (_, types) = source_continuity::streams_from_probe(&json);
+    let stored_frames = uint(video.get("nb_frames")).map(|n| n as i64);
+    // An MP4/MOV's stored count is its sample table's, discarded pre-roll
+    // included: its tail is read up front, for any discards there and the
+    // last kept picture (task #54). Every other source reads it only if its
+    // count needs the last picture.
+    let reads_tail = stored_frames.is_some() && is_mov_family(&format_name);
 
     // The independent probes run at once: analysis waits for the slowest,
     // not their sum.
-    let (start_json, seek_plan, continuity, times) = std::thread::scope(|s| {
+    let (start_json, seek_plan, continuity, times, mov_tail) = std::thread::scope(|s| {
         let a = s.spawn(|| source_decode::probe_json(ffprobe, env, &source_decode::VIDEO_START_PROBE_ARGS, input));
         let b = s.spawn(|| source_decode::probe_seek_plan(ffprobe, env, input));
         let c = s.spawn(|| {
@@ -513,11 +577,16 @@ pub fn probe_source(
             ),
             _ => None,
         });
+        let e = s.spawn(|| match duration {
+            Some(c) if reads_tail => probe_tail(ffprobe, env, input, c),
+            _ => None,
+        });
         (
             a.join().ok().flatten(),
             b.join().ok().flatten(),
             c.join().ok().flatten(),
             d.join().ok().flatten(),
+            e.join().ok().flatten(),
         )
     });
 
@@ -537,7 +606,8 @@ pub fn probe_source(
         (Some(_), Some((t, st))) => (Some(t), Some(st)),
         _ => (None, None),
     };
-    let stored_frames = uint(video.get("nb_frames")).map(|n| n as i64);
+    let discards = start_json.as_ref().is_some_and(source_decode::discards_from_probe)
+        || mov_tail.is_some_and(|t| t.discards);
     let frame_count = frame_count(
         &CountInputs {
             stored_frames,
@@ -551,13 +621,17 @@ pub fn probe_source(
             start,
             grid: source_grid.as_ref(),
             timeline_slots: timeline.as_ref().map(|t| t.slot_count()),
+            discards,
         },
         |stream_start, stream_duration| {
             let from = stream_start + stream_duration - TAIL_FRAMES_PROBE_SECONDS;
             run_json(ffprobe, env, &tail_frames_probe_args(from), input)
                 .and_then(|j| untimed_last_picture(&j, fps))
         },
-        |container| probe_last_picture(ffprobe, env, input, container),
+        |container| match mov_tail {
+            Some(t) => t.last_kept,
+            None => probe_tail(ffprobe, env, input, container).and_then(|t| t.last_kept),
+        },
     );
 
     let dolby_vision = crate::hdr_metadata::HdrMetadata::from_ffprobe_json(
@@ -647,6 +721,7 @@ mod tests {
             start: VideoStart::default(),
             grid: None,
             timeline_slots: None,
+            discards: false,
         }
     }
 
@@ -772,6 +847,69 @@ mod tests {
         assert_eq!(n, (4.04 * 30000.0 / 1001.0_f64).round() as i64);
     }
 
+    /// Task #54: an edit list's discarded packets are counted by
+    /// `nb_frames` but never decoded; the count is the last kept picture's
+    /// slot on the grid, plus one.
+    #[test]
+    fn an_edit_list_counts_from_its_last_kept_picture() {
+        let grid = SourceGrid { rate_num: 2997, rate_den: 100, origin: 0.0 };
+        // small_clip.mp4: 3154 stored, 3 discarded, the last picture at
+        // 105.105105 s.
+        let i = CountInputs {
+            stored_frames: Some(3154),
+            r: Some(29.97),
+            avg: Some(29.97),
+            fps: 29.97,
+            stream_duration: Some(105.119119),
+            container_duration: Some(105.119119),
+            stream_start: Some(0.0),
+            format_name: "mov,mp4,m4a,3gp,3g2,mj2",
+            grid: Some(&grid),
+            discards: true,
+            ..inputs()
+        };
+        assert_eq!(frame_count(&i, |_, _| panic!(), |_| Some(105.105105)), 3151);
+        // edit_list_bframes.mp4: 146 stored, 125 kept, holes before the end;
+        // the grid decode is 128 slots.
+        let grid = SourceGrid { rate_num: 30000, rate_den: 1001, origin: 0.0 };
+        let i = CountInputs {
+            stored_frames: Some(146),
+            fps: 30000.0 / 1001.0,
+            container_duration: Some(4.273233),
+            grid: Some(&grid),
+            ..i
+        };
+        assert_eq!(frame_count(&i, |_, _| panic!(), |_| Some(4.237567)), 128);
+        // No last picture, or no grid: the stored count, as before.
+        assert_eq!(frame_count(&i, |_, _| panic!(), |_| None), 146);
+        let no_grid = CountInputs { grid: None, ..i };
+        assert_eq!(frame_count(&no_grid, |_, _| panic!(), |_| panic!()), 146);
+        // Without discards the tail is never asked.
+        let plain = CountInputs { discards: false, ..i };
+        assert_eq!(frame_count(&plain, |_, _| panic!(), |_| panic!()), 146);
+        // A variable rate still counts its timeline first.
+        let vfr = CountInputs { timeline_slots: Some(90), ..i };
+        assert_eq!(frame_count(&vfr, |_, _| panic!(), |_| panic!()), 90);
+    }
+
+    #[test]
+    fn the_tail_skips_discarded_packets() {
+        let t = tail_pictures_from_csv("4.104100,K__\n4.237567,___\n4.270933,_D_\nN/A,___\n\n4.170767,___,\n");
+        assert_eq!(t, TailPictures { last_kept: Some(4.237567), discards: true });
+        // CRLF, and no discards.
+        let t = tail_pictures_from_csv("1.0,K__\r\n2.0,___\r\n");
+        assert_eq!(t, TailPictures { last_kept: Some(2.0), discards: false });
+        assert_eq!(tail_pictures_from_csv(""), TailPictures::default());
+    }
+
+    #[test]
+    fn only_the_mov_family_reads_its_tail_up_front() {
+        assert!(is_mov_family("mov,mp4,m4a,3gp,3g2,mj2"));
+        for f in ["matroska,webm", "avi", "mpegts", "mpeg", "mp3"] {
+            assert!(!is_mov_family(f), "{f}");
+        }
+    }
+
     #[test]
     fn untimed_last_picture_follows_ffmpeg_dec() {
         let j = json!({"frames": [
@@ -817,7 +955,23 @@ mod tests {
         assert_eq!(job.video_start_offset, Some(0.0));
         assert_eq!(job.decoder_delay_frames, Some(0));
         assert_eq!(job.source_grid, Some(SourceGrid { rate_num: 25, rate_den: 1, origin: 0.0 }));
-        assert_eq!(job.total_frames, None, "a missing count is decoded, not taken from the model");
+        assert_eq!(job.total_frames, Some(25), "a missing count is the model's");
+
+        // A trim's count is the model's over the trim (task #54).
+        for (start, end, want) in [
+            (json!(5), json!(14), 10),
+            (json!(null), json!(9), 10),
+            (json!(20), json!(null), 5),
+            (json!(30), json!(null), 0),
+        ] {
+            let mut job = job_with(json!({ "startFrame": start, "endFrame": end }));
+            job.apply_source_model();
+            assert_eq!(job.total_frames, Some(want), "{start} .. {end}");
+        }
+        // A job's own count is never replaced.
+        let mut job = job_with(json!({ "totalFrames": 7 }));
+        job.apply_source_model();
+        assert_eq!(job.total_frames, Some(7));
 
         let mut job = job_with(json!({
             "inputWidth": 704, "inputHeight": 480, "inputSar": "10:11", "videoStartOffset": 0.5,
@@ -826,6 +980,43 @@ mod tests {
         assert_eq!((job.input_width, job.input_height), (Some(704), Some(480)));
         assert_eq!(job.input_sar.as_deref(), Some("10:11"));
         assert_eq!(job.video_start_offset, Some(0.5));
+    }
+
+    /// Task #54: the model counts every job, except where it can't stand for
+    /// the decode (no model, or a raw MPEG-PS/TS whose timestamps reset).
+    #[test]
+    fn only_an_unchecked_reset_source_is_counted_by_decoding() {
+        let job = job_with(json!({}));
+        assert!(!job.counts_by_decoding());
+        assert_eq!(job.model_frame_count(), Some(25));
+
+        let mut job = job_with(json!({}));
+        job.source = None;
+        assert!(job.counts_by_decoding());
+        assert_eq!(job.model_frame_count(), None);
+
+        let reset = ContinuityScan {
+            format: "mpegts".into(),
+            applies: true,
+            resets: vec![source_continuity::Reset {
+                stream: 0,
+                codec_type: "video".into(),
+                packet: 150,
+                from: 6.0,
+                to: 0.0,
+            }],
+            video_packets: 300,
+        };
+        let mut job = job_with(json!({}));
+        job.source.as_mut().unwrap().continuity = Some(reset.clone());
+        assert!(job.counts_by_decoding(), "a raw reset file: the model counts its last segment");
+        assert_eq!(job.model_frame_count(), None);
+        job.continuity_checked = true;
+        assert!(!job.counts_by_decoding(), "the app's joined copy is counted by its model");
+
+        let mut job = job_with(json!({}));
+        job.source.as_mut().unwrap().continuity = Some(ContinuityScan { resets: vec![], ..reset });
+        assert!(!job.counts_by_decoding());
     }
 
     /// `grid_from_probe` takes the job's rate when the stream's is not
