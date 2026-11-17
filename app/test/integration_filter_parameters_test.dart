@@ -2056,7 +2056,7 @@ void main() {
 
     // --- Batch five: needs bifrost + retinex (deps 1.9.0) -------------------
 
-    test('chroma_fixes: Bifrost with its 8-bit guard', () async {
+    test('chroma_fixes: Bifrost at the source depth (task #60)', () async {
       loadSchema('chroma_fixes');
       final job = buildJob(
         testName: 'chroma_bifrost',
@@ -2074,8 +2074,8 @@ void main() {
       final actual = parseFilterParams(script, 'core.bifrost.Bifrost(');
       expect(actual['variation'], '3');
       expect(actual['interlaced'], 'False');
-      // 8-bit only, verified against the bundle at 10/12/16-bit and 4:2:2.
-      // A deeper source gets only its change applied at full depth (task #37).
+      // v4.0 runs at every depth (task #60). The call stays inside run_within
+      // for the plugin's frame-size limit (plugin_formats.py).
       expect(script, contains("_pf.run_within(clip, 'bifrost.Bifrost', _bifrost, label='Bifrost')"));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));

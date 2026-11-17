@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bifrost v4.0</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #60: Bifrost v3.0 → v4.0</h1>
+<p class="sub">2026-11-17 · macOS arm64 (M1 Pro) · deps 1.16.0 / 1.17.0-rc2 bundles · scripts in <code>scripts/</code></p>
+
+<h2>Decision</h2>
+<p>Every platform takes Bifrost <strong>4.0 from its PyPI wheels</strong>, installed under the old file names
+(<code>libbifrost.dylib</code>, <code>libbifrost.so</code>, <code>bifrost.dll</code>). Before, macOS and Linux
+built <code>bifrost.c</code> from the v3.0 tag and Windows took v3.0's GitHub 7z. v4.0 publishes no GitHub release
+asset, so the wheel is the one source every platform can share.</p>
+<ul>
+<li>v3.0 left the chroma past the last whole 4×4 luma block <strong>uninitialised</strong> (upstream issue #1,
+"green line at the bottom"): different output run to run at width 98, 718 and at 720×486. v4.0 starts chroma as a
+copy of <code>altclip</code> (default: the clip), so that strip is the input, unfiltered, every time.</li>
+<li>v4.0 runs at <strong>8–16 bits</strong>, scaling <code>luma_thresh</code> and <code>variation</code> (8-bit
+units) itself. The template's 8-bit detour (<code>run_within</code> on an 8-bit copy, task #37/#48) is gone: the
+contract now accepts every depth, so <code>run_within</code> converts nothing.</li>
+<li>One refusal remains: with <code>interlaced=True</code> (the default) v4.0 calls <code>SeparateFields</code>
+itself, so <strong>4:2:0 at a height ≡ 2 mod 4</strong> (720×486) is refused, as with v3.0. That is task #57's case
+and stays in <code>plugin_formats.KNOWN</code> until #57's height padding covers it.</li>
+<li>Task #56's padding to whole blocks (width mod 4, height mod 8), a guard against the v3.0 fault, is not needed
+with v4.0. This branch was cut from main before #56 merged; when it does, its Bifrost steps should be dropped
+(keeping only #57's <code>height_step=CHROMA</code>).</li>
+</ul>
+
+<h2>1. Arguments</h2>
+<p>Identical signature and defaults (luma_thresh 10.0, variation 5, interlaced True, 4×4 blocks):</p>
+<pre><code>clip:vnode; altclip:vnode:opt; luma_thresh:float:opt; variation:int:opt;
+conservative_mask:int:opt; interlaced:int:opt; blockx:int:opt; blocky:int:opt</code></pre>
+<p>The template's call is unchanged.</p>
+
+<h2>2. Run to run, and v3.0 against v4.0 at 8-bit</h2>
+<p><code>probe.py hashes</code> + <code>compare.py</code>. Fixture: <code>interlaced_test.avi</code>, 12 frames, scaled
+bicubic, with a ±12-level chroma offset alternating frame to frame (a shimmer for Bifrost to remove; it changed 79.5%
+of chroma samples). Three separate processes per version; MD5 per frame of the whole frame and of the whole-block
+region (per field when <code>interlaced=True</code>).</p>
+<table>
+<tr><th>Size</th><th>Subsampling</th><th>interlaced</th><th>v3.0 distinct results (whole / blocks)</th><th>v4.0 distinct results</th><th>Whole blocks, v3.0 = v4.0</th></tr>
+<tr><td>96×64, 352×240, 720×480</td><td>4:2:0, 4:2:2, 4:4:4</td><td>True, False</td><td class="n">1 / 1</td><td class="n good">1</td><td class="good">yes, every frame</td></tr>
+<tr><td>98×64</td><td>all three</td><td>True, False</td><td class="n bad">2–3 / 1</td><td class="n good">1</td><td class="good">yes</td></tr>
+<tr><td>718×480</td><td>all three</td><td>True, False</td><td class="n bad">3 / 1</td><td class="n good">1</td><td class="good">yes</td></tr>
+<tr><td>720×486</td><td>4:2:2, 4:4:4; 4:2:0 progressive mode</td><td>True, False</td><td class="n bad">3 / 1</td><td class="n good">1</td><td class="good">yes</td></tr>
+<tr><td>720×486</td><td>4:2:0</td><td>True</td><td colspan="3">both refuse: <code>SeparateFields: clip height must be mod 2 in the smallest subsampled plane</code> (v4.0 prefixes <code>Bifrost: </code>)</td></tr>
+</table>
+<p class="note">"Whole" is the full frame; "blocks" the part covered by whole 4×4 blocks. v3.0's variation is only in
+the leftover strip; inside the blocks the two versions agree exactly. The format probe
+(<code>Scripts/probe-plugin-formats.py --calls bifrost.Bifrost</code>) measures the same refusal set on the rebuilt
+bundle: every reachable depth, subsampling and field flag; only 4:2:0 at 720×486 refused.</p>
+
+<h2>3. Depths</h2>
+<table>
+<tr><th></th><th>8</th><th>9</th><th>10</th><th>12</th><th>14</th><th>16</th></tr>
+<tr><td>v3.0</td><td class="good">ok</td><td class="bad" colspan="5">"Only constant format 8 bit integer YUV allowed."</td></tr>
+<tr><td>v4.0, 4:2:0 / 4:2:2 / 4:4:4</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td></tr>
+</table>
+<p>9- and 14-bit never reach the script (they decode as 10 and 16); they are listed for completeness.</p>
+
+<h2>4. Parity at depth</h2>
+<p><code>probe.py dump</code> + <code>parity.py</code>: 720×480, frames 2–9, <code>interlaced=True</code>. The change at
+depth (<code>out − in</code>, in 8-bit levels) against the 8-bit run's change on the same picture rounded to 8 bits.</p>
+<table>
+<tr><th>Input</th><th>Luma bit-exact</th><th>Chroma changed</th><th>Decisions differing from 8-bit</th><th>|Δ − Δ8| mean / max (levels)</th></tr>
+<tr><td>16-bit, low bits zero (8-bit content)</td><td class="good">yes</td><td class="n">79.5%</td><td class="n">0.00%</td><td class="n">0.101 / 0.8</td></tr>
+<tr><td>16-bit, real low bits</td><td class="good">yes</td><td class="n">79.5%</td><td class="n">0.10%</td><td class="n">0.142 / 19.0</td></tr>
+<tr><td>10-bit, real low bits</td><td class="good">yes</td><td class="n">79.5%</td><td class="n">0.11%</td><td class="n">0.130 / 19.0</td></tr>
+</table>
+<p>The same for 4:2:0 and 4:2:2. On 8-bit content at 16 bits the decisions are identical; the 0.1 level is the
+half-level rounding of Bifrost's averages, which 16 bits keeps and 8 bits rounds. With real low bits, 0.1% of chroma
+samples belong to blocks whose luma difference sits on the threshold and tips the other way: that is the max of 19.
+The old <code>run_within</code> path decided on an 8-bit copy, so it differed from native processing in exactly these
+blocks. Chroma Bifrost leaves alone is the <code>altclip</code> copy, so it is bit-exact natively, which is what
+<code>run_within</code>'s delta was for.</p>
+<p>The heavy test <code>Bifrost runs at the source depth (task #60)</code>
+(<code>integration_high_bit_depth_filters_test.dart</code>, the crawl fixture at 352×288, 10-bit = 8-bit × 4 + 0 or 1)
+measures the same through the worker: luma unchanged; U/V decisions differing from the 8-bit run in 171–188 of
+1,267,200 samples (4:2:2) and 421–433 of 633,600 (4:2:0); mean |10-bit/4 − 8-bit| 0.127–0.130 (0.125 of it is the
+fixture's own low bits); 5,000–5,800 changes per plane not a multiple of 4 (it ran at 10 bits); preview = encode
+(0.000). The 8 vs 10-bit parity pass reads 0.174 (tolerance 2.0).</p>
+<p class="note">Limits: one real capture with a synthetic shimmer, not a population of rainbowed tapes; the threshold
+flips depend on how much content sits near <code>luma_thresh</code>.</p>
+
+<h2>5. Speed</h2>
+<p><code>speed.py</code>: 720×480 4:2:2, AddGrain noise each frame, <code>interlaced=True</code>, 600 frames.</p>
+<table>
+<tr><th></th><th>fps</th></tr>
+<tr><td>v3.0, 8-bit</td><td class="n">616</td></tr>
+<tr><td>v4.0, 8-bit</td><td class="n">819</td></tr>
+<tr><td>v4.0, 16-bit</td><td class="n">971</td></tr>
+</table>
+<p class="note">One run each on a noise source: read it as "no regression", not as a speed-up.</p>
+
+<h2>6. The wheels</h2>
+<p><code>static.sh</code>. <code>vapoursynth-bifrost</code> 4.0, uploaded to PyPI 2026-08-18.</p>
+<table>
+<tr><th>Wheel</th><th>Links</th><th>Floor</th><th>AVX (ymm/zmm)</th></tr>
+<tr><td><code>macosx_11_0_arm64</code></td><td>/usr/lib/libc++, libSystem</td><td>minos 11.0 (bundle 15.0)</td><td>—</td></tr>
+<tr><td><code>macosx_10_15_x86_64</code></td><td>same</td><td>minos 10.15 (bundle 12.0)</td><td class="n">0; <code>check-load-time-simd.py</code>: 0 initializers</td></tr>
+<tr><td><code>manylinux_2_28_x86_64</code></td><td>libc, libstdc++, libgcc_s</td><td>GLIBC 2.17, GLIBCXX 3.4.21 (bundle 2.39)</td><td class="n">0</td></tr>
+<tr><td><code>manylinux_2_28_aarch64</code></td><td>same</td><td>same</td><td>—</td></tr>
+<tr><td><code>win_amd64</code></td><td>KERNEL32 + UCRT only (libstdc++ static)</td><td>—</td><td class="n">0</td></tr>
+</table>
+<p>No AVX anywhere, so one file serves both x64 CPU tiers and <code>_tierFiles</code> is unchanged; the SDE gates still
+run it on Linux and Windows. SHA-256 pins are in the three <code>download-deps-*</code> scripts (the Windows wheel loop
+checks none, for any plugin).</p>
+
+<h2>7. Licence and credit</h2>
+<p>Still WTFPL. v4.0 adds a <code>LICENSE</code> file (the WTFPL text, no holder) and <code>license = "WTFPL"</code>
+in <code>pyproject.toml</code>; v3.0 had none. Authorship, as upstream states it: the readme says Bifrost was created
+by Fredrik Mellbin; the 2016 VapourSynth port is cantabile's (dubhater's handle); the API 4 conversion (2024) and every
+v4.0 commit (2026) are Fredrik Mellbin's, who is the wheel's listed author. NOTICES and the About dialog now say so.</p>
+
+<h2>Not tested here</h2>
+<ul>
+<li>The Windows, Linux and macOS x64 binaries were checked statically only; they run in CI
+(<code>ci-test.yml</code> / <code>nightly.yml</code> with <code>deps_run_id</code>) once the deps workflows build
+them.</li>
+<li>Upstream's <code>conservative_mask</code> and block-size arguments, which the template doesn't pass.</li>
+<li>No screenshots: the v3.0 fault is in a strip a few pixels wide, and the MD5 tables state it exactly.</li>
+</ul>
+</main>
+</body>
+</html>

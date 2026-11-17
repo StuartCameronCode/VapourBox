@@ -51,7 +51,9 @@ now the first step, and it disqualifies about half of them:
 | DeDot v3, FillBorders v4, EEDI2 r7.1, EdgeFixer r3, TDeintMod r10.1 | **no** |
 
 > **Bifrost is 8-bit only** — "Only constant format 8 bit integer YUV input
-> supported", verified at 10/12/16-bit and 4:2:2. It gets DeScratch's
+> supported", verified at 10/12/16-bit and 4:2:2. *(v3.0. Superseded
+> 2026-11-17: v4.0 runs at 8–16 bits and comes from its PyPI wheel; see
+> "Bifrost v4.0 from PyPI on every platform", task #60.)* It gets DeScratch's
 > convert-down-and-restore guard. Low impact in practice: the composite captures
 > it targets are 8-bit anyway. Measured on an alternating-chroma clip, it halves
 > the frame-to-frame chroma swing.
@@ -5112,3 +5114,41 @@ position by a frame count outside `frame_math.dart`);
 shown frames, first/last picture against `select=eq(n,F)` of the source, no
 repeated last picture). Its small_clip cases skip until task #54 makes the
 model's count 3151.
+
+### Bifrost v4.0 from PyPI on every platform (task #60, 2026-11-17)
+
+Report: [docs/reports/task-60-bifrost-v4](reports/task-60-bifrost-v4/index.html).
+
+- **The v3.0 fault.** v3.0 allocated its output with only luma copied and wrote
+  chroma one whole 4x4 luma block at a time (per field with
+  `interlaced=True`). Columns and rows past the last whole block were never
+  written, so they held uninitialised memory: 2–3 different outputs in 3 runs
+  at width 98 and 718 and at 720x486 (4:2:2 D1 too), at 8-bit. Upstream
+  issue #1, "green line at the bottom".
+- **v4.0** (2026-08-18, Fredrik Mellbin) starts chroma as a copy of
+  `altclip`, so that strip is the input every time. One result in 3 runs at
+  every size. Inside whole blocks it is identical to v3.0 at 8-bit, frame
+  for frame.
+- **It runs at 8–16 bits.** It scales `luma_thresh` and `variation`
+  (8-bit units) itself. At 10 and 16 bits luma is bit-exact. Its chroma
+  decisions match the 8-bit run's except at the threshold: 0.0% differ on
+  8-bit content, 0.1% with real low bits. So the template's 8-bit copy
+  (`run_within`, task #37/#48) converts nothing now. The contract stays, for
+  the height step below.
+- **One refusal is unchanged.** With `interlaced=True` it calls
+  `SeparateFields` itself, so 4:2:0 at a height ≡ 2 mod 4 (720x486) is
+  refused. The contract pads such a frame to whole field chroma rows
+  (`height_step=CHROMA`, task #57's step), replacing task #56's padding to
+  whole 4x8 blocks, which only v3.0's uninitialised strip needed.
+- **Every platform takes the PyPI wheel 4.0**, pinned by hash, under the old
+  file names, so `deps-expected-plugins.json` is unchanged. v4.0 has no
+  GitHub release asset; Windows used v3.0's 7z, and macOS/Linux compiled
+  v3.0's `bifrost.c`.
+  - No AVX in any x64 build, and no initializers on macOS x64, so one file
+    serves both tiers.
+  - The macOS dylibs link only libc++/libSystem (minos 11.0 / 10.15).
+  - Linux needs glibc 2.17; Windows only the UCRT.
+- **Measured at 8-bit, 720x480 4:2:2:** 819 fps for v4.0 against 616 for
+  v3.0 (one run each).
+- **The earlier 2026-08-15 note "Bifrost is 8-bit only", and its include-farm
+  note, describe v3.0.**

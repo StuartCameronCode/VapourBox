@@ -430,7 +430,7 @@
       "default": false,
       "ui": {
         "label": "Remove rainbow shimmer across frames (Bifrost)",
-        "description": "Compares across frames rather than within one, so it catches rainbowing that shimmers as the picture moves. Works alongside the removal above, not instead of it. 8-bit only, so a deeper source is converted down for this step and restored after.",
+        "description": "Compares across frames rather than within one, so it catches rainbowing that shimmers as the picture moves. Works alongside the removal above, not instead of it. Works at the source's own bit depth.",
         "widget": "checkbox"
       }
     },
