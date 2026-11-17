@@ -64,27 +64,32 @@ run)
     fi
   done
   one() {  # <iteration> <run dir>
+    # RV_* names only: the captured environment is loaded below, and it holds
+    # whatever the test's own environment held (a workflow's OUT, for one).
     local i="$1" r="$2" script="$2/script.vpy" args=() a rc
-    [ "$MODE" = single-thread ] && script="$r/script.1t.vpy"
+    local err="$RV_OUT/err.$(basename "$r").$i"
+    [ "$RV_MODE" = single-thread ] && script="$r/script.1t.vpy"
     while IFS= read -r -d '' a; do
       case "$a" in *.vpy) args+=("$script") ;; *) args+=("$a") ;; esac
     done < "$r/args"
     (
+      mode="$RV_MODE" vspipe="$RV_VSPIPE"
       while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
       pre=()
-      if [ "$MODE" = valgrind ]; then
+      if [ "$mode" = valgrind ]; then
+        # The report goes to stderr, kept in the err file whatever the exit.
         export PYTHONMALLOC=malloc
-        pre=(valgrind --error-exitcode=99 --track-origins=yes --num-callers=40 --error-limit=no
-             --log-file="$OUT/vg.$(basename "$r").$i.%p.log")
+        pre=(valgrind --error-exitcode=99 --track-origins=yes --num-callers=40 --error-limit=no)
       fi
-      timeout 3600 "${pre[@]}" "$VSPIPE" "${args[@]}" < "$r/stdin.raw" > /dev/null 2> "$OUT/err.$(basename "$r").$i"
+      timeout 3600 "${pre[@]}" "$vspipe" "${args[@]}" < "$r/stdin.raw" > /dev/null 2> "$err"
     )
     rc=$?
-    printf '%s\t%s\t%s\n' "$i" "$(basename "$r")" "$rc" >> "$OUT/results.tsv"
-    [ "$rc" = 0 ] && rm -f "$OUT/err.$(basename "$r").$i"
+    printf '%s\t%s\t%s\n' "$i" "$(basename "$r")" "$rc" >> "$RV_OUT/results.tsv"
+    [ "$rc" = 0 ] && [ "$RV_MODE" != valgrind ] && rm -f "$err"
     return 0
   }
-  export -f one; export MODE VSPIPE OUT
+  export -f one
+  export RV_MODE="$MODE" RV_VSPIPE="$VSPIPE" RV_OUT="$OUT"
   : > "$OUT/results.tsv"
   start=$(date +%s)
   for i in $(seq 1 "$REPEAT"); do for r in "${runs[@]}"; do printf '%s\0%s\0' "$i" "$r"; done; done \

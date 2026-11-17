@@ -34,16 +34,16 @@ on:
         default: 'Preset="Draft"'
       repeat:
         description: 'Replays of every captured run, per mode'
-        default: '100'
+        default: '300'
       parallel:
         description: 'Replays at once'
-        default: '4'
+        default: '8'
       modes:
         description: 'Space-separated: plain single-thread valgrind'
         default: 'plain single-thread valgrind'
       valgrind_repeat:
         description: 'Replays of every captured run under valgrind'
-        default: '1'
+        default: '2'
       probe_calls:
         description: 'Optional: probe-plugin-formats.py --calls to run too (comma-separated)'
         default: ''
@@ -65,11 +65,11 @@ env:
   TEST_FILE: ${{ inputs.test_file || 'test/integration_format_sweep_test.dart' }}
   PLAIN_NAME: ${{ inputs.plain_name || 'format sweep (push gate) deinterlace/qtgmc[preset=Draft]' }}
   MATCH: ${{ inputs.match || 'Preset="Draft"' }}
-  REPEAT: ${{ inputs.repeat || '100' }}
-  PARALLEL: ${{ inputs.parallel || '4' }}
+  REPEAT: ${{ inputs.repeat || '300' }}
+  PARALLEL: ${{ inputs.parallel || '8' }}
   MODES: ${{ inputs.modes || 'plain single-thread valgrind' }}
-  VALGRIND_REPEAT: ${{ inputs.valgrind_repeat || '1' }}
-  PROBE_CALLS: ${{ inputs.probe_calls || 'mv.FlowFPS,mv.FlowInter' }}
+  VALGRIND_REPEAT: ${{ inputs.valgrind_repeat || '2' }}
+  PROBE_CALLS: ${{ inputs.probe_calls }}
   PROBE_REPEAT: ${{ inputs.probe_repeat || '3' }}
   CAPTURE: ${{ github.workspace }}/repro/capture
   OUT: ${{ github.workspace }}/repro/out
@@ -161,14 +161,13 @@ jobs:
         if: always()
         run: |
           shopt -s nullglob
-          logs=( "$OUT"/valgrind/vg.* )
-          echo "${#logs[@]} valgrind log(s)"
+          logs=( "$OUT"/valgrind/err.* )
+          echo "${#logs[@]} valgrind run(s)"
           for f in "${logs[@]}"; do
-            errs=$(grep -m1 'ERROR SUMMARY' "$f" || true)
-            echo "=== $(basename "$f"): $errs"
+            echo "=== $(basename "$f"): $(grep -m1 'ERROR SUMMARY' "$f" || echo 'no summary')"
             # The first few errors, with their stacks; Python's own noise is
             # mostly gone with PYTHONMALLOC=malloc.
-            awk '/^==[0-9]+== (Invalid|Conditional|Use of uninit|Syscall param|Mismatched|Source and dest)/{n++} n>0 && n<=6' "$f" | head -150
+            awk '/^==[0-9]+== (Invalid|Conditional|Use of uninit|Syscall param|Mismatched|Source and dest|Process terminating)/{n++} n>0 && n<=8' "$f" | head -250
           done
 
       - name: Plugin probe loop
@@ -186,7 +185,7 @@ jobs:
             $PY Scripts/probe-plugin-formats.py --calls "$PROBE_CALLS" --ffmpeg "$FF" --out "$OUT/probe.$i.json" 2>&1 | tail -5 || true
             $PY - "$OUT/probe.$i.json" <<'EOF' || true
           import json, sys
-          t = json.load(open(sys.argv[1]))
+          t = json.load(open(sys.argv[1]))['calls']
           for k, e in t.items():
               bad = {c: r['error'] for c, r in e['cells'].items() if not r['ok']}
               crashes = {c: v for c, v in bad.items() if v.startswith('crash')}
