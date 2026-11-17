@@ -3555,7 +3555,10 @@ Rules:
     minute, plain / single-thread / under valgrind, and runs the report's
     `bare.vpy` calls under valgrind. Valgrind is the instrument for an
     intermittent crash: it reports an uninitialised or out-of-bounds read
-    whether or not that run crashes.
+    whether or not that run crashes. **A backtrace with the crashing thread
+    in vspipe's own `frameDoneCallback` / `outputFrame` and main in
+    `freeScript` is vspipe R78's teardown race** (task #68, fixed in R80), not
+    the script: any one-frame preview can hit it, roughly 1 in 1,000.
 
 ## Platform-Specific Notes
 

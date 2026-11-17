@@ -771,23 +771,21 @@ const knownFailuresTask = 56;
 // docs/reports/task-56-format-sweep-findings). A new finding goes here with
 // its task, and comes out with its fix.
 final knownFailures = <KnownFailure>[
-  // Seen once (push gate, Linux x64, 2026-11-17): the 96x66 4:2:0 row
-  // (QTGMC gets 96x96 after pad_around + mvtools_blocks) crashed vspipe; the
-  // re-run of the same row passed. 3,600 replays of the captured scripts and
-  // valgrind did not reproduce it (docs/reports/task-66-qtgmc-draft-sigsegv).
-  // Likely task #68's vspipe R78 teardown race (a one-frame preview that is
-  // fast to make). Linux CI now keeps cores and prints a gdb backtrace, so
-  // the next one says: #68's is a crashing thread in outputFrame /
-  // frameDoneCallback with main in freeScript. Kept to the rows seen: the
-  // text match keeps any other failure of these rows visible. Remove with
-  // the fix (#68's upgrade, or whatever the backtrace names).
+  // Task #68: vspipe R78 can free the script while its last frame's
+  // callback still writes it (SIGSEGV; the core shows frameDoneCallback
+  // crashing, main in freeScript). A one-frame preview of a tiny row is
+  // fast enough to hit it: the push gate's 96x66 row once, and 2 in 1,800
+  // replays of this variant's 98x64 rows (docs/reports/task-66-qtgmc-draft-
+  // sigsegv). Any preview can, so this covers every row of the variant it
+  // was seen on; elsewhere Linux CI prints the backtrace. The text match
+  // keeps any other failure visible. Remove with #68 (VapourSynth R80+).
   KnownFailure(
     variant: 'deinterlace/qtgmc[preset=Draft]',
     check: SweepCheck.runs,
-    rows: (r) => r.size == SweepSize.heightTwoMod4 && r.format.subsampling == '420',
+    rows: (r) => true,
     error: 'vspipe exited with signal 11 (SIGSEGV)',
-    task: 66,
-    finding: 'intermittent vspipe SIGSEGV on Linux x64, not reproduced; likely #68',
+    task: 68,
+    finding: 'vspipe R78 teardown race (intermittent SIGSEGV)',
     flaky: true,
   ),
 ];

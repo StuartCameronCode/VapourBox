@@ -21,3 +21,17 @@ replay (valgrind): 6 captured run(s) x 1, 4 at once: 6 runs, 1 failed, 45 s
 replay (plain): 6 captured run(s) x 300, 8 at once: 1800 runs, 0 failed, 66 s
 replay (single-thread): 6 captured run(s) x 300, 8 at once: 1800 runs, 0 failed, 66 s
 replay (valgrind): 6 captured run(s) x 2, 4 at once: 12 runs, 2 failed, 79 s
+
+# CI run 44112213764 (Intel Xeon Platinum 8573C)
+  1x run.h4XUsZ exit 139
+  1x run.Ik42b5 exit 139
+  2x run.Ik42b5 exit 99
+  run.DtcYX4: Preset="Draft" width=96 height=66 pix_fmt="yuv420p12le" 
+  run.h4XUsZ: Preset="Draft" width=98 height=64 pix_fmt="yuvj422p" 
+  run.Ik42b5: Preset="Draft" width=98 height=64 pix_fmt="yuv420p12le" 
+  run.IqEbym: Preset="Draft" width=98 height=64 pix_fmt="yuv444p10le" 
+  run.j15ohU: Preset="Draft" width=96 height=64 pix_fmt="yuv422p" 
+  run.U1CghC: Preset="Draft" width=96 height=64 pix_fmt="yuv422p16le" 
+replay (plain): 6 captured run(s) x 300, 8 at once: 1800 runs, 0 failed, 75 s
+replay (single-thread): 6 captured run(s) x 300, 8 at once: 1800 runs, 2 failed, 75 s
+replay (valgrind): 6 captured run(s) x 2, 4 at once: 12 runs, 2 failed, 112 s

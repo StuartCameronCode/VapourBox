@@ -26,13 +26,13 @@ pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .
 
 <h2>Outcome</h2>
 <ul>
-<li><strong>The crash did not reproduce.</strong> The push gate's 96x66 4:2:0 12-bit row of <code>deinterlace/qtgmc[preset=Draft]</code> crashed vspipe once (CI run 44028906054, attempt 1). The re-run of the same row on the same CPU class passed. In 4,200 replays of the exact captured scripts and input (plain and single-threaded, up to 8 at once on 4 cores) and 3 runs under valgrind, the row neither crashed nor showed a memory error (table 1).</li>
-<li><strong>The likeliest cause is task #68</strong>, found meanwhile by task #65: vspipe R78 counts a frame done before writing it, so for a one-frame preview that is ready at once, <code>main</code> can free the script while the callback still writes. Task #65 measured it at 2 in 1,200 Bwdif previews without a trigger, a rate this many replays could easily miss. Fixed upstream in R80. This report could not confirm it: no crash, so no backtrace.</li>
+<li><strong>Cause: vspipe R78's teardown race (task #68).</strong> The push gate's 96x66 4:2:0 12-bit row of <code>deinterlace/qtgmc[preset=Draft]</code> crashed vspipe once (CI run 44028906054, attempt 1), and the re-run of the same row passed. Replaying the variant's six captured rows reproduced it <strong>2 times in 1,800 single-threaded replays</strong> (CI run 44112213764), on two other rows (98x64 4:2:0 12-bit and 98x64 <code>yuvj422p</code>). Both cores show task #68's signature (<code>data/gdb_vspipe_teardown.txt</code>): the crashing thread is in vspipe's own <code>frameDoneCallback</code>, and the main thread is already in <code>vpy4_freeScript</code> → Python's garbage collector. vspipe R78 counts a frame done before it has written it, so <code>main</code> can free the script under the callback. Upstream fixed it in R80. Nothing in QTGMC, MVTools or the padding is involved, and any one-frame preview can hit it; a tiny one is just fast.</li>
+<li><strong>It is rare.</strong> 0 crashes in the other 6,000 replays (table 1), and the crash row was valgrind-clean in every run. That fits task #65's measurement of about 2 in 1,200 previews without a trigger.</li>
 <li><strong>Every Linux CI crash now names itself.</strong> The Linux jobs of <code>ci-test.yml</code> and <code>nightly.yml</code> keep core dumps (<code>.github/scripts/enable-core-dumps.sh</code>: piped to a capped handler, gdb installed), and the on-failure step <code>print-crash-reports.py</code> prints a gdb backtrace. Before, Linux printed nothing after "signal 11". The harness banner now also prints the CPU model. Proven on the FlowInter crash below (section 3).</li>
-<li><strong>The push gate tolerates this one crash text on this row until #68 lands</strong>: a <code>flaky</code> <code>knownFailures</code> entry, limited to the Draft variant, 4:2:0 at 96x66, and the text <code>vspipe exited with signal 11 (SIGSEGV)</code>. Any other failure of that row still fails the gate.</li>
+<li><strong>The push gate tolerates this one crash text on this variant until #68 lands</strong>: a <code>flaky</code> <code>knownFailures</code> entry (task 68) for every row of the Draft variant, matching only <code>vspipe exited with signal 11 (SIGSEGV)</code>. Any other failure still fails the gate. The race can hit another variant's row too; that row fails, and its job prints the backtrace that tells the two apart. <em>Correction, left in place:</em> the first version of the entry covered only the 96x66 row, because replays had not reproduced the crash yet.</li>
 <li><strong>Found on the way, filed separately:</strong>
   <ul>
-  <li>Task #70: on x86 Linux, <strong>QTGMC reads uninitialised memory when the chroma width is odd and the depth is above 8 bits</strong>. That includes a real 722x480 4:2:0 12-bit source. In Draft it is the last chroma column, traced to <code>mv.Degrain1</code>'s output frame. In Slower it reaches the motion search, and the whole picture depends on it (section 2). It is not the crash: the crash row has an even chroma width and is valgrind-clean.</li>
+  <li>Task #70: on x86 Linux, <strong>QTGMC reads uninitialised memory when the chroma width is odd and the depth is above 8 bits</strong>. That includes a real 722x480 4:2:0 12-bit source. In Draft it is the last chroma column, traced to <code>mv.Degrain1</code>'s output frame. In Slower it reaches the motion search, and the whole picture depends on it (section 2). It is not the crash: the crash row has an even chroma width and is valgrind-clean, and the cores are in vspipe.</li>
   <li>Task #69: <strong><code>mv.FlowFPS</code> / <code>mv.FlowInter</code> corrupt the heap at 64x48 on Linux x64</strong>, in every format, in 3 runs of 3 (section 3).</li>
   </ul></li>
 </ul>
@@ -42,7 +42,7 @@ pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .
 <p><code>scripts/bare.vpy</code> runs one call (QTGMC at a preset, or one MVTools setup) on a synthetic moving pattern at any size and format, with no padding and no worker. <code>scripts/locate.py</code> finds which output samples are uninitialised. Valgrind reports a <code>write()</code> of uninitialised bytes once per call stack, so it runs one memcheck process per region, first 8-row bands per plane, then 8-column bands of each band that complained.</p>
 <div class="box">A third tool, a buffer-pool probe, was tried and dropped: it rendered a call after filling VapourSynth's frame pool with two different values and compared the results. It found nothing, even on x86 at sizes where valgrind finds uninitialised output. It does not show what it was meant to, so it is not in <code>scripts/</code>.</div>
 
-<h2>1. The crash row: replays</h2>
+<h2>1. The crash: replays and the backtrace</h2>
 <p>Data: <code>data/replays.txt</code>. The six captured rows of the Draft variant in the push gate (the crash row is 96x66 <code>yuv420p12le</code>; QTGMC sees it at 96x96 after <code>pad_around</code> and <code>mvtools_blocks</code>).</p>
 <table>
 <tr><th>Runner</th><th>Mode</th><th>Replays</th><th>At once</th><th>Crashed</th><th>Valgrind errors</th></tr>
@@ -52,8 +52,20 @@ pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .
 <tr><td>EPYC 9V74</td><td>plain</td><td class="num">1800</td><td class="num">8</td><td class="num ok">0</td><td></td></tr>
 <tr><td>EPYC 9V74</td><td>single-thread</td><td class="num">1800</td><td class="num">8</td><td class="num ok">0</td><td></td></tr>
 <tr><td>EPYC 9V74</td><td>valgrind</td><td class="num">12</td><td class="num">4</td><td class="num ok">0</td><td>98x64 <code>yuv420p12le</code> only, 2 of 2</td></tr>
+<tr><td>Xeon Platinum 8573C</td><td>plain</td><td class="num">1800</td><td class="num">8</td><td class="num ok">0</td><td></td></tr>
+<tr><td>Xeon Platinum 8573C</td><td>single-thread</td><td class="num">1800</td><td class="num">8</td><td class="num no">2 (SIGSEGV, 98x64 4:2:0 12-bit and <code>yuvj422p</code>)</td><td></td></tr>
+<tr><td>Xeon Platinum 8573C</td><td>valgrind</td><td class="num">12</td><td class="num">4</td><td class="num ok">0</td><td>98x64 <code>yuv420p12le</code> only, 2 of 2</td></tr>
 </table>
-<p>The 96x66 crash row was valgrind-clean in all three valgrind runs. So were the other 96-wide rows and the 98-wide 4:4:4 and 4:2:2 8-bit rows. Limits: a replay is not a push-gate run. There, the sweep runs 2 rows at once next to the other variants' rows, and the machine is busier. A race that needs that load can hide from a replay, which is why task #68's rate (measured under load) and this null result agree.</p>
+<p>The 96x66 crash row was valgrind-clean in all valgrind runs, and so were the other 96-wide rows and the 98-wide 4:4:4 and 4:2:2 8-bit rows. The two crashes left cores. The on-failure step printed this for both (<code>data/gdb_vspipe_teardown.txt</code>, shortened):</p>
+<pre>Program terminated with signal SIGSEGV, Segmentation fault.
+--- faulting thread
+#0  frameDoneCallback(void*, VSFrame const*, int, VSNode*, char const*)   (vspipe-bin)
+#1  VSThreadPool::returnFrame(...)   (libvapoursynth.so.4)
+--- main thread
+#0  visit_decref ()              (libpython3.12)
+#3  gc_collect_main ()           (libpython3.12)
+#7  vpy4_freeScript(VSScript*)   (vapoursynth.abi3.so)</pre>
+<p>Limits: 2 crashes in 7,200 replays in all is a rate, not a model of the push gate, which runs 2 rows at once next to other variants' rows on a busier machine. That both crashes came single-threaded fits a timing race, but 2 is too few to say single-threaded is more likely.</p>
 
 <h2>2. Uninitialised chroma at an odd chroma width (task #70)</h2>
 <p>Valgrind flagged one captured row: 98x64 <code>yuv420p12le</code> (QTGMC sees 98x96). vspipe wrote uninitialised bytes, and the origin is the frame <code>mv.Degrain1</code> allocates (<code>newVideoFrame</code> ← <code>mvdegrainGetFrame&lt;1&gt;</code>), in both allocations of the frame. Bisected with <code>bare.vpy</code> (data: <code>data/valgrind_bisect.txt</code>):</p>

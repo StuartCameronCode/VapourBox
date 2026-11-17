@@ -5321,7 +5321,7 @@ Both faults came in with task #46 (the preview runs VDecimate in the encode's ph
   first repro run gave every loop one id and measured the collision, not the
   crash.
 
-### QTGMC Draft SIGSEGV on Linux x64; crash reports from Linux CI (task #66, 2026-11-17)
+### QTGMC Draft SIGSEGV on Linux x64 was vspipe's teardown race; crash reports from Linux CI (task #66, 2026-11-17)
 
 The push gate's 96x66 4:2:0 12-bit row of `deinterlace/qtgmc[preset=Draft]`
 crashed vspipe once (SIGSEGV), and the re-run of the identical row passed.
@@ -5340,13 +5340,15 @@ macOS `.ips` files only. Report: [docs/reports/task-66-qtgmc-draft-sigsegv](repo
   with no worker, about 27 a second on a 4-core runner.
   `repro-native-crash.yml` drives it (plain, single-thread, valgrind), plus
   `bare.vpy` / `locate.py` under valgrind and the plugin probe.
-- **Not reproduced:** 4,200 replays of the six captured Draft rows (4–8 at
-  once, Xeon 6975P-C and EPYC 9V74), 0 crashes; the crash row valgrind-clean
-  3 times. The likeliest cause is task #68, the vspipe R78 teardown race task
-  #65 measured at ~2 in 1,200 one-frame previews without a trigger. A `flaky`
-  `knownFailures` entry covers exactly this row, variant and crash text until
-  #68 lands; the next occurrence prints its backtrace (#68's: `outputFrame` /
-  `frameDoneCallback` crashing, main in `freeScript`).
+- **Cause: task #68's vspipe R78 teardown race.** Replays of the variant's
+  six captured rows crashed 2 times in 1,800 single-threaded runs (0 in
+  the other 6,000), on two 98x64 rows. Both cores show #68's signature: the
+  crashing thread in vspipe's `frameDoneCallback`, main in
+  `vpy4_freeScript` → Python's GC. Not QTGMC, MVTools or the padding; any
+  one-frame preview can hit it, a tiny one is just fast. Until #68 moves the
+  deps to R80+, a `flaky` `knownFailures` entry (task 68) covers every row of
+  the Draft variant for exactly the SIGSEGV text. The first version covered
+  only the 96x66 row, from before the replays reproduced it.
 - **Found by valgrind, filed as task #70:** on x86, QTGMC at an odd chroma
   width (4:2:0 / 4:2:2, width 2 mod 4) and more than 8 bits reads
   uninitialised memory: Draft's last chroma column, from `mv.Degrain1`'s
