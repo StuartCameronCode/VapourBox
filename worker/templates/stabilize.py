@@ -84,8 +84,14 @@ def weave(clip, dxmax=4, dymax=4, mirror=0):
     if fmt.sample_type == vs.INTEGER and fmt.bytes_per_sample == 2:
         measured = inter
     else:
-        deep = core.resize.Point(
-            clip, format=fmt.replace(sample_type=vs.INTEGER, bits_per_sample=16))
+        # A depth change resamples nothing, so it needs no field split: the
+        # copy is made without _FieldBased (same samples), which a field-
+        # flagged 4:2:0 frame whose height is 2 mod 4 (720x486) would refuse
+        # in zimg, and the flag is put back for Depan (task #57).
+        deep = core.std.CopyFrameProps(
+            core.resize.Point(core.std.RemoveFrameProps(clip, '_FieldBased'),
+                              format=fmt.replace(sample_type=vs.INTEGER, bits_per_sample=16)),
+            clip, props=['_FieldBased'])
         measured = _interleaved(deep)
     mdata = core.mv.DepanEstimate(measured, trust=0, dxmax=dxmax, dymax=dymax)
     out = core.mv.DepanCompensate(inter, data=mdata, offset=-1, mirror=mirror)

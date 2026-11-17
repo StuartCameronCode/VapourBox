@@ -40,8 +40,11 @@ CHROMA = 'chroma'
 # min_width / min_height: the smallest frame it accepts (0: no limit found).
 # width_step / height_step: the frame must be a whole number of these (luma
 # samples, or CHROMA); run_within() pads to them with pad_around().
-Contract = namedtuple('Contract', 'depths subsampling min_width min_height width_step height_step')
-Contract.__new__.__defaults__ = (('420', '422', '444'), 0, 0, 1, 1)
+# field_based_only: the plugin refuses that size only on a field-flagged
+# frame, so only those frames are padded (pad_around's field_based_only).
+Contract = namedtuple('Contract',
+                      'depths subsampling min_width min_height width_step height_step field_based_only')
+Contract.__new__.__defaults__ = (('420', '422', '444'), 0, 0, 1, 1, False)
 ALL_DEPTHS = (8, 10, 12, 16)
 
 CONTRACTS = {
@@ -58,8 +61,11 @@ CONTRACTS = {
     'havsfunc.LUTDeCrawl': Contract(depths=(8, 10)),
     'havsfunc.LUTDeRainbow': Contract(depths=(8, 10)),
     # Whole field chroma rows (task #57): a 4:2:0 frame whose height is 2 mod
-    # 4 (720x486) has an odd number of chroma rows, which SeparateFields and a
-    # field-flagged resize refuse. Whole chroma columns (task #56): at a 4:2:x
+    # 4 (720x486) has an odd number of chroma rows. QTGMC and MCTD split it
+    # into fields (SeparateFields) whatever the flag; the rest resample a
+    # field-flagged copy (zimg's "Resize error 1027") and refuse only that
+    # (field_based_only), so it is padded to whole field chroma rows and
+    # cropped back. Whole chroma columns (task #56): at a 4:2:x
     # width 2 mod 4, MCTD's pad-and-crop crops an odd chroma offset ("cropped
     # area needs to have mod 2 width offset", F1), and QTGMC with SrchClipPP 1
     # (Super / Ultra Fast) halves the frame to an odd chroma width for its
@@ -67,9 +73,16 @@ CONTRACTS = {
     # factor", F2). QTGMC's other SrchClipPP values resample the whole frame
     # at a size that follows the width, so padding would move every column
     # (up to 5 levels inside the frame at 854x480): they keep the width.
+    'dctf.DCTFilter': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
+    'deblock.Deblock': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
+    'havsfunc.Deblock_QED': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
+    'havsfunc.FixChromaBleedingMod': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
+    'havsfunc.LSFmod': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
     'havsfunc.MCTemporalDenoise': Contract(depths=ALL_DEPTHS, width_step=CHROMA, height_step=CHROMA),
     'havsfunc.QTGMC': Contract(depths=ALL_DEPTHS, height_step=CHROMA),
     'havsfunc.QTGMC[SrchClipPP=1]': Contract(depths=ALL_DEPTHS, width_step=CHROMA, height_step=CHROMA),
+    'sangnom.SangNom': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
+    'temporaldegrain2.TemporalDegrain2': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
 }
 
 # Calls whose measured limits are met another way, so they need no
@@ -88,19 +101,7 @@ HANDLED = {
 # Refusals the probe measured that no pass handles yet, each with the task
 # that will. A user can hit these; the job fails with the plugin's own error.
 # Remove an entry with its fix and re-run the probe on that call.
-_H486 = ('4:2:0 at 720x486, field-flagged (243 chroma rows: a field has no '
-         'whole chroma height), task #57')
-KNOWN = {
-    'dctf.DCTFilter': _H486,
-    'deblock.Deblock': _H486,
-    'havsfunc.Deblock_QED': _H486,
-    'havsfunc.FixChromaBleedingMod': _H486,
-    'havsfunc.LSFmod': _H486,
-    'sangnom.SangNom': _H486,
-    'srestore.unblend': 'every subsampling at 720x486 field-flagged, task #57',
-    'stabilize.weave': _H486,
-    'temporaldegrain2.TemporalDegrain2': _H486,
-}
+KNOWN = {}
 
 # MVTools' Compensate, Degrain and BlockFPS pick each block row's overlap
 # window with ((by + nBlkY - 3) / (nBlkY - 2)) * 3: an integer division by zero
@@ -191,20 +192,8 @@ def _pad_cols(plane, cols):
     return core.std.StackHorizontal([plane] + [last] * cols)
 
 
-def pad_around(clip, fn, *, width_step=1, height_step=1, min_rows=0, min_cols=0, label=None):
-    """fn(clip) on a copy padded right and bottom to whole [width_step] x
-    [height_step] (luma samples, or CHROMA), cropped back by the same amount.
-
-    - When the clip already fits, this is fn(clip): no node is added, so every
-      size that works today keeps its script output byte for byte.
-    - The pad is built per plane as GRAY clips (std.Crop / Stack*), never a
-      resize: a resize of the odd chroma geometry is what refuses (task #57).
-    - Columns repeat the last column; rows repeat with period 2 (_pad_rows),
-      right for a field-flagged clip and a progressive one alike.
-    - min_rows / min_cols: also pad until the frame has at least this many
-      rows / columns (mvtools_blocks()), keeping whole steps.
-    - fn may retime (QTGMC doubles the frame count) but must keep the frame
-      size; anything else raises, naming [label]."""
+def _padding(clip, width_step, height_step, label, min_rows=0, min_cols=0):
+    """(padded clip, columns added, rows added) for pad_around() / read_padded()."""
     fmt = clip.format
     sw = fmt.subsampling_w if fmt.color_family == vs.YUV else 0
     sh = fmt.subsampling_h if fmt.color_family == vs.YUV else 0
@@ -218,7 +207,7 @@ def pad_around(clip, fn, *, width_step=1, height_step=1, min_rows=0, min_cols=0,
         short = min_cols - (clip.width + pw)
         pw += -(-short // ws) * ws
     if pw == 0 and ph == 0:
-        return fn(clip)
+        return clip, 0, 0
     if pw % (1 << sw) or ph % (1 << sh):
         raise vs.Error('%s: pad_around can only pad whole chroma samples (%dx%d %s by %dx%d)'
                        % (label or 'pad_around', clip.width, clip.height, fmt.name, pw, ph))
@@ -228,15 +217,74 @@ def pad_around(clip, fn, *, width_step=1, height_step=1, min_rows=0, min_cols=0,
         xs, ys = (sw, sh) if i else (0, 0)
         planes.append(_pad_rows(_pad_cols(plane, pw >> xs), ph >> ys))
     if fmt.num_planes == 1:
-        padded = planes[0]
+        out = planes[0]
     else:
-        padded = core.std.ShufflePlanes(planes, [0, 0, 0], fmt.color_family)
-    padded = core.std.CopyFrameProps(padded, clip)
-    out = fn(padded)
-    if (out.width, out.height) != (padded.width, padded.height):
+        out = core.std.ShufflePlanes(planes, [0, 0, 0], fmt.color_family)
+    return core.std.CopyFrameProps(out, clip), pw, ph
+
+
+def by_field_flag(flag_src, flagged, plain):
+    """Per frame, [flagged] where [flag_src]'s frame has _FieldBased 1 or 2,
+    else [plain]. Only the chosen clip's frame is requested, so [plain] may
+    be a graph that would refuse a field-flagged frame. Both must have the
+    same length, size and format."""
+    return core.std.FrameEval(plain, lambda n, f: flagged if f.props.get('_FieldBased', 0) else plain,
+                              prop_src=flag_src)
+
+
+def pad_around(clip, fn, *, width_step=1, height_step=1, field_based_only=False,
+               min_rows=0, min_cols=0, label=None):
+    """fn(clip) on a copy padded right and bottom to whole [width_step] x
+    [height_step] (luma samples, or CHROMA), cropped back by the same amount.
+
+    - When the clip already fits, this is fn(clip): no node is added, so every
+      size that works today keeps its script output byte for byte.
+    - The pad is built per plane as GRAY clips (std.Crop / Stack*), never a
+      resize: a resize of the odd chroma geometry is what refuses (task #57).
+    - Columns repeat the last column; rows repeat with period 2 (_pad_rows),
+      right for a field-flagged clip and a progressive one alike.
+    - field_based_only: for an fn that refuses the size only on a
+      field-flagged frame (a zimg resize; most plugins that refuse 720x486),
+      only such frames take the padded path, chosen per frame by _FieldBased
+      (by_field_flag); a progressive frame gets fn(clip) as before, so its
+      output does not move. (LSFmod, for one, supersamples at a size that
+      follows the height: padding a frame changes all of it.)
+    - min_rows / min_cols: also pad until the frame has at least this many
+      rows / columns (mvtools_blocks()), keeping whole steps.
+    - fn may retime (QTGMC doubles the frame count) but must keep the frame
+      size; anything else raises, naming [label]. With field_based_only it
+      must keep the frame count too."""
+    work, pw, ph = _padding(clip, width_step, height_step, label, min_rows, min_cols)
+    if work is clip:
+        return fn(clip)
+    out = fn(work)
+    if (out.width, out.height) != (work.width, work.height):
         raise vs.Error('%s: pad_around needs fn to keep the frame size (%dx%d in, %dx%d out)'
-                       % (label or 'pad_around', padded.width, padded.height, out.width, out.height))
-    return core.std.Crop(out, right=pw, bottom=ph)
+                       % (label or 'pad_around', work.width, work.height, out.width, out.height))
+    out = core.std.Crop(out, right=pw, bottom=ph)
+    if not field_based_only:
+        return out
+    try:
+        plain = fn(clip)
+    except vs.Error:
+        return out  # refused unflagged too, while the graph was built
+    return by_field_flag(clip, out, plain)
+
+
+def read_padded(clip, fn, *, width_step=1, height_step=1, label=None):
+    """fn(src, **window) for a call that changes the frame size (a resize),
+    which pad_around() cannot crop back. A field-flagged frame that does not
+    fit the steps is read from a padded copy with src_width / src_height set
+    to the real frame; every other frame is fn(clip) as before."""
+    work, pw, ph = _padding(clip, width_step, height_step, label)
+    if work is clip:
+        return fn(clip)
+    window = {}
+    if pw:
+        window['src_width'] = clip.width
+    if ph:
+        window['src_height'] = clip.height
+    return by_field_flag(clip, fn(work, **window), fn(clip))
 
 
 def run_within(clip, plugin, fn, *, delta_only=True, label=None):
@@ -244,10 +292,11 @@ def run_within(clip, plugin, fn, *, delta_only=True, label=None):
     (CONTRACTS[plugin]), brought back to [clip]'s format and size.
 
     - The frame is first padded to the contract's width_step / height_step
-      (pad_around), and, when it must be converted, to whole field chroma
-      rows: the conversion is a zimg resize, which refuses a field-flagged
-      4:2:0 clip whose height is 2 mod 4. Padding is outside the conversion,
-      and a clip that already fits gets no padding node.
+      (pad_around; only field-flagged frames when field_based_only), and,
+      when it must be converted, to whole field chroma rows: the conversion
+      is a zimg resize, which refuses a field-flagged 4:2:0 clip whose height
+      is 2 mod 4 (and only a field-flagged one). Padding is outside the
+      conversion, and a clip that already fits gets no padding node.
     - A clip the plugin already accepts is handed to fn unchanged and fn's
       result returned as it is: no node is added.
     - Otherwise the work copy is converted with zimg, keeping _FieldBased, so
@@ -271,15 +320,19 @@ def run_within(clip, plugin, fn, *, delta_only=True, label=None):
                        % (name, plugin, contract.min_width, contract.min_height,
                           clip.width, clip.height))
     width_step, height_step = contract.width_step, contract.height_step
+    field_based_only = contract.field_based_only
     fmt = clip.format
     if fmt.color_family == vs.YUV and work_format(fmt, contract).id != fmt.id:
         # The conversion to the work format is a zimg resize, per field on a
         # field-flagged clip, so it needs whole field chroma rows as well.
         hs = _step(height_step, fmt.subsampling_h)
         cs = _step(CHROMA, fmt.subsampling_h)
+        if (contract.width_step, contract.height_step) == (1, 1):
+            field_based_only = True  # only the conversion needs it
         height_step = hs * cs // math.gcd(hs, cs)
     return pad_around(clip, lambda c: _run_converted(c, contract, plugin, fn, delta_only, name),
-                      width_step=width_step, height_step=height_step, label=name)
+                      width_step=width_step, height_step=height_step,
+                      field_based_only=field_based_only, label=name)
 
 
 def _run_converted(clip, contract, plugin, fn, delta_only, name):

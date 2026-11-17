@@ -200,6 +200,46 @@ try:
     check(False, 'a plugin with no contract was accepted')
 except vs.Error:
     pass
+
+# pad_around (task #57): a 4:2:0 frame 2 mod 4 high, field-flagged and not.
+def rows_equal(c, plane, a, b):
+    g = core.std.ShufflePlanes(c, plane, vs.GRAY)
+    ra = core.std.Crop(g, top=a, bottom=g.height - a - 1)
+    rb = core.std.Crop(g, top=b, bottom=g.height - b - 1)
+    return core.std.PlaneStats(ra, rb).get_frame(0).props['PlaneStatsDiff'] == 0
+
+tall = core.resize.Bicubic(base, 160, 122, format=vs.YUV420P10)
+for fb in (0, 2):
+    c = core.std.SetFieldBased(tall, fb)
+    seen = {}
+    def grab(x):
+        seen['x'] = x
+        return x
+    out = pf.pad_around(c, grab, height_step=pf.CHROMA)
+    p = seen['x']
+    check((p.width, p.height) == (160, 124), 'pad_around: padded to %dx%d' % (p.width, p.height))
+    check(rows_equal(p, 0, 122, 120) and rows_equal(p, 0, 123, 121) and rows_equal(p, 1, 61, 59),
+          'pad_around: the new rows must repeat each field\'s own last row')
+    check(p.get_frame(0).props.get('_FieldBased', 0) == fb, 'pad_around: _FieldBased lost')
+    check(same(out, c), 'pad_around: a no-op fn did not come back exact (f%d)' % fb)
+    # field_based_only: a field-flagged frame takes the padded path, another
+    # frame the old one; SeparateFields refuses the unpadded frame.
+    split = lambda x: core.std.DoubleWeave(core.std.SeparateFields(x, tff=True), tff=True)[::2]
+    out = pf.pad_around(c, split, height_step=pf.CHROMA, field_based_only=True)
+    check(same(out, c), 'pad_around(field_based_only): a split and weave did not come back exact (f%d)' % fb)
+    marked = {}
+    def mark(x):
+        marked[x.height] = True
+        return x
+    pf.pad_around(c, mark, height_step=pf.CHROMA, field_based_only=True)
+    check(set(marked) == {122, 124}, 'pad_around(field_based_only): both paths must be built')
+fits = core.resize.Bicubic(base, 160, 120, format=vs.YUV420P10)
+check(pf.pad_around(fits, lambda x: x, height_step=pf.CHROMA) is fits, 'pad_around: a frame that fits got a node')
+try:
+    pf.pad_around(tall, lambda x: core.std.Crop(x, bottom=2), height_step=pf.CHROMA, label='Test Pass')
+    check(False, 'pad_around: an fn that changes the size was not refused')
+except vs.Error as e:
+    check('Test Pass' in str(e), 'pad_around: unreadable refusal: %s' % e)
 print(json.dumps(problems))
 ''';
 

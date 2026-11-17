@@ -1,0 +1,1 @@
+{"runs": 20, "frames": 24, "distinct": {"clense": {"8": 1, "2": 1, "1": 1}, "scselect": {"8": 1, "2": 1, "1": 1}, "restore_motion_blocks": {"8": 2, "2": 1, "1": 1}, "bare_chain": {"8": 18, "2": 20, "1": 1}, "remove_dirt": {"8": 1, "2": 1, "1": 1}, "remove_dirt equals the bare chain at 1 thread": true}}

@@ -333,8 +333,14 @@ def stats_clip(source, speed=None):
         dclip = core.resize.Bicubic(dclip, format=vs.GRAY8)
     elif family == vs.RGB:
         dclip = core.resize.Bicubic(dclip, format=vs.YUV420P8, matrix_s='709')
-    elif dclip.format.id != vs.YUV420P8:
-        dclip = core.resize.Bicubic(dclip, format=vs.YUV420P8)
+    else:
+        # Upstream converts the whole clip to YUV420P8 and then measures its
+        # luma. Taking the luma first gives the same samples and never asks
+        # zimg for a field-aware 4:2:0 conversion, which refuses a frame whose
+        # height is 2 mod 4 (720x486) when it is field-flagged (task #57).
+        dclip = core.std.ShufflePlanes(dclip, 0, vs.GRAY)
+        if dclip.format.id != vs.GRAY8:
+            dclip = core.resize.Bicubic(dclip, format=vs.GRAY8)
     dclip = core.resize.Point(dclip,
                               dclip.width if srad == 4 else int(dclip.width / 2 / srad + 4) * 4,
                               dclip.height if srad == 4 else int(dclip.height / 2 / srad + 4) * 4).std.Trim(2)

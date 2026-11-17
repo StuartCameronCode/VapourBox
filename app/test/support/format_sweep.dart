@@ -503,6 +503,11 @@ enum SweepSize {
   /// 426x240 sources.
   oddChroma(98, 64),
 
+  /// Height 2 mod 4: 4:2:0 chroma is 33 rows, so a field has no whole chroma
+  /// height, as on a 720x486 NTSC D1 picture (task #57). Run as its own rows
+  /// (not a tiny size), 4:2:0 at every piped depth.
+  heightTwoMod4(96, 66),
+
   /// The height-dependent branches (HD/SD thresholds, block sizes).
   sd(720, 480);
 
@@ -551,7 +556,8 @@ class SweepRow {
 /// The push gate's rows for variant [i]: four depths, each meeting a
 /// different subsampling, field and tiny size, rotating between variants so
 /// that every variant meets every subsampling, both fields, both sizes, and
-/// every field × size pair; plus one extra native format, round-robin.
+/// every field × size pair; one 4:2:0 row at a height 2 mod 4 (task #57),
+/// depth and field rotating; plus one extra native format, round-robin.
 List<SweepRow> gateRows(int i) {
   const depths = [8, 10, 12, 16];
   return [
@@ -561,6 +567,8 @@ List<SweepRow> gateRows(int i) {
         SweepField.values[(r + i) % 2],
         tinySizes[(r + i + r ~/ 2) % 2],
       ),
+    SweepRow(SweepFormat.of('420', depths[i % 4]), SweepField.values[(i ~/ 4) % 2],
+        SweepSize.heightTwoMod4),
     if (extraFormats.isNotEmpty)
       SweepRow(
           extraFormats[i % extraFormats.length],
@@ -576,7 +584,8 @@ List<SweepRow> gateRows(int i) {
 ///    10 and 16, so every pass sees the 10/16-bit script, and these rows only
 ///    prove the mapping end to end;
 ///  * every extra native format, both fields, one tiny size;
-///  * three SD rows, one per subsampling, the depth and field rotating.
+///  * three SD rows, one per subsampling, the depth and field rotating;
+///  * 4:2:0 at a height 2 mod 4 (96x66), every piped depth, both fields.
 List<SweepRow> nightlyRows(int i) {
   return [
     for (final size in tinySizes)
@@ -592,6 +601,10 @@ List<SweepRow> nightlyRows(int i) {
     for (var s = 0; s < 3; s++)
       SweepRow(SweepFormat.of(sweepSubsamplings[s], const [8, 10, 16][(s + i) % 3]),
           SweepField.values[(s + i) % 2], SweepSize.sd),
+    // 4:2:0 at a height 2 mod 4, every piped depth, both fields (task #57).
+    for (final field in SweepField.values)
+      for (final d in const [8, 10, 12, 16])
+        SweepRow(SweepFormat.of('420', d), field, SweepSize.heightTwoMod4),
   ];
 }
 

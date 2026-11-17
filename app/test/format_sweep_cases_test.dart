@@ -382,7 +382,13 @@ void main() {
       for (final v in sweepVariants) {
         final rows = gateRows(v.index).where((r) => r.format.inProduct);
         expect(rows.map((r) => r.format.subsampling).toSet(), sweepSubsamplings.toSet(), reason: v.id);
-        expect(rows.map((r) => (r.field, r.size)).toSet(), hasLength(4), reason: v.id);
+        expect(
+            rows.where((r) => tinySizes.contains(r.size)).map((r) => (r.field, r.size)).toSet(),
+            hasLength(4),
+            reason: v.id);
+        // One 4:2:0 row at a height 2 mod 4 (task #57).
+        expect(rows.where((r) => r.size == SweepSize.heightTwoMod4).map((r) => r.format.subsampling),
+            ['420'], reason: v.id);
         expect(rows.map((r) => r.format.depth).toSet(), {8, 10, 12, 16}, reason: v.id);
       }
     });
@@ -418,6 +424,8 @@ void main() {
         expect(rows.map((r) => r.format).toSet(), containsAll(extraFormats));
         expect(rows.where((r) => r.size == SweepSize.sd).map((r) => r.format.subsampling).toSet(),
             sweepSubsamplings.toSet());
+        // 4:2:0 at a height 2 mod 4, every piped depth, both fields (task #57).
+        expect(rows.where((r) => r.size == SweepSize.heightTwoMod4), hasLength(8));
         // Every 9/14-bit row has its 8-bit pair for the parity check.
         for (final r in rows.where((r) => r.format.depth != r.format.pipedDepth)) {
           expect(rows, contains(r.at(SweepFormat.of(r.format.subsampling, 8))));
