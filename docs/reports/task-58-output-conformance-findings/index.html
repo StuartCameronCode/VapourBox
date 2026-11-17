@@ -127,8 +127,16 @@ worker conf_reset_offgrid      rate 25/1    pictures 100, picture steps [0.04], 
 <p>Limits: two synthetic program streams; no DVD with angles or a broadcast TS with a reset was available. Task #55 (reset scan) changes the same scan and should rebase on this.</p>
 
 <h2>The matrix</h2>
-<!--MATRIX-->
-<p>Run with <a href="../task-49-output-conformance/scripts/run_matrix.sh"><code>task-49-output-conformance/scripts/run_matrix.sh</code></a>.</p>
+<p>448 cases now (444 + the four tail trims), plus the off-grid join test and the copy-refusal test: 450 tests. <code>knownFailures</code> is empty.</p>
+<table>
+<tr><th>full run</th><th class="num">passed</th><th class="num">failed</th></tr>
+<tr><td>2</td><td class="num good">450</td><td class="num">0</td></tr>
+<tr><td>3</td><td class="num good">450</td><td class="num">0</td></tr>
+<tr><td>4</td><td class="num good">450</td><td class="num">0</td></tr>
+</table>
+<div class="card correction"><p><strong>Run 1 is void.</strong> While it ran I swapped the pre-fix worker binary in and out of <code>worker/target/debug</code> (and its templates into the <code>templates/</code> folder the worker reads first) to check an unrelated Unblend failure. Overwriting an executed binary in place makes macOS kill it (exit &minus;9) until it is rewritten, so 291 of its cases failed with &ldquo;Worker exited with code &minus;9&rdquo;; a fourth run was added. Lesson for the next person: swap a binary with <code>mv</code>, not <code>cp</code> over it, and not while a suite runs.</p></div>
+<p>The heavy files that read back in time through <code>pipe_source</code> pass (<code>integration_stabilize_test</code>, <code>integration_ivtc_preview_test</code>, <code>integration_frame_mapping_test</code> without <code>gpu</code>, <code>integration_unblend_test</code> but one), and none raised &ldquo;left the cache&rdquo;; so do <code>integration_seek_alignment_test</code> (87) and <code>integration_video_start_offset_test</code> (80). The Unblend case &ldquo;a 10-bit copy of the source gives the 8-bit result&rdquo; fails here (13.1 levels) identically with the pre-fix worker and templates, so it is not from this task: filed as task #64. The local bundle is deps 1.16.0 (the app pins 1.17.0-rc2).</p>
+<p>Output: <a href="matrix_macos-arm64.txt"><code>matrix_macos-arm64.txt</code></a>. Run with <a href="../task-49-output-conformance/scripts/run_matrix.sh"><code>task-49-output-conformance/scripts/run_matrix.sh</code></a>.</p>
 
 <h2>Not tested</h2>
 <ul>
