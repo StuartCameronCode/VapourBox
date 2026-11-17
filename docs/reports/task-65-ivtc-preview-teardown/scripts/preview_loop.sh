@@ -33,8 +33,11 @@ case "$MODE" in
   *) echo "unknown mode $MODE" >&2; exit 2 ;;
 esac
 
+# Each loop its own job id: the worker's preview scratch directory is named
+# after it, so concurrent loops sharing one deleted each other's files.
+ID=$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')
 cat > "$JOB" <<JSON
-{"id":"65656565-6565-6565-6565-656565656565","inputPath":"$SRC","outputPath":"$OUT/unused.mkv",
+{"id":"$ID","inputPath":"$SRC","outputPath":"$OUT/unused.mkv",
  "qtgmcParameters":{"enabled":true,"method":"$METHOD","tff":true,"ivtcCycle":5},
  "processingPipeline":{"deinterlace":{"enabled":true,"method":"$METHOD","tff":true,"ivtcCycle":5}},
  "encodingSettings":{"codec":"ffv1","container":"mkv","audioMode":"none"},
@@ -46,7 +49,7 @@ runs=0; fails=0
 for pass in $(seq 1 "$PASSES"); do
   for f in $(seq 0 $((FRAMES - 1))); do
     runs=$((runs + 1))
-    before=$(ls "$CORES" 2>/dev/null | wc -l)
+    before=$(ls "$CORES" 2>/dev/null | grep -vc '\.bt$')
     "$WORKER" --config "$JOB" --preview --frame "$f" > "$OUT/last.png" 2> "$OUT/last.err"
     rc=$?
     if [ $rc -ne 0 ]; then
@@ -54,9 +57,9 @@ for pass in $(seq 1 "$PASSES"); do
       cp "$OUT/last.err" "$OUT/fail-$MODE-$pass-$f.err"
       echo "FAIL $MODE pass=$pass frame=$f rc=$rc: $(grep -m1 'Error generating preview' "$OUT/last.err")"
     fi
-    after=$(ls "$CORES" 2>/dev/null | wc -l)
+    after=$(ls "$CORES" 2>/dev/null | grep -vc '\.bt$')
     if [ "$after" -gt "$before" ] && command -v gdb >/dev/null; then
-      for core in $(ls -t "$CORES"/core.* | head -n $((after - before))); do
+      for core in $(ls -t "$CORES"/core.* | grep -v '\.bt$' | head -n $((after - before))); do
         [ -e "$core.bt" ] && continue
         exe=$(file "$core" | sed -n "s/.*execfn: '\([^']*\)'.*/\1/p")
         echo "== core $core ($exe) after $MODE pass=$pass frame=$f rc=$rc" > "$core.bt"

@@ -32,6 +32,7 @@ fi
 PASSES="${PASSES:-5}"
 for side in main branch; do
   for mode in ivtc ivtc-avi bwdif; do
+    cores_before=$(ls "${CORE_DIR:-/nonexistent}" 2>/dev/null | grep -vc '\.bt$')
     pids=()
     passes=$([ "$mode" = ivtc-avi ] && echo $(( (PASSES + 2) / 3 )) || echo "$PASSES")
     for k in 1 2 3 4; do
@@ -47,7 +48,8 @@ for side in main branch; do
       runs=$((runs + ${r:-0})); fails=$((fails + ${f:-0}))
       grep '^FAIL' "$OUT/$side-$mode-$k.log" | head -5
     done
-    echo "$side $mode (4 loops, load ${LOAD:+on}${LOAD:-off}): runs=$runs failures=$fails" | tee -a "$OUT/summary.txt"
+    cores=$(( $(ls "${CORE_DIR:-/nonexistent}" 2>/dev/null | grep -vc '\.bt$') - cores_before ))
+    echo "$side $mode (4 loops, CPU load ${LOAD:+on}): runs=$runs failures=$fails vspipe-cores=$cores" | tee -a "$OUT/summary.txt"
   done
 done
 [ -n "$LOAD" ] && kill "$LOAD"
