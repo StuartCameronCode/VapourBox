@@ -66,6 +66,8 @@ on:
         required: false
         type: string
   push:
+    # Branches only: merging a change to this file must not start a repro run on main.
+    branches-ignore: [main]
     paths: ['.github/workflows/repro-native-crash.yml']
 
 permissions:

@@ -8,8 +8,8 @@ A plugin that segfaults inside vspipe leaves nothing in the test output but
   library and function that faulted; this prints the newest few for the given
   process names.
 - Linux keeps nothing unless the job asked for core dumps
-  (`.github/scripts/enable-core-dumps.sh`: `kernel.core_pattern` into
-  `$VAPOURBOX_CORE_DIR`, default /tmp/cores, and `ulimit -c unlimited`). This
+  (`.github/scripts/enable-core-dumps.sh`: `kernel.core_pattern` piped to a
+  handler that writes into `$VAPOURBOX_CORE_DIR`, default /tmp/cores). This
   runs gdb over the newest few cores: the faulting thread's backtrace, every
   thread's top frames, and the shared-library map, so an address in a stripped
   frame can still be resolved later (task #66).
