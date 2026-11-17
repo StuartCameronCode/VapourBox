@@ -40,11 +40,10 @@ copy of <code>altclip</code> (default: the clip), so that strip is the input, un
 units) itself. The template's 8-bit detour (<code>run_within</code> on an 8-bit copy, task #37/#48) is gone: the
 contract now accepts every depth, so <code>run_within</code> converts nothing.</li>
 <li>One refusal remains: with <code>interlaced=True</code> (the default) v4.0 calls <code>SeparateFields</code>
-itself, so <strong>4:2:0 at a height ≡ 2 mod 4</strong> (720×486) is refused, as with v3.0. That is task #57's case
-and stays in <code>plugin_formats.KNOWN</code> until #57's height padding covers it.</li>
+itself, so <strong>4:2:0 at a height ≡ 2 mod 4</strong> (720×486) is refused, as with v3.0. The contract pads
+such a frame to whole field chroma rows (<code>height_step=CHROMA</code>, task #57's step) and crops back.</li>
 <li>Task #56's padding to whole blocks (width mod 4, height mod 8), a guard against the v3.0 fault, is not needed
-with v4.0. This branch was cut from main before #56 merged; when it does, its Bifrost steps should be dropped
-(keeping only #57's <code>height_step=CHROMA</code>).</li>
+with v4.0 and was dropped when this branch was rebased onto #56 and #57; only the height step above remains.</li>
 </ul>
 
 <h2>1. Arguments</h2>
