@@ -53,6 +53,9 @@ on:
       bisect:
         description: 'call:WxH:format runs of the report scripts/bare.vpy under valgrind'
         default: ''
+      locate:
+        description: 'call:WxH:format runs of scripts/locate.py (which samples are uninitialised)'
+        default: ''
       unwritten:
         description: 'unwritten.py calls (buffer-pool probe)'
         default: ''
@@ -78,7 +81,8 @@ env:
   PROBE_CALLS: ${{ inputs.probe_calls }}
   PROBE_REPEAT: ${{ inputs.probe_repeat || '3' }}
   # call:WxH:format runs of bare.vpy under valgrind, and unwritten.py calls.
-  BISECT: ${{ inputs.bisect || 'qtgmc_draft:98x96:YUV420P12 qtgmc_draft:98x96:YUV420P8 qtgmc_draft:98x96:YUV420P16 qtgmc_draft:100x96:YUV420P12 qtgmc_draft:98x96:YUV422P12 qtgmc_draft:98x96:YUV444P12 qtgmc_draft:722x480:YUV420P12 qtgmc_draft:722x480:YUV420P8 qtgmc_draft:720x480:YUV420P12 qtgmc_fast:98x96:YUV420P12 qtgmc_slower:98x96:YUV420P12 qtgmc_draft:96x96:YUV420P12' }}
+  BISECT: ${{ inputs.bisect }}
+  LOCATE: ${{ inputs.locate || 'qtgmc_draft:98x96:YUV420P12 qtgmc_slower:98x96:YUV420P12' }}
   UNWRITTEN: ${{ inputs.unwritten }}
   CAPTURE: ${{ github.workspace }}/repro/capture
   OUT: ${{ github.workspace }}/repro/out
@@ -207,6 +211,20 @@ jobs:
             for c in $UNWRITTEN; do
               deps/linux-x64/python/bin/python3 $SCRIPTS/unwritten.py $c 96x96 98x96 2>&1 | grep -v 'already loaded'
             done ) | tee "$OUT/bisect/unwritten.txt"
+
+      - name: Locate uninitialised samples
+        if: always() && env.LOCATE != ''
+        run: |
+          # scripts/locate.py: one memcheck process per region of the output.
+          r=$(ls -d "$CAPTURE"/run.* 2>/dev/null | head -1)
+          [ -n "$r" ] || { echo "no captured run to take the environment from"; exit 0; }
+          while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
+          PY=$PWD/deps/linux-x64/python/bin/python3
+          for spec in $LOCATE; do
+            IFS=: read -r call size fmt <<< "$spec"
+            $PY docs/reports/task-66-qtgmc-draft-sigsegv/scripts/locate.py "$PY" $call $size $fmt $(nproc) 2>&1 \
+              | grep -v 'already loaded' || true
+          done | tee "$OUT/locate.txt"
 
       - name: Plugin probe loop
         if: always() && env.PROBE_CALLS != ''
