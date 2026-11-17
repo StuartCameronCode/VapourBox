@@ -494,6 +494,12 @@ FFT3DFilter — GPL-2.0
   Copyright (C) 2015 Yusuke Nakamura (VapourSynth port)
   https://github.com/myrsloik/VapourSynth-FFT3DFilter
   Licence text: GPL-2.0.txt
+  Built from source at tag R2 on every platform. VapourBox applies
+  Scripts/patches/fft3dfilter-r2-determinism.patch, which fixes two faults
+  that made its output differ from run to run (a left border mirrored from
+  memory not yet written; a per-frame sigma in a shared member of a parallel
+  filter). The patch header carries the analysis; the patched source is the
+  R2 tag with that file applied.
 
 TTempSmooth — GPL-3.0
   Copyright (C) 2004-2005 Kevin Stone (tritical); VapourSynth port by HolyWu

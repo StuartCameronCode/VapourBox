@@ -1,0 +1,11 @@
+default max 23, differing runs 3 of 3, max fraction of samples 0.00869
+bt1 max 27, differing runs 3 of 3, max fraction of samples 0.00662
+bt0_kalman max 22, differing runs 3 of 3, max fraction of samples 0.21384
+bt-1_sharpen max 72, differing runs 3 of 3, max fraction of samples 0.02116
+sigma0 max 1, differing runs 3 of 3, max fraction of samples 0.00947
+bt1_sigma16_bw32 max 83, differing runs 3 of 3, max fraction of samples 0.01791
+ncpu1 max 38, differing runs 3 of 3, max fraction of samples 0.00918
+ncpu4 max 30, differing runs 3 of 3, max fraction of samples 0.00881
+post_bt3_bw48 max 20, differing runs 3 of 3, max fraction of samples 0.00928
+y_only max 27, differing runs 3 of 3, max fraction of samples 0.00619
+blank (80, 3, 3, 0.01406)

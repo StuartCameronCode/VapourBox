@@ -5188,3 +5188,37 @@ Report: [docs/reports/task-60-bifrost-v4](reports/task-60-bifrost-v4/index.html)
   v3.0 (one run each).
 - **The earlier 2026-08-15 note "Bifrost is 8-bit only", and its include-farm
   note, describe v3.0.**
+
+### FFT3DFilter differed on every run: two plugin faults, patched (task #62, 2026-11-17)
+
+Task #57 found TemporalDegrain2 giving a different picture on every run. The
+bisect (fresh graphs, 1 and 8 threads) put it on **FFT3DFilter**, not
+TemporalDegrain2, MVTools or DFTTest, and on every argument set: a flat clip
+came back up to 80 levels off. Two faults, in every published build (R1, R2,
+HEAD, yuygfgg's arm64 prebuilt, the AmusementClub fork):
+
+- `FramePlaneToCoverbuf` mirrors each line's left border **before** copying
+  the line in, so the left 10 luma / 6 chroma columns came from the previous
+  frame's pixels (or uninitialised memory). Upstream regression da50417
+  (2018); the 2015 original copied first.
+- `ApplyFilter` keeps the per-frame Wiener sigma in a member of an
+  `fmParallel` filter; an edge frame (`btcur` 1) overwriting it filters a
+  middle frame at 1/bt of its noise level. Hit by bt > 1 with one sigma: the
+  FFT3D method, TD2's post pass, QTGMC's fft3dfilter denoiser.
+
+`Scripts/patches/fft3dfilter-r2-determinism.patch` (five lines) fixes both;
+every platform now builds R2 from source with it (Windows by a Zig
+cross-compile against FFTW 3.3.5's DLL, checked from macOS: links, imports
+only `libfftw3f-3.dll`, KERNEL32 and the UCRT). Patched: 1 hash in every
+cell, across 7 processes, in any access order, and through the worker the
+preview equals the FFV1 encode sample for sample (unpatched: up to 27 levels
+between two previews). Output change for users: mostly the left 16 columns
+(mean 0.15–0.27 levels there), plus whole-picture corrections where the sigma
+race had hit (FFT3D method at bt 3, up to 0.08 mean). A template wrapper was
+deterministic but matched the patched plugin in only 27 of 90 cells and could
+not reach havsfunc. Kalman (bt 0) is stateful by design and stays
+unreachable. One correction to the plan: `measure=0` is not output-neutral
+for 48-px blocks. Ships in deps 1.18.0; the push gate's `fft3dfilter is
+deterministic` and the heavy `integration_fft3dfilter_determinism_test.dart`
+skip on bundles up to 1.17.x. Report:
+[docs/reports/task-62-fft3dfilter-determinism](reports/task-62-fft3dfilter-determinism/index.html).

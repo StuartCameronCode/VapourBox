@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FFT3DFilter determinism</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  table.grid { width: auto; }
+  table.grid td { text-align: center; min-width: 70px; }
+  td.ok { background: var(--good-bg); }
+  td.no { background: var(--bad-bg); }
+  td.part { background: var(--warn-bg); }
+  .bad { color: var(--bad); font-weight: 600; }
+  ul.notes { font-size: 14px; }
+  figure { margin: 14px 0; }
+  figure img { image-rendering: pixelated; border: 1px solid var(--border); max-width: 100%; }
+  .figs { display: flex; flex-wrap: wrap; gap: 16px; }
+  .figs figure { flex: 1 1 200px; margin: 0; }
+  figcaption { font-size: 13px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>FFT3DFilter gives a different picture on every run: two plugin faults, patched</h1>
+<p class="meta">2026-11-17 · task #62 (found by task #57) · measured on an Apple Silicon Mac with the macOS arm64 deps
+bundle 1.16.0 and the bundle's Python · fixture <code>Tests/TestResources/interlaced_test.avi</code> scaled as in
+task #57 (10 frames), plus <code>colorize_test.mp4</code> through the worker · every number below is in
+<code>data/</code>, produced by <code>scripts/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: built, waiting on a deps release.</strong> TemporalDegrain2's run-to-run difference is not in
+TemporalDegrain2, MVTools or DFTTest. It is two faults in <strong>FFT3DFilter</strong>, in every build there is:
+the left border of each block buffer is mirrored from memory that has not been written yet, and a per-frame noise
+level is kept in a member shared by parallel frames. <code>Scripts/patches/fft3dfilter-r2-determinism.patch</code>
+fixes both (five lines). The three <code>download-deps-*</code> scripts now build FFT3DFilter from its R2 tag with
+the patch on every platform, and fail if it stops applying. Built that way, every configuration tried gives one output,
+in one process and across processes, and through the worker the preview equals the lossless encode sample for sample
+(before: up to 27 levels apart).</p>
+<p>This reaches users in deps <strong>1.18.0</strong>. Until then the new push-gate and heavy tests skip on bundles up to
+1.17.x.</p>
+</div>
+
+<h2>1. Bisect: it is FFT3DFilter</h2>
+<p>Distinct output hashes over 6 fresh graphs in one process, 720x480 4:2:0 8-bit (<code>td2.py repeat</code>,
+<code>data/bisect.txt</code>):</p>
+<table class="grid">
+<tr><th>graph</th><th>8 threads</th><th>1 thread</th></tr>
+<tr><td style="text-align:left">TemporalDegrain2 as the probe calls it (<code>degrainTR=1, grainLevel=2, postFFT=1</code>)</td><td class="no">6</td><td class="no">6</td></tr>
+<tr><td style="text-align:left">FFT3DFilter alone, TD2's spatial arguments (sigma pattern, bt 3)</td><td class="no">6</td><td class="no">6</td></tr>
+<tr><td style="text-align:left">FFT3DFilter alone, sigma 16, bt 1</td><td class="no">6</td><td class="no">6</td></tr>
+<tr><td style="text-align:left">FFT3DFilter alone, TD2's post-pass arguments (sigma 1, bt 3, bw 48)</td><td class="no">6</td><td class="no">6</td></tr>
+<tr><td style="text-align:left">MVTools Super → Analyse → Degrain, TD2's arguments</td><td class="ok">1</td><td class="ok">1</td></tr>
+<tr><td style="text-align:left">DFTTest, tbsize 3</td><td class="ok">1</td><td class="ok">1</td></tr>
+</table>
+<p>One thread does not help, so it is not only a race. Every FFT3DFilter argument set tried varied: bt −1/0/1/3, sharpen,
+sigma 0, ncpu 1/4, luma only (<code>fft.py variants</code>, <code>data/variants.txt</code>; up to 83 levels, on
+0.6–2% of samples). A flat <code>BlankClip</code> at luma 100 came back up to 80 levels off.</p>
+
+<h2>2. Fault 1: the left border is mirrored from memory not yet written</h2>
+<p>On the flat clip, the differing samples are always in the <strong>left 10 luma / 6 chroma columns</strong>, on
+every row (<code>where.py blank</code>, <code>data/where_blank.txt</code>): one run read x&nbsp;=&nbsp;0,&nbsp;1,&nbsp;2 as
+101, 98, 99, the next 90, 97, 100, where the picture is 100.</p>
+<p><code>FramePlaneToCoverbuf</code> (<code>FFT3DFilterTransform.cpp</code>) builds each line of the padded block
+buffer by mirroring the left border first, <code>coverbuf1[w] = coverbuf1[2*mirw - w]</code>, and only then copying
+the source line in with <code>memcpy(coverbuf1 + mirw, srcp, …)</code>. The mirror therefore reads whatever that buffer
+held before: the previous frame this transform instance processed, or uninitialised heap memory on its first frame.
+What a frame looks like depends on which frame was processed before it, so a preview (one frame, out of order) and an
+encode (in order) differ. The same order is in all three loops (progressive, and both fields when interlaced). It was
+introduced upstream in <strong>da50417</strong> (2018-01-11, "Turn several functions into templates"); the 2015
+original copied the line first. Releases R1 and R2 both have it.</p>
+<div class="figs">
+<figure><a href="img/01-flat-unpatched.png"><img src="img/01-flat-unpatched.png" alt="Difference map, flat clip, unpatched"></a>
+<figcaption><b>1.</b> Unpatched build, flat picture (luma 100), sigma 16 bt 1: where two runs of frame 4 differ
+(top-left 64x128 luma, each sample drawn 4x4, difference ×48). Every row differs in its left 10 columns; max 12 levels.</figcaption></figure>
+<figure><a href="img/02-flat-patched.png"><img src="img/02-flat-patched.png" alt="Difference map, flat clip, patched"></a>
+<figcaption><b>2.</b> The same pair through the patched build: no sample differs.</figcaption></figure>
+<figure><a href="img/03-fixture-unpatched.png"><img src="img/03-fixture-unpatched.png" alt="Difference map, fixture, unpatched"></a>
+<figcaption><b>3.</b> Unpatched, the fixture: the same 10 columns, max 25 levels.</figcaption></figure>
+<figure><a href="img/04-fixture-patched.png"><img src="img/04-fixture-patched.png" alt="Difference map, fixture, patched"></a>
+<figcaption><b>4.</b> Patched, the fixture: identical.</figcaption></figure>
+</div>
+<p class="muted">The pair is made so the two graphs' transform instances saw different previous frames (one requested
+in reverse first). <code>figures.py</code>, <code>data/figures.txt</code>.</p>
+
+<h2>3. Fault 2: a per-frame value in a member shared by parallel frames</h2>
+<p>In <code>FFT3DFilter::ApplyFilter</code>, <code>sigmaSquaredNoiseNormed = btcur * sigma * sigma / norm</code>
+writes an instance member, which <code>Wiener3D</code> then reads. The filter is registered <code>fmParallel</code>
+when bt ≠ 0. Edge frames (n &lt; bt/2, and the last (bt−1)/2) run with <code>btcur</code> = 1 and write the 2D value;
+middle frames write and read the 3D value (×bt). Two threads interleaving can filter a middle frame at 1/bt of its
+noise level. It matters when every sigma is the same (no sigma pattern) and bt &gt; 1: the Noise Reduction FFT3D method
+(bt 1–5, default 3), TemporalDegrain2's post pass (postFFT 1 or 2, bt 3) and QTGMC's
+<code>Denoiser='fft3dfilter'</code> with NoiseTR &gt; 0.</p>
+<p>With fault 1 fixed alone, TD2's post-pass arguments still gave 2–4 hashes in 5 runs at 8 threads (Plan stage). With
+both fixed, 1. Section 6 shows it is not only edge samples: an unpatched run of the FFT3D method at bt 3 differed from
+the patched one across the whole picture in two runs of three.</p>
+
+<h2>4. The patch, verified</h2>
+<pre>--- FFT3DFilterTransform.cpp   (x3: progressive, first field, second field)
+         for (int h = mirh; h &lt; src_height + mirh; h++) {
++            memcpy(coverbuf1 + mirw, srcp, src_width * sizeof(T)); /* copy line */
+             for (int w = 0; w &lt; mirw; w++) {
+                 coverbuf1[w] = coverbuf1[mirw + mirw - w]; /* mirror left border */
+             }
+-            memcpy(coverbuf1 + mirw, srcp, src_width * sizeof(T)); /* copy line */
+--- FFT3DFilter.cpp
+ FFT3DFilter::Wiener3D(...) {
++    const float sigmaSquaredNoiseNormed = btcur * sigma * sigma / norm;
+ FFT3DFilter::ApplyFilter(...) {
+-        sigmaSquaredNoiseNormed = btcur * sigma * sigma / norm;
++        const float sigmaSquaredNoiseNormed = btcur * sigma * sigma / norm;</pre>
+
+<h3>4a. Unpatched and patched builds side by side</h3>
+<p><code>build.sh</code> builds R2 twice with the flags <code>download-deps-macos.sh</code> uses (<code>-O3</code>,
+C++17, hidden visibility, the bundle's FFTW), under renamed namespaces so both load next to the bundle's own plugin.
+Distinct hashes in 5 fresh graphs at 8 threads, over 4:2:0 × {8, 16}-bit × {720x480, 720x486}
+(<code>fixed.py repeat</code>, <code>data/builds.txt</code>):</p>
+<table class="grid">
+<tr><th>arguments</th><th>bundled 1.16.0</th><th>unpatched build</th><th>patched build</th></tr>
+<tr><td style="text-align:left">TD2 spatial (sigma pattern, bt 3)</td><td class="no">5</td><td class="no">3</td><td class="ok">1</td></tr>
+<tr><td style="text-align:left">TD2 post (sigma 1, bt 3, bw 48)</td><td class="no">5</td><td class="no">3–5</td><td class="ok">1</td></tr>
+<tr><td style="text-align:left">sigma 16, bt 1</td><td class="no">5</td><td class="no">4–5</td><td class="ok">1</td></tr>
+<tr><td style="text-align:left">bt −1, sharpen 1</td><td class="no">5</td><td class="no">4–5</td><td class="ok">1</td></tr>
+<tr><td style="text-align:left">sigma 16, bt 1, measure 0</td><td class="no">5</td><td class="no">3–5</td><td class="ok">1</td></tr>
+<tr><td style="text-align:left">bt 0 (Kalman), see section 7</td><td class="no">5</td><td class="no">4–5</td><td class="part">2–4</td></tr>
+</table>
+<p>Through TemporalDegrain2 and havsfunc's QTGMC, with only <code>core.fft3dfilter</code> swapped
+(<code>td2fixed.py</code>, <code>data/td2_qtgmc_builds.txt</code>; 4 runs, 8 and 1 threads, 8/16-bit,
+720x480/486): patched, <strong>1 hash in every cell</strong> for TD2 postFFT 1, TD2 defaults and
+<code>QTGMC(Preset='Fast', NoiseProcess=1, Denoiser='fft3dfilter', NoiseTR=1)</code>; unpatched, up to 4.</p>
+
+<h3>4b. The build the deps script makes, in place of the bundle's plugin</h3>
+<p>A copy of the 1.16.0 bundle with only <code>libfft3dfilter.dylib</code> replaced by the one the new
+<code>download-deps-macos.sh</code> block builds (<code>det.py</code>, 5 runs, 8 threads; FFT3DFilter at six argument
+sets and full TD2 at postFFT 0 and 1, 4:2:0 8/16-bit, 720x480/486): <strong>1 hash in all 32 cells</strong>
+(<code>data/bundle_with_script_build.txt</code>); the unmodified bundle gives 5 in all 32
+(<code>data/bundle_1.16.0.txt</code>). Its output is bit-identical to <code>build.sh</code>'s patched build (same
+hashes in <code>cross_process_8bit.txt</code> and <code>cross_process_script_build.txt</code>).</p>
+<ul class="notes">
+<li><strong>Across processes</strong>: 7 processes per depth gave one hash for every argument set
+(<code>data/cross_process_{8,16}bit.txt</code>); 5 processes at 640x480, 720x480 and 352x288 agreed too
+(<code>data/cross_process_script_build.txt</code>). FFTW measures its plans per process, so this matters for preview
+vs encode; here it never varied.</li>
+<li><strong>Access order</strong>: a frame requested alone, after a linear pass, or after frames 9 and 2 is the same
+frame (<code>order.py</code>, <code>data/access_order_script_build.txt</code>).</li>
+<li><strong>Through the worker</strong> (<code>app/test/integration_fft3dfilter_determinism_test.dart</code>, on
+<code>colorize_test.mp4</code>, 640x480, frames 48 and 52 of a 40–59 trim): two previews and the FFV1 encode, compared
+as RGB, max difference <strong>0</strong> for the FFT3D method at bt 3 and for TD2 with postFFT 1. With the 1.16.0
+plugin, preview vs preview differed by up to 27 levels and preview vs encode by up to 8 (FFT3D) and 5 (TD2).</li>
+</ul>
+
+<div class="card">
+<p><strong>Correction to the Plan stage.</strong> The plan said <code>measure=0</code> (FFTW_ESTIMATE) "gave the same
+output as the default <code>measure=1</code>". That holds for 32-px blocks and the default size, but not for TD2's
+post-pass arguments (48-px blocks): there the two give different (each deterministic) pictures
+(<code>data/cross_process_script_build.txt</code>, <code>td2_post</code>). It does not change the plan: nothing passes
+<code>measure=0</code>, and it remains the fallback if a platform's processes ever disagree.</p>
+</div>
+
+<h2>5. Who reaches FFT3DFilter</h2>
+<table>
+<tr><th>site</th><th>how</th><th>affected by</th></tr>
+<tr><td>Noise Reduction → FFT3DFilter method (<code>{{#NR_FFT3D}}</code>)</td><td>direct, one sigma, bt 1–5</td><td>fault 1 always; fault 2 at bt &gt; 1 (default 3)</td></tr>
+<tr><td>Noise Reduction → TemporalDegrain2 (<code>temporaldegrain2.py</code>)</td><td>spatial pass (sigma pattern, bt 3) whenever degrainTR ≥ 1; post pass at postFFT 1/2</td><td>fault 1 at every setting; fault 2 in the post pass</td></tr>
+<tr><td>Deinterlace → QTGMC <code>Denoiser: fft3dfilter</code></td><td>havsfunc, <code>bt=noiseTD</code></td><td>fault 1; fault 2 when NoiseTR &gt; 0</td></tr>
+<tr><td>MCTemporalDenoise</td><td>havsfunc <code>pfMode=0</code> / <code>post&gt;0</code></td><td>not reached: the template keeps pfMode 3 (DFTTest) and post 0</td></tr>
+</table>
+<p>No format-sweep or identity check had excluded these passes, so there was nothing to re-enable; the new tests are
+the checks.</p>
+
+<h2>6. What changes for users</h2>
+<p>The patched output against three runs of the unpatched build, 720x480 4:2:0 8-bit, mean |difference| in 8-bit
+levels over the picture, over the left 16 luma / 8 chroma columns, and over the rest (<code>change.py</code>,
+<code>data/change.txt</code>; luma shown, chroma is similar or smaller):</p>
+<table>
+<tr><th>pass</th><th>mean</th><th>left columns</th><th>rest</th><th>max</th></tr>
+<tr><td>Noise Reduction FFT3DFilter (sigma 2, bt 3)</td><td>0.004–0.083</td><td>0.17–0.27</td><td>0.000–0.080</td><td>14–27</td></tr>
+<tr><td>TemporalDegrain2 defaults (postFFT 0)</td><td>0.0002</td><td>0.008</td><td>0</td><td>2</td></tr>
+<tr><td>TemporalDegrain2 postFFT 1</td><td>0.004</td><td>0.17–0.19</td><td>0.0002</td><td>3–5</td></tr>
+<tr><td>QTGMC Fast, Denoiser fft3dfilter, NoiseTR 1</td><td>0.0035</td><td>0.15–0.16</td><td>0</td><td>7</td></tr>
+</table>
+<p>The left edge now holds the picture's own mirror instead of a previous frame's. For the FFT3D method at bt 3, the
+whole-picture differences in two of the three runs are the sigma race filtering a middle frame at a third of its noise
+level; the patched output is the one the arguments describe. The metric is a hash and a mean difference on one fixture,
+not a perceptual comparison; the point is that the result is now repeatable, not that it looks different.</p>
+
+<h2>7. Kalman (bt 0) is stateful by design, and unreachable</h2>
+<p>With bt 0 the filter carries its last output from frame to frame; upstream comments that it "is broken due to
+non-linear access". The patched build still gives 2–4 hashes there, and it can never preview what it encodes. The
+worker clamps <code>fft3dBt</code> to 1–5 (<code>NoiseReductionParameters::fft3d_effective_bt</code>), TD2 passes 3 and havsfunc's
+QTGMC passes 1, 3 or 5, so nothing reaches it. CLAUDE.md now says to keep it that way.</p>
+
+<h2>8. Upstream</h2>
+<p>myrsloik/VapourSynth-FFT3DFilter has been dormant since 2021 and has no issue or pull request about either fault.
+The forks checked have both: AmusementClub's (the most active) and RyougiKukoc's (R2 unchanged). So there is nothing to
+pick up. Offering the patch upstream is outward-facing and left for the maintainer to decide.</p>
+
+<h2>9. Rejected: wrapping the call in the template</h2>
+<p>Tried: pad each plane on the left by its reflection, by whole block steps, so the stale mirror lands only in
+columns cropped off afterwards; and splice the edge frames from a bt 1 instance, so the bt &gt; 1 instance never writes
+the 2D sigma. Over 4:2:0/4:2:2/4:4:4 × 8/10/16-bit × 720x480/96x64 × 5 argument sets on the unpatched build it was
+deterministic in <strong>90 of 90</strong> cells, but equal to the patched plugin in only <strong>27</strong>
+(<code>wrap.py</code>, <code>data/wrapper.txt</code>): the extra blocks change FFTW's plan and the rounding. It also
+could not reach havsfunc's QTGMC call without patching havsfunc's <code>core</code>. A second, approximate
+implementation of a five-line fix.</p>
+
+<h2>10. The builds</h2>
+<ul class="notes">
+<li><strong>macOS (both arches)</strong>: one block after the arch split. Clone R2, apply the patch (fail if it
+doesn't), compile the four files with <code>c++ -std=c++17 -O3 -fvisibility=hidden -dynamiclib</code> against
+Homebrew's <code>fftw3.h</code> and the bundle's <code>lib/libfftw3f{,_threads}.3.dylib</code>, repoint those to
+<code>@loader_path/../../lib/</code>, sign. Its meson.build is not used: on arm64 it does not find
+<code>fftw3f_threads</code>, which is why arm64 used yuygfgg's prebuilt. Run locally on arm64: minos 15.0, only
+<code>@loader_path</code> and <code>/usr/lib</code> references (<code>check-macho-refs.py</code> passes for the plugin).
+The x64 block is unverified until CI runs it.</li>
+<li><strong>Linux</strong>: the existing meson build, pinned to R2, with the patch applied inside
+<code>build_plugin</code>'s command; a failed apply exits the script.</li>
+<li><strong>Windows</strong>: the R2 release DLL has both faults, so it is replaced by a Zig 0.15.2 cross-compile
+(<code>zig c++ -target x86_64-windows-gnu -mcpu=x86_64 -O3</code>) against FFTW 3.3.5's DLL through an import library
+made with <code>zig dlltool</code> from the zip's <code>.def</code>, with VapourSynth's API4 headers from the R78 tag.
+Cross-compiled from macOS here: it links, exports <code>VapourSynthPluginInit2</code>, imports only
+<code>libfftw3f-3.dll</code> (including <code>fftwf_init_threads</code>), KERNEL32 and the UCRT
+(<code>api-ms-win-crt-*</code>), no libstdc++/libgcc DLLs, and has no AVX instructions. It has not been loaded on
+Windows; <code>build-deps-windows.yml</code> and the push gate there are the test.</li>
+<li>Plain C++ with no intrinsics, so one build serves both x64 CPU tiers (no <code>_tierFiles</code> entry); file names
+are unchanged, so <code>deps-expected-plugins.json</code> is too.</li>
+</ul>
+
+<h2>11. Tests</h2>
+<ul class="notes">
+<li><code>vapoursynth_integration_test.dart</code> → <code>fft3dfilter is deterministic (task #62)</code>, push gate,
+every platform: seeded-noise 4:2:0 picture at 8 and 16 bits, four argument classes (TD2 spatial, one sigma at bt 3 and
+5, bt 1), six fresh graphs each at 8 threads; a second process must give the same hashes; a flat picture must stay
+within 1 level of its interior in the left 16 columns (patched: 1, the interior's own rounding; unpatched: 4–33 over 4 runs, <code>edge.py</code>, <code>data/edge.txt</code>).
+Passes on the patched bundle, fails on the unpatched one, skips on bundles up to 1.17.x.</li>
+<li><code>integration_fft3dfilter_determinism_test.dart</code>, heavy: section 4b's worker check; skips up to 1.17.x.</li>
+</ul>
+
+<h2>Limits and what was not tested</h2>
+<ul class="notes">
+<li>Every measurement is macOS arm64. The Linux and Windows builds, and the macOS x64 build, are checked by CI only once
+<code>build-deps-*</code> run; nothing here proves FFTW picks the same plan in two processes on those platforms (the
+push gate's second-process check will).</li>
+<li>Hashes and mean differences on one fixture (plus one film clip through the worker), not a perceptual metric.</li>
+<li>The cross-process checks ran on one machine, close together; FFTW_MEASURE timing could differ under load.</li>
+<li>A testing trap met on the way: the worker finds its deps by its own search (upward from the executable in a debug
+build, else Application Support), not from <code>VAPOURBOX_DEPS_DIR</code>, so a heavy test pointed at another bundle
+through that variable alone runs the worker against the installed one.</li>
+</ul>
+
+<h2>Decisions</h2>
+<ul class="notes">
+<li><strong>Patch the plugin, not the template</strong>: it is the only fix that reaches havsfunc's QTGMC call, and the
+template workaround was not bit-identical to the fixed plugin (section 9).</li>
+<li><strong>Build from source on every platform, never a prebuilt</strong>: every prebuilt has both faults.</li>
+<li><strong>Keep <code>measure=1</code></strong> (the default): processes agreed, and changing it would change output
+for no measured reason. <code>measure=0</code> is the fallback if CI shows a platform disagreeing.</li>
+<li><strong>Kalman stays unreachable</strong>: no fix is possible without changing what it is.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul class="notes">
+<li><code>reproduce.sh &lt;deps&gt;</code> re-runs everything; <code>run.sh</code> runs one script with a bundle's
+Python; <code>build.sh</code> builds the unpatched and patched plugins.</li>
+<li><code>common.py</code> (fixture at any size, from task #57), <code>td2.py</code> (bisect), <code>fft.py</code> /
+<code>where.py</code> (variants, where samples differ), <code>fixed.py</code> (builds side by side; cross-process
+hashes), <code>td2fixed.py</code> (TD2 and QTGMC through each build), <code>det.py</code> (whatever plugin a bundle
+loads), <code>xproc.py</code>, <code>order.py</code>, <code>change.py</code>, <code>figures.py</code>,
+<code>wrap.py</code> (the rejected wrapper), <code>edge.py</code> (the push gate's flat-picture oracle).</li>
+</ul>
+</main>
+</body>
+</html>

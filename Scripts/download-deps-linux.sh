@@ -927,11 +927,20 @@ build_plugin "ttempsmooth" \
     "libttempsmooth.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
-# FFT3DFilter
+# FFT3DFilter, pinned to R2 and patched with
+# patches/fft3dfilter-r2-determinism.patch (task #62): every published build
+# has two faults that make its output differ from run to run (the left border
+# mirrored from the previous frame's pixels; a per-frame sigma in a shared
+# member of a parallel filter), so a preview never matched its encode. The
+# patch header has both. A patch that stops applying exits the script (the
+# `exit` runs inside build_plugin's eval). Keep FFT3DFILTER_TAG in step with
+# download-deps-macos.sh and download-deps-windows.ps1.
+FFT3DFILTER_TAG="R2"
 build_plugin "fft3dfilter" \
     "https://github.com/myrsloik/VapourSynth-FFT3DFilter.git" \
     "libfft3dfilter.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "{ git apply \"$SCRIPT_DIR/patches/fft3dfilter-r2-determinism.patch\" || { echo '  ERROR: patches/fft3dfilter-r2-determinism.patch did not apply to FFT3DFilter $FFT3DFILTER_TAG.' >&2; exit 1; }; } && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$FFT3DFILTER_TAG"
 
 # MiscFilters
 build_plugin "miscfilters" \

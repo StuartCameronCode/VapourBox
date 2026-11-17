@@ -3381,6 +3381,52 @@ x86_64 build is git-18a9cecb, pre-r31, which is what deps ≤ 1.16.0 shipped
 chroma placement by its pixels on every platform; it skips only on a macOS x64
 bundle at 1.16.0 or older, the known skew.
 
+### FFT3DFilter: built from source with our determinism patch (task #62)
+
+Every published FFT3DFilter build (myrsloik's R1/R2 releases, yuygfgg's
+macOS arm64 prebuilt, upstream HEAD, the AmusementClub fork) gives a
+**different output on every run**, so the Noise Reduction FFT3DFilter method,
+TemporalDegrain2 (its spatial pass at every setting, and its post pass) and
+QTGMC's `Denoiser='fft3dfilter'` never previewed exactly what they encoded.
+Two faults, both fixed by `Scripts/patches/fft3dfilter-r2-determinism.patch`:
+
+- **The left border was mirrored before the source line was copied**
+  (`FramePlaneToCoverbuf`), so the left 10 luma / 6 chroma columns came from
+  the previous frame's pixels, or uninitialised memory. Upstream regression
+  da50417 (2018).
+- **A per-frame Wiener sigma lived in a shared member** of a filter
+  registered `fmParallel`: an edge frame (`btcur` 1) could overwrite it while
+  a middle frame used it, filtering that frame at 1/bt of its sigma. Hit
+  whenever `bt > 1` with a single sigma (the FFT3D method, TD2's post pass,
+  QTGMC with NoiseTR > 0).
+
+Rules:
+
+- **Built from source at tag R2 on every platform, patched; never a
+  prebuilt.** `FFT3DFILTER_TAG` in `download-deps-{macos,linux}.sh` and
+  `$Fft3dTag` in `download-deps-windows.ps1` stay in step. macOS compiles the
+  four files directly (its meson.build can't find `fftw3f_threads` on arm64)
+  and links the bundle's own FFTW; Linux uses meson; Windows cross-compiles
+  with the Zig the script already pins, against FFTW 3.3.5's DLL through an
+  import library from its `.def`. All three **fail the build** if the patch
+  stops applying. Plain C++, so one build serves both x64 tiers.
+- **Never `bt=0` (Kalman).** It carries state from frame to frame by design
+  (upstream says it is "broken due to non-linear access"), so it can never
+  preview what it encodes. `NoiseReductionParameters::fft3d_effective_bt` clamps to
+  1..5 and no other call site passes 0; keep it that way.
+- **FFTW plans are measured per process** (`measure=1`, the default). Seven
+  processes agreed on macOS arm64, and so does the push gate's second process
+  everywhere it runs; if one platform ever disagrees, pass `measure=0`
+  (FFTW_ESTIMATE) at our call sites and make it the plugin's default in the
+  patch (havsfunc's QTGMC call).
+- `vapoursynth_integration_test.dart`'s `fft3dfilter is deterministic (task
+  #62)` (push gate) runs each argument class six times in fresh graphs at 8
+  threads, compares a second process, and checks a flat picture stays flat at
+  the left edge; it skips on bundles up to 1.17.x.
+  `integration_fft3dfilter_determinism_test.dart` (heavy) checks that two
+  previews and the lossless encode agree sample for sample, for the FFT3D
+  method and TD2 with its post pass (docs/reports/task-62-fft3dfilter-determinism).
+
 ## Debugging Tips
 
 1. **Worker crashes**: Run worker standalone with `--config` to isolate
@@ -3853,3 +3899,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |
 | 1.16.0 | 2026-11-09 | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Published as the tested `deps-v1.16.0-rc2` bundles with only the version changed (`Scripts/promote-deps-rc.py`) |
 | 1.17.0 | rc1 2026-11-15, rc2 2026-11-16, rc3 2026-11-17 | **Task #36**: macOS arm64 libdvdread built from 6.1.3 source (patched to find a user's libdvdcss in `/opt/homebrew/lib`, `/usr/local/lib`, `/opt/local/lib`) instead of Homebrew's bottle, which linked `/opt/homebrew/opt/libdvdcss/…` and failed to load on Macs without it; macOS x64 gets the same patched build. Absolute build-machine rpaths stripped from libvapoursynth, vapoursynth.abi3.so, libfftw3f*, libboost_charconv, bm3d, dctfilter and mvtools (inert: nothing used `@rpath`). Windows and Linux binaries unchanged; libdvdread is now a required file on every platform. **rc2** (task #45): macOS x64 FFmpeg evermeet 9.0.1 → martin-riedl 9.0.2 (build 1789931006, pinned by SHA-256), which has SVT-AV1, so AV1 output works on Intel Macs; x264/x265/MP3 bitstreams change there, native codecs byte-identical. **rc3** (task #60): **Bifrost** v3.0 → **4.0** from its PyPI wheels on every platform (was the v3.0 tag's `bifrost.c` built from source on macOS/Linux, v3.0's 7z on Windows), under the same file names; v3.0 left chroma past the last whole 4x4 block uninitialised (different output run to run at width 98, 720x486), v4.0 initialises it and runs at 8–16 bits natively. No AVX, so `_tierFiles` unchanged |
+| 1.18.0 | unreleased | **Task #62**: FFT3DFilter built from source at R2 with `patches/fft3dfilter-r2-determinism.patch` on every platform (Windows: Zig cross-compile replacing the R2 release DLL; macOS arm64: replacing yuygfgg's prebuilt), so its output no longer differs from run to run. One build for both x64 tiers; file names unchanged |

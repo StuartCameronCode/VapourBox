@@ -603,6 +603,120 @@ print("fmtconv r31 chroma placement OK")
     });
   });
 
+  // Task #62: every published FFT3DFilter build gave a different output on
+  // every run (the left border mirrored from stale memory; a per-frame sigma
+  // in a shared member of a parallel filter), so the Noise Reduction FFT3D
+  // method, TemporalDegrain2 and QTGMC's fft3dfilter denoiser never previewed
+  // what they encoded. download-deps-* build R2 with
+  // patches/fft3dfilter-r2-determinism.patch. This holds every bundle to it:
+  // six fresh graphs per argument set at 8 threads must agree, a second
+  // process must agree with the first (FFTW plans are chosen per process),
+  // and a flat picture must come out flat at the left edge.
+  // docs/reports/task-62-fft3dfilter-determinism.
+  group('fft3dfilter determinism', () {
+    test('fft3dfilter is deterministic (task #62)', () async {
+      if (_depsVersionAtMost(depsDir, [1, 17])) {
+        markTestSkipped('deps <= 1.17.x ship an unpatched FFT3DFilter '
+            '(task #62); enforced from deps 1.18.0');
+        return;
+      }
+      const script = r'''
+import ctypes
+import hashlib
+import random
+import vapoursynth as vs
+core = vs.core
+core.num_threads = 8
+
+# A textured, moving picture: seeded noise (a new pattern every frame) half
+# blurred, so every block has detail and every frame differs, on any platform.
+blank = core.std.BlankClip(format=vs.YUV420P8, width=352, height=288, length=12)
+
+def fill(n, f):
+    out = f.copy()
+    rnd = random.Random(1000 + n)
+    for p in range(3):
+        w, h = out.width >> (1 if p else 0), out.height >> (1 if p else 0)
+        base = ctypes.cast(out.get_write_ptr(p), ctypes.c_void_p).value
+        stride = out.get_stride(p)
+        for y in range(h):
+            ctypes.memmove(base + y * stride, rnd.randbytes(w), w)
+    return out
+
+noise = core.std.ModifyFrame(blank, blank, fill)
+clip8 = core.std.Merge(noise, core.std.BoxBlur(noise, hradius=3, vradius=3), 0.6)
+assert clip8.format.id == vs.YUV420P8, clip8.format.name
+clip16 = core.resize.Point(clip8, format=vs.YUV420P16)
+
+ARGS = {
+    # TemporalDegrain2's spatial pass: a sigma pattern, bt=3.
+    'td2_spat': dict(planes=[0, 1, 2], sigma=16, sigma2=10, sigma3=6, sigma4=4,
+                     bt=3, bw=32, bh=32, ow=8, oh=8),
+    # Noise Reduction's FFT3DFilter method and TD2's post pass: one sigma, bt>1.
+    'single_sigma_bt3': dict(sigma=2.0, bt=3),
+    'single_sigma_bt5': dict(sigma=4.0, bt=5),
+    'bt1': dict(sigma=16, bt=1),
+}
+
+def digest(c):
+    m = hashlib.md5()
+    for f in c.frames(prefetch=16):
+        for p in range(f.format.num_planes):
+            m.update(bytes(f[p]))
+    return m.hexdigest()
+
+bad = []
+for depth, src in (('8', clip8), ('16', clip16)):
+    for name, kw in ARGS.items():
+        hashes = {digest(core.fft3dfilter.FFT3DFilter(src, **kw)) for _ in range(6)}
+        print(f'HASH {depth}-bit {name} {len(hashes)} {sorted(hashes)[0]}')
+        if len(hashes) != 1:
+            bad.append(f'{depth}-bit {name}: {len(hashes)} different outputs in 6 runs')
+
+# The left-border oracle: on a flat picture every column must come out equal,
+# per row. The unpatched mirror read stale memory into the left 10 luma / 6
+# chroma columns (x = 0 read 90 against 100).
+flat = core.std.BlankClip(format=vs.YUV420P8, width=352, height=288, length=6,
+                          color=[100, 128, 128])
+# The patched plugin rounds a flat picture to within 1 level everywhere, at
+# the edge as in the interior; the stale mirror was 4-33 levels off.
+worst = 0
+for f in core.fft3dfilter.FFT3DFilter(flat, sigma=2.0, bt=3).frames():
+    for p in range(3):
+        for row in f[p].tolist():
+            ref = row[32 if p == 0 else 16]
+            worst = max(worst, max(abs(v - ref) for v in row[:16]))
+print(f'LEFT_EDGE_MAX_DIFF {worst}')
+if worst > 1:
+    bad.append(f'flat picture: the left 16 columns differ from the interior by up to {worst} levels')
+
+if bad:
+    raise Exception('FFT3DFilter is not deterministic (task #62): ' + '; '.join(bad))
+print('fft3dfilter deterministic OK')
+flat.set_output()''';
+
+      Map<String, String> hashes(ProcessResult r) => {
+            for (final m in RegExp(r'^HASH (\S+ \S+) \d+ ([0-9a-f]{32})',
+                    multiLine: true)
+                .allMatches(r.stdout.toString()))
+              m.group(1)!: m.group(2)!,
+          };
+
+      final first = await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(first.exitCode, 0,
+          reason: 'stdout: ${first.stdout}\nstderr: ${first.stderr}');
+      expect(first.stdout.toString(), contains('fft3dfilter deterministic OK'));
+      final second =
+          await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(second.exitCode, 0,
+          reason: 'stdout: ${second.stdout}\nstderr: ${second.stderr}');
+      expect(hashes(first), hasLength(8));
+      expect(hashes(second), equals(hashes(first)),
+          reason: 'a second process filtered differently: FFTW chose another '
+              'plan (task #62 plan, P5: pass measure=0)');
+    });
+  });
+
   // Task #40: AV1 output needs SVT-AV1 in the bundled FFmpeg. BtbN's builds
   // (Windows, Linux) and martin-riedl's (macOS arm64 and, from deps
   // 1.17.0-rc2, x64; task #45) carry it. This proves every bundle has it, on
