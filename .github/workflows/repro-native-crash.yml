@@ -50,6 +50,12 @@ on:
       probe_repeat:
         description: 'Times to run the probe'
         default: '3'
+      bisect:
+        description: 'call:WxH:format runs of the report scripts/bare.vpy under valgrind'
+        default: ''
+      unwritten:
+        description: 'unwritten.py calls (buffer-pool probe)'
+        default: ''
       deps_run_id:
         description: 'Optional build-deps-linux run ID to take the bundle from'
         required: false
@@ -67,10 +73,13 @@ env:
   MATCH: ${{ inputs.match || 'Preset="Draft"' }}
   REPEAT: ${{ inputs.repeat || '300' }}
   PARALLEL: ${{ inputs.parallel || '8' }}
-  MODES: ${{ inputs.modes || 'plain single-thread valgrind' }}
+  MODES: ${{ inputs.modes || 'valgrind' }}
   VALGRIND_REPEAT: ${{ inputs.valgrind_repeat || '2' }}
   PROBE_CALLS: ${{ inputs.probe_calls }}
   PROBE_REPEAT: ${{ inputs.probe_repeat || '3' }}
+  # call:WxH:format runs of bare.vpy under valgrind, and unwritten.py calls.
+  BISECT: ${{ inputs.bisect || 'qtgmc_draft:98x96:YUV420P12 qtgmc_draft:96x96:YUV420P12 qtgmc_draft:98x96:YUV420P8 degrain_qtgmc:98x96:YUV420P12 degrain_qtgmc:96x96:YUV420P12 compensate_qtgmc:98x96:YUV420P12 degrain:98x96:YUV420P12 compensate:98x96:YUV420P12 qtgmc_draft:104x104:YUV420P12' }}
+  UNWRITTEN: ${{ inputs.unwritten || 'degrain compensate qtgmc_draft' }}
   CAPTURE: ${{ github.workspace }}/repro/capture
   OUT: ${{ github.workspace }}/repro/out
   VAPOURBOX_CORE_DIR: /tmp/cores
@@ -169,6 +178,35 @@ jobs:
             # mostly gone with PYTHONMALLOC=malloc.
             awk '/^==[0-9]+== (Invalid|Conditional|Use of uninit|Syscall param|Mismatched|Source and dest|Process terminating)/{n++} n>0 && n<=8' "$f" | head -250
           done
+
+      - name: Bisect (bare scripts under valgrind)
+        if: always() && env.BISECT != ''
+        run: |
+          # docs/reports/task-66-qtgmc-draft-sigsegv/scripts/bare.vpy: one call
+          # on a synthetic clip, no padding and no worker, under memcheck.
+          VS=deps/linux-x64/vapoursynth
+          REAL=$VS/vspipe-bin.real; [ -x "$REAL" ] || REAL=$VS/vspipe-bin
+          sed "s|^exec \"\$SCRIPT_DIR/vspipe-bin\" \"\$@\"\$|exec valgrind --error-exitcode=99 --track-origins=yes --num-callers=30 \"$PWD/$REAL\" \"\$@\"|" \
+            $VS/vspipe > $VS/vspipe.vg
+          chmod +x $VS/vspipe.vg
+          grep -q valgrind $VS/vspipe.vg
+          SCRIPTS=docs/reports/task-66-qtgmc-draft-sigsegv/scripts
+          mkdir -p "$OUT/bisect"
+          for spec in $BISECT; do
+            IFS=: read -r call size fmt <<< "$spec"
+            log="$OUT/bisect/$call.$size.$fmt.log"
+            rc=0
+            PYTHONMALLOC=malloc timeout 1800 $VS/vspipe.vg -a call=$call -a size=$size -a fmt=$fmt \
+              -c y4m $SCRIPTS/bare.vpy /dev/null > "$log" 2>&1 || rc=$?
+            origin=$(grep -A12 'Uninitialised value was created\|Invalid' "$log" | grep -m1 -o 'by 0x[0-9A-F]*: [A-Za-z_:<>0-9]*[Gg]et[Ff]rame[^ ]*\|by 0x[0-9A-F]*: [a-zA-Z_]*[(]' | head -1)
+            echo "$spec: exit $rc, $(grep -m1 'ERROR SUMMARY' "$log" | sed 's/==[0-9]*== //') ${origin}"
+          done | tee "$OUT/bisect/summary.txt"
+          echo "--- unwritten samples (buffer-pool probe, no valgrind)"
+          r=$(ls -d "$CAPTURE"/run.* 2>/dev/null | head -1)
+          ( while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
+            for c in $UNWRITTEN; do
+              deps/linux-x64/python/bin/python3 $SCRIPTS/unwritten.py $c 96x96 98x96 2>&1 | grep -v 'already loaded'
+            done ) | tee "$OUT/bisect/unwritten.txt"
 
       - name: Plugin probe loop
         if: always() && env.PROBE_CALLS != ''
