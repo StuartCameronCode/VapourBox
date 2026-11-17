@@ -1,0 +1,4 @@
+{"graph": "bare", "frames": 1000, "peak_rss_mb": 122.2}
+{"graph": "wrapped", "frames": 1000, "peak_rss_mb": 134.2}
+{"graph": "bare", "frames": 6000, "peak_rss_mb": 123.0}
+{"graph": "wrapped", "frames": 6000, "peak_rss_mb": 139.1}

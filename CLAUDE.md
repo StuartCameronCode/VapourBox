@@ -132,7 +132,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass: the weave (`Stab` measured at 16-bit) and the vertical pitch correction (see "Stabilize") |
 | `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
-| `worker/templates/plugin_formats.py` | Each limited plugin's format `Contract` and `run_within()`, the one way a pass runs a plugin outside its formats (see "High Bit Depth Sources") |
+| `worker/templates/plugin_formats.py` | Each limited plugin's format `Contract` and `run_within()`, the one way a pass runs a plugin outside its formats; `pad_around()` / `read_padded()` for a frame size it refuses (see "High Bit Depth Sources") |
 | `Scripts/probe-plugin-formats.py` | Runs every plugin call the template makes at every format and size a pass can be handed; writes / checks `Tests/TestResources/plugin_format_table.json` (task #48) |
 | `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
@@ -419,19 +419,20 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   can be handed, add a `Contract` to `worker/templates/plugin_formats.py` and
   call it through `_pf.run_within(clip, '<ns.Fn>', fn, label='<Pass>')`
   (test_252 fails on a contracted plugin called any other way). A frame
-  size the plugin refuses is a Contract's `width_step` / `height_step`
-  (luma samples, or `CHROMA`): `run_within` pads to it with `pad_around`
-  and crops back (tasks #56, #57). A refusal no contract expresses (a field
-  flag) is handled in the pass and
-  explained in `plugin_formats.HANDLED`, or filed as a task and listed in
-  `plugin_formats.KNOWN` until it is. **Anything that reaches MVTools'
-  Compensate, Degrain or BlockFPS with an overlap** (directly or through
-  havsfunc / a vendored module) goes through `_pf.mvtools_blocks(clip, fn)`
-  (test_256): MVTools picks the overlap window with
-  `(by + nBlkY - 3) / (nBlkY - 2)`, so a picture two block rows tall is
-  SIGFPE on x86 and silently 100+ levels off on arm64, and one block row or
-  column is that far off everywhere; the helper pads a picture under 64x96
-  (task #56 F9). Check on a fixture with real low
+  size the plugin refuses (a 4:2:0 height 2 mod 4, a width 2 mod 4) is a
+  Contract's `width_step` / `height_step` (luma samples, or `CHROMA`):
+  `run_within` pads to it with `pad_around` and crops back (tasks #56, #57),
+  with `field_based_only=True` when the plugin refuses it only
+  field-flagged. A refusal no contract expresses (a field flag) is handled
+  in the pass and explained in `plugin_formats.HANDLED`, or filed as a task
+  and listed in `plugin_formats.KNOWN` until it is. **Anything that reaches
+  MVTools' Compensate, Degrain or BlockFPS with an overlap** (directly or
+  through havsfunc / a vendored module) goes through
+  `_pf.mvtools_blocks(clip, fn)` (test_256): MVTools picks the overlap
+  window with `(by + nBlkY - 3) / (nBlkY - 2)`, so a picture two block rows
+  tall is SIGFPE on x86 and silently 100+ levels off on arm64, and one block
+  row or column is that far off everywhere; the helper pads a picture under
+  64x96 (task #56 F9). Check on a fixture with real low
   bits that the plugin leaves the samples it doesn't change exact — see
   "High Bit Depth Sources"
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**
@@ -1511,6 +1512,22 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    (docs/reports/issue-29-descratch-420). Blur Radius is clamped in the
    script to `c.height // 2 - 1`, which the plugin refuses past (frames
    under 402 lines; task #35, docs/reports/issue-35-descratch-blurlen).
+   **A 4:2:0 frame whose height is 2 mod 4 (720x486) has an odd number of
+   chroma rows** (task #57), so it can't be split into fields
+   (`SeparateFields`), and zimg refuses any resize of it while it is
+   field-flagged, a depth change included ("Resize error 1027"). Every such
+   site goes through `plugin_formats.pad_around()` (or `read_padded()` for a
+   resize): 2 more rows repeating each field's own last row, the call, the
+   rows cropped back. It adds nothing to a frame that fits; with
+   `field_based_only` a progressive frame takes the unpadded path, chosen per
+   frame, so jobs that ran before keep their output exactly (padding LSFmod
+   every time moved it 26 levels: it supersamples at a size that follows
+   the height). `run_within()` pads whatever it converts. test_258 fails on
+   a `SeparateFields` outside `pad_around`/`run_within`; the format sweep
+   runs a 96x66 row. Never strip `_FieldBased` to get round it, except for a
+   copy whose samples it can't change (stabilize.weave's undithered depth
+   change); error diffusion runs per field
+   (docs/reports/task-57-height-2-mod-4-and-removedirt).
 2. **The filter accepts the depth and misapplies 8-bit-unit parameters.** Every
    threshold/offset in the UI is expressed in 8-bit levels (0-255), so a filter
    working in the clip's own range is silently wrong by 4x at 10-bit, 256x at
@@ -1640,6 +1657,15 @@ that havsfunc's QTGMC takes none of them (setting one failed every encode).
   `test_250` enforces this. `std.Convolution` repeats the edge sample when it
   mirrors, which TCanny doesn't: that helper pads each plane first
   (docs/reports/task-52-tcanny-race).
+- **RemoveDirt's `RestoreMotionBlocks` gives each frame an instance to
+  itself** (`templates/removedirt.py`, `_ExclusiveInstances`, task #57). v1.1
+  is `fmParallel` but shares one object's block buffers between frames, so
+  output changed run to run (upstream pinterf/RemoveDirt#5). A frame takes a
+  free instance from a pool and hands it back when done. **Never a new
+  instance per frame**: the plugin leaks every instance it frees (~0.6 MB at
+  720x480), so memory grew with the job's length. Keep the pool until the
+  bundle has the fixed release (task #63); `removedirt_determinism_test.dart`
+  checks it.
 
 ### VapourSynth Frame Cache (issue #107)
 
@@ -2999,7 +3025,8 @@ Headless Dart-VM tests. Three groups:
   `schema_converter_integration_test`, `template_call_arguments_test`,
   `plugin_format_contracts_test` (the quick plugin format probe against its
   table, the contracts, and `run_within()` on real low bits; the full probe
-  is the heavy `plugin_format_probe_test`); need the per-arch `deps/` and
+  is the heavy `plugin_format_probe_test`), `removedirt_determinism_test`
+  (task #57); need the per-arch `deps/` and
   (for whisper) `addons/`.
 - **Integration tests** — `integration_*_test.dart`. They spawn the worker
   end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy ones

@@ -1866,7 +1866,7 @@ void main() {
         deblock: const DeblockParameters(enabled: true),
       ));
       expect(progressive, contains('haf.Deblock_QED('));
-      expect(progressive, isNot(contains('_deblock_per_field')));
+      expect(progressive, isNot(contains('core.std.SeparateFields(clip, tff=')));
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
@@ -1946,7 +1946,7 @@ void main() {
       expect(script, contains('_stx_tff = False'));
       expect(script,
           contains('clip = core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)'));
-      expect(script, isNot(contains('_deblock_per_field')),
+      expect(script, isNot(contains('core.std.SeparateFields(clip, tff=')),
           reason: 'mpeg2stinx is a cross-field filter: never per field');
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));

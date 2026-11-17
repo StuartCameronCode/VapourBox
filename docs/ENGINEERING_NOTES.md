@@ -4808,6 +4808,49 @@ Task #42's plan, R2b. Report: [docs/reports/task-48-plugin-format-contracts](rep
   a format and misreads it (Depan, #32) passes. Only the macOS arm64 bundle
   was measured; other platforms are held to its table by CI.
 
+### 4:2:0 at a height 2 mod 4 (720x486), and RemoveDirt's race (task #57, 2026-11-17)
+
+Report: [docs/reports/task-57-height-2-mod-4-and-removedirt](reports/task-57-height-2-mod-4-and-removedirt/index.html).
+
+- **A 4:2:0 frame whose height is 2 mod 4 has an odd number of chroma rows**
+  (243 at 486), so a field has none whole. `SeparateFields` refuses it
+  (QTGMC, Bifrost, MCTemporalDenoise, per-field Deblock, mpeg2stinx, the IVTC
+  fade fix), and so does any zimg resize while it is field-flagged, a depth
+  change included ("Resize error 1027": DCTFilter, Deblock, Deblock_QED,
+  FixChromaBleedingMod, LSFmod, SangNom, TemporalDegrain2, BM3D's work copy,
+  IVTC's 8-bit metrics copy, the Resize pass, the integer upscale, BT.709,
+  Color Format). Every height 2 mod 4 does it (482, 490, 270, 1082 checked),
+  not only 486. The case users meet most: a **4:2:2 D1 capture written out as
+  4:2:0** (Color Format 4:2:0, or AV1) refused at the very end of the job.
+- **Padded, not refused.** `plugin_formats.pad_around()` adds 2 rows that
+  repeat each field's own last row (period 2, so it needs no `_FieldBased` at
+  build time), runs the call and crops back; `read_padded()` does the same for
+  a resize through `src_height`. Contracts gained `width_step` /
+  `height_step` (shared with task #56's width 2 mod 4). Nothing is added to a
+  frame that fits.
+- **Pad only what refused.** Padding every frame moved LSFmod by up to 26
+  levels inside a progressive 486 frame that ran before (it supersamples at
+  a size that follows the height). So the field-flag-only refusals are
+  `field_based_only`: a progressive frame takes the old path, chosen per
+  frame by `_FieldBased` (one FrameEval with `prop_src`). Measured: 0.000
+  levels from before on progressive 720x486 for every such call.
+- srestore and stabilize.weave are fixed in their modules (luma taken before
+  the 8-bit conversion; the 16-bit Depan copy made without `_FieldBased`),
+  bit-identical wherever they ran before.
+- **RemoveDirt was nondeterministic**: `RestoreMotionBlocks` v1.1 is
+  `fmParallel` but shares one object's block buffers between frames (18
+  results in 20 runs at 8 threads, 1 at 1 thread; upstream
+  pinterf/RemoveDirt#5). `removedirt.py` gives each frame an instance to
+  itself from a pool (`_ExclusiveInstances`: FrameEval takes a free one,
+  a ModifyFrame hands it back), which equals the single-threaded result;
+  task #63 drops it once the bundle has upstream's fix. *Correction, found in
+  review:* the first fix made a new instance per frame, and the plugin leaks
+  each instance it frees (~0.6 MB at 720x480): memory grew with the job's
+  length (2.5 GB by frame 4000). The pool stays flat. Found on the way: TemporalDegrain2
+  differs run to run too (task #62).
+- Limits: macOS arm64 only (deps 1.16.0); "identical in N runs" is evidence,
+  the plugin source is the proof; Bifrost at 8-bit is task #56's.
+
 ### macOS x64 FFmpeg with SVT-AV1 (task #45, 2026-11-16)
 
 Full evidence:

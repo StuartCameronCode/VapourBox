@@ -207,8 +207,9 @@ def _expr(clips, expr, **kwargs):
 # has an odd number of chroma rows, and QTGMC's SeparateFields refuses it (task
 # #57); at a 4:2:x width 2 mod 4, Super/Ultra Fast halve the frame to an odd
 # chroma width for the motion search (task #56 F2), so for them the width is
-# padded too. The frame is padded and cropped back after. The working-format conversion below is inside the padding, since a
-# field-aware zimg conversion refuses the same frames.
+# padded too. The frame is padded and cropped back after. The working-format
+# conversion below is inside the padding, since a field-aware zimg conversion
+# refuses the same frames.
 def _deinterlace_qtgmc(clip):
 {{#DEINT_WORKING_FORMAT}}
     # Working format for the deinterlace pass (issue #49).
@@ -510,7 +511,11 @@ clip = core.bwdif.Bwdif(clip, field={{BWDIF_FIELD}})
 clip = _preview_decimate_skip(clip)
 {{/PREVIEW_ONLY}}
 _ivtc_src = clip
-_ivtc_metrics = clip if clip.format.bits_per_sample == 8 else core.resize.Bilinear(clip, format=clip.format.replace(bits_per_sample=8, sample_type=vs.INTEGER))
+# The 8-bit copy is a zimg conversion of a field-flagged clip, which refuses a
+# 4:2:0 frame whose height is 2 mod 4: made on a padded copy (task #57).
+_ivtc_metrics = clip if clip.format.bits_per_sample == 8 else _pf.pad_around(
+    clip, lambda c: core.resize.Bilinear(c, format=c.format.replace(bits_per_sample=8, sample_type=vs.INTEGER)),
+    height_step=_pf.CHROMA, field_based_only=True, label='IVTC')
 clip = core.vivtc.VFM(_ivtc_metrics, order={{IVTC_ORDER}},
 {{#IVTC_MODE}}
     mode={{IVTC_MODE}},
@@ -545,57 +550,65 @@ clip = core.vivtc.VFM(_ivtc_metrics, order={{IVTC_ORDER}},
 # spun one core indefinitely (a 97-minute hang on 30 frames, 2026-11-08), and
 # ran fine single-threaded. macOS x64 has no akarin (so no frame-property
 # Expr); there std.Expr nodes are made per frame instead, which does not hang.
-_fade_fmt = clip.format
-_fade_f = core.resize.Point(clip, format=_fade_fmt.replace(sample_type=vs.FLOAT, bits_per_sample=32).id)
-_fade_fields = core.std.SeparateFields(core.std.SetFieldBased(_fade_f, 0), tff=True)
-_fade_dist = _expr([_fade_fields], 'x abs')
-for _fade_i in range(_fade_fmt.num_planes):
-    _fade_dist = core.std.PlaneStats(_fade_dist, plane=_fade_i, prop=f'P{_fade_i}')
+# The fix splits a field-flagged clip into fields, which a 4:2:0 frame whose
+# height is 2 mod 4 (720x486) refuses, so it runs on a frame padded to whole
+# field chroma rows and cropped back (task #57); nothing is added otherwise.
+def _fix_fades(clip):
+    _fade_fmt = clip.format
+    _fade_f = core.resize.Point(clip, format=_fade_fmt.replace(sample_type=vs.FLOAT, bits_per_sample=32).id)
+    _fade_fields = core.std.SeparateFields(core.std.SetFieldBased(_fade_f, 0), tff=True)
+    _fade_dist = _expr([_fade_fields], 'x abs')
+    for _fade_i in range(_fade_fmt.num_planes):
+        _fade_dist = core.std.PlaneStats(_fade_dist, plane=_fade_i, prop=f'P{_fade_i}')
 
 
-def _fade_gains(own, other):
-    gains = []
-    for i in range(_fade_fmt.num_planes):
-        a, b = own.props[f'P{i}Average'], other.props[f'P{i}Average']
-        target = (a + b) / 2 if '{{IVTC_FADE_MODE}}' == 'average' else min(a, b)
-        gains.append(target / a if a > 1e-6 else 1.0)
-    return gains
+    def _fade_gains(own, other):
+        gains = []
+        for i in range(_fade_fmt.num_planes):
+            a, b = own.props[f'P{i}Average'], other.props[f'P{i}Average']
+            target = (a + b) / 2 if '{{IVTC_FADE_MODE}}' == 'average' else min(a, b)
+            gains.append(target / a if a > 1e-6 else 1.0)
+        return gains
 
 
-def _fade_stamp(n, f, own, other):
-    out = f[0].copy()
-    for i, g in enumerate(_fade_gains(f[own], f[other])):
-        out.props[f'FadeGain{i}'] = g
-    return out
+    def _fade_stamp(n, f, own, other):
+        out = f[0].copy()
+        for i, g in enumerate(_fade_gains(f[own], f[other])):
+            out.props[f'FadeGain{i}'] = g
+        return out
 
 
-def _fade_scale(n, f, c, own, other):
-    gains = _fade_gains(f[own], f[other])
-    if all(abs(g - 1.0) < 1e-6 for g in gains):
-        return c
-    return _expr([c], [f'x {g} *' for g in gains])
+    def _fade_scale(n, f, c, own, other):
+        gains = _fade_gains(f[own], f[other])
+        if all(abs(g - 1.0) < 1e-6 for g in gains):
+            return c
+        return _expr([c], [f'x {g} *' for g in gains])
 
 
-_fade_top, _fade_bot = _fade_fields[::2], _fade_fields[1::2]
-_fade_props = [_fade_dist[::2], _fade_dist[1::2]]
-if _akarin_expr is not None:
-    _fade_top = core.std.ModifyFrame(_fade_top, [_fade_top] + _fade_props,
-                                     functools.partial(_fade_stamp, own=1, other=2))
-    _fade_bot = core.std.ModifyFrame(_fade_bot, [_fade_bot] + _fade_props,
-                                     functools.partial(_fade_stamp, own=2, other=1))
-    _fade_apply = [f'x x.FadeGain{i} *' for i in range(_fade_fmt.num_planes)]
-    _fade_top = _expr([_fade_top], _fade_apply)
-    _fade_bot = _expr([_fade_bot], _fade_apply)
-else:
-    _fade_top = core.std.FrameEval(_fade_top, functools.partial(_fade_scale, c=_fade_top, own=0, other=1),
-                                   prop_src=_fade_props)
-    _fade_bot = core.std.FrameEval(_fade_bot, functools.partial(_fade_scale, c=_fade_bot, own=1, other=0),
-                                   prop_src=_fade_props)
-clip = core.std.DoubleWeave(core.std.Interleave([_fade_top, _fade_bot]), tff=True)[::2]
-# DoubleWeave flags its output interlaced; field-matched frames are
-# progressive, and a later resize would otherwise treat them as fields.
-clip = core.std.SetFieldBased(clip, 0)
-clip = core.resize.Point(clip, format=_fade_fmt.id, dither_type="error_diffusion")
+    _fade_top, _fade_bot = _fade_fields[::2], _fade_fields[1::2]
+    _fade_props = [_fade_dist[::2], _fade_dist[1::2]]
+    if _akarin_expr is not None:
+        _fade_top = core.std.ModifyFrame(_fade_top, [_fade_top] + _fade_props,
+                                         functools.partial(_fade_stamp, own=1, other=2))
+        _fade_bot = core.std.ModifyFrame(_fade_bot, [_fade_bot] + _fade_props,
+                                         functools.partial(_fade_stamp, own=2, other=1))
+        _fade_apply = [f'x x.FadeGain{i} *' for i in range(_fade_fmt.num_planes)]
+        _fade_top = _expr([_fade_top], _fade_apply)
+        _fade_bot = _expr([_fade_bot], _fade_apply)
+    else:
+        _fade_top = core.std.FrameEval(_fade_top, functools.partial(_fade_scale, c=_fade_top, own=0, other=1),
+                                       prop_src=_fade_props)
+        _fade_bot = core.std.FrameEval(_fade_bot, functools.partial(_fade_scale, c=_fade_bot, own=1, other=0),
+                                       prop_src=_fade_props)
+    clip = core.std.DoubleWeave(core.std.Interleave([_fade_top, _fade_bot]), tff=True)[::2]
+    # DoubleWeave flags its output interlaced; field-matched frames are
+    # progressive, and a later resize would otherwise treat them as fields.
+    clip = core.std.SetFieldBased(clip, 0)
+    clip = core.resize.Point(clip, format=_fade_fmt.id, dither_type="error_diffusion")
+    return clip
+
+
+clip = _pf.pad_around(clip, _fix_fades, height_step=_pf.CHROMA, label='IVTC fade fix')
 {{/DEINT_IVTC_FIX_FADES}}
 # VFM output is full-depth again; VDecimate accepts 8..16 bit natively.
 {{#PREVIEW_ONLY}}
@@ -1201,15 +1214,24 @@ def _bm3d_plane(p, sigma):
         return ref
     ref = core.bm3d.Basic(p, sigma=sigma, profile=_bm3d_profile)
     return core.bm3d.Final(p, ref, sigma=sigma, profile=_bm3d_profile) if _bm3d_final else ref
-_bm3d_work = core.resize.Point(clip, format=_bm3d_fmt.replace(bits_per_sample=16, sample_type=vs.INTEGER).id)
-_bm3d_planes = [core.std.ShufflePlanes(_bm3d_work, i, vs.GRAY) for i in range(_bm3d_fmt.num_planes)]
-_bm3d_sigmas = [{{NR_BM3D_SIGMA}}] + [{{NR_BM3D_CHROMA_SIGMA}}] * (_bm3d_fmt.num_planes - 1)
-_bm3d_planes = [_bm3d_plane(p, s) if s > 0 else p for p, s in zip(_bm3d_planes, _bm3d_sigmas)]
-if _bm3d_fmt.num_planes > 1:
-    _bm3d_work = core.std.ShufflePlanes(_bm3d_planes, [0, 0, 0], _bm3d_fmt.color_family)
-else:
-    _bm3d_work = _bm3d_planes[0]
-clip = core.resize.Point(_bm3d_work, format=_bm3d_fmt.id, dither_type="error_diffusion")
+# The 16-bit work copy and the dithered restore are zimg conversions of a
+# field-flagged clip, which refuse a 4:2:0 frame whose height is 2 mod 4: the
+# block runs on a padded copy and is cropped back (task #57).
+def _nr_bm3d(clip):
+    _bm3d_work = core.resize.Point(clip, format=_bm3d_fmt.replace(bits_per_sample=16, sample_type=vs.INTEGER).id)
+    _bm3d_planes = [core.std.ShufflePlanes(_bm3d_work, i, vs.GRAY) for i in range(_bm3d_fmt.num_planes)]
+    _bm3d_sigmas = [{{NR_BM3D_SIGMA}}] + [{{NR_BM3D_CHROMA_SIGMA}}] * (_bm3d_fmt.num_planes - 1)
+    _bm3d_planes = [_bm3d_plane(p, s) if s > 0 else p for p, s in zip(_bm3d_planes, _bm3d_sigmas)]
+    if _bm3d_fmt.num_planes > 1:
+        _bm3d_work = core.std.ShufflePlanes(_bm3d_planes, [0, 0, 0], _bm3d_fmt.color_family)
+    else:
+        _bm3d_work = _bm3d_planes[0]
+    clip = core.resize.Point(_bm3d_work, format=_bm3d_fmt.id, dither_type="error_diffusion")
+    return clip
+
+
+clip = _pf.pad_around(clip, _nr_bm3d, height_step=_pf.CHROMA, field_based_only=True,
+                      label='Noise Reduction')
 {{/NR_BM3D}}
 {{#NR_KNLM}}
 # KNLMeansCL: non-local means on the GPU (OpenCL). d = frames each side,
@@ -1282,9 +1304,15 @@ def _nr_td2(clip):
     return clip
 
 
-# MVTools divides by zero on a picture two block rows tall: mvtools_blocks()
-# pads a short one (task #56 F9, plugin_formats.MVTOOLS_MIN_ROWS).
-clip = _pf.mvtools_blocks(clip, _nr_td2, label='Noise Reduction')
+def _nr_td2_rows(clip):
+    return _pf.mvtools_blocks(clip, _nr_td2, label='Noise Reduction')
+
+
+# Through run_within() for its frame-size contract: a 4:2:0 frame whose
+# height is 2 mod 4 is padded to whole field chroma rows and cropped back
+# (task #57); and through mvtools_blocks(), since MVTools divides by zero on
+# a picture two block rows tall (task #56 F9, plugin_formats.MVTOOLS_MIN_ROWS).
+clip = _pf.run_within(clip, 'temporaldegrain2.TemporalDegrain2', _nr_td2_rows, label='Noise Reduction')
 {{/NR_TD2}}
 {{#NR_POST_CONTRASHARP}}
 # Give back the fine detail the denoiser removed, by adding back only the
@@ -1562,62 +1590,6 @@ else:
 # PASS 5: DEBLOCK
 # ============================================================================
 {{#DEBLOCK}}
-{{#DEBLOCK_PER_FIELD}}
-# The picture is still interlaced (deinterlacing is off), so each field is
-# deblocked on its own. On the woven frame every method filters vertically
-# across both fields, blending them on moving edges -- DCTFilter scored 1.5 to
-# 3.7 dB below no filtering at all (docs/reports/2026-11-deblock-order). A
-# 4:2:0 frame whose field height is odd in chroma (486 lines) cannot be split
-# into fields and keeps the woven-frame path.
-_deblock_per_field = (clip.height >> clip.format.subsampling_h) % 2 == 0
-if _deblock_per_field:
-    clip = core.std.SeparateFields(clip, tff={{DEBLOCK_TFF}})
-{{/DEBLOCK_PER_FIELD}}
-
-{{#DEBLOCK_QED}}
-# Deblock_QED - Quality Enhanced Deblocking
-clip = haf.Deblock_QED(
-    clip,
-{{#DEBLOCK_QUANT1}}
-    quant1={{DEBLOCK_QUANT1}},
-{{/DEBLOCK_QUANT1}}
-{{#DEBLOCK_QUANT2}}
-    quant2={{DEBLOCK_QUANT2}},
-{{/DEBLOCK_QUANT2}}
-{{#DEBLOCK_AOFFSET1}}
-    aOff1={{DEBLOCK_AOFFSET1}},
-{{/DEBLOCK_AOFFSET1}}
-{{#DEBLOCK_AOFFSET2}}
-    aOff2={{DEBLOCK_AOFFSET2}},
-{{/DEBLOCK_AOFFSET2}}
-)
-{{/DEBLOCK_QED}}
-
-{{#DEBLOCK_SIMPLE}}
-# Simple deblocking using Deblock plugin
-clip = core.deblock.Deblock(
-    clip,
-{{#DEBLOCK_QUANT1}}
-    quant={{DEBLOCK_QUANT1}},
-{{/DEBLOCK_QUANT1}}
-)
-{{/DEBLOCK_SIMPLE}}
-{{#DEBLOCK_DCTFILTER}}
-# DCTFilter - attenuates chosen DCT frequency bands directly. A scalpel for
-# ringing and mosquito noise, which the two block-edge deblockers do not touch.
-#
-# The eight factors are applied SEPARABLY: coefficient (u, v) is scaled by
-# factors[u] * factors[v] — measured against the bundle, not the max(u, v) the
-# Avisynth filter of the same name uses. So a band affects a whole row and
-# column. The worker builds the curve from a cutoff and a strength rather than
-# exposing eight raw sliders, and guarantees every value is finite: DCTFilter's
-# own range check lets NaN through and a NaN factor silently blackens the frame.
-clip = core.dctf.DCTFilter(
-    clip,
-    factors={{DEBLOCK_DCT_FACTORS}},
-    planes={{DEBLOCK_DCT_PLANES}},
-)
-{{/DEBLOCK_DCTFILTER}}
 {{#DEBLOCK_MPEG2STINX}}
 # mpeg2stinx: removes the comb-like noise a film DVD picks up when its
 # progressive frames were encoded as interlaced MPEG-2 (vs-jetpack's
@@ -1670,16 +1642,90 @@ def _stx_limit(src, flt, adj):
     return _expr([flt, src, d], 'x y z - max y z + min')
 
 
-clip = core.std.SetFieldBased(clip, 0)
-_stx_adj = core.std.Interleave([clip[0] + clip[:-1], clip[1:] + clip[-1]])
-_stx_1 = _stx_limit(clip, _stx_crossfield(clip, _stx_bob(clip)), _stx_adj)
-_stx_2 = _stx_limit(_stx_1, _stx_crossfield(_stx_1, _stx_bob(_stx_1)), _stx_adj)
-clip = core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)
+def _stx_run(clip):
+    clip = core.std.SetFieldBased(clip, 0)
+    _stx_adj = core.std.Interleave([clip[0] + clip[:-1], clip[1:] + clip[-1]])
+    _stx_1 = _stx_limit(clip, _stx_crossfield(clip, _stx_bob(clip)), _stx_adj)
+    _stx_2 = _stx_limit(_stx_1, _stx_crossfield(_stx_1, _stx_bob(_stx_1)), _stx_adj)
+    clip = core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)
+    return clip
+{{/DEBLOCK_MPEG2STINX}}
+
+
+def _deblock_pass(clip):
+{{#DEBLOCK_PER_FIELD}}
+    # The picture is still interlaced (deinterlacing is off), so each field is
+    # deblocked on its own. On the woven frame every method filters vertically
+    # across both fields, blending them on moving edges -- DCTFilter scored 1.5
+    # to 3.7 dB below no filtering at all (docs/reports/2026-11-deblock-order).
+    clip = core.std.SeparateFields(clip, tff={{DEBLOCK_TFF}})
+{{/DEBLOCK_PER_FIELD}}
+{{#DEBLOCK_QED}}
+    # Deblock_QED - Quality Enhanced Deblocking
+    def _deblock_qed(clip):
+        clip = haf.Deblock_QED(
+            clip,
+{{#DEBLOCK_QUANT1}}
+            quant1={{DEBLOCK_QUANT1}},
+{{/DEBLOCK_QUANT1}}
+{{#DEBLOCK_QUANT2}}
+            quant2={{DEBLOCK_QUANT2}},
+{{/DEBLOCK_QUANT2}}
+{{#DEBLOCK_AOFFSET1}}
+            aOff1={{DEBLOCK_AOFFSET1}},
+{{/DEBLOCK_AOFFSET1}}
+{{#DEBLOCK_AOFFSET2}}
+            aOff2={{DEBLOCK_AOFFSET2}},
+{{/DEBLOCK_AOFFSET2}}
+        )
+        return clip
+    clip = _pf.run_within(clip, 'havsfunc.Deblock_QED', _deblock_qed, label='Deblock')
+{{/DEBLOCK_QED}}
+{{#DEBLOCK_SIMPLE}}
+    # Simple deblocking using Deblock plugin
+    def _deblock_simple(clip):
+        clip = core.deblock.Deblock(
+            clip,
+{{#DEBLOCK_QUANT1}}
+            quant={{DEBLOCK_QUANT1}},
+{{/DEBLOCK_QUANT1}}
+        )
+        return clip
+    clip = _pf.run_within(clip, 'deblock.Deblock', _deblock_simple, label='Deblock')
+{{/DEBLOCK_SIMPLE}}
+{{#DEBLOCK_DCTFILTER}}
+    # DCTFilter - attenuates chosen DCT frequency bands directly. A scalpel for
+    # ringing and mosquito noise, which the two block-edge deblockers do not touch.
+    #
+    # The eight factors are applied SEPARABLY: coefficient (u, v) is scaled by
+    # factors[u] * factors[v] — measured against the bundle, not the max(u, v) the
+    # Avisynth filter of the same name uses. So a band affects a whole row and
+    # column. The worker builds the curve from a cutoff and a strength rather than
+    # exposing eight raw sliders, and guarantees every value is finite: DCTFilter's
+    # own range check lets NaN through and a NaN factor silently blackens the frame.
+    def _deblock_dctfilter(clip):
+        clip = core.dctf.DCTFilter(
+            clip,
+            factors={{DEBLOCK_DCT_FACTORS}},
+            planes={{DEBLOCK_DCT_PLANES}},
+        )
+        return clip
+    clip = _pf.run_within(clip, 'dctf.DCTFilter', _deblock_dctfilter, label='Deblock')
+{{/DEBLOCK_DCTFILTER}}
+{{#DEBLOCK_MPEG2STINX}}
+    clip = _stx_run(clip)
 {{/DEBLOCK_MPEG2STINX}}
 {{#DEBLOCK_PER_FIELD}}
-if _deblock_per_field:
     clip = core.std.DoubleWeave(clip, tff={{DEBLOCK_TFF}})[::2]
 {{/DEBLOCK_PER_FIELD}}
+    return clip
+
+
+# The whole pass runs on a frame padded to whole field chroma rows: a 4:2:0
+# frame whose height is 2 mod 4 (720x486) cannot be split into fields, and the
+# plugins and mpeg2stinx's own field split refuse it field-flagged too (task
+# #57). It adds nothing to a frame that already fits.
+clip = _pf.pad_around(clip, _deblock_pass, height_step=_pf.CHROMA, field_based_only=True, label='Deblock')
 {{/DEBLOCK}}
 
 # ============================================================================
@@ -1740,7 +1786,15 @@ clip = core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})
 # daa - double-rate anti-aliasing. Interpolates both fields with nnedi3 and
 # averages them, so a stair-stepped diagonal is rebuilt rather than blurred.
 # The gentler of the two methods and the usual choice.
-clip = haf.daa(clip)
+# znedi3 (x86) refuses a plane with an odd number of rows, progressive or not:
+# a 4:2:0 frame whose height is 2 mod 4 has one in chroma, so it is padded to
+# whole field chroma rows and cropped back (task #57). nnedi3 (arm64) takes
+# it, but the padded frame runs on both alike.
+def _aa_daa(clip):
+    return haf.daa(clip)
+
+
+clip = _pf.pad_around(clip, _aa_daa, height_step=_pf.CHROMA, label='Anti-aliasing')
 {{/AA_DAA}}
 
 {{#AA_SANTIAG}}
@@ -1765,11 +1819,17 @@ clip = haf.santiag(
 # is in 8-bit units at every depth: the plugin scales it itself (an 8-bit and
 # a 10-bit run agree to 0.05 levels). SangNom flags its output progressive, so
 # the field order set above is put back.
-_aa_w, _aa_h = clip.width, clip.height
-_aa = core.resize.Spline36(clip, _aa_w * 2, _aa_h * 2)
-_aa = core.sangnom.SangNom(_aa, order=1, aa={{AA_SANGNOM_AA}})
-_aa = core.sangnom.SangNom(core.std.Transpose(_aa), order=1, aa={{AA_SANGNOM_AA}})
-clip = core.resize.Spline36(core.std.Transpose(_aa), _aa_w, _aa_h)
+# The 2x resize of a field-flagged 4:2:0 frame refuses a height 2 mod 4, so the
+# block runs through run_within()'s frame-size contract (task #57).
+def _aa_sangnom(clip):
+    _aa_w, _aa_h = clip.width, clip.height
+    _aa = core.resize.Spline36(clip, _aa_w * 2, _aa_h * 2)
+    _aa = core.sangnom.SangNom(_aa, order=1, aa={{AA_SANGNOM_AA}})
+    _aa = core.sangnom.SangNom(core.std.Transpose(_aa), order=1, aa={{AA_SANGNOM_AA}})
+    return core.resize.Spline36(core.std.Transpose(_aa), _aa_w, _aa_h)
+
+
+clip = _pf.run_within(clip, 'sangnom.SangNom', _aa_sangnom, label='Anti-aliasing')
 clip = core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})
 {{/AA_SANGNOM}}
 {{/ANTI_ALIAS}}
@@ -1840,21 +1900,29 @@ clip = core.std.ShufflePlanes([_y, _u, _v], [0, 0, 0], vs.YUV)
 
 {{#CHROMA_FIX_BLEEDING}}
 # FixChromaBleedingMod - fix color bleeding from analog sources
-clip = haf.FixChromaBleedingMod(
-    clip,
+def _fix_chroma_bleeding(clip):
+    clip = haf.FixChromaBleedingMod(
+        clip,
 {{#CHROMA_CX}}
-    cx={{CHROMA_CX}},
+        cx={{CHROMA_CX}},
 {{/CHROMA_CX}}
 {{#CHROMA_CY}}
-    cy={{CHROMA_CY}},
+        cy={{CHROMA_CY}},
 {{/CHROMA_CY}}
 {{#CHROMA_THR}}
-    thr={{CHROMA_THR}},
+        thr={{CHROMA_THR}},
 {{/CHROMA_THR}}
 {{#CHROMA_STRENGTH}}
-    strength={{CHROMA_STRENGTH}},
+        strength={{CHROMA_STRENGTH}},
 {{/CHROMA_STRENGTH}}
-)
+    )
+    return clip
+
+
+# Through run_within() for its frame-size contract: a 4:2:0 frame whose
+# height is 2 mod 4 is padded to whole field chroma rows and cropped back
+# (task #57).
+clip = _pf.run_within(clip, 'havsfunc.FixChromaBleedingMod', _fix_chroma_bleeding, label='Chroma Fixes')
 {{/CHROMA_FIX_BLEEDING}}
 
 {{#CHROMA_DECRAWL}}
@@ -2473,7 +2541,12 @@ clip = _upscale_fix_shift(clip, _upscale_shift)
 {{/UPSCALE_EDGE_DIRECTED}}
 {{#UPSCALE_SPLINE36}}
 # Plain resampling at an integer factor — no edge direction, just fast.
-clip = core.resize.Spline36(clip, width=clip.width * {{UPSCALE_FACTOR}}, height=clip.height * {{UPSCALE_FACTOR}})
+# A still-interlaced 4:2:0 frame whose height is 2 mod 4 is read through a
+# padded copy with the source window set to the real frame (task #57); any
+# other frame is read as it is.
+clip = _pf.read_padded(clip, lambda c, **window: core.resize.Spline36(
+    c, width=clip.width * {{UPSCALE_FACTOR}}, height=clip.height * {{UPSCALE_FACTOR}}, **window),
+    height_step=_pf.CHROMA, label='Upscale')
 {{/UPSCALE_SPLINE36}}
 {{#UPSCALE_AI}}
 # AI upscaling: Real-ESRGAN / Real-CUGAN (and the add-on models) through
@@ -2608,17 +2681,27 @@ elif target_w > 0 and target_h > 0:
 
 # filter_param_a/b carry the kernel's own tuning: b and c for Bicubic, taps
 # for Lanczos. They are ignored by kernels that take neither.
-clip = core.resize.{{RESIZE_KERNEL}}(
-    clip,
-    width=target_w,
-    height=target_h,
+#
+# zimg resamples a still-interlaced frame per field, and a 4:2:0 frame whose
+# height is 2 mod 4 (720x486) has no whole chroma rows per field: it reads a
+# padded copy instead, with the source window set to the real frame (task
+# #57). Any other frame is read as it is.
+def _resize(src, **window):
+    return core.resize.{{RESIZE_KERNEL}}(
+        src,
+        width=target_w,
+        height=target_h,
 {{#RESIZE_FILTER_A}}
-    filter_param_a={{RESIZE_FILTER_A}},
+        filter_param_a={{RESIZE_FILTER_A}},
 {{/RESIZE_FILTER_A}}
 {{#RESIZE_FILTER_B}}
-    filter_param_b={{RESIZE_FILTER_B}},
+        filter_param_b={{RESIZE_FILTER_B}},
 {{/RESIZE_FILTER_B}}
-)
+        **window,
+    )
+
+
+clip = _pf.read_padded(clip, _resize, height_step=_pf.CHROMA, label='Resize')
 
 {{#ASPECT_PAD}}
 # Pad to Fill: remember the box, so the BORDERS step at the very end can
@@ -2649,17 +2732,20 @@ _aspect_box_h = _height(_box_h) if _box_h > 0 else 0
 # VapourSynth R78's resizers let a frame's own _Matrix / _Range properties
 # override matrix_in_s / range_in_s, so they are removed first: the worker's
 # reading of the source's tags is what decides the conversion.
+#
+# On a still-interlaced 4:2:0 frame whose height is 2 mod 4 that per-field
+# conversion has no whole chroma rows, so it runs on a padded copy (task #57).
 if clip.format.color_family == vs.YUV:
     clip = core.std.RemoveFrameProps(clip, props=["_Matrix", "_Range", "_ColorRange"])
-    clip = core.resize.Spline36(
-        clip,
-        format=clip.format.id,
+    clip = _pf.pad_around(clip, lambda c: core.resize.Spline36(
+        c,
+        format=c.format.id,
         matrix_in_s="{{C709_MATRIX_IN}}",
         matrix_s="709",
         range_in_s="{{C709_RANGE}}",
         range_s="{{C709_RANGE}}",
         dither_type="error_diffusion",
-    )
+    ), height_step=_pf.CHROMA, field_based_only=True, label='BT.709 conversion')
 {{/COLOR_709}}
 
 # ============================================================================
@@ -2704,21 +2790,29 @@ clip = _face_restore.restore_faces(
 
 {{#SHARPEN_LSFMOD}}
 # LSFmod - Limited Sharpening with overshoot control
-clip = haf.LSFmod(
-    clip,
+def _sharpen_lsfmod(clip):
+    clip = haf.LSFmod(
+        clip,
 {{#SHARPEN_STRENGTH}}
-    strength={{SHARPEN_STRENGTH}},
+        strength={{SHARPEN_STRENGTH}},
 {{/SHARPEN_STRENGTH}}
 {{#SHARPEN_OVERSHOOT}}
-    overshoot={{SHARPEN_OVERSHOOT}},
+        overshoot={{SHARPEN_OVERSHOOT}},
 {{/SHARPEN_OVERSHOOT}}
 {{#SHARPEN_UNDERSHOOT}}
-    undershoot={{SHARPEN_UNDERSHOOT}},
+        undershoot={{SHARPEN_UNDERSHOOT}},
 {{/SHARPEN_UNDERSHOOT}}
 {{#SHARPEN_SOFT_EDGE}}
-    soft={{SHARPEN_SOFT_EDGE}},
+        soft={{SHARPEN_SOFT_EDGE}},
 {{/SHARPEN_SOFT_EDGE}}
-)
+    )
+    return clip
+
+
+# Through run_within() for its frame-size contract: a 4:2:0 frame whose
+# height is 2 mod 4 is padded to whole field chroma rows and cropped back
+# (task #57).
+clip = _pf.run_within(clip, 'havsfunc.LSFmod', _sharpen_lsfmod, label='Sharpen')
 {{/SHARPEN_LSFMOD}}
 
 {{#SHARPEN_CAS}}
@@ -2945,10 +3039,19 @@ if len(clip) != _custom_vs_frames_before:
 # other depth conversion in this template already asks for error diffusion. It
 # is a no-op when the target is not shallower than the source, so the 8-bit and
 # the 10-bit paths are unaffected.
+#
+# A still-interlaced frame is converted per field (zimg honours _FieldBased),
+# and a 4:2:0 side whose height is 2 mod 4 has no whole chroma rows per field:
+# a 486-line 4:2:2 D1 capture going out as 4:2:0 (or AV1) refused here. So the
+# conversion runs on a frame padded to whole field chroma rows of the more
+# subsampled of the two formats, and is cropped back (task #57); a frame that
+# already fits gets no padding.
 target_format = {{CHROMA_FORMAT}}
 if clip.format.id != target_format:
-    clip = core.resize.Bicubic(clip, format=target_format,
-                               dither_type="error_diffusion")
+    _cc_step = 2 << max(clip.format.subsampling_h, core.get_video_format(target_format).subsampling_h)
+    clip = _pf.pad_around(
+        clip, lambda c: core.resize.Bicubic(c, format=target_format, dither_type="error_diffusion"),
+        height_step=_cc_step, field_based_only=True, label='Color Format')
 {{/CHROMA_CONVERT}}
 {{#DEPTH_RESTORE}}
 # Color Format "original" is the source's format, depth included (task #56). A

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Height 2 mod 4 and RemoveDirt</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>4:2:0 at a height 2 mod 4 (720x486), and RemoveDirt's race</h1>
+<p class="meta">Task #57, 2026-11-17. Measured on macOS arm64 (M1 Pro), deps 1.16.0 (the plugins are the same binaries as 1.17.0-rc2 on arm64). Found by task #48's plugin format probe.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><strong>A 4:2:0 frame whose height is 2 mod 4 now runs through every pass that refused it.</strong> At 486 lines it has 243 chroma rows, so a field has no whole chroma height. <code>SeparateFields</code> refuses such a frame, and zimg refuses any resize of it while it is field-flagged, a pure depth change included (<em>Resize error 1027</em>). Every height 2 mod 4 does this (482, 486, 490, 270 and 1082 measured), not only 486.</li>
+<li><strong>Fix: pad, run, crop.</strong> <code>plugin_formats.pad_around()</code> adds two rows repeating each field's own last row (row <i>h</i> = <i>h−2</i>, <i>h+1</i> = <i>h−1</i>; one chroma row = chroma row <i>ch−2</i>), runs the call, and crops back. <code>read_padded()</code> does the same for a resize, through <code>src_height</code>. A frame that already fits gets no node, so every other size keeps its script output byte for byte.</li>
+<li><strong>Only frames that refused are padded.</strong> Most of these plugins refused the size only when field-flagged, and ran on a progressive 486 frame before. Their contracts are <code>field_based_only</code>, and a progressive frame takes the old path, chosen per frame by <code>_FieldBased</code>. On progressive 720x486 their output is <strong>0.000 levels</strong> from before (table 3). <em>Correction, left in place:</em> the first version padded every frame, and LSFmod then moved by up to 26 levels inside the frame, because it supersamples at a size that follows the height.</li>
+<li><strong>The case users meet most</strong> was not in the probe's list: a still-interlaced <strong>4:2:2 D1 capture written out as 4:2:0</strong> (Color Format 4:2:0, or AV1, which is always 4:2:0) refused at the script's last step. It now converts per field on a padded frame (heavy test <code>integration_height_2_mod_4_test.dart</code>).</li>
+<li><strong>Found after review, by the format sweep on Linux x64:</strong> Anti-aliasing's daa failed on 96x66 4:2:0 (<code>znedi3: clip must have even number of scanlines</code>). znedi3, the x86 interpolator, refuses a plane with an odd number of rows, progressive or field-flagged; arm64's nnedi3 takes it, which is why this machine's runs missed it. daa now runs inside <code>pad_around()</code> on every frame that does not fit (only 4:2:0 at a height 2 mod 4), so on arm64 such a frame's bottom rows may differ slightly from before; every other size is unchanged.</li>
+<li><strong>RemoveDirt is deterministic again.</strong> <code>removedirt.RestoreMotionBlocks</code> v1.1 is registered <code>fmParallel</code>, but every frame of one instance writes the same block buffers. The bare chain gave <strong>18 results in 20 runs</strong> at 8 threads, and 1 at 1 thread. <code>removedirt.py</code> now gives each frame an instance to itself, from a pool: <strong>1 result in 20 runs, equal to the single-threaded one</strong>, 7% slower, memory flat. (A new instance per frame, the first fix, leaked about 0.6 MB per frame inside the plugin.) Upstream issue: <a href="https://github.com/pinterf/RemoveDirt/issues/5">pinterf/RemoveDirt#5</a>; task #63 removes the pool once the bundle carries the fix.</li>
+<li>Found on the way: <strong>TemporalDegrain2 differs run to run on its own</strong> (4 runs, 4 hashes, at 720x480 too). Filed as task #62.</li>
+</ul>
+
+<h2>1. Which heights refuse, and what runs now</h2>
+<p>Each call as the probe makes it (<code>Scripts/probe-plugin-formats.py</code>, the template's arguments), on the interlaced capture scaled to 4:2:0 at 8, 10 and 16-bit, progressive and TFF: 6 cells per height. <em>Before</em> is the plugin alone (for srestore and weave, the modules before this task). <em>Now</em> is the call as the template makes it: <code>run_within()</code> with its contract, or the fixed module. Cells refused, before / now. Script: <code>scripts/heights.py</code>, data <code>data/heights.json</code>.</p>
+<table>
+<tr><th>Call</th><th>480</th><th>482</th><th>484</th><th>486</th><th>488</th><th>490</th><th>1440x270</th><th>1440x1082</th></tr>
+<tr><td>havsfunc.QTGMC</td><td>0 / 0</td><td class="no">6 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">6 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">6 / <span class="ok">0</span></td><td class="no">6 / <span class="ok">0</span></td><td class="no">6 / <span class="ok">0</span></td></tr>
+<tr><td>havsfunc.MCTemporalDenoise</td><td>0 / 0</td><td class="no">6 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">6 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">6 / <span class="ok">0</span></td><td class="no">6 / <span class="ok">0</span></td><td class="no">6 / <span class="ok">0</span></td></tr>
+<tr><td>bifrost.Bifrost</td><td>4 / 0</td><td class="no">6 / 2</td><td>4 / 0</td><td class="no">6 / 2</td><td>4 / 0</td><td class="no">6 / 2</td><td class="no">6 / 2</td><td class="no">6 / 2</td></tr>
+<tr><td>dctf.DCTFilter, deblock.Deblock, havsfunc.Deblock_QED, havsfunc.FixChromaBleedingMod, havsfunc.LSFmod, sangnom.SangNom, temporaldegrain2.TemporalDegrain2 (each)</td><td>0 / 0</td><td class="no">3 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">3 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">3 / <span class="ok">0</span></td><td class="no">3 / <span class="ok">0</span></td><td class="no">3 / <span class="ok">0</span></td></tr>
+<tr><td>srestore.unblend</td><td>0 / 0</td><td class="no">3 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">3 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">3 / <span class="ok">0</span></td><td class="no">3 / <span class="ok">0</span></td><td class="no">3 / <span class="ok">0</span></td></tr>
+<tr><td>stabilize.weave</td><td>0 / 0</td><td class="no">1 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">1 / <span class="ok">0</span></td><td>0 / 0</td><td class="no">1 / <span class="ok">0</span></td><td class="no">1 / <span class="ok">0</span></td><td class="no">1 / <span class="ok">0</span></td></tr>
+</table>
+<p>The remaining Bifrost cells are 8-bit at a height 2 mod 4, progressive and TFF. Bifrost splits fields itself, and its padding to its own 4x8 blocks is task #56's (F6). Its 10 and 16-bit "before" refusals are its 8-bit limit; through <code>run_within()</code> they now run at every height, because <code>run_within()</code> pads whatever it has to convert.</p>
+<p>Errors, as the plugins give them:</p>
+<ul>
+<li>QTGMC, Bifrost: <code>SeparateFields: clip height must be mod 2 in the smallest subsampled plane</code>, progressive too (QTGMC separates the fields whatever the flag).</li>
+<li>MCTemporalDenoise: progressive <code>Crop: cropped area needs to have mod 2 height offset</code> (havsfunc pads to a block multiple and crops back by an odd amount); TFF <code>Resize error 1027</code>.</li>
+<li>The rest: <code>Resize error 1027: image dimensions must be divisible by subsampling factor</code>, TFF only.</li>
+<li>srestore refused every subsampling at 486 TFF, 4:4:4 included: <code>stats_clip</code> converted the whole field-flagged source to <code>YUV420P8</code> before measuring its luma.</li>
+<li>stabilize.weave's 16-bit measurement copy was a field-aware zimg conversion.</li>
+</ul>
+
+<h2>2. The template's own sites</h2>
+<p>The probe sees plugin calls, not the template's own <code>SeparateFields</code> or resizes. Task #47's format sweep gained a size, <strong>96x66</strong> (4:2:0, 33 chroma rows): one row per variant in the push gate, eight in nightly. Run on 96x66 alone, every depth and both field flags, every CPU variant, it found eight more sites, all fixed with <code>pad_around</code> / <code>read_padded</code>:</p>
+<ul>
+<li>the per-field Deblock path, which at 486 used to fall back to the woven frame and then failed in the plugin; mpeg2stinx's field split;</li>
+<li>the IVTC fade fix;</li>
+<li>IVTC's 8-bit metrics copy;</li>
+<li>BM3D's 16-bit work copy;</li>
+<li>the Resize pass and the integer Spline36 upscale (through <code>src_height</code>);</li>
+<li>the BT.709 conversion;</li>
+<li>Color Format's output conversion.</li>
+</ul>
+<p>Two rows still fail, both task #56's and listed in the sweep's <code>knownFailures</code>:</p>
+<ul>
+<li>Bifrost at 8-bit (F6);</li>
+<li>Pad to Fill, whose box keeps the picture at 66 lines, so the resize's <em>output</em> is 4:2:0 2 mod 4 high while still interlaced (F5).</li>
+</ul>
+<p>The real size end to end, through the encoder (<code>app/test/integration_height_2_mod_4_test.dart</code>, heavy, FFV1):</p>
+<table>
+<tr><th>Job</th><th>Source</th><th>Output</th><th>Frames</th></tr>
+<tr><td>QTGMC Fast, TFF</td><td>yuv420p, yuv420p10le 720x486</td><td class="ok">720x486, same format</td><td class="num">24 of 12 (double rate)</td></tr>
+<tr><td>Deinterlace off, per-field Deblock_QED + LSFmod</td><td>yuv420p, yuv420p16le 720x486 TFF</td><td class="ok">720x486, same format</td><td class="num">12</td></tr>
+<tr><td>Deinterlace off, Color Format 4:2:0 / 4:2:0 10-bit</td><td>yuv422p10le, yuv422p 720x486 TFF</td><td class="ok">720x486 yuv420p / yuv420p10le</td><td class="num">12</td></tr>
+</table>
+
+<h2>3. What changes for jobs that ran before</h2>
+<p><strong>Every height that is not 2 mod 4, and every 4:2:2 / 4:4:4 height:</strong> nothing. <code>pad_around</code> returns <code>fn(clip)</code> and adds no node. srestore and weave are bit-identical: <code>stats_clip</code>'s per-frame measurements hash identically before and after at 352x240, 720x480 and 720x486, for 4:2:0, 4:2:2 and 4:4:4 at 8, 10 and 16-bit, progressive and TFF, wherever the old module ran. The cells it refused (720x486 TFF) now run. weave's 16-bit copy is identical in the same cells (<code>scripts/module_identity.py</code>, <code>data/module_identity.json</code>). weave's own output is not compared: Depan's estimate on a picture without global motion is a near-tie that varies with threading.</p>
+<p><strong>Progressive 4:2:0 at a height 2 mod 4</strong> (these calls ran on it before), plugin alone vs through <code>run_within()</code>, 720x486. Mean / max absolute difference in 8-bit levels. "self" is the plugin against a second run of itself. Script: <code>scripts/padding_effect.py</code>.</p>
+<table>
+<tr><th>Call</th><th>8-bit: inside</th><th>8-bit: bottom 16 rows</th><th>8-bit: self</th><th>16-bit: inside</th><th>16-bit: bottom 16</th><th>16-bit: self</th></tr>
+<tr><td>DCTFilter, Deblock, Deblock_QED, FixChromaBleedingMod, LSFmod, SangNom</td><td class="ok">0 / 0</td><td class="ok">0 / 0</td><td>0 / 0</td><td class="ok">0 / 0</td><td class="ok">0 / 0</td><td>0 / 0</td></tr>
+<tr><td>TemporalDegrain2</td><td>0.0053 / 17</td><td>0.0046 / 16</td><td>0.0053 / 17</td><td>0.0047 / 19.0</td><td>0.0049 / 11.3</td><td>0.0041 / 8.7</td></tr>
+</table>
+<p>TemporalDegrain2's differences are its own run-to-run differences (task #62), not the padding's. The always-padded calls (QTGMC, MCTemporalDenoise) and the conversion sites refused every 2-mod-4 frame they were given, so they have no "before" to compare.</p>
+<div class="box">
+<p><strong>Why not pad every frame:</strong> the helper cannot read <code>_FieldBased</code> while the script is built (reading frame 0 would pull it through <code>pipe_source</code>). Padding every frame of such a height was the plan's first choice.</p>
+<p>It moved LSFmod by a mean of 0.13 and up to 26 levels <em>inside</em> a progressive 720x486 frame, and DCTFilter / SangNom by up to 5 levels in the bottom rows. LSFmod supersamples at a size derived from the height, so 488 resamples the whole picture differently from 486.</p>
+<p>Hence <code>field_based_only</code>: both paths are built, and one FrameEval with <code>prop_src</code> picks per frame, with no node created per frame. Only the chosen path's frames are requested.</p>
+</div>
+
+<h2>4. RemoveDirt run to run</h2>
+<p>24 frames of the capture at 352x240, 4:2:0 8-bit, every frame hashed, a fresh graph per run. Distinct results in 20 runs (<code>scripts/removedirt.py repeat</code>, <code>data/removedirt_repeat.json</code>). How often the race shows depends on timing: RestoreMotionBlocks on its own gave 17 results in an earlier run and 2 in this one.</p>
+<table>
+<tr><th>Graph</th><th>8 threads</th><th>2 threads</th><th>1 thread</th></tr>
+<tr><td>Clense family alone</td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td>SCSelect alone (<code>fmUnordered</code>)</td><td class="num">1</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td>RestoreMotionBlocks(Repair(Clense))</td><td class="num no">2</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td>The pass's chain, bare (before this task)</td><td class="num no">18</td><td class="num no">20</td><td class="num">1</td></tr>
+<tr><td><code>remove_dirt()</code> now: each frame an instance to itself, from a pool</td><td class="num ok">1</td><td class="num ok">1</td><td class="num">1</td></tr>
+</table>
+<p><code>remove_dirt()</code> at 1 thread equals the bare chain at 1 thread, so the pool changes nothing but the race. At 1 thread with frames requested in 12 shuffled orders, SCSelect, RestoreMotionBlocks and the chain each give 1 result: it is a thread race, not an order dependence (<code>removedirt.py order</code>).</p>
+<p>The cause, from the plugin source (v1.1, <code>RemoveDirt.cpp</code>):</p>
+<ul>
+<li><code>restoreMotionBlocksCreate</code> registers <code>fmParallel</code>;</li>
+<li><code>d-&gt;rd-&gt;ProcessFrame()</code> writes <code>MotionDetection::blockproperties</code> and Postprocessing's counters on the one <code>RemoveDirt</code> object each instance holds.</li>
+</ul>
+<p>Upstream issue <a href="https://github.com/pinterf/RemoveDirt/issues/5">#5</a> (opened 2026-10-17, confirmed on Windows and Linux) proposes <code>fmParallelRequests</code>; on 2026-11-16 the maintainer said a fix is queued.</p>
+<p><strong>Each frame has an instance to itself, from a pool</strong> (<code>_ExclusiveInstances</code> in <code>removedirt.py</code>): a FrameEval takes a free instance (making one when none is free) and a ModifyFrame on that instance gives it back once its frame is made. The wrappers are uncached, so every request runs the hand-back. The pool grows only to the number of frames in flight.</p>
+<p><em>Correction, left in place:</em> the first fix made a new RestoreMotionBlocks per frame. The plugin leaks every instance it frees, so memory grew with the length of the job (table 5b). Found in review; the pool replaced it.</p>
+<p>The push gate checks it: <code>app/test/removedirt_determinism_test.dart</code> runs <code>remove_dirt()</code> five times at 8 threads and wants one result, equal to the single-threaded one. It prints the bare plugin's spread (4 results in 5 runs on this machine) as a control, which drops to 1 when the bundle carries the fix.</p>
+
+<h2 id="t5">5. Speed and memory of the pool</h2>
+<p>720x480, 8 threads (<code>removedirt.py speed</code>, <code>rss</code>; <code>data/removedirt_speed.json</code>, <code>data/removedirt_rss.json</code>):</p>
+<table id="speedtable">
+<tr><th></th><th>Bare chain</th><th>remove_dirt() (pool)</th></tr>
+<tr><td>fps, 600 frames, 3 runs</td><td class="num">722.5, 724.1, 721.4</td><td class="num">672.7, 675.3, 674.7 (&minus;7%)</td></tr>
+<tr><td>Peak RSS after 1000 frames (MB)</td><td class="num">122.2</td><td class="num">134.2</td></tr>
+<tr><td>Peak RSS after 6000 frames (MB)</td><td class="num">123.0</td><td class="num">139.1</td></tr>
+</table>
+<p>The source here is a Python ModifyFrame reader, which is slower than the worker's pipe source, so the absolute fps understate both. The ratio is the point.</p>
+<p><strong>5b. Why not a new instance per frame.</strong> Peak RSS at 720x480 every 1000 frames (<code>removedirt_leak.py</code>, <code>data/removedirt_leak.json</code>):</p>
+<table>
+<tr><th></th><th>1000</th><th>2000</th><th>3000</th><th>4000</th></tr>
+<tr><td>RestoreMotionBlocks made, used once and dropped, 1 thread</td><td class="num no">667</td><td class="num no">1263</td><td class="num no">1856</td><td class="num no">2448</td></tr>
+<tr><td>Control: std.Crop the same way</td><td class="num">82</td><td class="num">87</td><td class="num">88</td><td class="num">88</td></tr>
+<tr><td>A new RestoreMotionBlocks per frame through FrameEval, 8 threads</td><td class="num no">696</td><td class="num no">1288</td><td class="num no">1891</td><td class="num no">2480</td></tr>
+<tr><td>Control: AddBorders + Crop the same way</td><td class="num">130</td><td class="num">133</td><td class="num">133</td><td class="num">133</td></tr>
+</table>
+<p>About 0.6 MB per freed instance on this picture (34 KB a frame on the capture in table 5's graph). At that rate a two-hour job would need several GB, so the per-frame instance was worse than the race it fixed.</p>
+
+<h2>6. The probe table</h2>
+<p><code>Tests/TestResources/plugin_format_table.json</code> was re-measured for every call this task touches (the 17 calls in <code>scripts/reproduce.sh</code>: the eleven 720x486 refusals, Bifrost, Dedot, DeScratch, LUTDeCrawl, LUTDeRainbow and remove_dirt). A contracted call's cells are now also run through <code>run_within()</code>: the <code>within</code> result, summarised as <code>within_refused</code>. The push gate's <code>plugin_format_contracts_test.dart</code> now checks four things:</p>
+<ul>
+<li>no reachable cell of a contracted call is refused through <code>run_within()</code>;</li>
+<li>a size the plugin refuses is accepted without a <code>KNOWN</code> entry when the contract's steps pad it;</li>
+<li>a <code>KNOWN</code> entry whose contract pads every size it refuses is reported as stale;</li>
+<li>the quick probe includes 720x486 4:2:0 for every contract with a step.</li>
+</ul>
+<p><code>KNOWN</code> is empty: task #56, merged first, fixed its two entries (Bifrost and MCTemporalDenoise&#39;s width 2 mod 4) with contract steps.</p>
+<p><code>worker/tests/filter_integration_test.rs</code> <code>test_258</code> fails on a <code>SeparateFields</code> that no function handed to <code>pad_around</code> / <code>run_within</code> reaches.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>Pad, don't refuse.</strong> Padding fixed every refusal measured, at no cost to any other job. A readable refusal would have blocked a real (if uncommon) source and the common 4:2:2 → 4:2:0 output.</li>
+<li><strong>Period-2 rows, no field flag at build time.</strong> They are each field's own last row on an interlaced frame and a near-edge repeat on a progressive one, so one rule is right for both.</li>
+<li><strong>Pad per call, not once around the whole script.</strong> One pad at the top would reach the Crop and Resize geometry, Descale's exact inversion and the aspect fit. It would also change every pass's output on such a frame.</li>
+<li><strong>srestore and weave fixed in their modules.</strong> They only measure luma (weave: an undithered depth change), so the samples cannot change, and padding would only add work.</li>
+<li><strong>A pool of instances, each held by one frame at a time.</strong> Not a pool selected by <code>n % k</code>, which can hand two in-flight frames one instance, and not a new instance per frame, which leaks (5b). Its output equals the fixed plugin's (1 thread), so removing it later is purely a speed change.</li>
+</ul>
+
+<h2>Limits and what wasn't tested</h2>
+<ul>
+<li>macOS arm64 only. The other platforms run the same template, and CI's quick probe checks their bundles against the table, which now includes the 486 cells.</li>
+<li>"1 result in N runs" is evidence, not proof: a race depends on timing. The plugin source is the proof that it was a race; an instance in the pool is never used by two frames at once.</li>
+<li>The padded rows influence the bottom edge of a field-flagged 2-mod-4 frame. There was no "before" for those frames to compare with; they refused.</li>
+<li>Width 2 mod 4 (854x480 and others), Bifrost's own blocks, and a resize's output at a height 2 mod 4 are task #56's.</li>
+<li>TemporalDegrain2's nondeterminism is not investigated here (task #62).</li>
+</ul>
+
+<h2>Reproduce</h2>
+<p><code>SCRATCH=/some/scratch/dir scripts/reproduce.sh</code> (optionally <code>DEPS=</code> a bundle, <code>BASE=</code> the commit whose templates are "before"). It needs the deps bundle; the decoded pictures it writes stay in <code>SCRATCH</code>. The 96x66 sweep rows run with the format sweep: <code>flutter test test/integration_format_sweep_test.dart</code>.</p>
+</body>
+</html>

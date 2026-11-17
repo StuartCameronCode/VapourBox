@@ -2596,7 +2596,7 @@ fn test_71_upscale_corrects_the_dh_half_pixel_shift() {
     job.processing_pipeline.as_mut().unwrap().crop_resize.upscale_method = UpscaleMethod::Spline36;
     let script = std::fs::read_to_string(generator.generate(&job).unwrap()).unwrap();
     assert!(!script.contains("_upscale_fix_shift"));
-    assert!(script.contains("core.resize.Spline36(clip, width=clip.width * 2"));
+    assert!(script.contains("c, width=clip.width * 2, height=clip.height * 2"));
 }
 
 #[test]
@@ -4008,7 +4008,14 @@ fn test_104_anti_alias_daa() {
         },
         ..ProcessingPipeline::default()
     });
-    run_job_and_verify(&job, "Anti-Alias daa", &["haf.daa("]).unwrap();
+    // znedi3 refuses a 4:2:0 frame 2 mod 4 high (odd chroma rows), so daa
+    // runs on a frame padded to whole field chroma rows (task #57).
+    run_job_and_verify(
+        &job,
+        "Anti-Alias daa",
+        &["haf.daa(", "clip = _pf.pad_around(clip, _aa_daa, height_step=_pf.CHROMA, label='Anti-aliasing')"],
+    )
+    .unwrap();
 
     let script = script_text(&job);
     assert!(
@@ -6916,7 +6923,11 @@ fn test_183_deblock_per_field_when_still_interlaced() {
                     .find(&format!("clip = core.std.DoubleWeave(clip, tff={tff})[::2]"))
                     .unwrap_or_else(|| panic!("{method:?} {detected:?} {name}: no weave"));
                 assert!(split < filter && filter < weave, "{method:?} {name}: wrong order");
-                assert!(script.contains("_deblock_per_field = (clip.height >> clip.format.subsampling_h) % 2 == 0"));
+                // A 4:2:0 height 2 mod 4 can't be split into fields: the pass
+                // runs on a frame padded to whole field chroma rows (task #57).
+                assert!(script.contains(
+                    "clip = _pf.pad_around(clip, _deblock_pass, height_step=_pf.CHROMA, field_based_only=True, label='Deblock')"
+                ));
                 assert!(!script.contains("{{DEBLOCK"), "{method:?} {name}: placeholder left");
             }
         }
@@ -6929,7 +6940,7 @@ fn test_183_deblock_per_field_when_still_interlaced() {
             let (encode, preview) = generate_both_scripts(&job);
             for script in [&encode, &preview] {
                 assert!(script.contains(call(method)), "{method:?}: deblock missing");
-                assert!(!script.contains("_deblock_per_field"), "{method:?}: per-field on progressive");
+                assert!(!script.contains("core.std.SeparateFields(clip, tff="), "{method:?}: per-field on progressive");
                 assert!(!script.contains("{{DEBLOCK"), "{method:?}: placeholder left");
             }
         }
@@ -7112,7 +7123,7 @@ fn test_203_deblock_mpeg2stinx() {
             assert!(script.contains(&format!("_stx_tff = {tff}")), "{name}: field order {tff}");
             assert!(script.contains("core.bwdif.Bwdif(c, field=_stx_field, edeint=_nnedi3(c, field=_stx_field))"));
             assert!(script.contains("clip = core.std.SetFieldBased(core.std.Merge(_stx_1, _stx_2), 0)"));
-            assert!(!script.contains("_deblock_per_field"), "{name}: mpeg2stinx must not run per field");
+            assert!(!script.contains("core.std.SeparateFields(clip, tff="), "{name}: mpeg2stinx must not run per field");
             assert!(!script.contains("haf.Deblock_QED(") && !script.contains("core.dctf.DCTFilter("));
             assert!(!script.contains("{{DEBLOCK"), "{name}: placeholder left");
         }
@@ -9784,4 +9795,84 @@ fn test_257_qtgmc_pads_the_width_only_for_srch_clip_pp_1() {
                 "{name}: QTGMC is not guarded against two block rows (F9)");
         }
     }
+}
+
+#[test]
+fn test_258_field_splits_are_padded() {
+    // Task #57. A 4:2:0 frame whose height is 2 mod 4 (720x486) has an odd
+    // number of chroma rows, so SeparateFields refuses it. Every field split
+    // in the template and its modules must therefore run on a frame padded to
+    // whole field chroma rows: inside a function handed to
+    // plugin_formats.pad_around() or run_within() (directly, or through the
+    // functions that call it).
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&templates_dir)
+        .expect("read templates dir")
+        .filter_map(|e| {
+            let p = e.ok()?.path();
+            let ext = p.extension()?.to_str()?.to_string();
+            let name = p.file_name()?.to_str()?.to_string();
+            ((ext == "py" || ext == "vpy") && name != "plugin_formats.py").then_some(p)
+        })
+        .collect();
+    files.sort();
+
+    fn enclosing_def(lines: &[&str], at: usize) -> Option<String> {
+        let indent = |l: &str| l.len() - l.trim_start().len();
+        let own = indent(lines[at]);
+        for l in lines[..at].iter().rev() {
+            let t = l.trim_start();
+            if let Some(rest) = t.strip_prefix("def ") {
+                if indent(l) < own {
+                    return rest.split('(').next().map(str::to_string);
+                }
+            }
+        }
+        None
+    }
+
+    let mut sites = 0;
+    let mut problems = Vec::new();
+    for path in &files {
+        let body = std::fs::read_to_string(path).unwrap().replace("\r\n", "\n");
+        let lines: Vec<&str> = body.lines().collect();
+        let file = path.file_name().unwrap().to_string_lossy();
+        for (i, line) in lines.iter().enumerate() {
+            if line.trim_start().starts_with('#') || !line.contains("core.std.SeparateFields(") {
+                continue;
+            }
+            sites += 1;
+            let handed = |n: &str| {
+                body.contains(&format!("pad_around(clip, {n},"))
+                    || (body.contains("run_within(clip, '") && body.contains(&format!("', {n},")))
+            };
+            let mut names: Vec<String> = enclosing_def(&lines, i).into_iter().collect();
+            let mut ok = false;
+            for _ in 0..5 {
+                if names.iter().any(|n| handed(n)) {
+                    ok = true;
+                    break;
+                }
+                let mut callers = Vec::new();
+                for n in &names {
+                    for (j, l) in lines.iter().enumerate() {
+                        if !l.trim_start().starts_with("def ") && l.contains(&format!("{n}(")) {
+                            callers.extend(enclosing_def(&lines, j));
+                        }
+                    }
+                }
+                names = callers;
+            }
+            if !ok {
+                problems.push(format!(
+                    "{file}:{}: SeparateFields outside pad_around(); a 4:2:0 frame 2 mod 4 high \
+                     can't be split, so wrap the block in a function and pass it to \
+                     plugin_formats.pad_around(clip, fn, height_step=_pf.CHROMA, label=...)",
+                    i + 1
+                ));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    assert!(sites >= 3, "the scan found only {sites} field splits");
 }
