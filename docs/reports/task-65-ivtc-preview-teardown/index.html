@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IVTC preview crash</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #65: the IVTC preview's vspipe crash, and IVTC parity</h1>
+<p class="sub">2026-11-18 · GitHub-hosted runners (ubuntu-24.04, macos-15-intel) and macOS arm64 (M1 Pro) · deps 1.17.0-rc3 · scripts in <code>scripts/</code>, raw counts and a backtrace in <code>data/</code></p>
+
+<h2>Outcome</h2>
+<ul>
+<li><strong>vspipe R78 counts a frame done before it writes it.</strong> A one-frame run whose frame is ready almost
+immediately can have its main thread tear the script down while the frame callback is still writing: SIGSEGV in
+<code>outputFrame</code> / <code>frameDoneCallback</code>. Fixed upstream in 4ff3f8a0, first released in R80.</li>
+<li><strong>Task #46's IVTC preview made its frame ready at once</strong>: it read VDecimate's drop with
+<code>get_frame()</code> while the script was evaluated, which computed the target's graph in advance. Under load,
+2–3% of x86 IVTC previews crashed. The read is now made inside the graph (a <code>FrameEval</code> with
+<code>prop_src</code>), giving <span class="good">0 crashes in 3960</span> IVTC previews. It picks the same frame: 120 of 120
+previews were byte-identical to the old template's on macOS arm64.</li>
+<li><strong>Not gone for every preview</strong>: Bwdif, which doesn't decimate, crashed 2 times in 1200 runs on macOS x64,
+once with each template. Only a VapourSynth upgrade to R80+ removes it (filed as a follow-up).</li>
+<li><strong>The 8 vs 10-bit IVTC parity case had no pulldown to remove.</strong> Its master is progressive, so IVTC
+keeps frame 12 unchanged (0.000 levels from the passthrough). It passed only while the preview showed the wrong frame (the
+bug #46 fixed). It now runs on the master telecined 3:2.</li>
+</ul>
+
+<h2>1. What the nightly showed (2026-11-16, main dc9e36c)</h2>
+<table>
+<tr><th>Failure</th><th>arm64 mac</th><th>x64 mac</th><th>x64-v2 mac</th><th>Win x64</th><th>Win x64-v2</th><th>Linux x64</th><th>Linux x64-v2</th></tr>
+<tr><td>parity <code>deinterlace_ivtc</code>: "same frame as a passthrough"</td><td class="bad">✗</td><td class="bad">✗</td><td class="bad">✗</td><td class="bad">✗</td><td class="bad">✗</td><td class="bad">✗</td><td class="bad">✗</td></tr>
+<tr><td><code>IVTC on 10-bit ProRes</code>: preview exited with 1</td><td>✓</td><td>✓</td><td class="bad">✗</td><td>✓</td><td>✓</td><td class="bad">✗</td><td class="bad">✗</td></tr>
+<tr><td><code>IVTC at the minimum radius</code>: preview exited with 1</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td class="bad">✗</td></tr>
+<tr><td>parity <code>ivtc_fix_fades</code>: preview exited with 1</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td><td class="bad">✗</td></tr>
+</table>
+<p>The error tail showed three "plugin already loaded" warnings (task #61) and vspipe's own <code>Output 1 frames</code>
+line, without the exit status. Every failure path in vspipe that can follow that line prints <code>Error:</code> first,
+and none had, so this pointed to a native crash after the frame. The test harness now always shows the worker's
+<code>Error generating preview:</code> line, which carries the status (task #56 F9b).</p>
+
+<h2>2. Reproducing it</h2>
+<p><code>scripts/preview_loop.sh</code> runs the worker's preview over every source frame of a job, keeps each failure's
+stderr, and runs gdb over any core. <code>scripts/compare_templates.sh</code> runs it with main's template and with this
+branch's (each a copy of the debug worker with its own <code>templates/</code>), four loops at a time, with stress-ng
+holding the CPUs at 60%. <code>scripts/repro-ivtc-preview.yml</code> is the temporary workflow that ran both on CI.
+The jobs:</p>
+<ul>
+<li><code>ivtc</code>: <code>prores422_10bit_telecine.mov</code> (720x480 10-bit 4:2:2, 30 frames) through IVTC, the nightly's case;</li>
+<li><code>ivtc-avi</code>: <code>hard_telecine_test.avi</code> (8-bit 4:2:0, 90 frames) through IVTC;</li>
+<li><code>bwdif</code>: the ProRes clip through Bwdif, the control (no decimation, no evaluation-time read).</li>
+</ul>
+
+<h3>One loop at a time: nothing</h3>
+<table>
+<tr><th>Bundle (old template)</th><th>ivtc</th><th>ivtc-avi</th><th>bwdif</th></tr>
+<tr><td>linux-x64</td><td class="n">0 / 300</td><td class="n">0 / 270</td><td class="n">0 / 300</td></tr>
+<tr><td>linux-x64-v2</td><td class="n">0 / 300</td><td class="n">0 / 270</td><td class="n">0 / 300</td></tr>
+<tr><td>macos-x64</td><td class="n">0 / 300</td><td class="n">0 / 270</td><td class="n">0 / 300</td></tr>
+<tr><td>macos-x64-v2</td><td class="n">0 / 300</td><td class="n">0 / 270</td><td class="n">0 / 300</td></tr>
+</table>
+<p>The same held locally, an x86_64 worker under Rosetta on Apple Silicon: 0 in 600, sequential and four at a
+time. The nightly ran its previews while the rest of the suite ran.</p>
+
+<h3>Four loops at a time under CPU load</h3>
+<table>
+<tr><th>Bundle</th><th>Template</th><th>ivtc</th><th>ivtc-avi</th><th>bwdif</th><th>vspipe cores</th></tr>
+<tr><td rowspan="2">linux-x64</td><td>main</td><td class="n bad">15 / 600</td><td class="n bad">8 / 720</td><td class="n">0 / 600</td><td class="n">23</td></tr>
+<tr><td>this branch</td><td class="n good">0 / 600</td><td class="n good">0 / 720</td><td class="n">0 / 600</td><td class="n">0</td></tr>
+<tr><td rowspan="2">linux-x64-v2</td><td>main</td><td class="n bad">14 / 600</td><td class="n bad">7 / 720</td><td class="n">0 / 600</td><td class="n">21</td></tr>
+<tr><td>this branch</td><td class="n good">0 / 600</td><td class="n good">0 / 720</td><td class="n">0 / 600</td><td class="n">0</td></tr>
+<tr><td rowspan="2">macos-x64</td><td>main</td><td class="n bad">3 / 600</td><td class="n bad">1 / 720</td><td class="n bad">1 / 600</td><td>(no core dumps)</td></tr>
+<tr><td>this branch</td><td class="n good">0 / 600</td><td class="n good">0 / 720</td><td class="n bad">1 / 600</td><td></td></tr>
+</table>
+<p>Every failure was <code>vspipe exited with signal 11 (SIGSEGV)</code>. macos-x64-v2 had not been scheduled by the
+time the others finished. Raw counts: <code>data/summary-*.txt</code>.</p>
+<p class="note">A first run gave all four loops one job id. The worker names its preview scratch directory after the
+job id (<code>vapourbox_preview_&lt;id&gt;</code>), so the loops deleted each other's files, and the failures it
+counted (about 25% of runs, Bwdif included) were that collision, not the crash. That run's numbers are not used.</p>
+
+<h2>3. Where it crashes</h2>
+<p>Of the 44 Linux cores, 40 show the crashing thread in <code>outputFrame</code> (23) or
+<code>frameDoneCallback</code> (17) while the main thread is in <code>freeScript → vpy4_freeScript</code> → Python's
+garbage collector. The remaining 4 are unsymbolised: the process was already unmapping its libraries. Example:
+<code>data/backtrace-example.txt</code>.</p>
+<p>vspipe R78's <code>frameDoneCallback</code> (abridged):</p>
+<pre><code>if (rnode == data-&gt;node) data-&gt;completedFrames++;   // no lock, first thing
+...
+outputFrame(frame, data);                             // writes the frame
+...
+if (data-&gt;totalFrames == data-&gt;completedFrames ...) {
+    std::lock_guard&lt;std::mutex&gt; lock(data-&gt;mutex);
+    data-&gt;condition.notify_one();
+}</code></pre>
+<p>and <code>outputNode</code>:</p>
+<pre><code>std::unique_lock&lt;std::mutex&gt; lock(data-&gt;mutex);
+for (n ...) getFrameAsync(n, node, frameDoneCallback, data);
+data-&gt;condition.wait(lock, [&amp;]() { return data-&gt;totalFrames == data-&gt;completedFrames ...; });
+// ... then output closes and the script is freed</code></pre>
+<p><code>wait</code> evaluates its predicate before it first sleeps. If the one frame completes between
+<code>getFrameAsync</code> and that check, the predicate is already true while the callback is still inside
+<code>outputFrame</code>, and main goes on to free what the callback is using. Upstream's
+4ff3f8a0 ("Fix many rare issues found by AI", 2026-09-06, in R80) moved the increment to the end of the callback,
+under the mutex, with the comment "Counting at entry, as this used to, let the waiter return while the last frame was
+still being written."</p>
+<p>The race needs the frame to finish within the main thread's few instructions between request and check, or
+while it is descheduled. Task #46's evaluation-time <code>get_frame()</code> made that likely: the target's frames
+were already in the cache, so the output frame came back at once. CPU load, which deschedules main, raised the rate
+from 0 to 2–3%.</p>
+
+<h2>4. The change</h2>
+<ul>
+<li><code>_preview_decimate_out</code> keeps the frame where the target would be (<code>c[_j]</code>, still tagged)
+instead of reading it, and <code>_preview_decimate_pick</code> at the end of the script returns
+<code>FrameEval(c[keep], pick, prop_src=probe)</code>. The pick chooses <code>c[keep]</code> or
+<code>c[after_drop]</code> from the tag and prints <code>PREVIEW_DECIMATE:corr=N</code>, which the worker's stderr
+reader already collects. The constant cases (the cycle's last frame, past the clip's end) still decide when the script is evaluated, without a frame.</li>
+<li>Same picks: on macOS arm64 the old and new templates gave byte-identical PNGs and the same drop report for all 30
+ProRes and 90 AVI frames.</li>
+<li><code>test_259</code>: no <code>get_frame(</code> in the template outside the border colour's one-frame BlankClip
+swatch. A heavy smoke test repeats the ProRes preview 36 times, three at a time. At a 2% rate it would
+miss the fault about half the time, so <code>test_259</code> is the guard.</li>
+</ul>
+
+<h2>5. The parity case</h2>
+<table>
+<tr><th>Fixture (frame 12, 352x288)</th><th>IVTC 10-bit vs passthrough 10-bit</th><th>IVTC 8-bit vs 10-bit</th></tr>
+<tr><td>master (progressive, flagged TFF)</td><td class="n bad">0.000</td><td class="n">0.192</td></tr>
+<tr><td>master's first 20 frames telecined 3:2 to 25 slots</td><td class="n good">5.232</td><td class="n">0.194</td></tr>
+</table>
+<p>Mean absolute difference in 10-bit RGB levels. Measured with an x86_64 worker under Rosetta (macos-x64 1.17.0-rc2).
+The heavy test on macOS arm64 with 1.17.0-rc3 gave 0.191 for both IVTC cases (tolerance 3.0 and 2.0).
+<code>ivtc_fix_fades</code> moved to the same fixture, so its parity goes through real field matching.</p>
+
+<h2>Limits</h2>
+<ul>
+<li>The rates are for four previews at a time with CPUs held at 60% on hosted runners; they say the fault is real and
+which template triggers it, not how often a user sees it.</li>
+<li>No Windows run: its vspipe is the same R78 source, in the wheel.</li>
+<li>Apple Silicon was not run under load natively. arm64 never failed in the nightly.</li>
+</ul>
+</main>
+</body>
+</html>

@@ -9880,12 +9880,14 @@ fn test_258_field_splits_are_padded() {
 #[test]
 fn test_259_the_template_requests_no_frame_while_it_is_evaluated() {
     // Task #65. The IVTC / Soft Telecine preview read VDecimate's drop with
-    // `get_frame()` while the script was evaluated, which ran the whole
-    // source graph once before vspipe started; vspipe then exited non-zero
-    // after writing its frame, intermittently, on x86. The drop is read in
-    // the graph (`_preview_decimate_pick`'s FrameEval). The one frame the
-    // template requests itself is the border colour's swatch, a one-frame
-    // BlankClip that reaches no source.
+    // `get_frame()` while the script was evaluated. That computed the
+    // target's graph in advance, so vspipe's one frame came back at once,
+    // and R78's vspipe counts a frame done before writing it: its main
+    // thread tore the script down under the callback (SIGSEGV in
+    // frameDoneCallback / outputFrame, 2-3% of x86 IVTC previews under
+    // load). The drop is read in the graph (`_preview_decimate_pick`'s
+    // FrameEval). The one frame the template requests itself is the border
+    // colour's swatch, a one-frame BlankClip that reaches no source.
     let template = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates/pipeline_template.vpy"),
     )

@@ -67,9 +67,11 @@ clip = create_pipe_clip(
 #
 # That tag is read inside the graph (_preview_decimate_pick, at the end), when
 # vspipe asks for the preview frame, never with get_frame() while the script
-# is evaluated: that ran the whole source graph once before vspipe started,
-# and vspipe then exited non-zero after writing its frame, intermittently, on
-# x86 (task #65).
+# is evaluated (task #65): that computed the target's graph in advance, so
+# vspipe's one frame came back at once, and R78's vspipe can then tear the
+# script down while its frame callback is still writing (it counts the frame
+# done before writing it). It segfaulted in 2-3% of x86 IVTC previews under
+# load; 0 in 2640 with the read in the graph.
 _dec_probe = None
 _dec_target = -1
 _dec_corr = 0

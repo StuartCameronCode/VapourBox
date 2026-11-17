@@ -1,0 +1,6 @@
+main ivtc (4 loops, CPU load on): runs=600 failures=15 vspipe-cores=15
+main ivtc-avi (4 loops, CPU load on): runs=720 failures=8 vspipe-cores=8
+main bwdif (4 loops, CPU load on): runs=600 failures=0 vspipe-cores=0
+branch ivtc (4 loops, CPU load on): runs=600 failures=0 vspipe-cores=0
+branch ivtc-avi (4 loops, CPU load on): runs=720 failures=0 vspipe-cores=0
+branch bwdif (4 loops, CPU load on): runs=600 failures=0 vspipe-cores=0

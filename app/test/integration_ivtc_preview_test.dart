@@ -304,10 +304,13 @@ void main() {
   });
 
   // Task #65: in the 2026-11-16 nightly, decimating IVTC previews exited 1
-  // after vspipe had written their frame, intermittently, on x86 only, while
-  // the preview read VDecimate's drop with get_frame() during script
-  // evaluation. It is read in the graph now (test_259 keeps it there); this
-  // runs the preview again and again, three at a time, at every cycle phase.
+  // on x86: vspipe R78 segfaulted in teardown, under its own frame callback,
+  // because the preview read VDecimate's drop with get_frame() during script
+  // evaluation and its one frame came back at once (2-3% of previews with
+  // four running under CPU load; 0 run one at a time). It is read in the
+  // graph now (test_259 keeps it there). This runs the preview again and
+  // again, three at a time, at every cycle phase: too few runs to catch a
+  // 2% fault reliably, so test_259 is the guard and this the smoke test.
   test('IVTC preview exits cleanly, run after run (task #65)', () async {
     final job = VideoJob(
       id: const Uuid().v4(),
