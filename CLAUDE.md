@@ -3127,7 +3127,6 @@ Subtitle heavy tests skip when the whisper add-on is absent.
 cd worker && cargo run --release -- --config test_job.json
 ```
 
-> **The heavy tests run the worker BINARY, not the library**, and
 > **A heavy test job on a >8-bit fixture sets `inputPixelFormat` and asserts
 > the output's `pix_fmt`.** Before the source model (task #50) a job without
 > it was decoded as 8-bit 4:2:0, silently, and Unblend's "10-bit = 8-bit"
@@ -3135,6 +3134,7 @@ cd worker && cargo run --release -- --config test_job.json
 > (task #64). The worker now probes the format, but only the assertion makes
 > a test fail if its depth stops reaching the pass.
 
+> **The heavy tests run the worker BINARY, not the library**, and
 > `app/lib/**/*.g.dart` is gitignored — **run `cargo build` before the heavy
 > suite** and `dart run build_runner build` before any Dart test, or you'll
 > debug a stale binary/generated-code mismatch that reads like a template or
