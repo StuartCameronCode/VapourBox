@@ -4008,7 +4008,14 @@ fn test_104_anti_alias_daa() {
         },
         ..ProcessingPipeline::default()
     });
-    run_job_and_verify(&job, "Anti-Alias daa", &["haf.daa("]).unwrap();
+    // znedi3 refuses a 4:2:0 frame 2 mod 4 high (odd chroma rows), so daa
+    // runs on a frame padded to whole field chroma rows (task #57).
+    run_job_and_verify(
+        &job,
+        "Anti-Alias daa",
+        &["haf.daa(", "clip = _pf.pad_around(clip, _aa_daa, height_step=_pf.CHROMA, label='Anti-aliasing')"],
+    )
+    .unwrap();
 
     let script = script_text(&job);
     assert!(

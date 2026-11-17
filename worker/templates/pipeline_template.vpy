@@ -1786,7 +1786,15 @@ clip = core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})
 # daa - double-rate anti-aliasing. Interpolates both fields with nnedi3 and
 # averages them, so a stair-stepped diagonal is rebuilt rather than blurred.
 # The gentler of the two methods and the usual choice.
-clip = haf.daa(clip)
+# znedi3 (x86) refuses a plane with an odd number of rows, progressive or not:
+# a 4:2:0 frame whose height is 2 mod 4 has one in chroma, so it is padded to
+# whole field chroma rows and cropped back (task #57). nnedi3 (arm64) takes
+# it, but the padded frame runs on both alike.
+def _aa_daa(clip):
+    return haf.daa(clip)
+
+
+clip = _pf.pad_around(clip, _aa_daa, height_step=_pf.CHROMA, label='Anti-aliasing')
 {{/AA_DAA}}
 
 {{#AA_SANTIAG}}
