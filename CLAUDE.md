@@ -1344,7 +1344,8 @@ the **single** builder of both decoders' arguments (encode + preview):
     the reset first: a part whose sound ran 16 ms past its last picture put
     every later picture off the grid (125 fps, 493 pictures for 100). It is
     still the fallback when no plan can be made (no durations, streams
-    resetting a different number of times).
+    resetting a different number of times) or the planned copy fails its
+    check.
   - **The app makes it after analysis, in the background (task #55).**
     The scan reads every byte (77 s for a 2 h DVD title on a network
     share), so analysis probes with `--probe-source --defer-scan` (the model

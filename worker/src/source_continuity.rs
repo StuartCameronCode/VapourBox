@@ -27,7 +27,8 @@
 //! (ffprobe then read 125 fps). A sound packet left overhanging the next
 //! segment by more than half of it is dropped. When no plan can be made (no
 //! durations or positions, streams resetting a different number of times)
-//! the copy falls back to ffmpeg's correction, without `-copyts`. A source
+//! the copy falls back to ffmpeg's correction, without `-copyts`; so does
+//! a planned copy that fails or does not check out. A source
 //! without a reset is never copied, and its every argument stays as it was.
 //!
 //! [`resets_from_packets`] is the one statement of what counts as a reset;
@@ -671,12 +672,12 @@ pub fn make_continuous(
         .with_context(|| format!("no continuous copy for format {}", source.format))?;
     let size = std::fs::metadata(input).map(|m| m.len()).unwrap_or(0);
     let out_str = output.to_string_lossy().to_string();
-    let result = (|| -> Result<ContinuityScan> {
+    let mut attempt = |join: Option<&JoinPlan>| -> Result<ContinuityScan> {
         let mut last_err = String::new();
         let mut done = false;
         for with_subtitles in [true, false] {
             let mut child = Command::new(ffmpeg)
-                .args(continuous_copy_args(input, muxer, &out_str, with_subtitles, source.join.as_ref()))
+                .args(continuous_copy_args(input, muxer, &out_str, with_subtitles, join))
                 .envs(env)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -718,7 +719,15 @@ pub fn make_continuous(
         }
         progress(1.0);
         Ok(copy)
-    })();
+    };
+    // The planned join first; should its copy fail or not check out, ffmpeg's
+    // own correction, which joined every source before task #58.
+    let result = match source.join.as_ref() {
+        Some(plan) => attempt(Some(plan)).or_else(|planned| {
+            attempt(None).map_err(|e| e.context(format!("the planned join failed too: {planned:#}")))
+        }),
+        None => attempt(None),
+    };
     if result.is_err() {
         let _ = std::fs::remove_file(output);
     }
