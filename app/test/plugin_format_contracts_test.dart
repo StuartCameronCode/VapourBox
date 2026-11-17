@@ -329,9 +329,7 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
         reason: 'the bundle disagrees with ${p.basename(_tablePath)}. If a deps update changed a '
             'plugin\'s limits, re-run Scripts/probe-plugin-formats.py --out on every platform, '
             'then update plugin_formats.CONTRACTS and the report:\n${r.stdout}\n${r.stderr}');
-    // 30 min: with task #56's padded cells it took 550 s -> ~800 s on the
-    // push gate's runners and passed 15 min on macOS x64 (Intel).
-  }, timeout: const Timeout(Duration(minutes: 30)));
+  }, timeout: const Timeout(Duration(minutes: 15)));
 
   test('run_within keeps every sample the plugin leaves alone, and refuses clearly', () async {
     final problems = await _pythonJson(_runWithinCheck) as List;

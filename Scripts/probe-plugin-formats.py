@@ -36,7 +36,8 @@ contract or a known limit (plugin_formats.CONTRACTS / HANDLED), plus 4:2:0 at
 720x486 for a contract with a frame-size step, and one format per depth for
 every other call: the push gate's subset. A contracted call's cells are also
 run through plugin_formats.run_within() (the `within` result, task #57): the
-plugin may refuse a size its contract pads.
+plugin may refuse a size its contract pads. --quick does that only for a
+contract with a frame-size step.
 """
 import argparse
 import concurrent.futures
@@ -321,7 +322,7 @@ def quick_grid(limited, padded=False):
 # Child: run one call's cells, one JSON line per cell as it finishes
 # ---------------------------------------------------------------------------
 
-def child(key, cells, fixtures):
+def child(key, cells, fixtures, within=True):
     import ctypes
     import vapoursynth as vs
     core = vs.core
@@ -357,7 +358,7 @@ def child(key, cells, fixtures):
     fmts = {'420': (1, 1), '422': (1, 0), '444': (0, 0), '411': (2, 0)}
     sys.path.insert(0, TEMPLATES)
     import plugin_formats
-    contracted = key in plugin_formats.CONTRACTS
+    contracted = within and key in plugin_formats.CONTRACTS
     for cl in cells:
         try:
             sw, sh = fmts[cl['ss']]
@@ -407,15 +408,15 @@ def exit_status(code):
     return 'exit code %d' % code
 
 
-def run_cells(key, cells, fixtures):
+def run_cells(key, cells, fixtures, within=True):
     """{cell key: {'ok', 'error'?}} for every cell, through as many child
-    processes as crashes need."""
+    processes as crashes need. within=False skips the run_within() pass."""
     results = {}
     todo = list(cells)
     while todo:
         p = subprocess.run(
             [sys.executable, os.path.abspath(__file__), '--child', key],
-            input=json.dumps({'cells': todo, 'fixtures': fixtures}),
+            input=json.dumps({'cells': todo, 'fixtures': fixtures, 'within': within}),
             capture_output=True, text=True, timeout=3600)
         for line in p.stdout.splitlines():
             if line.startswith('{'):
@@ -430,7 +431,7 @@ def run_cells(key, cells, fixtures):
             first = todo.pop(0)
             q = subprocess.run(
                 [sys.executable, os.path.abspath(__file__), '--child', key],
-                input=json.dumps({'cells': [first], 'fixtures': fixtures}),
+                input=json.dumps({'cells': [first], 'fixtures': fixtures, 'within': within}),
                 capture_output=True, text=True, timeout=3600)
             got = [json.loads(l) for l in q.stdout.splitlines() if l.startswith('{')]
             if got:
@@ -511,7 +512,7 @@ def main():
 
     if a.child:
         req = json.loads(sys.stdin.read())
-        child(a.child, req['cells'], req['fixtures'])
+        child(a.child, req['cells'], req['fixtures'], req.get('within', True))
         return 0
 
     calls = _calls()
@@ -535,7 +536,14 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         fixtures = make_fixtures(tmp, sizes, a.ffmpeg)
         with concurrent.futures.ThreadPoolExecutor(a.jobs) as ex:
-            futs = {k: ex.submit(run_cells, k, grids[k], fixtures) for k in keys}
+            # --quick runs the run_within() pass only for a contract with a
+            # frame-size step, the one thing it adds over the plugin's own
+            # cells: a depth-only contract's conversion is checked on real
+            # frames by plugin_format_contracts_test, and running every
+            # LUTDeCrawl/LUTDeRainbow cell again at 10-bit doubled their cost
+            # (task #56: macOS x64 passed the push gate's 30 minutes).
+            futs = {k: ex.submit(run_cells, k, grids[k], fixtures, not a.quick or k in padded)
+                    for k in keys}
             for k in keys:
                 res = futs[k].result()
                 cells = grids[k]
