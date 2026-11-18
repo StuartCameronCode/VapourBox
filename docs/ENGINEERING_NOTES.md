@@ -1907,6 +1907,13 @@ so `import vapoursynth` resolves there. Four consequences:
   both, every plugin loads twice and warns `Plugin ... already loaded`. Windows
   still needs the variable: its plugins are in `vs-plugins`, which is not the
   autoload directory.
+  *2026-11-17, task #61:* the worker kept setting it anyway until now — the
+  macOS and Linux blocks of `build_environment` were left over from the R78
+  move, which only added the Windows-only insert. Every vspipe run printed 35
+  (macOS x64) / 37 (arm64) duplicate-load warnings with the identical plugin
+  set loaded, and a preview's vspipe failure was reported as the first of them
+  (task #56 F9). `worker/tests/vspipe_environment_test.rs` runs vspipe under
+  `build_environment()` and fails on any `already loaded` line.
 
 `_has_implicit_config()` returns true **only on Windows** (where `python.exe`
 sits next to the package), which is why the Windows bundle needs none of this and

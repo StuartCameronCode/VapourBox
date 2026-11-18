@@ -3347,7 +3347,8 @@ the Python module reports must be the same file. Consequences:
 - **Do not set `VAPOURSYNTH_EXTRA_PLUGIN_PATH` on macOS/Linux** — R78 autoloads
   `vapoursynth/plugins` itself, and setting it too double-loads every plugin.
   **Windows still needs the variable** (its plugins live in `vs-plugins`, not
-  the autoload directory).
+  the autoload directory). `vspipe_environment_test` (Rust) runs vspipe under
+  the worker's environment and fails on any "already loaded" line (task #61).
 
 No source-indexing plugin is bundled — sources are read as raw frames piped
 from ffmpeg (`templates/pipe_source.py`); BestSource was removed in 2026-08-07

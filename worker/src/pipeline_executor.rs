@@ -580,7 +580,11 @@ impl PipelineExecutor {
         );
         self.reporter.send_log(
             LogLevel::Debug,
-            &format!("VAPOURSYNTH_EXTRA_PLUGIN_PATH: {:?}", env.get("VAPOURSYNTH_EXTRA_PLUGIN_PATH")),
+            &format!(
+                "VapourSynth plugins: {:?} ({})",
+                self.deps.vapoursynth_plugin_path(),
+                if cfg!(windows) { "VAPOURSYNTH_EXTRA_PLUGIN_PATH" } else { "autoloaded" }
+            ),
         );
 
         // Determine input pixel format for the decoder. Formats pipe_source
