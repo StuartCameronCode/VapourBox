@@ -337,7 +337,7 @@ class WorkerHarness {
     // ignore: avoid_print
     print('WorkerHarness: platform=$platform\n'
         '  deps=$_depsDir\n  worker=$_workerPath\n  input=$inputFile\n'
-        '  cpu=${await describeCpu()}');
+        '  cpu=${await describeCpu()}\n  cpuModel=${await cpuModel()}');
     _ready = true;
   }
 
@@ -361,6 +361,32 @@ class WorkerHarness {
     if (probe == null) return 'unknown';
     final features = (probe['features'] as List<dynamic>).cast<String>();
     return '${probe['arch']} [${features.isEmpty ? 'none detected' : features.join(' ')}]';
+  }
+
+  /// The CPU's model name, so an intermittent crash can be matched to the
+  /// runner it drew (task #66: two runs of one row on `avx512f` runners, one
+  /// crashing, said nothing about whether they were the same part). Read from
+  /// `/proc/cpuinfo` on Linux, `sysctl` on macOS, `PROCESSOR_IDENTIFIER` on
+  /// Windows. Never throws; `unknown` when none answers.
+  static Future<String> cpuModel() async {
+    try {
+      if (Platform.isLinux) {
+        for (final line in File('/proc/cpuinfo').readAsLinesSync()) {
+          if (line.startsWith('model name')) {
+            return line.substring(line.indexOf(':') + 1).trim();
+          }
+        }
+      } else if (Platform.isMacOS) {
+        final r = await Process.run(
+            'sysctl', ['-n', 'machdep.cpu.brand_string']);
+        final s = (r.stdout as String).trim();
+        if (r.exitCode == 0 && s.isNotEmpty) return s;
+      } else if (Platform.isWindows) {
+        final s = Platform.environment['PROCESSOR_IDENTIFIER'];
+        if (s != null && s.isNotEmpty) return s;
+      }
+    } catch (_) {}
+    return 'unknown';
   }
 
   /// The deps tier to fetch when downloading, decided exactly as the app does

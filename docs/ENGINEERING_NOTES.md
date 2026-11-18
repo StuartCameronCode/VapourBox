@@ -5321,6 +5321,48 @@ Both faults came in with task #46 (the preview runs VDecimate in the encode's ph
   first repro run gave every loop one id and measured the collision, not the
   crash.
 
+### QTGMC Draft SIGSEGV on Linux x64 was vspipe's teardown race; crash reports from Linux CI (task #66, 2026-11-17)
+
+The push gate's 96x66 4:2:0 12-bit row of `deinterlace/qtgmc[preset=Draft]`
+crashed vspipe once (SIGSEGV), and the re-run of the identical row passed.
+Linux CI printed nothing after "signal 11": the crash-report step read
+macOS `.ips` files only. Report: [docs/reports/task-66-qtgmc-draft-sigsegv](reports/task-66-qtgmc-draft-sigsegv/index.html).
+
+- **Linux crash reports.** `enable-core-dumps.sh` pipes cores to a capped
+  handler (5 by default; a piped core ignores `ulimit -c`) and installs gdb.
+  `print-crash-reports.py` prints the faulting thread, registers, every
+  thread's top frames and the library map. Both run in the Linux jobs of
+  `ci-test.yml` and `nightly.yml`. The harness banner adds `cpuModel=`.
+- **Reproducing an intermittent crash.** The worker runs `vspipe-bin`
+  directly, so the first capture (around the `vspipe` wrapper) saw nothing.
+  `replay-vspipe.sh` replaces `vspipe-bin` with a script that saves each
+  matching run's script, arguments, environment and stdin, then replays them
+  with no worker, about 27 a second on a 4-core runner.
+  `repro-native-crash.yml` drives it (plain, single-thread, valgrind), plus
+  `bare.vpy` / `locate.py` under valgrind and the plugin probe.
+- **Cause: task #68's vspipe R78 teardown race.** Replays of the variant's
+  six captured rows crashed 2 times in 1,800 single-threaded runs (0 in
+  the other 6,000), on two 98x64 rows. Both cores show #68's signature: the
+  crashing thread in vspipe's `frameDoneCallback`, main in
+  `vpy4_freeScript` → Python's GC. Not QTGMC, MVTools or the padding; any
+  one-frame preview can hit it, a tiny one is just fast. Until #68 moves the
+  deps to R80+, a `flaky` `knownFailures` entry (task 68) covers every row of
+  the Draft variant for exactly the SIGSEGV text. The first version covered
+  only the 96x66 row, from before the replays reproduced it.
+- **Found by valgrind, filed as task #70:** on x86, QTGMC at an odd chroma
+  width (4:2:0 / 4:2:2, width 2 mod 4) and more than 8 bits reads
+  uninitialised memory: Draft's last chroma column, from `mv.Degrain1`'s
+  output frame; in Slower it reaches the motion search, and every sample
+  depends on it. 722x480 4:2:0 12-bit included; 8-bit, 4:4:4 and even chroma
+  widths are clean.
+- **Found by the probe loop, filed as task #69:** `mv.FlowFPS` /
+  `mv.FlowInter` crash at 64x48 in every format, every run on Linux x64. gdb
+  shows `free()` finding a corrupt heap in `mvflowinterGetFrame`. The probe
+  table says those cells are ok.
+- A buffer-pool probe (render after filling VapourSynth's pool with two values,
+  compare) found nothing even where valgrind found uninitialised output; it
+  was dropped. Use valgrind.
+
 ### vspipe's teardown race: upstream's fix backported to R78, not R80 (task #68, 2026-11-19)
 
 Report: [docs/reports/task-68-vspipe-teardown-backport](reports/task-68-vspipe-teardown-backport/index.html).
@@ -5357,3 +5399,7 @@ Follows task #65 (the fault) and task #66 (its QTGMC Draft sweep crash was the s
   one-frame runs (SIGSEGV), the patch 0 of 400, on macOS arm64. Unwidened,
   arm64 doesn't reproduce it (0/1200 under load, either binary), as in
   task #65.
+- **Task #66's `flaky` known failure is removed** with deps 1.18.0-rc1: it
+  covered the QTGMC Draft variant for exactly this SIGSEGV, and a `flaky`
+  entry never fails when its row starts passing, so it would have hidden a
+  return of the crash.

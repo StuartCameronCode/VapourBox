@@ -378,6 +378,12 @@ cd app && VAPOURBOX_EXPECT_VULKAN=1 flutter test --tags gpu
   (opt out with `$VAPOURBOX_SKIP_DEPS_DOWNLOAD=1`). Call
   `await WorkerHarness.ensureReady()` in `setUpAll`.
 - Subtitle tests need the whisper add-on and skip when it's absent.
+- A native crash in CI (vspipe killed by a signal) is named in the job's
+  "Crash reports" step: macOS's crash report, or on Linux a gdb backtrace of
+  the core the job kept. An intermittent one can be reproduced on a Linux x64
+  runner with `.github/workflows/repro-native-crash.yml`, which captures one
+  test's vspipe runs and replays them hundreds of times, plain, on one thread
+  and under valgrind.
 
 Every filter or parameter change must add tests to **both** suites — see the
 checklist in [CLAUDE.md](../CLAUDE.md).

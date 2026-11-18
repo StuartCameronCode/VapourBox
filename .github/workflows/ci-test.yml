@@ -125,7 +125,8 @@ jobs:
 
       - name: Crash reports (on failure)
         # A plugin that segfaults in vspipe shows only "signal 11" in the test
-        # output; macOS's crash report names the library and function.
+        # output; macOS's crash report names the library and function (Linux:
+        # gdb over the kept cores, below).
         if: failure()
         run: python3 .github/scripts/print-crash-reports.py
 
@@ -217,6 +218,10 @@ jobs:
           sudo apt-get install -y clang cmake ninja-build pkg-config \
             libgtk-3-dev liblzma-dev unzip
 
+      - name: Keep core dumps (for the crash report)
+        # A vspipe crash otherwise leaves only "signal 11" (task #66).
+        run: bash .github/scripts/enable-core-dumps.sh
+
       - name: Resolve deps tag
         id: deps
         run: |
@@ -290,3 +295,9 @@ jobs:
         # Also excludes @Tags(['gpu']): the hosted runners have no GPU, and the
         # tests that run RIFE / AI upscaling need a Vulkan device (dart_test.yaml).
         run: cd app && flutter test --exclude-tags heavy,gpu
+
+      - name: Crash reports (on failure)
+        # gdb over the cores the step above kept: the faulting plugin and
+        # function of a vspipe crash (macOS reads its .ips reports instead).
+        if: failure()
+        run: python3 .github/scripts/print-crash-reports.py
