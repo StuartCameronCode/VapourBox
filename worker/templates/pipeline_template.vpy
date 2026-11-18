@@ -64,6 +64,16 @@ clip = create_pipe_clip(
 # goes depends on the picture: each frame is tagged with its index, and the
 # tag of the frame where the target would be says whether one went at or
 # before it. The worker computed the output for both cases.
+#
+# That tag is read inside the graph (_preview_decimate_pick, at the end), when
+# vspipe asks for the preview frame, never with get_frame() while the script
+# is evaluated (task #65): that computed the target's graph in advance, so
+# vspipe's one frame came back at once, and R78's vspipe can then tear the
+# script down while its frame callback is still writing (it counts the frame
+# done before writing it). It segfaulted in 2-3% of x86 IVTC previews under
+# load; 0 in 2640 with the read in the graph.
+_dec_probe = None
+_dec_target = -1
 _dec_corr = 0
 
 
@@ -89,15 +99,32 @@ def _preview_decimate_in(c):
 
 
 def _preview_decimate_out(c):
-    global _dec_corr
+    global _dec_probe, _dec_target, _dec_corr
     _t, _cycle = {{PREVIEW_DECIMATE_TARGET}}, {{PREVIEW_DECIMATE_CYCLE}}
     _j = _t // _cycle * (_cycle - 1) + _t % _cycle
     if _t % _cycle == _cycle - 1 or _j >= c.num_frames:
+        # The cycle's last frame, or past the clip's end: a frame went before
+        # it whatever the picture.
         _dec_corr = 1
+        print(f'PREVIEW_DECIMATE:corr={_dec_corr}', file=sys.stderr)
     else:
-        _dec_corr = 0 if c.get_frame(_j).props['_PreviewSlot'] == _t else 1
-    print(f'PREVIEW_DECIMATE:corr={_dec_corr}', file=sys.stderr)
+        _dec_probe, _dec_target = c[_j], _t
     return core.std.RemoveFrameProps(c, '_PreviewSlot')
+
+
+def _preview_decimate_pick(c, keep, after_drop):
+    # The frame to show: c[keep] if the frame at the target's place is the
+    # target (nothing dropped at or before it), else c[after_drop]. Decided
+    # from _dec_probe's tag when the frame is requested.
+    if _dec_probe is None:
+        return c[after_drop if _dec_corr else keep]
+    _shown = (c[keep], c[after_drop])
+
+    def _pick(n, f):
+        corr = 0 if f.props['_PreviewSlot'] == _dec_target else 1
+        print(f'PREVIEW_DECIMATE:corr={corr}', file=sys.stderr, flush=True)
+        return _shown[corr]
+    return core.std.FrameEval(_shown[0], _pick, prop_src=_dec_probe)
 {{/PREVIEW_ONLY}}
 
 # 4:1:1 (NTSC DV) becomes 4:2:2 before anything else, losslessly: horizontal
@@ -3155,8 +3182,10 @@ clip = _pad_to(clip, _canvas_w if _canvas_w > 0 else clip.width, _canvas_h if _c
 # source frames around the requested frame and passes the deterministic output
 # index it maps to (after any frame-rate change such as QTGMC double-rate).
 # Clamp defensively in case the decode came up short.
-target_frame = max(0, min({{PREVIEW_OUTPUT_INDEX_AFTER_DROP}} if _dec_corr else {{PREVIEW_OUTPUT_INDEX}},
-                          clip.num_frames - 1))
-clip = clip[target_frame]
+# A decimation's two candidates, without and with a frame dropped at or
+# before the target, are picked between in the graph (_preview_decimate_pick).
+_keep, _after_drop = [max(0, min(_i, clip.num_frames - 1))
+                      for _i in ({{PREVIEW_OUTPUT_INDEX}}, {{PREVIEW_OUTPUT_INDEX_AFTER_DROP}})]
+clip = _preview_decimate_pick(clip, _keep, _after_drop)
 {{/PREVIEW_ONLY}}
 clip.set_output()

@@ -302,4 +302,47 @@ void main() {
           retime: true);
     }, timeout: const Timeout(Duration(minutes: 10)));
   });
+
+  // Task #65: in the 2026-11-16 nightly, decimating IVTC previews exited 1
+  // on x86: vspipe R78 segfaulted in teardown, under its own frame callback,
+  // because the preview read VDecimate's drop with get_frame() during script
+  // evaluation and its one frame came back at once (2-3% of previews with
+  // four running under CPU load; 0 run one at a time). It is read in the
+  // graph now (test_259 keeps it there). This runs the preview again and
+  // again, three at a time, at every cycle phase: too few runs to catch a
+  // 2% fault reliably, so test_259 is the guard and this the smoke test.
+  test('IVTC preview exits cleanly, run after run (task #65)', () async {
+    final job = VideoJob(
+      id: const Uuid().v4(),
+      inputPath: _prores.path,
+      outputPath: '$_outDir/repeat.mkv',
+      processingPipeline: const ProcessingPipeline(deinterlace: _ivtc),
+      qtgmcParameters: _ivtc,
+      encodingSettings: const EncodingSettings(
+          codec: VideoCodec.ffv1, container: ContainerFormat.mkv, audioMode: AudioMode.none),
+      detectedFieldOrder: FieldOrder.topFieldFirst,
+      inputWidth: _prores.width,
+      inputHeight: _prores.height,
+      inputPixelFormat: _prores.pixFmt,
+      inputFrameRate: 30000 / 1001,
+      totalFrames: _prores.slots,
+    ).toJson();
+    final failures = <String>[];
+    final frames = [for (var i = 0; i < 36; i++) (i * 7) % _prores.slots];
+    for (var i = 0; i < frames.length; i += 3) {
+      final runs = await Future.wait([
+        for (final f in frames.skip(i).take(3))
+          WorkerHarness.runPreview(job, frame: f, label: 'repeat_$f')
+              .then((pv) => (f, pv)),
+      ]);
+      for (final (f, pv) in runs) {
+        if (!pv.success) {
+          failures.add('frame $f: ${pv.error} | ${pv.errorTail}');
+        } else if (!pv.logs.contains('decimation dropped a frame at or before the target: ')) {
+          failures.add('frame $f: no decimation report');
+        }
+      }
+    }
+    expect(failures, isEmpty, reason: '${failures.length} of ${frames.length} previews');
+  }, timeout: const Timeout(Duration(minutes: 10)));
 }

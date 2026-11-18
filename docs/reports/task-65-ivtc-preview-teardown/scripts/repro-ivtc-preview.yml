@@ -1,0 +1,97 @@
+name: Repro IVTC preview exit (task 65, temporary)
+
+# TEMPORARY (task #65): loops the decimating IVTC preview on x86 with core
+# dumps, to measure how often vspipe exits non-zero after writing its frame
+# and where. Delete before the task's PR is merged.
+
+on:
+  push:
+    branches: [stuart/65-nightly-2026-11-16-main-dc9e36c-ivtc-hea]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        asset: [linux-x64, linux-x64-v2]
+    name: linux (${{ matrix.asset }})
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
+      - name: System packages
+        run: sudo apt-get update && sudo apt-get install -y gdb file stress-ng
+      - name: Deps
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          bash .github/scripts/install-deps-bundle.sh "${{ matrix.asset }}" "$TAG" "${TAG#deps-v}" deps/linux-x64
+          mkdir -p "$HOME/.local/share/VapourBox"
+          ln -sfn "$GITHUB_WORKSPACE/deps" "$HOME/.local/share/VapourBox/deps"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build worker
+        run: cd worker && cargo build
+      - name: Loops
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/repro/cores"
+          sudo sysctl -w kernel.core_pattern="$GITHUB_WORKSPACE/repro/cores/core.%e.%p"
+          ulimit -c unlimited
+          export CORE_DIR="$GITHUB_WORKSPACE/repro/cores"
+          bash docs/reports/task-65-ivtc-preview-teardown/scripts/compare_templates.sh \
+            origin/main repro
+          echo "## ${{ matrix.asset }}" >> "$GITHUB_STEP_SUMMARY"
+          cat repro/summary.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: repro-${{ matrix.asset }}
+          path: |
+            repro/**/*.log
+            repro/**/*.err
+            repro/summary.txt
+            repro/cores/*.bt
+          if-no-files-found: ignore
+
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        asset: [macos-x64, macos-x64-v2]
+    name: macos (${{ matrix.asset }})
+    runs-on: macos-15-intel
+    env:
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-x64
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
+      - name: Deps
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          bash .github/scripts/install-deps-bundle.sh "${{ matrix.asset }}" "$TAG" "${TAG#deps-v}" deps/macos-x64
+          xattr -cr deps/macos-x64 2>/dev/null || true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build worker
+        run: cd worker && cargo build && brew install stress-ng
+      - name: Loops
+        run: |
+          bash docs/reports/task-65-ivtc-preview-teardown/scripts/compare_templates.sh origin/main repro
+          echo "## ${{ matrix.asset }}" >> "$GITHUB_STEP_SUMMARY"
+          cat repro/summary.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Crash reports
+        if: always()
+        run: python3 .github/scripts/print-crash-reports.py
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: repro-${{ matrix.asset }}
+          path: |
+            repro/**/*.log
+            repro/**/*.err
+            repro/summary.txt
+          if-no-files-found: ignore

@@ -5285,3 +5285,38 @@ Report: [docs/reports/task-58-output-conformance-findings](reports/task-58-outpu
   `setts` per stream: the picture decides, every stream of a segment moves
   alike, an overhanging sound packet is dropped. Streams that reset are cut
   by packet index (MPEG audio from a split PES has no byte position).
+
+### The IVTC preview crashed vspipe in teardown; IVTC parity needs pulldown (task #65, 2026-11-18)
+
+Report: [docs/reports/task-65-ivtc-preview-teardown](reports/task-65-ivtc-preview-teardown/index.html).
+Both faults came in with task #46 (the preview runs VDecimate in the encode's phase).
+
+- **vspipe R78 counts a frame done before writing it.** `frameDoneCallback`
+  increments `completedFrames` without the mutex, then writes the frame, and
+  takes the lock only to notify. `outputNode`'s `condition.wait(lock, pred)`
+  checks the predicate as soon as it is called, so if the frame completes
+  before the main thread reaches `wait`, main sees "all done", calls
+  `freeScript` and the callback segfaults (`outputFrame`,
+  `frameDoneCallback`; main in Python's GC under `vpy4_freeScript`). Fixed
+  upstream in 4ff3f8a0, first released in R80 ("Counting at entry … let the
+  waiter return while the last frame was still being written").
+- **A one-frame preview hits it when its frame is ready at once.** #46's
+  preview read VDecimate's drop with `get_frame()` while the script was
+  evaluated, which computed the target's graph in advance. With four
+  previews at a time under CPU load, that template failed 23/1320 (Linux
+  x64), 21/1320 (x64-v2) and 4/1320 (macOS x64) IVTC previews, every Linux
+  failure a vspipe core in teardown. The drop is now read in the graph (a
+  `FrameEval` with `prop_src`): 0/2640 on Linux and 0/1320 on macOS. Run one
+  at a time, both templates were 0/2280; on Apple Silicon 0/600 (Rosetta).
+- **It isn't gone.** Bwdif (no decimation) crashed the same way 2 times in
+  1200 on macOS x64, one with each template. Until the bundle has R80+, any
+  preview can.
+- **IVTC needs pulldown to test.** The high-bit-depth parity master is
+  progressive, so IVTC of frame 12 is frame 12 unchanged (0.000 levels from
+  the passthrough); it "changed the picture" only while the preview showed
+  the wrong frame. The case now runs on the master telecined 3:2 (5.2 levels;
+  8 vs 10-bit 0.19).
+- **Concurrent previews of one job id share a scratch directory**
+  (`vapourbox_preview_<id>`). The app gives every preview a fresh id; the
+  first repro run gave every loop one id and measured the collision, not the
+  crash.

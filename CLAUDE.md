@@ -1973,13 +1973,25 @@ time span `[t, t+1)`; the worker reports `sub_frame`, `sub_frames` and
   else the worker takes `totalFrames`; Soft Telecine's last cycle filled as
   `pipe_frames` does). `FrameMap::Decimate` declares radius `cycle + 1`.
   Which frame of the target's cycle goes depends on the picture: each frame
-  is tagged with its index, the script reads the tag where the target would
-  be, picks between the two outputs the walk computed (`after_drop`) and
-  prints `PREVIEW_DECIMATE:corr=N` for `PREVIEW_INFO`. Stabilize's pitch
+  is tagged with its index, and a `FrameEval` at the very end
+  (`_preview_decimate_pick`, `prop_src` the frame where the target would
+  be) picks between the two outputs the walk computed (`after_drop`) and
+  prints `PREVIEW_DECIMATE:corr=N` for `PREVIEW_INFO` when vspipe requests
+  the frame. **No template requests a frame while the script is
+  evaluated** (task #65): the first version read the tag with `get_frame()`
+  there, so the target's frame was ready the moment vspipe asked, and
+  **R78's vspipe counts a frame done before writing it**: its main thread
+  tore the script down under the frame callback (SIGSEGV, 2-3% of x86 IVTC
+  previews under load). R80 fixed vspipe (upstream 4ff3f8a0); until the
+  bundle has it, any preview can still hit it, only far more rarely.
+  `test_259` allows only the border colour's one-frame swatch. Stabilize's pitch
   lookup starts at `preview_source_offset` (`first + skip - pad`).
   `integration_ivtc_preview_test.dart` (heavy) checks previews against a
-  lossless encode by the film frame they hold
-  (docs/reports/issue-46-ivtc-preview).
+  lossless encode by the film frame they hold, and repeats the decimating
+  preview 36 times (docs/reports/issue-46-ivtc-preview,
+  docs/reports/task-65-ivtc-preview-teardown). An IVTC test needs a source
+  with pulldown: on progressive frames IVTC keeps each frame unchanged
+  (`_telecineFixture` in the parity test).
 - A source frame with no output of its own (down-conversion, decimation)
   shows the output just before it, as the preview always has.
 

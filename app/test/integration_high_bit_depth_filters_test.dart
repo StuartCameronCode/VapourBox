@@ -294,6 +294,39 @@ Future<String> _shakenFixture(String pixFmt) async {
   return path;
 }
 
+/// The master with 3:2 pulldown, at [pixFmt], for IVTC (task #65): its first
+/// 20 frames as film, telecined to 25 slots, kept at the file's rate and
+/// length (which `_job` declares). The master itself has no pulldown, so VFM
+/// matches every frame to itself and VDecimate only drops whole frames: since
+/// the preview runs VDecimate in the encode's phase (task #46), IVTC of frame
+/// [_previewFrame] is that source frame unchanged (0.000 levels from the
+/// passthrough). Here frame 12 is the cycle's mixed-field slot, which the
+/// passthrough shows combed and IVTC field-matches (5.2 levels apart; 8 vs
+/// 10-bit 0.19). Built from the master, so every depth holds one picture.
+Future<String> _telecineFixture(String pixFmt) async {
+  final path = '$_outDir/telecined_$pixFmt.mkv';
+  if (File(path).existsSync()) return path;
+  final master = await _master();
+  final result = await Process.run(
+    WorkerHarness.ffmpegPath,
+    [
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-i', master,
+      '-vf', 'setfield=tff,trim=end_frame=20,'
+          'telecine=first_field=t:pattern=23,'
+          'setpts=N/(${_fps.toInt()}*TB),setfield=tff',
+      '-r', '${_fps.toInt()}',
+      '-c:v', 'ffv1', '-pix_fmt', pixFmt,
+      path,
+    ],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(result.exitCode, 0,
+      reason: 'telecined fixture generation failed for $pixFmt: '
+          '${result.stderr}');
+  return path;
+}
+
 /// The fixture [pass] runs on, at [pixFmt].
 Future<String> _fixtureFor(_Pass pass, String pixFmt) =>
     (pass.fixture ?? _fixture)(pixFmt);
@@ -495,8 +528,9 @@ class _Pass {
   /// master lacks (null: [_fixture]): [_shakenFixture] for a stabiliser, which
   /// has nothing to do on a picture with no global motion; [_scratchedFixture]
   /// for DeScratch (task #34); [_crawlFixture] for the dot-crawl and rainbow
-  /// filters (task #37). The passthrough reference is rendered from the same
-  /// fixture.
+  /// filters (task #37); [_telecineFixture] for IVTC, which keeps a frame
+  /// with no pulldown unchanged (task #65). The passthrough reference is
+  /// rendered from the same fixture.
   final Future<String> Function(String pixFmt)? fixture;
 
   /// Whether the pass needs a working KNLMeansCL OpenCL device. Without one the
@@ -617,6 +651,9 @@ List<_Pass> _passes() => [
       ),
       // vivtc.VFM is 8-bit only and runs on a downconverted metrics clip, taking
       // its pixels from the full-depth clip via clip2 (issue: 10-bit ProRes IVTC).
+      // On the telecined fixture: the master has no pulldown, so IVTC kept its
+      // frame unchanged once the preview decimated in the encode's phase
+      // (task #46, #65), and passed only while the preview showed the wrong one.
       _Pass(
         'deinterlace_ivtc',
         _only(
@@ -627,6 +664,7 @@ List<_Pass> _passes() => [
           ),
         ),
         tolerance: 3.0,
+        fixture: _telecineFixture,
       ),
 
       // DeScratch is 8-bit only: the pass analyses an 8-bit copy and applies
@@ -798,7 +836,8 @@ List<_Pass> _passes() => [
       // This fixture holds no fade, and on a frame that is not fading the fix
       // changes ~0.1 levels by design — so it cannot be required to change
       // the picture; the parity check is what this case is for (the fix's
-      // effect is integration_classical_filters_test's).
+      // effect is integration_classical_filters_test's). The telecined
+      // fixture, so the parity run goes through real field matching.
       _Pass(
         'ivtc_fix_fades',
         _only(
@@ -810,6 +849,7 @@ List<_Pass> _passes() => [
           ),
         ),
         changesPicture: false,
+        fixture: _telecineFixture,
       ),
 
       // Deflicker measures frame brightness against a windowed average, so its
