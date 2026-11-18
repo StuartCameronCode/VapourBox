@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     This script downloads and sets up:
-    - VapourSynth R78 (installed as a Python wheel)
+    - VapourSynth R78 (installed as a Python wheel; vspipe.exe rebuilt with a fix, task #68)
     - Python 3.12 embeddable (hosts the wheel and VSScript)
     - FFmpeg (latest GPL build)
     - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter, descratch, temporalmedian)
@@ -753,6 +753,97 @@ if (-not (Test-Path $Fft3dOut)) {
 }
 
 # =============================================================================
+# 4b3. vspipe.exe, built from R78 with the frame-done count fix (task #68)
+# =============================================================================
+# R78's vspipe counts a frame done before it writes it, so its main thread can
+# free the script under the last frame's callback: SIGSEGV (0xC0000005) after
+# the last frame, intermittently. Upstream fixed it in 4ff3f8a0 (R80), but R80
+# dropped API 3, which a dozen bundled plugins still use, so the bundle stays
+# on R78 and carries the fix as patches/vapoursynth-r78-vspipe-frame-done-count.patch.
+# macOS and Linux build VapourSynth from source and apply it there; here the
+# wheel's vspipe.exe is replaced by one built from the same patched R78 source.
+#
+# vspipe is four C++ files that talk to vsscript.dll through its C API only
+# (getVSScriptAPI, getVSScriptAPILastError), so Zig ($ZigVersion above, as for
+# FFT3DFilter) builds it against an import library made from those two
+# exports, with the defines R78's meson.build passes on Windows. -mcpu=x86_64
+# keeps it valid for the v2 tier, so one build serves both (no _tierFiles
+# entry). vspipe.rc embeds upstream's manifest (longPathAware, segment heap)
+# as the wheel's build does with /MANIFEST:EMBED. The patch's --version line
+# doubles as the marker: an exe without it is the wheel's, and is replaced.
+Write-Host ""
+Write-Host "[4b3/8] Building vspipe.exe (R78, patched)..." -ForegroundColor Yellow
+
+$VSPipeMarker = "VapourBox patch: vspipe frame-done count (task #68)"
+function Test-FileContainsAscii([string]$Path, [string]$Text) {
+    if (-not (Test-Path $Path)) { return $false }
+    # Latin-1 maps every byte to one char, so an ASCII literal in a binary is
+    # found as text.
+    return [IO.File]::ReadAllText($Path, [Text.Encoding]::GetEncoding(28591)).Contains($Text)
+}
+
+$VSPipeOut = "$VSDir\Lib\site-packages\vapoursynth\vspipe.exe"
+if (Test-FileContainsAscii $VSPipeOut $VSPipeMarker) {
+    Write-Host "  vspipe.exe already patched" -ForegroundColor Gray
+} else {
+    $VsWork = Join-Path $TempDir "vspipe-build"
+    Remove-Item $VsWork -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $VsWork -Force | Out-Null
+    Push-Location $VsWork
+    try {
+        $ZigZip = Join-Path $VsWork "zig.zip"
+        Download-File -Url "https://ziglang.org/download/$ZigVersion/zig-x86_64-windows-$ZigVersion.zip" -OutFile $ZigZip
+        Expand-Archive -Path $ZigZip -DestinationPath (Join-Path $VsWork "zig") -Force
+        $ZigExe = (Get-ChildItem -Path (Join-Path $VsWork "zig") -Recurse -Filter "zig.exe" | Select-Object -First 1).FullName
+        if (-not $ZigExe) { throw "zig.exe not found in the toolchain archive" }
+
+        # LF on both sides: the runner's git may check out CRLF, and this repo's
+        # own copy of the patch is CRLF on a Windows checkout.
+        $Src = Join-Path $VsWork "src"
+        & git -c advice.detachedHead=false -c core.autocrlf=false clone --quiet --depth 1 --branch $VSRelease https://github.com/vapoursynth/vapoursynth.git $Src
+        if ($LASTEXITCODE -ne 0) { throw "git clone of VapourSynth $VSRelease failed (exit $LASTEXITCODE)" }
+        $Patch = Join-Path $VsWork "vspipe.patch"
+        $PatchText = [IO.File]::ReadAllText((Join-Path $ScriptDir "patches\vapoursynth-r78-vspipe-frame-done-count.patch")).Replace("`r`n", "`n")
+        [IO.File]::WriteAllText($Patch, $PatchText, (New-Object System.Text.UTF8Encoding($false)))
+        & git -C $Src apply $Patch
+        if ($LASTEXITCODE -ne 0) {
+            throw "patches/vapoursynth-r78-vspipe-frame-done-count.patch did not apply to VapourSynth $VSRelease - if VapourSynth has moved past R79 the fix is upstream; drop it"
+        }
+
+        # Import library for the wheel's vsscript.dll.
+        $Def = Join-Path $VsWork "vsscript.def"
+        [IO.File]::WriteAllText($Def, "LIBRARY vsscript.dll`nEXPORTS`ngetVSScriptAPI`ngetVSScriptAPILastError`n")
+        & $ZigExe dlltool -m i386:x86-64 -d $Def -D vsscript.dll -l (Join-Path $VsWork "vsscript.lib")
+        if ($LASTEXITCODE -ne 0) { throw "zig dlltool failed (exit $LASTEXITCODE)" }
+
+        Copy-Item (Join-Path $Src "src\vspipe\vspipe.manifest") (Join-Path $VsWork "vspipe.manifest") -Force
+        [IO.File]::WriteAllText((Join-Path $VsWork "vspipe.rc"), "1 24 `"vspipe.manifest`"`n")
+
+        $Sources = @("src\vspipe\vspipe.cpp", "src\vspipe\vsjson.cpp", "src\vspipe\printgraph.cpp", "src\common\wave.cpp") |
+            ForEach-Object { Join-Path $Src $_ }
+        & $ZigExe c++ -target x86_64-windows-gnu -mcpu=x86_64 -O2 -std=c++20 -municode -fno-char8_t `
+            -DVS_TARGET_OS_WINDOWS -D_UNICODE -DUNICODE -DVS_TARGET_CPU_X86 `
+            -D_CRT_SECURE_NO_WARNINGS -DNOMINMAX -DVS_CURRENT_RELEASE=78 `
+            -DVS_GRAPH_API -DVS_USE_LATEST_API -DVSSCRIPT_USE_LATEST_API -Wno-ignored-attributes `
+            "-I$(Join-Path $Src 'include')" @Sources (Join-Path $VsWork "vspipe.rc") (Join-Path $VsWork "vsscript.lib") `
+            -o (Join-Path $VsWork "vspipe.exe")
+        if ($LASTEXITCODE -ne 0) { throw "zig c++ failed building vspipe.exe (exit $LASTEXITCODE)" }
+
+        $Built = Join-Path $VsWork "vspipe.exe"
+        if (-not (Test-FileContainsAscii $Built $VSPipeMarker)) { throw "the built vspipe.exe lacks the task #68 marker" }
+        if (-not (Test-FileContainsAscii $Built "longPathAware")) { throw "the built vspipe.exe has no embedded manifest" }
+        Copy-Item $Built $VSPipeOut -Force
+        Write-Host "    Built: vspipe.exe ($VSRelease, frame-done count fix)" -ForegroundColor Gray
+    } finally {
+        Pop-Location
+        Remove-Item $VsWork -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+if (-not (Test-FileContainsAscii $VSPipeOut $VSPipeMarker)) {
+    throw "vspipe.exe is not the patched build (task #68)"
+}
+
+# =============================================================================
 # 4c. libdvdread (required for DVD disc import)
 # =============================================================================
 Write-Host ""
@@ -1333,6 +1424,9 @@ if (Test-Path $VSPipeExe) {
     $VsVersion = & $VSPipeExe --version 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0 -or $VsVersion -notmatch "Core R") {
         throw "VSScript smoke test failed (exit $LASTEXITCODE). VSPipe --version output:`n$VsVersion"
+    }
+    if (-not $VsVersion.Contains($VSPipeMarker)) {
+        throw "VSPipe --version lacks the frame-done count fix's marker (task #68):`n$VsVersion"
     }
     Write-Host "  VSScript OK: $(($VsVersion -split "`n" | Where-Object { $_ -match 'Core R' } | Select-Object -First 1).Trim())" -ForegroundColor Green
 } else {

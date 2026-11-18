@@ -397,8 +397,14 @@ KNLM_REPO="https://github.com/Jaded-Encoding-Thaumaturgy/vapoursynth-knlmeanscl.
 KNLM_TAG="v1.3"
 VS_BUILD_DIR="$BUILD_DIR/vapoursynth"
 VS_INSTALL_DIR="$BUILD_DIR/vapoursynth-install"
+# The line patches/vapoursynth-r78-vspipe-frame-done-count.patch adds to
+# `vspipe --version`. It is a string literal, so `grep -a` finds it in the
+# binary without running it. A vspipe-bin without it predates the patch
+# (task #68) and is rebuilt.
+VSPIPE_PATCH_MARKER="VapourBox patch: vspipe frame-done count (task #68)"
 
-if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ]; then
+if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ] \
+    || ! grep -aqF "$VSPIPE_PATCH_MARKER" "$DEPS_DIR/vapoursynth/vspipe-bin" 2>/dev/null; then
     echo "  Cloning VapourSynth $VS_TAG..."
     rm -rf "$VS_BUILD_DIR"
     git clone --depth 1 --branch "$VS_TAG" https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
@@ -420,6 +426,20 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ];
         exit 1
     }
     echo "  Applied the zimg chromatic_adaptation API guard"
+
+    # ------------------------------------------------------------------------
+    # vspipe teardown race (backport of upstream 4ff3f8a0, task #68)
+    # ------------------------------------------------------------------------
+    # R78's vspipe counts a frame done before it writes it, so its main thread
+    # can free the script under the last frame's callback: SIGSEGV after the
+    # last frame, intermittently. See the patch header. Both arches. Hard-fail
+    # if it stops applying.
+    git apply "$SCRIPT_DIR/patches/vapoursynth-r78-vspipe-frame-done-count.patch" || {
+        echo "  ERROR: patches/vapoursynth-r78-vspipe-frame-done-count.patch did not apply." >&2
+        echo "  If VapourSynth has moved past R79 the fix is already upstream — drop it." >&2
+        exit 1
+    }
+    echo "  Applied the vspipe frame-done count fix"
 
     # ------------------------------------------------------------------------
     # Back-deploy patch for Monterey (issue #39) — x64 only
@@ -561,6 +581,10 @@ CYEOF
 
     cp "$VS_BUILT/vspipe" "$DEPS_DIR/vapoursynth/vspipe-bin"
     chmod +x "$DEPS_DIR/vapoursynth/vspipe-bin"
+    if ! grep -aqF "$VSPIPE_PATCH_MARKER" "$DEPS_DIR/vapoursynth/vspipe-bin"; then
+        echo "  ERROR: vspipe-bin was built without the frame-done count fix (task #68)." >&2
+        exit 1
+    fi
 
     # ------------------------------------------------------------------------
     # deps/<platform>/vapoursynth/ IS the Python package

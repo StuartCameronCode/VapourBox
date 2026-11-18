@@ -1,0 +1,118 @@
+VapourSynth R78: vspipe counts a frame done only after it has written it
+========================================================================
+
+Applies to: VapourSynth R78 (github.com/vapoursynth/vapoursynth),
+            src/vspipe/vspipe.cpp
+Affects:    every platform. macOS and Linux apply it to their source build;
+            Windows builds vspipe.exe from patched R78 source and replaces the
+            wheel's copy (download-deps-windows.ps1).
+Upstream:   already fixed, in commit 4ff3f8a0 ("Fix many rare issues found by
+            AI", 2026-09-06), first released in R80. The first two hunks are a
+            straight backport of that commit's vspipe.cpp change. Moving to R80+
+            instead is blocked: R80 dropped API 3, and a dozen bundled plugins
+            (DFTTest, nnedi3, neo_f3kdb, CTMF, VSNCNN, ...) are API 3 only
+            (docs/reports/task-68-vspipe-teardown-backport).
+
+Symptom
+-------
+vspipe exits with SIGSEGV after its last frame, intermittently: 2-3% of x86
+IVTC previews under load before task #65, ~1 in 600-1000 of other one-frame
+previews (task #65's Bwdif control, task #66's QTGMC Draft sweep row). The
+crashing thread is in outputFrame() or frameDoneCallback(); the main thread is
+already in vpy4_freeScript -> Python's garbage collector.
+
+Cause
+-----
+frameDoneCallback() incremented completedFrames first thing, without the
+mutex, and only then wrote the frame. outputNode() waits with
+condition.wait(lock, pred), which checks the predicate before it first sleeps.
+A frame that completes before main reaches that check (or a spurious wakeup)
+lets main see "every frame done", free the script and the core, and the
+callback, still writing, uses freed memory.
+
+The fix
+-------
+The counters move to the end of the callback, under the mutex, so a counter
+reaching the total means the frame is written and released. The progress line
+counts the current frame in without touching the counter.
+
+The last hunk is ours: `vspipe --version` prints a marker line, so a bundle can
+be checked for this fix (the download-deps-* scripts fail without it, and
+app/test/vapoursynth_integration_test.dart checks it from deps 1.18.0).
+
+If VapourSynth has moved past R79, the fix is upstream: drop this patch.
+
+diff --git a/src/vspipe/vspipe.cpp b/src/vspipe/vspipe.cpp
+index 5c19fd7..3eb4397 100644
+--- a/src/vspipe/vspipe.cpp
++++ b/src/vspipe/vspipe.cpp
+@@ -318,15 +318,6 @@ static void VS_CC frameDoneCallback(void *userData, const VSFrame *f, int n, VSN
+         }
+     }
+ 
+-    // completed frames simply correspond to how many times the completion callback is called
+-    if (rnode == data->node) {
+-        data->completedFrames++;
+-        if (!data->alphaNode)
+-            data->completedAlphaFrames++;
+-    } else {
+-        data->completedAlphaFrames++;
+-    }
+-
+     if (f) {
+         if (rnode == data->node)
+             data->reorderMap[n].first = f;
+@@ -417,22 +408,37 @@ static void VS_CC frameDoneCallback(void *userData, const VSFrame *f, int n, VSN
+     }
+ 
+     if (printToConsole && !data->outputError) {
++        /* This frame counted in; the counter itself only moves below, once everything is done. */
++        const int completed = data->completedFrames + (rnode == data->node ? 1 : 0);
+         if (data->vsapi->getNodeType(rnode) == mtVideo) {
+             if (hasMeaningfulFPS)
+-                fprintf(stderr, "Frame: %d/%d (%.2f fps)\r", data->completedFrames, data->totalFrames, fps);
++                fprintf(stderr, "Frame: %d/%d (%.2f fps)\r", completed, data->totalFrames, fps);
+             else
+-                fprintf(stderr, "Frame: %d/%d\r", data->completedFrames, data->totalFrames);
++                fprintf(stderr, "Frame: %d/%d\r", completed, data->totalFrames);
+         } else {
+             if (hasMeaningfulFPS)
+-                fprintf(stderr, "Sample: %" PRId64 "/%" PRId64 " (%.2f sps)\r", static_cast<int64_t>(data->completedFrames) * VS_AUDIO_FRAME_SAMPLES, static_cast<int64_t>(data->totalFrames) * VS_AUDIO_FRAME_SAMPLES, fps);
++                fprintf(stderr, "Sample: %" PRId64 "/%" PRId64 " (%.2f sps)\r", static_cast<int64_t>(completed) * VS_AUDIO_FRAME_SAMPLES, static_cast<int64_t>(data->totalFrames) * VS_AUDIO_FRAME_SAMPLES, fps);
+             else
+-                fprintf(stderr, "Sample: %" PRId64 "/%" PRId64 "\r", static_cast<int64_t>(data->completedFrames) * VS_AUDIO_FRAME_SAMPLES, static_cast<int64_t>(data->totalFrames) * VS_AUDIO_FRAME_SAMPLES);
++                fprintf(stderr, "Sample: %" PRId64 "/%" PRId64 "\r", static_cast<int64_t>(completed) * VS_AUDIO_FRAME_SAMPLES, static_cast<int64_t>(data->totalFrames) * VS_AUDIO_FRAME_SAMPLES);
+         }
+     }
+ 
+-    if (data->totalFrames == data->completedFrames && data->totalFrames == data->completedAlphaFrames) {
++    /* Counted last and under the mutex: outputNode reads the counters reaching the total as
++       "every frame written and released" and tears the output down on it, so nothing in this
++       callback may follow the increment, and it checks under the same mutex, so the increment
++       cannot land between its check and its wait. Counting at entry, as this used to, let the
++       waiter return while the last frame was still being written. */
++    {
+         std::lock_guard<std::mutex> lock(data->mutex);
+-        data->condition.notify_one();
++        if (rnode == data->node) {
++            data->completedFrames++;
++            if (!data->alphaNode)
++                data->completedAlphaFrames++;
++        } else {
++            data->completedAlphaFrames++;
++        }
++        if (data->totalFrames == data->completedFrames && data->totalFrames == data->completedAlphaFrames)
++            data->condition.notify_one();
+     }
+ }
+ 
+@@ -646,6 +652,9 @@ static bool printVersion(const VSAPI *vsapi) {
+     VSCoreInfo info;
+     vsapi->getCoreInfo(core, &info);
+     printf("%s", info.versionString);
++    /* VapourBox: marks this build as carrying the backported frame-done count fix
++       (upstream 4ff3f8a0), so a deps bundle can be checked for it. */
++    printf("VapourBox patch: vspipe frame-done count (task #68)\n");
+     vsapi->freeCore(core);
+     return true;
+ }
