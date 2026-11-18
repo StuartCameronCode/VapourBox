@@ -1,0 +1,14 @@
+blended_film_50i.mkv                         yuv420p        mean 0.183  max 2
+small_clip.mp4                               yuv420p        mean 0.352  max 4
+pal-dvbt-fieldcoded-25i.ts                   yuv420p        mean 0.346  max 39
+face_restore_test.mp4                        yuv420p        mean 0.498  max 15
+interlaced_test.avi                          yuv422p        mean 0.280  max 7
+pal-sd-25.mov                                yuv422p10le    mean 0.391  max 46
+prores422_10bit_telecine.mov                 yuv422p10le    mean 0.912  max 102
+late_video.mkv                               yuv420p        mean 2.564  max 146
+seek_dvd_pal.mpg                             yuv420p        mean 2.345  max 150
+small_clip -> yuv422p                        yuv422p        mean 0.347  max 4
+small_clip -> yuv420p:full                   yuv420p        mean 0.025  max 4
+small_clip -> yuv420p10le                    yuv420p10le    mean 0.013  max 3
+small_clip -> yuv422p10le                    yuv422p10le    mean 0.013  max 3
+small_clip -> yuv444p                        yuv444p        mean 0.000  max 0

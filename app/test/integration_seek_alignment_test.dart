@@ -207,9 +207,11 @@ Future<Uint8List> _beforeFrame(String video, int frame, double fps,
 ///
 /// Relative, as in integration_frame_mapping_test.dart: an absolute bound
 /// alone could not tell a one-frame shift from a colour conversion. The
-/// absolute bound is there too, because both sides are the same decode and
-/// RGB conversion of the same picture, so they agree (measured 0.0 on macOS
-/// arm64).
+/// absolute bound is there too, because both sides are the same picture
+/// converted to RGB the same way: a preview against refs from
+/// [_neighbours]`(asPreview: true)` (the preview's own conversion, task #67;
+/// ffmpeg's default one reads 2.5 levels off on these testsrc2 fixtures), the
+/// before frame and an encode against the default decode.
 void _expectFrame(String what, Uint8List img, int n, Map<int, Uint8List> refs) {
   final diffs = {
     for (final e in refs.entries) e.key: WorkerHarness.meanAbsDiff(img, e.value),
@@ -223,10 +225,16 @@ void _expectFrame(String what, Uint8List img, int n, Map<int, Uint8List> refs) {
       reason: '$what is not the same picture as source frame $n ($table)');
 }
 
-Future<Map<int, Uint8List>> _neighbours(String video, int n, {int? count}) async => {
+/// Source frames n-1..n+1 of [video]; with [asPreview], converted to RGB as
+/// the preview converts its picture, for comparing a preview with.
+Future<Map<int, Uint8List>> _neighbours(String video, int n,
+        {int? count, bool asPreview = false}) async =>
+    {
       for (final k in [n - 1, n, n + 1])
         if (k >= 0 && (count == null || k < count))
-          k: await WorkerHarness.frameRgb24(video, k, label: 'src'),
+          k: asPreview
+              ? await WorkerHarness.previewFrameRgb24(video, k, label: 'src')
+              : await WorkerHarness.frameRgb24(video, k, label: 'src'),
     };
 
 void main() {
@@ -266,10 +274,9 @@ void main() {
           final preview =
               await WorkerHarness.imageToRgb24(pv.png!, label: 'preview');
           final before = await _beforeFrame(video, n, source.fps, seek, delay);
-          final refs = await _neighbours(video, n);
-
-          _expectFrame('the preview', preview, n, refs);
-          _expectFrame('the before frame', before, n, refs);
+          _expectFrame(
+              'the preview', preview, n, await _neighbours(video, n, asPreview: true));
+          _expectFrame('the before frame', before, n, await _neighbours(video, n));
         });
       }
 
@@ -424,12 +431,12 @@ void main() {
               frame: n,
               label: 'reset_preview_$n');
           expect(pv.success, isTrue, reason: '${pv.error}\n${pv.errorTail}');
-          final refs = await _neighbours(original, n);
           _expectFrame('the preview',
-              await WorkerHarness.imageToRgb24(pv.png!, label: 'preview'), n, refs);
+              await WorkerHarness.imageToRgb24(pv.png!, label: 'preview'), n,
+              await _neighbours(original, n, asPreview: true));
           _expectFrame('the before frame',
               await _beforeFrame(decode, n, source.fps, seek, await _decoderDelay(decode)),
-              n, refs);
+              n, await _neighbours(original, n));
         });
       }
 

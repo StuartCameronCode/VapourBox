@@ -172,7 +172,7 @@ void main() {
     expect(preview.success, isTrue, reason: '$preview');
 
     final previewRgb = await WorkerHarness.imageToRgb24(preview.png!, label: 'pv');
-    final encodedRgb = await WorkerHarness.frameRgb24(out, frame, label: 'enc');
+    final encodedRgb = await WorkerHarness.previewFrameRgb24(out, frame, label: 'enc');
     final diff = WorkerHarness.meanAbsDiff(previewRgb, encodedRgb);
     print('  preview vs encode mean abs diff: ${diff.toStringAsFixed(3)}/255');
     expect(diff, lessThan(1.0),

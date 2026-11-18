@@ -80,7 +80,9 @@ void main() {
     // Far enough from the trim's ends that the encode's temporal neighbours
     // are the preview's.
     for (final frame in [_start + 8, _start + 12]) {
-      final encoded = await WorkerHarness.frameRgb24(out, frame - _start, label: 'parity_enc');
+      // Converted to RGB as the preview converts its picture (task #67).
+      final encoded =
+          await WorkerHarness.previewFrameRgb24(out, frame - _start, label: 'parity_enc');
       Future<double> previewDiff(String profile) async {
         final pv = await WorkerHarness.runPreview(_job('pv_$profile', profile: profile, trimmed: false),
             frame: frame);

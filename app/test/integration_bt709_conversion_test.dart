@@ -288,11 +288,10 @@ void main() {
     final preview = await WorkerHarness.runPreview(j.toJson(), frame: frame);
     expect(preview.success, isTrue, reason: '$preview');
     final previewRgb = await WorkerHarness.imageToRgb24(preview.png!, label: 'pv709');
-    // Decoded the way ffmpeg decodes it by default, through the file's tags:
-    // the preview's own YUV-to-RGB step uses swscale's default path too, so
-    // the two are compared like for like (the accurate path above differs
-    // from the default one by ~1.5/255 on this content, in both directions).
-    final encoded = await WorkerHarness.frameRgb24(out, frame, label: 'enc709');
+    // Decoded through the file's tags and converted to RGB as the preview
+    // converts its picture (accurate rounding and chroma interpolation since
+    // task #56 F8), so the two are compared like for like (task #67).
+    final encoded = await WorkerHarness.previewFrameRgb24(out, frame, label: 'enc709');
     final diff = WorkerHarness.meanAbsDiff(previewRgb, encoded);
     print('  preview vs encode mean abs diff: ${diff.toStringAsFixed(3)}/255');
     expect(diff, lessThan(1.0), reason: 'the preview shows different colours from the encode');
@@ -328,7 +327,7 @@ void main() {
     final preview = await WorkerHarness.runPreview(j.toJson(), frame: frame);
     expect(preview.success, isTrue, reason: '$preview');
     final previewRgb = await WorkerHarness.imageToRgb24(preview.png!, label: 'pv709ng');
-    final encoded = await WorkerHarness.frameRgb24(out, frame, label: 'enc709ng');
+    final encoded = await WorkerHarness.previewFrameRgb24(out, frame, label: 'enc709ng');
     final diff = WorkerHarness.meanAbsDiff(previewRgb, encoded);
     print('  preview vs encode mean abs diff: ${diff.toStringAsFixed(3)}/255');
     expect(diff, lessThan(1.0), reason: 'the preview shows different colours from the encode');

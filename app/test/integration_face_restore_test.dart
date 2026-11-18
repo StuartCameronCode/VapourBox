@@ -201,9 +201,13 @@ void main() {
           extraEnv: const {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'});
       expect(pv.success, isTrue, reason: '${pv.error}\n${pv.logs}');
       final preview = await WorkerHarness.imageToRgb24(pv.png!, label: 'fr_pv');
+      // The preview against the encode converted to RGB as the preview
+      // converts (task #67); the encode against the input both ways round
+      // ffmpeg's default conversion.
       final encoded = await WorkerHarness.frameRgb24(out, frame - _start, label: 'fr_enc');
       final input = await WorkerHarness.frameRgb24(baseline, frame - _start, label: 'fr_in');
-      final diff = WorkerHarness.meanAbsDiff(preview, encoded);
+      final diff = WorkerHarness.meanAbsDiff(preview,
+          await WorkerHarness.previewFrameRgb24(out, frame - _start, label: 'fr_encpv'));
       final restored = WorkerHarness.meanAbsDiff(input, encoded);
       // ignore: avoid_print
       print('  frame $frame: preview vs encode $diff, input vs encode $restored');

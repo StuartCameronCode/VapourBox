@@ -129,10 +129,14 @@ List<int> _name(List<Float64List> fields, List<List<Float64List>> film) => [
             (a, b) => _dist(fields[f], film[a][f]) <= _dist(fields[f], film[b][f]) ? a : b),
     ];
 
+/// Every frame of [path] as rgb24, converted as the preview converts its
+/// picture (task #67): the default conversion alone put the ProRes fixture's
+/// frames 0.9 levels from their previews.
 Future<List<Uint8List>> _rgbFrames(String path, int w, int h) async {
+  final scale = await WorkerHarness.previewScaleFilterFor(path);
   final r = await Process.run(
     WorkerHarness.ffmpegPath,
-    ['-v', 'error', '-i', path, '-map', '0:v:0', '-vf', _fullRgb, '-f', 'rawvideo', '-'],
+    ['-v', 'error', '-i', path, '-map', '0:v:0', '-vf', '$scale,format=rgb24', '-f', 'rawvideo', '-'],
     environment: WorkerHarness.ffmpegEnv,
     stdoutEncoding: null,
   );

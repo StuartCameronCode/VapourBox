@@ -257,7 +257,7 @@ void main() {
       expect(pv.success, isTrue, reason: pv.errorTail);
       final pvDiff = WorkerHarness.meanAbsDiff(
           await WorkerHarness.imageToRgb24(pv.png!, label: 'descale_pv'),
-          await WorkerHarness.frameRgb24(protected.outputPath!, 3, label: 'descale_enc3'));
+          await WorkerHarness.previewFrameRgb24(protected.outputPath!, 3, label: 'descale_enc3'));
       // ignore: avoid_print
       print('  preview vs encode: $pvDiff');
       expect(pvDiff, lessThan(1.0));

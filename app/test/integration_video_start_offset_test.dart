@@ -117,13 +117,20 @@ Future<Uint8List> _beforeFrame(String video, int frame, double offset, SeekPlan?
 
 /// [img] is source frame [n]: the closest of n-1..n+1, and nearly identical.
 /// Every frame of the fixture differs (testsrc2), and the old fault was 25
-/// frames off, so the neighbours tell a shift from a colour conversion.
+/// frames off, so the neighbours tell a shift from a colour conversion. A
+/// preview ([asPreview]) is compared with the source converted to RGB as the
+/// preview converts (task #67: ffmpeg's default conversion of testsrc2 reads
+/// 2.5 levels off it).
 Future<void> _expectFrame(String what, Uint8List img, String video, int n,
-    {double maxDiff = 1.0}) async {
+    {double maxDiff = 1.0, bool asPreview = false}) async {
   final diffs = <int, double>{
     for (final k in [n - 1, n, n + 1])
       if (k >= 0 && k < _frames)
-        k: WorkerHarness.meanAbsDiff(img, await WorkerHarness.frameRgb24(video, k, label: 'src')),
+        k: WorkerHarness.meanAbsDiff(
+            img,
+            asPreview
+                ? await WorkerHarness.previewFrameRgb24(video, k, label: 'src')
+                : await WorkerHarness.frameRgb24(video, k, label: 'src')),
   };
   final best = diffs.entries.reduce((a, b) => a.value <= b.value ? a : b).key;
   final table = diffs.entries.map((e) => '${e.key}: ${e.value.toStringAsFixed(2)}').join(', ');
@@ -187,7 +194,8 @@ void main() {
           final pv = await WorkerHarness.runPreview(_job(video, 'preview').toJson(),
               frame: n, label: 'vstart_preview_$n');
           expect(pv.success, isTrue, reason: '${pv.error}\n${pv.errorTail}');
-          await _expectFrame('the preview', await WorkerHarness.imageToRgb24(pv.png!), video, n);
+          await _expectFrame('the preview', await WorkerHarness.imageToRgb24(pv.png!), video, n,
+              asPreview: true);
           await _expectFrame(
               'the before frame', await _beforeFrame(video, n, model.videoStartOffset, plan), video, n);
         });

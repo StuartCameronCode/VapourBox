@@ -243,7 +243,7 @@ void main() {
       expect(pv.success, isTrue, reason: pv.errorTail);
       final pvDiff = WorkerHarness.meanAbsDiff(
           await WorkerHarness.imageToRgb24(pv.png!, label: '${name}_pv'),
-          await WorkerHarness.frameRgb24(out, 2, label: '${name}_enc2'));
+          await WorkerHarness.previewFrameRgb24(out, 2, label: '${name}_enc2'));
       // ignore: avoid_print
       print('  $name preview vs encode: meanAbsDiff ${pvDiff.toStringAsFixed(2)}');
       expect(pvDiff, lessThan(1.0), reason: 'the preview is not the encoded picture');

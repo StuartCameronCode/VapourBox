@@ -155,7 +155,7 @@ void main() {
         final rgb = await WorkerHarness.imageToRgb24(pv.png!, label: 'pv$i');
         final diffs = {
           for (final k in [2 * i - 1, 2 * i, 2 * i + 1])
-            k: WorkerHarness.meanAbsDiff(rgb, await WorkerHarness.frameRgb24(output, k, label: 'enc')),
+            k: WorkerHarness.meanAbsDiff(rgb, await WorkerHarness.previewFrameRgb24(output, k, label: 'enc')),
         };
         print('  preview of slot $i vs encoded frames: $diffs');
         final best = diffs.entries.reduce((a, b) => a.value <= b.value ? a : b).key;

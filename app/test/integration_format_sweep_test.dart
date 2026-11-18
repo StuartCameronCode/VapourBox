@@ -15,9 +15,11 @@
 ///     documented as "source format, depth included".
 ///  3. **parity** (nightly) — each deeper row agrees with the 8-bit row of
 ///     the same subsampling, field and size, as RGB, *above the passthrough's
-///     own difference*: swscale converts 8-bit 4:2:0 to RGB without chroma
-///     interpolation and deeper formats with it, so passthrough alone differs
-///     by ~4.5 levels on noisy 4:2:0 chroma.
+///     own difference*. Before task #56 F8 swscale converted 8-bit 4:2:0 to
+///     RGB without chroma interpolation and deeper formats with it, so
+///     passthrough alone differed by ~4.5 levels on noisy 4:2:0 chroma; the
+///     preview now interpolates every format (`full_chroma_int`), which made
+///     that 0.000, and what remains is each depth's own rounding.
 ///  4. **acts** — on at least one row the variant differs from the
 ///     passthrough preview, or the parity check proves nothing.
 /// And, for the passes declared in [deltaOnly], an FFV1 encode whose

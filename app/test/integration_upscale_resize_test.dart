@@ -391,7 +391,7 @@ void main() {
       // is the assertion that matters most here — a preview at a different
       // resolution is the failure this test exists to catch, and it surfaces as
       // a buffer-length difference rather than a pixel difference.
-      final rendered = await WorkerHarness.frameRgb24(
+      final rendered = await WorkerHarness.previewFrameRgb24(
           result.outputPath!, sourceFrame,
           label: '$name-out');
       final diff = WorkerHarness.meanAbsDiff(preview, rendered);

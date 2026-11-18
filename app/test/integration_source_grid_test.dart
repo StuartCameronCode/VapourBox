@@ -182,14 +182,19 @@ Future<int> _appCount(String path, double fps) async =>
     (await WorkerHarness.sourceModel(path)).frameCount;
 
 /// [img] (RGB) must be stored frame [k]: the closest of its stored
-/// neighbours, and the same picture.
+/// neighbours, and the same picture. A preview ([asPreview]) is compared
+/// with the stored frames converted to RGB as the preview converts (task
+/// #67); everything else with ffmpeg's default conversion.
 Future<void> _expectStored(String what, String video, Uint8List img, int k,
-    int storedCount) async {
+    int storedCount, {bool asPreview = false}) async {
   final diffs = <int, double>{};
   for (final j in [k - 1, k, k + 1]) {
     if (j < 0 || j >= storedCount) continue;
     diffs[j] = WorkerHarness.meanAbsDiff(
-        img, await WorkerHarness.frameRgb24(video, j, label: 'stored'));
+        img,
+        asPreview
+            ? await WorkerHarness.previewFrameRgb24(video, j, label: 'stored')
+            : await WorkerHarness.frameRgb24(video, j, label: 'stored'));
   }
   final best = diffs.entries.reduce((a, b) => a.value <= b.value ? a : b).key;
   final table =
@@ -267,7 +272,7 @@ void main() {
           expect(pv.success, isTrue, reason: '${pv.error}\n${pv.errorTail}');
           await _expectStored('the preview of $n', video,
               await WorkerHarness.imageToRgb24(pv.png!, label: 'preview'), k,
-              ref.stored.length);
+              ref.stored.length, asPreview: true);
 
           await _expectStored('the Original of $n', video,
               await _original(video, n, ref), k, ref.stored.length);

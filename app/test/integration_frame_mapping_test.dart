@@ -138,32 +138,11 @@ List<int> _progressTotals(JobResult r) {
   return totals;
 }
 
-/// One frame of a video as packed rgb24, by absolute frame index.
-Future<Uint8List> _frameRgb(String path, int index) async {
-  final out = File(p.join(Directory.systemTemp.path,
-      'vb_fm_${DateTime.now().microsecondsSinceEpoch}_$index.png'));
-  try {
-    final r = await Process.run(
-      WorkerHarness.ffmpegPath,
-      [
-        '-y', '-v', 'error',
-        '-i', path,
-        // Decode from the start and pick by index — accurate, unlike an input
-        // seek, and these clips are short enough that it costs little.
-        '-vf', 'select=eq(n\\,$index)',
-        '-frames:v', '1',
-        out.path,
-      ],
-      environment: WorkerHarness.ffmpegEnv,
-    );
-    expect(r.exitCode, 0, reason: 'extracting frame $index: ${r.stderr}');
-    expect(await out.exists(), isTrue, reason: 'no frame $index in $path');
-    return await WorkerHarness.imageToRgb24(await out.readAsBytes(),
-        label: 'out$index');
-  } finally {
-    if (await out.exists()) await out.delete().catchError((_) => out);
-  }
-}
+/// One frame of a video as packed rgb24, by absolute frame index, converted
+/// to RGB as the preview converts its picture: every use compares it with a
+/// preview (task #67).
+Future<Uint8List> _frameRgb(String path, int index) =>
+    WorkerHarness.previewFrameRgb24(path, index, label: 'fm');
 
 void main() {
   setUpAll(() async {

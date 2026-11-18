@@ -183,5 +183,7 @@ void main() {
   }, timeout: const Timeout(Duration(minutes: 4)));
 }
 
-/// Measured at frame 40: 1.08 now, 2.85 while the frames were marked TFF.
+/// Measured at frame 40: 0.130 since the preview interpolates chroma for
+/// every format (task #56 F8; 1.08 before it), 2.85 while the frames were
+/// marked TFF.
 const _previewLimit = 1.5;
