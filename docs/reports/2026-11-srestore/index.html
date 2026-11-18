@@ -183,7 +183,8 @@ the window even though its pixels are not read, so the radius must be at least t
 <p>In the app, <code>ProcessingPipeline::preview_output</code> computes the padding and the detector origin
 for Unblend as it does for the Frame Rate pass (both, when both are on). The heavy test
 (<code>integration_unblend_test.dart</code>) previews five source frames of the film fixture through the real
-worker and finds each identical to its encode frame (difference 0.00).</p>
+worker and finds each identical to its encode frame (difference 0.00; since task #56 the preview converts to RGB
+with <code>accurate_rnd+full_chroma_int</code>, and the test decodes the encode the same way).</p>
 
 <h2>7. Length, rates and refusals</h2>
 <p>srestore computes its own ratio (<code>numr/denm</code>) in floating point from the input and target rates.
@@ -205,8 +206,24 @@ The table is <code>data/ratio_table.json</code>, and the Rust port of the ratio 
 <p><code>scripts/depth_speed.py</code> and <code>scripts/cache.py</code>:</p>
 <ul>
 <li><strong>8 vs 10-bit:</strong> the film fixture after QTGMC, shifted exactly to 10-bit: identical measurements,
-identical decisions, outputs identical after converting back. Through the worker, a 10-bit copy of the source
-gives the 8-bit encode's frames exactly. The PAL fixture is 10-bit 4:2:2 throughout.</li>
+identical decisions, outputs identical after converting back. <s>Through the worker, a 10-bit copy of the source
+gives the 8-bit encode's frames exactly.</s> (Corrected below.) The PAL fixture is 10-bit 4:2:2 throughout.</li>
+<li class="card correction" style="list-style:none"><strong>Correction (2026-11-17, task #64).</strong> The
+struck sentence was measured on a path that never ran at 10 bits: the heavy test's job named no
+<code>inputPixelFormat</code>, and before the source model (task #50) the worker then decoded every source as
+8-bit 4:2:0, so it compared the 8-bit run with itself. Decoded at 10 bits, the source is deinterlaced at 10 bits,
+and QTGMC rounds differently there (luma median 0.35, max 0.52 levels from the 8-bit run). The detector's
+min/max statistics turn that into differences of up to 16 (<code>SrBMin</code>), 31 (<code>SrBMax</code>) and 5
+(<code>SrDMax</code>) on most frames, and 30 of 300 decisions change. 11 of 143 output frames take a neighbouring
+original instead (8-bit frame 89 vs 10-bit 88, for example), so the outputs differ by up to 11 levels on those
+frames. Recovery is as good: 143/143 clean (≤ 2.0 luma levels) at both depths, 136 vs 140 within 1.5, 117
+distinct originals each (<code>scripts/depth_source.py</code>, <code>data/depth_source.json</code>; luma MAD to the
+nearest original within ±3, a 10-bit frame converted exactly to 8 bits, so it carries up to half a level of
+rounding the 8-bit frame doesn't). Through the worker on macOS arm64: 7 of 143 frames moved, 143/143 clean at
+both depths. The exact-shift result above stands, and the heavy test now checks both: the same picture at 8 and
+10 bits gives the same output exactly, and a real 10-bit source recovers as well as the 8-bit one. The PAL
+fixture's heavy test had been running at 8 bits too; at 10-bit 4:2:2 it measures 88/125 clean, decimation 63/125
+(rgb24 metric, limit 2.2).</li>
 <li><strong>Expr:</strong> the one expression goes through the usual <code>_expr()</code> helper (akarin on ARM).
 akarin and VapourSynth's own <code>std.Expr</code> give bit-identical measurements on both fixtures; this was
 checked because the detector thresholds them.</li>
@@ -266,6 +283,7 @@ deinterlaced fixtures and decodes are cached in the scratch directory, not commi
 <tr><td><code>order.py</code></td><td>Section 6 (<code>data/order.json</code>)</td></tr>
 <tr><td><code>lengths.py</code></td><td>Section 7 (<code>data/ratio_table.json</code>, read by the Rust tests)</td></tr>
 <tr><td><code>depth_speed.py</code>, <code>cache.py</code></td><td>Section 8 (<code>data/depth_speed.json</code>, <code>data/cache.json</code>)</td></tr>
+<tr><td><code>depth_source.py</code></td><td>Section 8's correction: a real 10-bit source (<code>data/depth_source.json</code>)</td></tr>
 <tr><td><code>images.py</code></td><td><code>img/</code></td></tr>
 </table>
 </main>

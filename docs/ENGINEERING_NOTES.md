@@ -5222,3 +5222,28 @@ for 48-px blocks. Ships in deps 1.18.0; the push gate's `fft3dfilter is
 deterministic` and the heavy `integration_fft3dfilter_determinism_test.dart`
 skip on bundles up to 1.17.x. Report:
 [docs/reports/task-62-fft3dfilter-determinism](reports/task-62-fft3dfilter-determinism/index.html).
+
+### Unblend's 8 = 10-bit test was vacuous; a real 10-bit source picks differently (task #64, 2026-11-17)
+
+Report: [docs/reports/2026-11-srestore](reports/2026-11-srestore/index.html), section 8's correction.
+
+- From dc9e36c (task #50) the heavy test "a 10-bit copy of the source gives
+  the 8-bit result" failed on every platform (13.08 levels on arm64, 13.43
+  on x86). Nothing in Unblend changed: its job named no `inputPixelFormat`,
+  and before the source model the worker decoded such a source as 8-bit
+  4:2:0, so the test had compared the 8-bit run with itself (0.000). The
+  deps version was ruled out (1.16.0 and 1.17.0-rc2 identical).
+- At 10 bits QTGMC rounds differently (luma ~0.35 levels); srestore's
+  min/max statistics magnify that (`SrBMax` up to 31), 30 of 300 decisions
+  change, and 7-11 of 143 output frames take a neighbouring original.
+  Recovery is equal (143/143 clean at both depths). The exact-shift result
+  (same picture at both depths, identical decisions) stands.
+- The test is now two: the same picture at 8 and 10 bits (Deinterlace off on
+  a lossless 50p intermediate) must give identical output, and a real 10-bit
+  source must recover as well, with >= 85% of picks the same. Both set
+  `inputPixelFormat` and assert the output's `pix_fmt`; forcing the 10-bit
+  job back to `yuv420p` fails the exact test.
+- The preview test's own decode had drifted too: task #56 F8 made the
+  preview convert with `accurate_rnd+full_chroma_int`, which put the same
+  frame 0.54 rgb levels from a default-flags decode of the encode. The test
+  now decodes the encode with the preview's flags (0.00 again).

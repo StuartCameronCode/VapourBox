@@ -1995,9 +1995,18 @@ original frames of a frame-rate conversion done by blending. Rules, from
 - Not exposed: `thresh`, `mode`, `omode`, `speed` (upstream defaults); no
   built-in preset turns it on.
 
+- **Its decisions are not stable to a level of input change** (task #64):
+  the detector thresholds min/max statistics of blend maps, so QTGMC's
+  rounding at 10 bits (~0.35 levels) moves ~10% of decisions and ~5-8% of
+  output frames to a neighbouring original, with recovery as good. Never
+  expect two depths, deinterlacers or plugin versions to pick the same
+  frames; only the same picture at two depths (an exact shift) does.
+
 `integration_unblend_test.dart` (heavy) checks recovery on the blended
 fixtures (`generate_blended_test.sh`) against plain decimation, exact length
-and rate, 8 = 10-bit, and preview = encode.
+and rate, depth two ways (the same picture at 8 and 10 bits: identical
+output; a real 10-bit source: as good a recovery, mostly the same picks),
+and preview = encode.
 
 ### Frame Rate targets (issue #129)
 
@@ -3117,6 +3126,13 @@ Subtitle heavy tests skip when the whisper add-on is absent.
 # Run the worker standalone (no test harness)
 cd worker && cargo run --release -- --config test_job.json
 ```
+
+> **A heavy test job on a >8-bit fixture sets `inputPixelFormat` and asserts
+> the output's `pix_fmt`.** Before the source model (task #50) a job without
+> it was decoded as 8-bit 4:2:0, silently, and Unblend's "10-bit = 8-bit"
+> test compared the 8-bit run with itself for as long as it existed
+> (task #64). The worker now probes the format, but only the assertion makes
+> a test fail if its depth stops reaching the pass.
 
 > **The heavy tests run the worker BINARY, not the library**, and
 > `app/lib/**/*.g.dart` is gitignored — **run `cargo build` before the heavy
