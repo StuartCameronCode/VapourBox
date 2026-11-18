@@ -1,0 +1,83 @@
+FFT3DFilter R2 (myrsloik/VapourSynth-FFT3DFilter, tag R2 = 50194b4): two
+faults that make its output differ from run to run, so a preview never
+matches the encode (VapourBox task #62,
+docs/reports/task-62-fft3dfilter-determinism).
+
+1. FFT3DFilterTransform.cpp, FramePlaneToCoverbuf: each line of the padded
+   cover buffer mirrored its left border BEFORE copying the source line into
+   it, so the border was mirrored from the previous frame's pixels (or
+   uninitialised heap memory on the first frame). The left 10 luma / 6 chroma
+   columns depended on request order. Introduced upstream in da50417
+   (2018-01-11, "Turn several functions into templates"); the 2015 original
+   copied the line first. Fixed in all three loops (progressive, both fields).
+
+2. FFT3DFilter.cpp, ApplyFilter / Wiener3D: the per-frame Wiener sigma was
+   written to the shared member sigmaSquaredNoiseNormed, but the filter is
+   fmParallel and the edge frames (btcur 1) write the 2D value while middle
+   frames write and read the 3D one (x bt). Two threads interleaving filtered
+   a middle frame at 1/bt of its sigma. Now a local in both functions.
+
+Applied by download-deps-{macos,linux}.sh and download-deps-windows.ps1 right
+after the clone; each build fails if it stops applying.
+
+diff --git a/FFT3DFilter.cpp b/FFT3DFilter.cpp
+index 7686e6a..e5dfdab 100644
+--- a/FFT3DFilter.cpp
++++ b/FFT3DFilter.cpp
+@@ -303,6 +303,7 @@ void FFT3DFilter::Wiener3D
+     VSFrameContext *frame_ctx,
+     const VSAPI *vsapi
+ ) {
++    const float sigmaSquaredNoiseNormed = btcur * sigma * sigma / norm; /* local: see ApplyFilter */
+     int fromframe = n - btcur / 2;
+     int outcenter = btcur / 2;
+     const fftwf_complex *frames[btcur] = {};
+@@ -357,7 +358,7 @@ const VSFrame *FFT3DFilter::ApplyFilter
+ 
+     if (btcur > 0) /* Wiener */
+     {
+-        sigmaSquaredNoiseNormed = btcur * sigma * sigma / norm; /* normalized variation=sigma^2 */
++        const float sigmaSquaredNoiseNormed = btcur * sigma * sigma / norm; /* normalized variation=sigma^2; a local, not the shared member: frames run in parallel and edge frames use btcur 1 */
+ 
+         /* get power spectral density (abs quadrat) for every block and apply filter */
+ 
+diff --git a/FFT3DFilterTransform.cpp b/FFT3DFilterTransform.cpp
+index a7a7e7e..91adbc8 100644
+--- a/FFT3DFilterTransform.cpp
++++ b/FFT3DFilterTransform.cpp
+@@ -150,10 +150,10 @@ static void FramePlaneToCoverbuf(int plane, const VSFrame *src, T *__restrict co
+     if (!interlaced) /* progressive */
+     {
+         for (int h = mirh; h < src_height + mirh; h++) {
++            memcpy(coverbuf1 + mirw, srcp, src_width * sizeof(T)); /* copy line */
+             for (int w = 0; w < mirw; w++) {
+                 coverbuf1[w] = coverbuf1[mirw + mirw - w]; /* mirror left border */
+             }
+-            memcpy(coverbuf1 + mirw, srcp, src_width * sizeof(T)); /* copy line */
+             for (int w = src_width + mirw; w < coverwidth; w++) {
+                 coverbuf1[w] = coverbuf1[width2 - w]; /* mirror right border */
+             }
+@@ -164,10 +164,10 @@ static void FramePlaneToCoverbuf(int plane, const VSFrame *src, T *__restrict co
+     {
+         for (int h = mirh; h < src_height / 2 + mirh; h++) /* first field */
+         {
++            memcpy(coverbuf1 + mirw, srcp, src_width * sizeof(T)); /* copy line */
+             for (int w = 0; w < mirw; w++) {
+                 coverbuf1[w] = coverbuf1[mirw + mirw - w]; /* mirror left border */
+             }
+-            memcpy(coverbuf1 + mirw, srcp, src_width * sizeof(T)); /* copy line */
+             for (int w = src_width + mirw; w < coverwidth; w++) {
+                 coverbuf1[w] = coverbuf1[width2 - w]; /* mirror right border */
+             }
+@@ -178,10 +178,10 @@ static void FramePlaneToCoverbuf(int plane, const VSFrame *src, T *__restrict co
+         srcp -= src_pitch;
+         for (int h = src_height / 2 + mirh; h < src_height + mirh; h++) /* flip second field */
+         {
++            memcpy(coverbuf1 + mirw, srcp, src_width * sizeof(T)); /* copy line */
+             for (int w = 0; w < mirw; w++) {
+                 coverbuf1[w] = coverbuf1[mirw + mirw - w]; /* mirror left border */
+             }
+-            memcpy(coverbuf1 + mirw, srcp, src_width * sizeof(T)); /* copy line */
+             for (int w = src_width + mirw; w < coverwidth; w++) {
+                 coverbuf1[w] = coverbuf1[width2 - w]; /* mirror right border */
+             }

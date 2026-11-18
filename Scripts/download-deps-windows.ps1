@@ -345,11 +345,6 @@ $Plugins7z = @(
         Check = "CTMF.dll"
     },
     @{
-        Name = "fft3dfilter"
-        Url = "https://github.com/myrsloik/VapourSynth-FFT3DFilter/releases/download/R2/FFT3DFilter-r2.7z"
-        Check = "fft3dfilter.dll"
-    },
-    @{
         Name = "addgrain"
         Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain/releases/download/r10/AddGrain-r10-win64.7z"
         Check = "AddGrain.dll"
@@ -430,6 +425,8 @@ $PluginsZip = @(
     # KNLMeansCL is NOT here: it is a PyPI wheel, see the wheel section below.
     # zsmooth is NOT here: which build ships depends on the CPU tier. See
     # section 4a below.
+    # FFT3DFilter is NOT here: it is built from source with a patch. See
+    # section 4b2 below.
 )
 
 foreach ($Plugin in $Plugins7z) {
@@ -671,6 +668,88 @@ if (-not (Test-Path $FFTWPath)) {
     }
 } else {
     Write-Host "  FFTW library already installed" -ForegroundColor Gray
+}
+
+# =============================================================================
+# 4b2. FFT3DFilter, built from source at R2 with VapourBox's patch (task #62)
+# =============================================================================
+# Every published build of FFT3DFilter, R2's FFT3DFilter-r2.7z included, has
+# two faults that make its output differ from run to run, so a preview never
+# matched its encode: the left border was mirrored from the previous frame's
+# pixels, and a per-frame sigma lived in a shared member of a parallel filter.
+# patches/fft3dfilter-r2-determinism.patch fixes both (its header explains);
+# download-deps-{macos,linux}.sh build the same tag with the same patch. Keep
+# $Fft3dTag in step with them.
+#
+# Zig cross-compiles it as it does zsmooth's v2 build ($ZigVersion above), for
+# both tiers: four C++ files with no intrinsics, at the x86-64 baseline, so one
+# build serves both (no _tierFiles entry). It links FFTW 3.3.5's DLL (the one
+# section 4b installs, which exports the threads API itself) through an import
+# library made from that zip's .def, and takes VapourSynth's API4 headers from
+# the R78 tag. Zig links its libc++ statically against the UCRT, so the DLL
+# imports only libfftw3f-3.dll, KERNEL32 and api-ms-win-crt-*. Any failure
+# throws: shipping without it removes three passes' denoiser.
+Write-Host ""
+Write-Host "[4b2/8] Building FFT3DFilter (patched)..." -ForegroundColor Yellow
+
+$Fft3dTag = "R2"
+$Fft3dOut = "$PluginsDir\fft3dfilter.dll"
+if (Test-Path $Fft3dOut) {
+    Write-Host "  fft3dfilter.dll already installed" -ForegroundColor Gray
+} else {
+    $Fft3dWork = Join-Path $TempDir "fft3dfilter-build"
+    Remove-Item $Fft3dWork -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $Fft3dWork -Force | Out-Null
+    Push-Location $Fft3dWork
+    try {
+        $ZigZip = Join-Path $Fft3dWork "zig.zip"
+        Download-File -Url "https://ziglang.org/download/$ZigVersion/zig-x86_64-windows-$ZigVersion.zip" -OutFile $ZigZip
+        Expand-Archive -Path $ZigZip -DestinationPath (Join-Path $Fft3dWork "zig") -Force
+        $ZigExe = (Get-ChildItem -Path (Join-Path $Fft3dWork "zig") -Recurse -Filter "zig.exe" | Select-Object -First 1).FullName
+        if (-not $ZigExe) { throw "zig.exe not found in the toolchain archive" }
+
+        # fftw3.h and libfftw3f-3.def for the import library.
+        $FftwZip = Join-Path $Fft3dWork "fftw.zip"
+        Download-File -Url "https://fftw.org/pub/fftw/fftw-3.3.5-dll64.zip" -OutFile $FftwZip
+        $FftwDir = Join-Path $Fft3dWork "fftw"
+        Expand-Archive -Path $FftwZip -DestinationPath $FftwDir -Force
+
+        $VsInc = Join-Path $Fft3dWork "vsinc"
+        New-Item -ItemType Directory -Path $VsInc -Force | Out-Null
+        foreach ($Hdr in @("VapourSynth4.h", "VSHelper4.h", "VSConstants4.h")) {
+            Download-File -Url "https://raw.githubusercontent.com/vapoursynth/vapoursynth/$VSRelease/include/$Hdr" -OutFile (Join-Path $VsInc $Hdr)
+        }
+
+        # LF on both sides: the runner's git may check out CRLF, and this repo's
+        # own copy of the patch is CRLF on a Windows checkout.
+        $Src = Join-Path $Fft3dWork "src"
+        & git -c advice.detachedHead=false -c core.autocrlf=false clone --quiet --depth 1 --branch $Fft3dTag https://github.com/myrsloik/VapourSynth-FFT3DFilter.git $Src
+        if ($LASTEXITCODE -ne 0) { throw "git clone of FFT3DFilter failed (exit $LASTEXITCODE)" }
+        $Patch = Join-Path $Fft3dWork "fft3dfilter.patch"
+        $PatchText = [IO.File]::ReadAllText((Join-Path $ScriptDir "patches\fft3dfilter-r2-determinism.patch")).Replace("`r`n", "`n")
+        [IO.File]::WriteAllText($Patch, $PatchText, (New-Object System.Text.UTF8Encoding($false)))
+        & git -C $Src apply $Patch
+        if ($LASTEXITCODE -ne 0) {
+            throw "patches/fft3dfilter-r2-determinism.patch did not apply to FFT3DFilter $Fft3dTag - re-check the patch"
+        }
+
+        & $ZigExe dlltool -m i386:x86-64 -d (Join-Path $FftwDir "libfftw3f-3.def") -D libfftw3f-3.dll -l (Join-Path $Fft3dWork "libfftw3f-3.lib")
+        if ($LASTEXITCODE -ne 0) { throw "zig dlltool failed (exit $LASTEXITCODE)" }
+
+        $Sources = @("FFT3DFilter.cpp", "FFT3DFilterTransform.cpp", "fft3dfilter_c.cpp", "Plugin.cpp") | ForEach-Object { Join-Path $Src $_ }
+        & $ZigExe c++ -target x86_64-windows-gnu -mcpu=x86_64 -shared -O3 -std=c++17 -fvisibility=hidden `
+            "-I$VsInc" "-I$FftwDir" @Sources (Join-Path $Fft3dWork "libfftw3f-3.lib") -o (Join-Path $Fft3dWork "fft3dfilter.dll")
+        if ($LASTEXITCODE -ne 0) { throw "zig c++ failed (exit $LASTEXITCODE)" }
+
+        Copy-Item (Join-Path $Fft3dWork "fft3dfilter.dll") $Fft3dOut -Force
+        Write-Host "    Built: fft3dfilter.dll ($Fft3dTag, patched)" -ForegroundColor Gray
+    } finally {
+        Pop-Location
+        Remove-Item $Fft3dWork -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+if (-not (Test-Path $Fft3dOut)) {
+    throw "fft3dfilter.dll is missing"
 }
 
 # =============================================================================

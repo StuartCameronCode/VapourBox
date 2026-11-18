@@ -791,12 +791,6 @@ if [ "$ARCH" = "arm64" ]; then
     install_name_tool -id "@loader_path/libttempsmooth.dylib" "$PLUGINS_DIR/libttempsmooth.dylib" 2>/dev/null || true
     codesign -s - -f "$PLUGINS_DIR/libttempsmooth.dylib" 2>/dev/null
 
-    # FFT3DFilter (also used by MCTemporalDenoise; links FFTW like dfttest)
-    curl -sL "$YUYGFGG_BASE/lib/libfft3dfilter.dylib" -o "$PLUGINS_DIR/libfft3dfilter.dylib"
-    install_name_tool -change "@rpath/libfftw3f.3.dylib" "@loader_path/../../lib/libfftw3f.3.dylib" "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
-    install_name_tool -change "@rpath/libfftw3f_threads.3.dylib" "@loader_path/../../lib/libfftw3f_threads.3.dylib" "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
-    codesign -s - -f "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null
-
     # VIVTC (inverse telecine - VFM + VDecimate)
     curl -sL "$YUYGFGG_BASE/lib/libvivtc.dylib" -o "$PLUGINS_DIR/libvivtc.dylib"
     install_name_tool -id "@loader_path/libvivtc.dylib" "$PLUGINS_DIR/libvivtc.dylib"
@@ -1300,31 +1294,6 @@ PYEOF
         cd "$BUILD_DIR"
     fi
 
-    # fft3dfilter (meson; links Homebrew FFTW, repoint at the bundled lib/ copy).
-    # Also used by havsfunc MCTemporalDenoise.
-    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfft3dfilter.dylib" ]; then
-        echo ""; echo "=== Building FFT3DFilter (x86_64) ==="
-        rm -rf fft3dfilter
-        if git clone --depth 1 https://github.com/myrsloik/VapourSynth-FFT3DFilter.git fft3dfilter \
-           && PKG_CONFIG_PATH="$VS_PC_DIR:$BREW_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
-              meson setup fft3dfilter/build fft3dfilter --buildtype=release \
-           && ninja -C fft3dfilter/build; then
-            lib=$(find fft3dfilter/build -name "*.dylib" -type f | head -1)
-            if [ -n "$lib" ]; then
-                cp "$lib" "$PLUGINS_DIR/libfft3dfilter.dylib"
-                install_name_tool -change "$BREW_PREFIX/opt/fftw/lib/libfftw3f.3.dylib" \
-                    "@loader_path/../../lib/libfftw3f.3.dylib" "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
-                install_name_tool -change "$BREW_PREFIX/opt/fftw/lib/libfftw3f_threads.3.dylib" \
-                    "@loader_path/../../lib/libfftw3f_threads.3.dylib" "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
-                codesign -s - -f "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
-                echo "  Built FFT3DFilter"
-            else echo "  no dylib"; FAILED_PLUGINS+=("fft3dfilter"); fi
-        else
-            echo "  Failed to build FFT3DFilter"; FAILED_PLUGINS+=("fft3dfilter")
-        fi
-        cd "$BUILD_DIR"
-    fi
-
     # BM3D (core.bm3d - Noise Reduction's BM3D method). Stefan-Olt has no
     # current x86_64 build and the PyPI wheel is minos 15.0 (our floor is 12.0),
     # so build the same tag as arm64 from source. Its meson.build probes the host
@@ -1464,18 +1433,6 @@ if [ "$ARCH" != "arm64" ]; then
         "meson setup build --buildtype=release && ninja -C build"
 else
     echo "  DFTTest: using pre-built ARM64 version from yuygfgg"
-fi
-
-# FFT3DFilter
-# On ARM64 we use the pre-built version from yuygfgg (downloaded above); its
-# from-source build needs fftw3f_threads which isn't reliably discoverable here.
-if [ "$ARCH" != "arm64" ]; then
-    build_plugin "fft3dfilter" \
-        "https://github.com/myrsloik/VapourSynth-FFT3DFilter.git" \
-        "libfft3dfilter.dylib" \
-        "meson setup build --buildtype=release && ninja -C build"
-else
-    echo "  FFT3DFilter: using pre-built ARM64 version from yuygfgg"
 fi
 
 # MiscFilters
@@ -1711,6 +1668,62 @@ if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfmtconv.dylib" ]; then
     echo "  Built fmtconv"
 else
     echo "  fmtconv already exists, skipping"
+fi
+
+# FFT3DFilter (core.fft3dfilter - Noise Reduction's FFT3DFilter method,
+# TemporalDegrain2's spatial and post passes, QTGMC's Denoiser=fft3dfilter),
+# built from source on BOTH arches at tag R2 with
+# patches/fft3dfilter-r2-determinism.patch (task #62). Every published build,
+# R2 included, has two faults that make its output differ from run to run, so
+# a preview never matched its encode: the left border was mirrored from the
+# previous frame's pixels, and a per-frame sigma lived in a shared member of a
+# parallel filter. The patch header has both. Never take a prebuilt (arm64 had
+# yuygfgg's, which has both faults). Keep FFT3DFILTER_TAG in step with
+# download-deps-linux.sh and download-deps-windows.ps1.
+#
+# Compiled directly rather than through its meson.build, whose fftw3f_threads
+# probe does not find the library on arm64: four .cpp files, upstream's own
+# flags (release -O3, C++17, hidden visibility), FFTW's header from Homebrew,
+# linked against the bundle's own lib/libfftw3f{,_threads}.3.dylib and then
+# repointed at them through @loader_path. Plain C++ with no intrinsics, so one
+# build serves both x64 tiers (no _tierFiles entry); MACOSX_DEPLOYMENT_TARGET
+# (exported near the top) sets its minos.
+FFT3DFILTER_TAG="R2"
+cd "$BUILD_DIR"
+if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfft3dfilter.dylib" ]; then
+    echo ""
+    echo "=== Building FFT3DFilter ($FFT3DFILTER_TAG, patched) ==="
+    rm -rf fft3dfilter
+    git clone --depth 1 --branch "$FFT3DFILTER_TAG" -q \
+        https://github.com/myrsloik/VapourSynth-FFT3DFilter.git fft3dfilter
+    (cd fft3dfilter && git apply "$SCRIPT_DIR/patches/fft3dfilter-r2-determinism.patch") || {
+        echo "  ERROR: patches/fft3dfilter-r2-determinism.patch did not apply." >&2
+        echo "  FFT3DFilter $FFT3DFILTER_TAG may have changed upstream - re-check the patch." >&2
+        exit 1
+    }
+    FFTW_INC="$(brew --prefix fftw)/include"
+    if c++ -std=c++17 -O3 -fPIC -fvisibility=hidden -dynamiclib \
+            -I"$VS_INC_DIR" -I"$FFTW_INC" \
+            fft3dfilter/FFT3DFilter.cpp fft3dfilter/FFT3DFilterTransform.cpp \
+            fft3dfilter/fft3dfilter_c.cpp fft3dfilter/Plugin.cpp \
+            "$LIB_DIR/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib" \
+            -install_name "@loader_path/libfft3dfilter.dylib" -headerpad_max_install_names \
+            -o "$PLUGINS_DIR/libfft3dfilter.dylib"; then
+        # Whatever install name the bundled FFTW carries, point the plugin at
+        # the copy in deps/<platform>/lib (two levels up from the plugin dir).
+        for ref in $(otool -L "$PLUGINS_DIR/libfft3dfilter.dylib" | awk 'NR > 1 && /libfftw3f/ {print $1}'); do
+            install_name_tool -change "$ref" "@loader_path/../../lib/$(basename "$ref")" \
+                "$PLUGINS_DIR/libfft3dfilter.dylib"
+        done
+        codesign -s - -f "$PLUGINS_DIR/libfft3dfilter.dylib" 2>/dev/null || true
+        echo "  Built FFT3DFilter -> libfft3dfilter.dylib"
+        BUILT_PLUGINS+=("fft3dfilter")
+    else
+        echo "  Failed to build FFT3DFilter"
+        FAILED_PLUGINS+=("fft3dfilter")
+    fi
+else
+    echo "  FFT3DFilter already exists, skipping"
 fi
 
 # The three plugins below sit outside the arch split above, on BOTH arches.

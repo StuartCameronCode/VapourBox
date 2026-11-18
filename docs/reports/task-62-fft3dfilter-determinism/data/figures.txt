@@ -1,0 +1,4 @@
+01-flat-unpatched.png max diff 12 differing columns (0, 9, 10)
+02-flat-patched.png max diff 0 differing columns None
+03-fixture-unpatched.png max diff 25 differing columns (0, 9, 10)
+04-fixture-patched.png max diff 0 differing columns None

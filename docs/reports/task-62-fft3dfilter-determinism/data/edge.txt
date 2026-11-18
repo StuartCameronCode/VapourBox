@@ -1,0 +1,10 @@
+# 1.16.0 bundle
+left 4 interior 1
+left 4 interior 1
+left 25 interior 1
+left 33 interior 1
+# bundle with the script build
+left 1 interior 1
+left 1 interior 1
+left 1 interior 1
+left 1 interior 1

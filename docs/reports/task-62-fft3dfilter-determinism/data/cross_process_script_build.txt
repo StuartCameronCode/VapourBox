@@ -1,0 +1,12 @@
+measure=1 640x480
+   5 {'bt3': '89ca8efa', 'td2_spat': '8f8f5079', 'td2_post': '73d8833b'}
+measure=1 720x480
+   5 {'bt3': 'd4e013e0', 'td2_spat': '38778ab9', 'td2_post': 'cc2e0c10'}
+measure=1 352x288
+   5 {'bt3': 'cd5a384b', 'td2_spat': '5ae7945a', 'td2_post': '0f1addb6'}
+measure=0 640x480
+   5 {'bt3': '89ca8efa', 'td2_spat': '8f8f5079', 'td2_post': '798b1dd7'}
+measure=0 720x480
+   5 {'bt3': 'd4e013e0', 'td2_spat': '38778ab9', 'td2_post': 'f78fcad1'}
+measure=0 352x288
+   5 {'bt3': 'cd5a384b', 'td2_spat': '5ae7945a', 'td2_post': '9da1593b'}

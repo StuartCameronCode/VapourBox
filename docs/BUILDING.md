@@ -115,8 +115,9 @@ build ID and SHA-256; evermeet.cx's build, used up to deps 1.17.0-rc1, has no
 SVT-AV1); most plugins
 come pre-built from
 [Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build), and
-`descratch`/`neo-f3kdb`/`nnedi3cl`/`vivtc` build from source, as does `fmtconv`
-(Stefan-Olt's x86_64 build predates the pinned r31).
+`descratch`/`neo-f3kdb`/`nnedi3cl`/`vivtc` build from source, as do `fmtconv`
+(Stefan-Olt's x86_64 build predates the pinned r31) and FFT3DFilter (patched,
+on every platform; below).
 
 ```bash
 ./Scripts/download-deps-macos.sh --force
@@ -416,6 +417,7 @@ VapourBox bundles all runtime dependencies. No external installations are requir
 | fmtconv | **r31** (pinned, from GitLab) | Format conversion |
 | neo_f3kdb | Latest | Debanding |
 | DFTTest / KNLMeansCL / TTempSmooth | Latest | Denoising |
+| FFT3DFilter | **R2** + patch, from source on every platform | Denoising (also TemporalDegrain2, QTGMC's fft3dfilter denoiser) |
 | zsmooth | 0.19.0 | CCD chroma denoise, Cnr4, RemoveGrain/TemporalMedian family |
 | DeScratch / tmedian | Latest | Scratch and spot removal |
 | VIVTC | Latest | Inverse telecine (VFM + VDecimate) |
@@ -427,5 +429,9 @@ fmtconv is **pinned to r31 on every platform** (both macOS arches and Linux
 build it from source; Windows downloads upstream's r31 zip) and carries a local patch
 (`Scripts/patches/fmtconv-r31-arm-int-scaler.patch`) that fixes black output from
 its non-SIMD integer scaler on arm64; havsfunc carries five compatibility patches.
+FFT3DFilter is built from its R2 tag on every platform (Windows cross-compiles
+it with Zig, which the script downloads) with
+`Scripts/patches/fft3dfilter-r2-determinism.patch`, without which its output
+differs from run to run (task #62).
 Both are explained in [CLAUDE.md](../CLAUDE.md) — keep the versions in step across
 platforms, or the same job produces different output per OS.

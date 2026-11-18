@@ -1,0 +1,13 @@
+full 8 6 1.2
+full 1 6 3.4
+fft3d_spat 8 6 0.2
+fft3d_spat 1 6 0.4
+fft3d_bt1 8 6 0.1
+fft3d_bt1 1 6 0.4
+fft3d_post 8 6 0.2
+fft3d_post 1 6 0.7
+mvdegrain 8 1 0.3
+mvdegrain 1 1 1.2
+dfttest 8 1 1.1
+dfttest 1 1 4.4
+{"full": {"8": 6, "1": 6}, "fft3d_spat": {"8": 6, "1": 6}, "fft3d_bt1": {"8": 6, "1": 6}, "fft3d_post": {"8": 6, "1": 6}, "mvdegrain": {"8": 1, "1": 1}, "dfttest": {"8": 1, "1": 1}}
