@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vspipe teardown backport</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<body>
+<main>
+<h1>Task #68: vspipe's teardown race, backported to R78</h1>
+<p class="sub">2026-11-19 · macOS arm64 (M1 Pro), deps 1.17.0-rc3 · scripts in <code>scripts/</code>, raw counts in <code>data/</code></p>
+
+<h2>Outcome</h2>
+<ul>
+<li><strong>The fault</strong> (task #65): R78's vspipe increments <code>completedFrames</code> at the top of
+<code>frameDoneCallback</code>, without the mutex, and only then writes the frame. <code>outputNode</code>'s
+<code>condition.wait(lock, pred)</code> checks the predicate before it first sleeps, so main can see "every frame done",
+free the script and the core, and leave the callback writing into freed memory: SIGSEGV after the last frame,
+intermittently. Task #66's gdb cores (QTGMC Draft at 96x66, Linux x64) show exactly this: the crashing thread in
+<code>frameDoneCallback</code>, main in <code>freeScript</code>.</li>
+<li><strong>Upstream fixed it in 4ff3f8a0, first released in R80, but the bundle cannot move to R80.</strong> R80 dropped
+API 3; 12 of the bundle's 40 plugins are API 3 only (section 2), most with no API 4 release. Filed as task #74.</li>
+<li><strong>So the fix is backported to R78 on every platform</strong>:
+<code>Scripts/patches/vapoursynth-r78-vspipe-frame-done-count.patch</code> is 4ff3f8a0's <code>vspipe.cpp</code> change
+byte for byte (only line offsets differ), plus a <code>vspipe --version</code> line that marks the build. macOS and Linux
+apply it in their source build; Windows replaces the wheel's <code>vspipe.exe</code> with one Zig builds from patched R78.</li>
+<li><strong>With the race window widened, unpatched R78 crashed <span class="bad">400 of 400</span> runs and the patch
+<span class="good">0 of 400</span></strong> (section 3).</li>
+</ul>
+
+<h2>1. The change</h2>
+<p>The counters move to the end of the callback, inside the block that already takes the mutex to notify. A counter
+reaching the total now means the frame was written and released, and because <code>outputNode</code> holds the same mutex
+from its first request until it waits, the increment cannot land between its predicate check and its sleep. The progress
+line adds the current frame to the (unchanged) counter instead of reading the incremented one.</p>
+<p>The <code>--version</code> marker, <code>VapourBox patch: vspipe frame-done count (task #68)</code>, is how a bundle is
+checked: each <code>download-deps-*</code> script refuses to finish without it (and rebuilds a vspipe that lacks it), and
+<code>vapoursynth_integration_test.dart</code> requires it from deps 1.18.0. The race itself is too rare to test for on
+every push.</p>
+<p>Windows: the wheel's <code>vspipe.exe</code> is four C++ files (<code>vspipe.cpp</code>, <code>vsjson.cpp</code>,
+<code>printgraph.cpp</code>, <code>wave.cpp</code>) that reach VapourSynth only through <code>vsscript.dll</code>'s
+<code>getVSScriptAPI</code> and <code>getVSScriptAPILastError</code>. Zig builds them against an import library for those
+two exports, with R78's meson defines and upstream's manifest embedded (it sets <code>longPathAware</code>), at
+<code>-mcpu=x86_64</code> so one build serves both CPU tiers. The build-deps run's smoke test reports <code>Core R78</code>
+and the marker.</p>
+
+<h2>2. Why not R80+</h2>
+<p><code>scan_plugin_api.py</code> on the deps 1.17.0-rc3 macOS arm64 bundle (<code>data/plugin-api-macos-arm64-1.17.0-rc3.txt</code>)
+finds 12 plugins that export <code>VapourSynthPluginInit</code> but not <code>VapourSynthPluginInit2</code>, which R80+
+refuses ("uses API 3, which is no longer supported"):</p>
+<table>
+<tr><th>Plugin</th><th>Reached by</th></tr>
+<tr><td>DFTTest</td><td>QTGMC's dfttest path, SMDegrain</td></tr>
+<tr><td>nnedi3</td><td>every nnedi3 call on ARM (havsfunc patch 6)</td></tr>
+<tr><td>NNEDI3CL</td><td>QTGMC's OpenCL interpolator</td></tr>
+<tr><td>neo_f3kdb</td><td>Deband</td></tr>
+<tr><td>CTMF</td><td>Noise Reduction, havsfunc's <code>MinBlur(r&gt;=2)</code></td></tr>
+<tr><td>AWarpSharp2, FluxSmooth, TemporalMedian, LGhost, Retinex, FillBorders v2</td><td>their passes</td></tr>
+<tr><td>VSNCNN</td><td>every AI upscaler</td></tr>
+</table>
+<p>Only FillBorders has an API 4 release. R79–R82's ChangeLog otherwise changes nothing CLAUDE.md's R78 notes rely on.</p>
+<p class="note">Limit: the scan was run on one bundle (macOS arm64). Windows and Linux ship the same plugins at the same
+versions except where a platform takes a different build; the follow-up (task #74) should scan each.</p>
+
+<h2>3. Measurements</h2>
+<p><strong>Widened</strong> (<code>widened_race_ab.sh</code>): both binaries built from R78 with <code>widen_race.py</code>'s
+test-only sleeps, 20 ms before <code>outputFrame</code> writes and 5 ms between <code>outputNode</code>'s requests and its
+wait check, so the interleaving that crashes is the likely one. <code>trigger.vpy</code>, 4 concurrent loops,
+<code>data/summary-widened-macos-arm64.txt</code>:</p>
+<table>
+<tr><th>vspipe</th><th>Runs</th><th>Crashed</th></tr>
+<tr><td>R78, widened</td><td class="n">400</td><td class="n bad">400 (all exit 139, SIGSEGV)</td></tr>
+<tr><td>R78 + patch, widened</td><td class="n">400</td><td class="n good">0</td></tr>
+</table>
+<p><strong>Unwidened</strong> (<code>compare_vspipe.sh</code>, 8 loops × 150 beside 4 busy-loop CPU hogs,
+<code>data/summary-unwidened-macos-arm64.txt</code>): 0 of 1200 for either binary. arm64 does not reproduce the race at its
+natural width, as in task #65, so this row shows the patched build runs, not that it fixes anything.</p>
+<p class="note">The widened test proves the patch closes the interleaving the sleeps force; it does not measure how often
+the unwidened race fires. Task #65 measured that on x86 (2–3% of IVTC previews with its old template, 2 in 1200 Bwdif
+previews on macOS x64).</p>
+
+<h2>4. Not yet measured: the x86 A/B on the built bundles</h2>
+<p>The plan was to swap each built 1.18.0 x86 bundle's vspipe for R78's own and run task #65's loops (IVTC with the
+pre-#65 template, which crashed 2–3%) on Linux x64, macOS x64 and Windows x64. That workflow
+(<code>.github/workflows/repro-vspipe-teardown.yml</code>, temporary) had not run when this report was written; its counts
+belong here when it has.</p>
+</main>
+</body>
+</html>
