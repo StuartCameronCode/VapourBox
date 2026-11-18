@@ -56,8 +56,30 @@ _FORMAT_MAP = {
 }
 
 
+# Frames read but not yet served are kept beyond the temporal window, up to
+# this much memory (at least _MIN_EXTRA_FRAMES of them). Only frames the
+# script never asks for (a decimation, a preview's single frame) fill it.
+_EXTRA_BYTES = 512 * 1024 * 1024
+_MIN_EXTRA_FRAMES = 16
+
+
 class _PipeReader:
-    """Reads raw video frames from stdin with a small cache for temporal filters."""
+    """Reads raw video frames from stdin, keeping the frames the script may
+    still ask for.
+
+    A pipe can only be read forward, and VapourSynth does not ask for frames
+    in order: vspipe requests a new frame whenever any frame completes, so one
+    early frame whose callback is late (a busy machine) lets the rest of the
+    clip be read past it -- measured: frames 6 and 7 served after frame 99 was
+    read (task #58). So a frame is kept until it has been served and is more
+    than the temporal window behind the oldest frame not yet served (`_low`),
+    not merely the window behind the last frame read. Frames that are never
+    asked for pin `_low`; past a memory cap the oldest are dropped anyway.
+
+    A frame asked for after it was dropped raises: it can no longer be read,
+    and serving any other picture in its place silently writes the wrong frame
+    into the output (which this reader used to do).
+    """
 
     def __init__(self, width, height, vs_format, cache_frames=40):
         self.width = width
@@ -81,9 +103,13 @@ class _PipeReader:
         self.frame_size = sum(self.plane_sizes)
 
         self._pipe = sys.stdin.buffer
-        self._cache = OrderedDict()
-        self._cache_limit = max(40, int(cache_frames))  # >= QTGMC TR2 + margin
-        self._next = 0
+        self._cache = OrderedDict()  # frame -> bytes, in frame (= read) order
+        self._window = max(40, int(cache_frames))  # >= QTGMC TR2 + margin
+        self._cap = self._window + max(
+            _MIN_EXTRA_FRAMES, _EXTRA_BYTES // max(1, self.frame_size))
+        self._next = 0          # the next frame the pipe will deliver
+        self._low = 0           # the lowest frame not yet served
+        self._served = set()    # frames >= _low already served
         self._lock = threading.Lock()
         self._eof = False
         self._last_frame = None  # last successfully read frame data
@@ -101,33 +127,67 @@ class _PipeReader:
             remaining -= len(chunk)
         return data
 
+    def _advance_low(self):
+        while self._low in self._served:
+            self._served.discard(self._low)
+            self._low += 1
+
+    def _evict(self):
+        """Drop served frames behind the window, and the oldest past the cap."""
+        while self._cache:
+            k = next(iter(self._cache))
+            if k < self._low - self._window:
+                self._cache.popitem(last=False)
+            elif len(self._cache) > self._cap:
+                # Never asked for while the reader went this far ahead: given
+                # up. Asking for it later raises.
+                self._cache.popitem(last=False)
+                if k >= self._low:
+                    self._low = k + 1
+                    self._served = {s for s in self._served if s > k}
+                    self._advance_low()
+            else:
+                break
+
     def _ensure(self, n):
-        """Read stdin forward until frame n is cached."""
-        if self._eof and n not in self._cache:
-            return
-        while self._next <= n:
+        """Read stdin forward until frame n is cached (or the pipe ends)."""
+        while self._next <= n and not self._eof:
             data = self._read_one()
             if data is None:
                 return
             self._last_frame = data
             self._cache[self._next] = data
             self._next += 1
-            # Evict old frames
-            while len(self._cache) > self._cache_limit:
-                self._cache.popitem(last=False)
+            self._evict()
+
+    def _frame_data(self, n):
+        """Frame n's bytes, under the lock. Raises if it was read and dropped."""
+        self._ensure(n)
+        data = self._cache.get(n)
+        if data is None:
+            if n < self._next:
+                raise vs.Error(
+                    f"pipe_source: frame {n} was asked for after it left the "
+                    f"cache (read up to frame {self._next - 1}, oldest frame "
+                    f"not yet served {self._low}, window {self._window}, cap "
+                    f"{self._cap} frames). This is a VapourBox fault: a pass "
+                    "reads further back than its declared radius."
+                )
+            # Past the end of the stream: repeat the last real frame so
+            # VDecimate can identify it as a duplicate and drop it (blank
+            # frames would be kept, extending the video duration when
+            # TOTAL_FRAMES overshoots the actual count).
+            data = self._last_frame
+        if n >= self._low:
+            self._served.add(n)
+            self._advance_low()
+        return data
 
     def fill_frame(self, n, f):
         """VapourSynth ModifyFrame callback."""
         fout = f.copy()
         with self._lock:
-            self._ensure(n)
-            data = self._cache.get(n)
-
-        if data is None:
-            # EOF: repeat last real frame so VDecimate can identify it as a
-            # duplicate and drop it (blank frames would be kept, extending the
-            # video duration when TOTAL_FRAMES overshoots the actual count).
-            data = self._last_frame
+            data = self._frame_data(n)
         if data is None:
             return fout  # no frames read at all: return blank
 
@@ -175,10 +235,12 @@ def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt,
         fps_num: FPS numerator
         fps_den: FPS denominator
         pix_fmt: FFmpeg pixel format string (e.g. 'yuv420p')
-        cache_frames: Decoded frames kept for out-of-order reads. Must cover
-            the pipeline's temporal window plus vspipe's read-ahead: a frame
-            evicted before it is read again comes back as the *last* frame,
-            silently. The worker sizes it from the pipeline's total radius.
+        cache_frames: The temporal window: frames kept behind the oldest
+            frame not yet served, for passes that read back. Frames read ahead
+            and not yet served are kept as well (see _PipeReader). A frame
+            asked for after it was dropped raises rather than coming back as
+            another picture. The worker sizes it from the pipeline's total
+            radius.
 
     Returns:
         vs.VideoNode backed by stdin pipe

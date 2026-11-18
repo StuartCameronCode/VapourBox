@@ -1077,6 +1077,7 @@ mod tests {
                 to: 0.0,
             }],
             video_packets: 300,
+            join: None,
         };
         let mut job = job_with(json!({}));
         job.source.as_mut().unwrap().continuity = Some(reset.clone());

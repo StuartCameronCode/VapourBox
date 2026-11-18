@@ -43,15 +43,12 @@ import 'support/worker_harness.dart';
 String _resource(String name) =>
     p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', name);
 
-/// The task that owns the off-grid join (task #58, filed by task #49).
-const _offGridJoin = 'off-grid reset join, task #58';
-
 final _outDir = p.join(Directory.systemTemp.path, 'vapourbox_output_conformance');
 
 /// One source as the app analyses it.
 class _Source {
   _Source(this.decodePath, this.model, this.info, this.videoStart, this.payload, this.samples,
-      this.packetSeconds);
+      this.renderSamples, this.packetSeconds, this.clickLags);
 
   /// What the encode reads: the file, or the app's joined copy of a reset.
   final String decodePath;
@@ -69,6 +66,18 @@ class _Source {
 
   /// The decoded sound, f32 mono.
   final Float32List samples;
+
+  /// The decoded sound as Audio Restoration's render decodes it
+  /// ([MatrixCase.referenceDecoder]): the float decoder for MP2. Null when
+  /// that is FFmpeg's default ([samples]).
+  final Float32List? renderSamples;
+
+  /// How far each white frame's click sits after its picture in the source
+  /// itself, seconds, in [matrixFlashes] order. The delayed AVI's is 23 ms:
+  /// libmp3lame's priming, which AVI cannot mark, so every player plays it
+  /// that late. The output keeps the source's timing, so its clicks are
+  /// expected this far after their flashes (task #58).
+  final List<double> clickLags;
 
   /// The longest audio packet, seconds.
   final double packetSeconds;
@@ -88,10 +97,11 @@ Future<Uint8List> _payload(String path) async {
   return Uint8List.fromList(r.stdout as List<int>);
 }
 
-Future<Float32List> _samples(String path) async {
+Future<Float32List> _samples(String path, {String? decoder}) async {
   final r = await Process.run(
     WorkerHarness.ffmpegPath,
-    ['-v', 'error', '-i', path, '-map', '0:a:0', '-ac', '1', '-f', 'f32le', '-'],
+    ['-v', 'error', if (decoder != null) ...['-c:a', decoder], '-i', path, '-map', '0:a:0', '-ac', '1',
+     '-f', 'f32le', '-'],
     stdoutEncoding: null,
     environment: WorkerHarness.ffmpegEnv,
   );
@@ -132,8 +142,26 @@ Future<_Source> _prepare(SourceClass s) async {
   expect(info!.frameCount, matrixPictures, reason: '${s.file}: the app counts every picture');
   expect(model.videoStartOffset, closeTo(s.nominalVideoStart, 0.03),
       reason: '${s.file}: where the picture starts after the sound');
+  // Each click against its picture, on the source's own timeline: the
+  // container's start plus the picture's start plus n frames (not the
+  // decoded frame's PTS, which a delayed AVI stamps a frame late).
+  final fmt = await WorkerHarness.ffprobeJson(
+      ['-v', 'error', '-show_entries', 'format=start_time', '-of', 'json', decode]);
+  final start = double.tryParse('${(fmt['format'] as Map)['start_time']}') ?? 0;
+  final beeps = await beepOnsets(decode);
+  final lags = [
+    for (final n in matrixFlashes)
+      beeps
+          .map((b) => b - (start + model.videoStartOffset + n / matrixFps))
+          .reduce((a, b) => a.abs() < b.abs() ? a : b),
+  ];
+  for (final l in lags) {
+    expect(l.abs(), lessThan(0.05), reason: '${s.file}: each click near its flash (lags $lags)');
+  }
+  final render = s.renderDecoder;
   return _Source(decode, model, info, model.videoStartOffset, await _payload(decode),
-      await _samples(decode), _longest(await _audioTimes(decode)));
+      await _samples(decode), render == null ? null : await _samples(decode, decoder: render),
+      _longest(await _audioTimes(decode)), lags);
 }
 
 VideoJob _job(MatrixCase c, _Source s) {
@@ -288,7 +316,8 @@ Future<void> _check(MatrixCase c, _Source s) async {
         reason: '3. pictures ${i - 1}..$i are not one frame apart');
   }
 
-  // 4. Every white frame has its click, within one audio packet.
+  // 4. Every white frame has its click, within one audio packet of where the
+  // source has it (its own lag after the picture, [_Source.clickLags]).
   final times = await _audioTimes(out);
   final tolerance = [_longest(times), s.packetSeconds].reduce((a, b) => a > b ? a : b) + 0.001;
   final e = await events(out);
@@ -296,16 +325,18 @@ Future<void> _check(MatrixCase c, _Source s) async {
   expect(e.flashes, hasLength(want.length), reason: '4. white frames at ${e.flashes}');
   for (var i = 0; i < want.length; i++) {
     expect(e.flashes[i], closeTo(want[i], 0.5 / matrixFps), reason: '4. white frame $i');
+    final lag = s.clickLags[matrixFlashes.indexOf(c.trim.flashes[i])];
+    final at = e.flashes[i] + lag;
     final near = e.beeps.isEmpty
         ? double.infinity
-        : e.beeps.map((b) => (b - e.flashes[i]).abs()).reduce((a, b) => a < b ? a : b);
+        : e.beeps.map((b) => (b - at).abs()).reduce((a, b) => a < b ? a : b);
     final nearest = e.beeps.isEmpty
         ? null
-        : e.beeps.reduce((a, b) => (a - e.flashes[i]).abs() < (b - e.flashes[i]).abs() ? a : b);
+        : e.beeps.reduce((a, b) => (a - at).abs() < (b - at).abs() ? a : b);
     expect(near, lessThan(tolerance),
         reason: '4. the click for the flash at ${e.flashes[i].toStringAsFixed(4)} s is at '
-            '${nearest?.toStringAsFixed(4)} (${((nearest ?? 0) - e.flashes[i]).toStringAsFixed(4)} s; '
-            'one packet ${tolerance.toStringAsFixed(4)} s)');
+            '${nearest?.toStringAsFixed(4)} (${((nearest ?? 0) - e.flashes[i]).toStringAsFixed(4)} s '
+            'after it, the source\'s ${lag.toStringAsFixed(4)}; one packet ${tolerance.toStringAsFixed(4)} s)');
   }
 
   // 5. The audio packets follow on. AVI stores no duration for its first
@@ -335,7 +366,8 @@ Future<void> _check(MatrixCase c, _Source s) async {
       final fmt = '${a['sample_fmt']}';
       final raw = int.tryParse('${a['bits_per_raw_sample']}') ?? 0;
       final depth = raw > 0 ? raw : (fmt.startsWith('s16') ? 16 : fmt.startsWith('s32') ? 32 : 24);
-      final why = _sampleExact(await _samples(out), s.samples, depth);
+      final ref = c.referenceDecoder == null ? s.samples : s.renderSamples!;
+      final why = _sampleExact(await _samples(out), ref, depth);
       expect(why, isNull, reason: '6. the samples ($depth-bit): $why');
     case LosslessCheck.none:
       break;
@@ -384,25 +416,30 @@ void main() {
   // picture's grid (2.0 s of MP2 is 83.3 frames) is joined with its second
   // part's picture 16 ms late, so ffprobe reads 125 fps and the app analyses
   // 493 pictures. Known failure: fails while the fault is there.
+  // The first part's sound runs 16 ms past its last picture (a DVD cell's
+  // may). ffmpeg's own correction joined at the sound's end, so every later
+  // picture sat 16 ms off the grid and ffprobe read 125 fps; the picture now
+  // decides the join, and the overhanging sound packet goes (task #58).
   test('a reset whose sound ends off the picture grid joins on the grid', () async {
-    Object? failure;
-    try {
-      final service = TimestampContinuityService(
-          workerPath: WorkerHarness.workerPath, environment: WorkerHarness.workerEnv);
-      final r = await service.prepare(_resource('conf_reset_offgrid.mpg'), const Uuid().v4());
-      expect(r.error, isNull);
-      expect(r.scan!.videoResetPictures, [50]);
-      addTearDown(r.proxy!.delete);
-      final info = await FieldOrderDetector()
-          .getVideoInfo(r.proxy!.path, await WorkerHarness.sourceModel(r.proxy!.path));
-      expect(info!.frameRate, 25, reason: 'the copy\'s rate');
-      expect(info.frameCount, matrixPictures, reason: 'the copy\'s pictures');
-    } catch (e) {
-      failure = e;
+    final service = TimestampContinuityService(
+        workerPath: WorkerHarness.workerPath, environment: WorkerHarness.workerEnv);
+    final r = await service.prepare(_resource('conf_reset_offgrid.mpg'), const Uuid().v4());
+    expect(r.error, isNull);
+    expect(r.scan!.videoResetPictures, [50]);
+    addTearDown(r.proxy!.delete);
+    final info = await FieldOrderDetector()
+        .getVideoInfo(r.proxy!.path, await WorkerHarness.sourceModel(r.proxy!.path));
+    expect(info!.frameRate, 25, reason: 'the copy\'s rate');
+    expect(info.frameCount, matrixPictures, reason: 'the copy\'s pictures');
+    // Every picture one frame after the last, and each click on its flash.
+    final e = await events(r.proxy!.path);
+    expect(e.flashes, hasLength(matrixFlashes.length), reason: 'white frames at ${e.flashes}');
+    for (var i = 0; i < matrixFlashes.length; i++) {
+      expect(e.flashes[i] - e.flashes[0], closeTo((matrixFlashes[i] - matrixFlashes[0]) / matrixFps, 0.002),
+          reason: 'flash $i on the grid');
+      final near = e.beeps.map((b) => (b - e.flashes[i]).abs()).reduce((a, b) => a < b ? a : b);
+      expect(near, lessThan(0.013), reason: 'the click for flash $i within half a sound packet');
     }
-    expect(failure, isNotNull,
-        reason: 'a known failure ($_offGridJoin) now passes: make this an ordinary test');
-    print('  known failure ($_offGridJoin): $failure');
   });
 
   test('a copy the container cannot hold is refused before any work (task #49)', () async {

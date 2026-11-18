@@ -47,6 +47,8 @@ fn reset_fixtures_scan_then_join_into_one_timeline() {
             .collect();
         assert_eq!(video.len(), 1, "{s}");
         assert_eq!(video[0]["packet"], 150, "{s}");
+        // The picture decides the join (task #58): the scan carries a plan.
+        assert!(s["join"]["streams"].as_array().is_some_and(|v| !v.is_empty()), "{s}");
 
         let dir = std::env::temp_dir().join(format!("vb_continuity_it_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -185,4 +187,30 @@ fn the_join_uses_the_models_scan() {
     assert!(r.status.success());
     assert!(!String::from_utf8_lossy(&r.stdout).contains("Using the source model"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A planned join whose copy does not check out falls back to ffmpeg's own
+/// correction (how every reset was joined before task #58), rather than
+/// leaving the source unjoined.
+#[test]
+fn a_planned_join_that_fails_falls_back_to_ffmpegs_correction() {
+    use vapourbox_worker::dependency_locator::DependencyLocator;
+    use vapourbox_worker::source_continuity::{make_continuous, scan as scan_file};
+    let d = DependencyLocator::new().expect("deps");
+    let (ffmpeg, ffprobe, env) = (d.ffmpeg_path().unwrap(), d.ffprobe_path().unwrap(), d.build_environment());
+    let src = resource("seek_reset_dvd_pal.mpg");
+    let src = src.to_str().unwrap();
+    let mut source = scan_file(&ffprobe, &env, src).unwrap();
+    // A plan that leaves the clock going back: its copy keeps the reset.
+    let plan = source.join.as_mut().expect("a plan");
+    for s in &mut plan.streams {
+        for c in &mut s.cuts {
+            c.offset = 0.0;
+        }
+    }
+    let out = std::env::temp_dir().join(format!("vb_continuity_fallback_{}.mpg", std::process::id()));
+    let copy = make_continuous(&ffmpeg, &ffprobe, &env, src, &source, &out, |_| {}).expect("the fallback joins");
+    assert!(copy.resets.is_empty(), "{:?}", copy.resets);
+    assert_eq!(copy.video_packets, 300);
+    let _ = std::fs::remove_file(&out);
 }

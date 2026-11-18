@@ -1,0 +1,10 @@
+# task #58, macOS arm64, deps 1.16.0 (FFmpeg 9.0.2), 2026-11-17: full runs 2, 3, 4 (run 1 void, see the report)
+== run 2
+10:34 +450: All tests passed!
+failures (case :: first failed check):
+== run 3
+09:08 +450: All tests passed!
+failures (case :: first failed check):
+== run 4
+08:29 +450: All tests passed!
+failures (case :: first failed check):

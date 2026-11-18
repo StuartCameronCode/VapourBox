@@ -27,9 +27,19 @@ Future<({List<double> flashes, List<double> beeps, double videoStart})> events(
     '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'frame=pts_time',
     '-of', 'json', path,
   ]);
-  final pts = [
-    for (final f in vf['frames'] as List) double.parse('${f['pts_time']}'),
-  ];
+  // A program stream leaves a picture untimed now and then (a B picture
+  // whose packet has no PTS): it is one step after the picture before it.
+  final pts = <double>[];
+  for (final f in vf['frames'] as List) {
+    final t = double.tryParse('${f['pts_time']}');
+    if (t != null) {
+      pts.add(t);
+    } else if (pts.length >= 2) {
+      pts.add(pts.last + (pts.last - pts[pts.length - 2]));
+    } else {
+      pts.add(pts.isEmpty ? 0 : pts.last);
+    }
+  }
   final luma = await Process.run(
     WorkerHarness.ffmpegPath,
     ['-v', 'quiet', '-i', path, '-map', '0:v:0', '-fps_mode', 'passthrough',
@@ -48,6 +58,15 @@ Future<({List<double> flashes, List<double> beeps, double videoStart})> events(
     if (sum / (n / 97).ceil() > 200) flashes.add(pts[i]);
   }
 
+  final beeps = await beepOnsets(path);
+  return (flashes: flashes, beeps: beeps, videoStart: pts.isEmpty ? double.nan : pts.first);
+}
+
+/// The onsets of the first audio stream's beeps on the file's own timeline
+/// (loud after 5 ms of quiet; the first 5 ms never count, since a copied
+/// track can start inside a beep). Needs no video timestamps, so it also
+/// reads a source whose pictures have none (task #58's source lags).
+Future<List<double>> beepOnsets(String path) async {
   final af = await WorkerHarness.ffprobeJson([
     '-v', 'error', '-select_streams', 'a:0', '-show_entries',
     'frame=pts_time,nb_samples:stream=sample_rate', '-of', 'json', path,
@@ -85,7 +104,7 @@ Future<({List<double> flashes, List<double> beeps, double videoStart})> events(
     }
     pos += count;
   }
-  return (flashes: flashes, beeps: beeps, videoStart: pts.isEmpty ? double.nan : pts.first);
+  return beeps;
 }
 
 /// Each white frame has its beep: the first beep from 0.5 s before it to 1.5 s

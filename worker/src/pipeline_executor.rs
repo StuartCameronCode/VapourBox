@@ -1399,13 +1399,9 @@ impl PipelineExecutor {
         }
         args.extend(priming);
 
-        // When trimming, stop when the shortest stream (the trimmed video) ends.
-        // Without this, ffmpeg reads the full audio track even if only a small
-        // video segment was exported.
-        let is_trimmed = job.start_frame.is_some() || job.end_frame.is_some();
-        if is_trimmed {
-            args.push("-shortest".to_string());
-        }
+        // When trimming, stop with the trimmed video: `-shortest`, or the
+        // window's length under an encoder priming (see `encode_end_args`).
+        args.extend(encode_end_args(job, self.encoder_priming.as_ref()));
 
         // Embed VapourBox version in output metadata, preserving any existing
         // comment: the global tags come from input 2, the metadata file.
@@ -2036,6 +2032,27 @@ pub fn source_audio_input_seek(job: &VideoJob, priming: Option<&EncoderPriming>)
     }
 }
 
+/// How a trimmed encode stops with its picture: `-shortest`, so ffmpeg does
+/// not read the rest of the source's sound. Under an encoder priming
+/// ([`EncoderPriming`], Convert into AVI) every sound input is read late by
+/// the priming P, so a sound that ends with the window (the restored track,
+/// always exactly the window long; a source whose sound ends at the out
+/// point) ends P before the picture on ffmpeg's timeline, and `-shortest`
+/// dropped the last picture: 49 stored for 50 (task #58). There the output
+/// stops at the window's length instead (`-t`, rounded up like a seek), which
+/// keeps every picture and ends the sound with the picture. Untrimmed: none.
+pub fn encode_end_args(job: &VideoJob, priming: Option<&EncoderPriming>) -> Vec<String> {
+    let is_trimmed = job.start_frame.is_some() || job.end_frame.is_some();
+    if !is_trimmed {
+        return Vec::new();
+    }
+    let window = priming.and_then(|_| audio_restoration::OutputWindow::for_job(job).duration);
+    match window {
+        Some(d) => vec!["-t".to_string(), crate::source_decode::seek_arg(d)],
+        None => vec!["-shortest".to_string()],
+    }
+}
+
 /// The output option an [`EncoderPriming`] needs
 /// (`audio_restoration::ENCODER_PRIMING_OUTPUT_ARGS`), or none.
 pub fn encoder_priming_output_args(priming: Option<&EncoderPriming>) -> Vec<String> {
@@ -2659,6 +2676,40 @@ mod tests {
         assert!(joined.contains("-ss 2.221334 -i input.mp4"), "{joined}");
     }
 
+    /// Task 58: a trimmed Convert into AVI stops at the window's length, not
+    /// with the shortest stream: every sound input is read late by the
+    /// priming, so a sound that ends with the window (the restored track) ends
+    /// before the picture and `-shortest` dropped the last picture.
+    #[test]
+    fn a_primed_trim_stops_at_the_window_not_the_shortest_stream() {
+        let mut job = convert_avi_job();
+        job.total_frames = Some(50);
+        assert!(encode_end_args(&job, Some(&AAC_PRIMING)).is_empty(), "untrimmed: no end option");
+        job.start_frame = Some(2);
+        job.end_frame = Some(51);
+        assert_eq!(encode_end_args(&job, Some(&AAC_PRIMING)), vec!["-t", "2.000000"]);
+        assert_eq!(encode_end_args(&job, None), vec!["-shortest"]);
+        let joined = build_ffmpeg_args_with_priming(&job, Some(AAC_PRIMING)).join(" ");
+        assert!(joined.contains("-avoid_negative_ts disabled -t 2.000000 -y /tmp/out.avi"), "{joined}");
+        assert!(!joined.contains("-shortest"), "{joined}");
+        let plain = build_ffmpeg_args_with_priming(&job, None).join(" ");
+        assert!(plain.contains("-shortest -y /tmp/out.avi") && !plain.contains(" -t "), "{plain}");
+        // Without a frame count the window is unknown: -shortest as before.
+        job.total_frames = None;
+        assert_eq!(encode_end_args(&job, Some(&AAC_PRIMING)), vec!["-shortest"]);
+    }
+
+    /// The real builder ends the encode through `encode_end_args`.
+    #[test]
+    fn test_real_ffmpeg_builder_ends_through_encode_end_args() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        assert!(body.contains("args.extend(encode_end_args(job, self.encoder_priming.as_ref()));"));
+        assert!(!body.contains("\"-shortest\""), "-shortest only through encode_end_args");
+    }
+
     /// The NUT copy is read late by the priming too, and an untrimmed delayed
     /// AVI needs it once the priming moves its seek off 0 (rule 9).
     #[test]
@@ -3078,6 +3129,7 @@ mod tests {
         // The encoder's priming keeps every stream's timestamps (mirrors
         // build_ffmpeg_args; its IVTC `make_zero` is not mirrored here).
         args.extend(encoder_priming_output_args(priming.as_ref()));
+        args.extend(encode_end_args(job, priming.as_ref()));
 
         // Custom arguments
         if !settings.custom_ffmpeg_args.is_empty() {

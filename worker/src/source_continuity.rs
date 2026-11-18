@@ -14,13 +14,22 @@
 //!   ffmpeg's own discontinuity correction off, so a trim across a reset stops
 //!   there.
 //!
-//! **Frame N is the Nth slot of the continuous timeline, with each segment
-//! following the last exactly as ffmpeg's correction joins them.** A source
-//! with a reset is stream-copied once, in its own container and without
-//! `-copyts`, so that correction rewrites the timestamps continuously (one
-//! offset per segment, for every stream alike, so sync inside a segment is
-//! kept), and everything decodes the copy. A source without one is never
-//! copied, and its every argument stays as it was.
+//! **Frame N is the Nth slot of the continuous timeline, each segment's
+//! first picture one frame after the last segment's last.** A source with a
+//! reset is stream-copied once, in its own container, and everything decodes
+//! the copy. The copy shifts each segment by one offset, for every stream
+//! alike (so sync inside a segment is kept), and **the picture decides the
+//! offset** ([`JoinPlan`], task #58): `-copyts` turns ffmpeg's own
+//! correction off and a `setts` bitstream filter per stream applies the
+//! offsets by byte position. ffmpeg's correction took its offset from
+//! whichever stream showed the reset first, so a first part whose sound ran
+//! 16 ms past its last picture put every later picture 16 ms off the grid
+//! (ffprobe then read 125 fps). A sound packet left overhanging the next
+//! segment by more than half of it is dropped. When no plan can be made (no
+//! durations or positions, streams resetting a different number of times)
+//! the copy falls back to ffmpeg's correction, without `-copyts`; so does
+//! a planned copy that fails or does not check out. A source
+//! without a reset is never copied, and its every argument stays as it was.
 //!
 //! [`resets_from_packets`] is the one statement of what counts as a reset;
 //! the app learns it by running `--scan-timestamps`.
@@ -51,15 +60,16 @@ pub const STREAMS_PROBE_ARGS: [&str; 6] = [
     "-of", "json",
 ];
 
-/// ffprobe's arguments (before the input) for every packet's stream, DTS and
-/// byte position, one `stream_index,dts_time,pos` line each (ffprobe's own
-/// field order, whatever order they are asked in): the whole file is read,
-/// so the output is kept to what the rule needs, plus the position, which is
-/// how far through the file the scan is (task #55: on a network share the
-/// read takes minutes, and the app shows it).
+/// ffprobe's arguments (before the input) for every packet's stream, DTS,
+/// duration and byte position, one `stream_index,dts_time,duration_time,pos`
+/// line each (ffprobe's own field order, whatever order they are asked in):
+/// the whole file is read, so the output is kept to what the rule and the
+/// join plan (task #58) need, plus the position, which is how far through
+/// the file the scan is (task #55: on a network share the read takes
+/// minutes, and the app shows it).
 pub const PACKETS_PROBE_ARGS: [&str; 6] = [
     "-v", "error",
-    "-show_entries", "packet=stream_index,dts_time,pos",
+    "-show_entries", "packet=stream_index,dts_time,duration_time,pos",
     "-of", "csv=p=0",
 ];
 
@@ -92,6 +102,196 @@ pub struct ContinuityScan {
     pub resets: Vec<Reset>,
     /// Video packets in the file, every video stream (how the copy is checked).
     pub video_packets: u64,
+    /// How the copy joins the segments; `None` without a reset, or when the
+    /// packets don't give what the plan needs (the copy then falls back to
+    /// ffmpeg's own correction). Absent from a scan an older worker wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub join: Option<JoinPlan>,
+}
+
+/// From this point on (the stream's packet index, or a byte position; see
+/// [`JoinStream::by_position`]), a stream's timestamps move by `offset`
+/// seconds (the latest cut a packet is at or after applies).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Cut {
+    pub at: i64,
+    pub offset: f64,
+}
+
+/// One copied stream's part of a [`JoinPlan`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinStream {
+    /// `video`, `audio` or `subtitle`.
+    pub codec_type: String,
+    /// Its index among the file's streams of that type, which is its output
+    /// index of that type too (`-map 0:v -map 0:a? -map 0:s?` keeps order).
+    pub type_index: u32,
+    /// Whether the cuts are byte positions (`POS`) rather than the stream's
+    /// own packet indices (`N`). A stream that resets is cut at its own
+    /// reset packet, by index: MPEG audio split from one PES by the parser
+    /// carries no position after its first frame. A stream without a reset
+    /// of its own (subtitles) is cut where the picture's reset packet sits
+    /// in the file.
+    pub by_position: bool,
+    pub cuts: Vec<Cut>,
+    /// Packet indices dropped: the last packet of a segment that overhangs
+    /// the next segment's first by more than half of itself.
+    pub drop: Vec<i64>,
+}
+
+/// The joined copy's timeline: each segment shifted so that its first
+/// picture follows the previous segment's last by one frame, and every
+/// stream of the segment shifted alike.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JoinPlan {
+    pub streams: Vec<JoinStream>,
+    /// What the plan did that a log should say (dropped sound).
+    pub notes: Vec<String>,
+}
+
+/// One row of [`PACKETS_PROBE_ARGS`]' answer.
+#[derive(Debug, Clone, Copy)]
+struct Packet {
+    dts: Option<f64>,
+    duration: Option<f64>,
+    pos: Option<i64>,
+}
+
+fn field<T: std::str::FromStr>(f: Option<&str>) -> Option<T> {
+    f.and_then(|s| s.trim().parse::<T>().ok())
+}
+
+/// The packet rows per stream, in file order, for the streams in `types`.
+fn packets_by_stream(csv: &str, types: &HashMap<u32, String>) -> std::collections::BTreeMap<u32, Vec<Packet>> {
+    let mut out: std::collections::BTreeMap<u32, Vec<Packet>> = Default::default();
+    for line in csv.lines() {
+        let mut fields = line.split(',');
+        let Some(stream) = field::<u32>(fields.next()) else { continue };
+        if !types.contains_key(&stream) {
+            continue;
+        }
+        let dts = field::<f64>(fields.next()).filter(|t| t.is_finite());
+        let duration = field::<f64>(fields.next()).filter(|d| d.is_finite() && *d > 0.0);
+        let pos = field::<i64>(fields.next()).filter(|p| *p >= 0);
+        out.entry(stream).or_default().push(Packet { dts, duration, pos });
+    }
+    out
+}
+
+/// Where a stream's clock jumps: (index of the last packet with a DTS
+/// before it, index of the first after it), by [`resets_from_packets`]' rule.
+fn reset_points(packets: &[Packet]) -> Vec<(usize, usize)> {
+    let mut last: Option<(usize, f64)> = None;
+    let mut out = Vec::new();
+    for (i, p) in packets.iter().enumerate() {
+        let Some(dts) = p.dts else { continue };
+        if let Some((j, prev)) = last {
+            let step = dts - prev;
+            if step < -RESET_BACKWARD_SECS || step > RESET_FORWARD_SECS {
+                out.push((j, i));
+            }
+        }
+        last = Some((i, dts));
+    }
+    out
+}
+
+fn typical_duration(packets: &[Packet]) -> Option<f64> {
+    let mut d: Vec<f64> = packets.iter().filter_map(|p| p.duration).collect();
+    if d.is_empty() {
+        return None;
+    }
+    d.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    Some(d[d.len() / 2])
+}
+
+/// The [`JoinPlan`] for a packet list (as [`resets_from_packets`] reads it,
+/// with durations and positions), or `None` when there is no video reset or
+/// the plan can't be made exactly: a reset packet without a position, a
+/// video stream without a duration, an audio or video stream resetting a
+/// different number of times from the picture.
+pub fn join_plan(csv: &str, types: &HashMap<u32, String>) -> Option<JoinPlan> {
+    let copied: HashMap<u32, String> = types
+        .iter()
+        .filter(|(_, t)| matches!(t.as_str(), "video" | "audio" | "subtitle"))
+        .map(|(i, t)| (*i, t.clone()))
+        .collect();
+    let streams = packets_by_stream(csv, &copied);
+    // The grid: the first video stream with a reset.
+    let (_, grid_packets) = streams
+        .iter()
+        .find(|(i, p)| copied[*i] == "video" && !reset_points(p).is_empty())?;
+    let frame = typical_duration(grid_packets)?;
+    let mut offsets = Vec::new();
+    // The picture's cuts by byte position, for streams without a reset of
+    // their own; `None` when a reset packet has no position.
+    let mut grid_positions = Some(Vec::new());
+    let mut off = 0.0;
+    for (from, to) in reset_points(grid_packets) {
+        let (a, b) = (grid_packets[from], grid_packets[to]);
+        let step = a.duration.unwrap_or(frame);
+        off += a.dts? + (to - from) as f64 * step - b.dts?;
+        offsets.push(off);
+        grid_positions = grid_positions.and_then(|mut v: Vec<Cut>| {
+            v.push(Cut { at: b.pos?, offset: off });
+            Some(v)
+        });
+    }
+    let mut type_counts: HashMap<String, u32> = HashMap::new();
+    let mut plan = JoinPlan { streams: Vec::new(), notes: Vec::new() };
+    for (&index, packets) in &streams {
+        let kind = copied[&index].clone();
+        let type_index = {
+            let c = type_counts.entry(kind.clone()).or_insert(0);
+            *c += 1;
+            *c - 1
+        };
+        let resets = if kind == "subtitle" { Vec::new() } else { reset_points(packets) };
+        let mut stream = JoinStream {
+            codec_type: kind.clone(),
+            type_index,
+            by_position: false,
+            cuts: Vec::new(),
+            drop: Vec::new(),
+        };
+        if resets.is_empty() {
+            // No reset of its own (subtitles, a stream that ends before
+            // it): the picture's cuts, by where they sit in the file.
+            stream.by_position = true;
+            stream.cuts = grid_positions.clone()?;
+        } else if resets.len() == offsets.len() {
+            let dur = typical_duration(packets);
+            let mut prev_off = 0.0;
+            for (k, &(from, to)) in resets.iter().enumerate() {
+                let (a, b) = (packets[from], packets[to]);
+                stream.cuts.push(Cut { at: to as i64, offset: offsets[k] });
+                // How far its last packet before the reset runs into the
+                // next segment's first, once both are shifted.
+                if let (Some(d), Some(ad), Some(bd), true) = (a.duration.or(dur), a.dts, b.dts, to == from + 1) {
+                    let overhang = (ad + prev_off + d) - (bd + offsets[k]);
+                    if overhang > d / 2.0 {
+                        stream.drop.push(from as i64);
+                        plan.notes.push(format!(
+                            "{} stream {}: the segment's sound ran {:.0} ms past its last picture; \
+                             its last packet ({:.0} ms) is dropped at the join",
+                            kind,
+                            type_index,
+                            (overhang) * 1000.0,
+                            d * 1000.0
+                        ));
+                    }
+                }
+                prev_off = offsets[k];
+            }
+        } else {
+            return None;
+        }
+        plan.streams.push(stream);
+    }
+    Some(plan)
 }
 
 impl ContinuityScan {
@@ -108,11 +308,16 @@ impl ContinuityScan {
             .filter(|r| r.codec_type == "video")
             .map(|r| format!("picture {} ({:.2} s -> {:.2} s)", r.packet, r.from, r.to))
             .collect();
-        if video.is_empty() {
+        let mut line = if video.is_empty() {
             format!("{} timestamp reset(s) in the sound", self.resets.len())
         } else {
             format!("timestamps reset at {}", video.join(", "))
+        };
+        for note in self.join.iter().flat_map(|j| &j.notes) {
+            line.push_str("; ");
+            line.push_str(note);
         }
+        line
     }
 }
 
@@ -124,7 +329,7 @@ pub fn applies_to(format_name: &str) -> bool {
         .any(|n| TIMESTAMP_SEARCH_FORMATS.contains(&n.trim()))
 }
 
-/// The resets in a packet list (`stream_index,dts_time[,pos]` lines, in
+/// The resets in a packet list (`stream_index,dts_time[,duration_time,pos]` lines, in
 /// file order), for the audio and video streams in `types` (index -> codec
 /// type): [`ResetScanner`] over the whole list.
 pub fn resets_from_packets(csv: &str, types: &HashMap<u32, String>) -> (Vec<Reset>, u64) {
@@ -169,13 +374,14 @@ impl<'a> ResetScanner<'a> {
         self.position
     }
 
-    /// One `stream_index,dts_time[,pos]` line.
+    /// One `stream_index,dts_time[,duration_time,pos]` line.
     pub fn push(&mut self, line: &str) {
         let mut fields = line.split(',');
         let Some(stream) = fields.next().and_then(|s| s.trim().parse::<u32>().ok()) else {
             return;
         };
         let dts = fields.next();
+        let _duration = fields.next();
         if let Some(pos) = fields.next().and_then(|s| s.trim().parse::<u64>().ok()) {
             self.position = Some(self.position.map_or(pos, |p| p.max(pos)));
         }
@@ -304,7 +510,7 @@ pub fn scan_packets_with_progress(
     mut progress: impl FnMut(f64),
 ) -> Result<ContinuityScan> {
     if !applies_to(&format) {
-        return Ok(ContinuityScan { format, applies: false, resets: vec![], video_packets: 0 });
+        return Ok(ContinuityScan { format, applies: false, resets: vec![], video_packets: 0, join: None });
     }
     let size = std::fs::metadata(input).map(|m| m.len()).unwrap_or(0);
     let mut child = Command::new(ffprobe)
@@ -316,6 +522,7 @@ pub fn scan_packets_with_progress(
         .spawn()
         .context("failed to run ffprobe")?;
     let mut scanner = ResetScanner::new(types);
+    let mut csv = String::new();
     if let Some(stdout) = child.stdout.take() {
         use std::io::BufRead;
         let mut reported = 0.0f64;
@@ -327,7 +534,9 @@ pub fn scan_packets_with_progress(
                 Ok(0) | Err(_) => break,
                 Ok(_) => {}
             }
-            scanner.push(&String::from_utf8_lossy(&line));
+            let text = String::from_utf8_lossy(&line);
+            scanner.push(&text);
+            csv.push_str(&text);
             if let (Some(pos), true) = (scanner.position(), size > 0) {
                 let f = (pos as f64 / size as f64).min(1.0);
                 if f - reported >= PROGRESS_STEP {
@@ -342,8 +551,10 @@ pub fn scan_packets_with_progress(
         bail!("ffprobe could not list the packets of {}", input);
     }
     let (resets, video_packets) = scanner.finish();
+    // The join plan needs every packet's row, but only when there is a reset.
+    let join = if resets.is_empty() { None } else { join_plan(&csv, types) };
     progress(1.0);
-    Ok(ContinuityScan { format, applies: true, resets, video_packets })
+    Ok(ContinuityScan { format, applies: true, resets, video_packets, join })
 }
 
 /// The muxer a continuous copy is written with: the source's own container,
@@ -370,14 +581,31 @@ pub fn continuous_copy_args(
     muxer: &str,
     output: &str,
     with_subtitles: bool,
+    join: Option<&JoinPlan>,
 ) -> Vec<String> {
-    let mut args: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-v", "error", "-i", input]
+    let mut args: Vec<String> = ["-hide_banner", "-nostdin", "-y", "-v", "error"]
         .iter()
         .map(|s| s.to_string())
         .collect();
+    if join.is_some() {
+        args.push("-copyts".to_string());
+    }
+    args.extend(["-i", input].iter().map(|s| s.to_string()));
     args.extend(["-map", "0:v", "-map", "0:a?"].iter().map(|s| s.to_string()));
     if with_subtitles {
         args.extend(["-map", "0:s?"].iter().map(|s| s.to_string()));
+    }
+    for s in join.map(|j| j.streams.as_slice()).unwrap_or_default() {
+        if s.codec_type == "subtitle" && !with_subtitles {
+            continue;
+        }
+        let spec = match s.codec_type.as_str() {
+            "video" => "v",
+            "audio" => "a",
+            _ => "s",
+        };
+        args.push(format!("-bsf:{spec}:{}", s.type_index));
+        args.push(join_bsf(s));
     }
     args.extend(
         ["-c", "copy", "-map_metadata", "0", "-progress", "pipe:1", "-nostats", "-f", muxer, output]
@@ -385,6 +613,27 @@ pub fn continuous_copy_args(
             .map(|s| s.to_string()),
     );
     args
+}
+
+/// The bitstream filters that move one stream onto the joined timeline:
+/// `setts` adds the offset of the latest cut a packet is at or after (its
+/// packet index `N`, or its byte position `POS`), leaving a missing
+/// timestamp missing; `noise`, after it, drops the overhanging packets by
+/// index (`n`: `setts` drops nothing, so both count the same packets).
+/// Commas inside an option are escaped for the filter list.
+pub fn join_bsf(s: &JoinStream) -> String {
+    let key = if s.by_position { "POS" } else { "N" };
+    let mut off = "0".to_string();
+    for c in &s.cuts {
+        off = format!("if(gte({key}\\,{})\\,{:.9}\\,{})", c.at, c.offset, off);
+    }
+    let shift = |ts: &str| format!("if(eq({ts}\\,NOPTS)\\,NOPTS\\,{ts}+round(({off})/TB))");
+    let mut f = format!("setts=pts={}:dts={}", shift("PTS"), shift("DTS"));
+    if !s.drop.is_empty() {
+        let drop: Vec<String> = s.drop.iter().map(|n| format!("eq(n\\,{n})")).collect();
+        f.push_str(&format!(",noise=drop={}", drop.join("+")));
+    }
+    f
 }
 
 /// Why a finished copy can't be used, or `None` when it can: it must have no
@@ -423,12 +672,12 @@ pub fn make_continuous(
         .with_context(|| format!("no continuous copy for format {}", source.format))?;
     let size = std::fs::metadata(input).map(|m| m.len()).unwrap_or(0);
     let out_str = output.to_string_lossy().to_string();
-    let result = (|| -> Result<ContinuityScan> {
+    let mut attempt = |join: Option<&JoinPlan>| -> Result<ContinuityScan> {
         let mut last_err = String::new();
         let mut done = false;
         for with_subtitles in [true, false] {
             let mut child = Command::new(ffmpeg)
-                .args(continuous_copy_args(input, muxer, &out_str, with_subtitles))
+                .args(continuous_copy_args(input, muxer, &out_str, with_subtitles, join))
                 .envs(env)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -470,7 +719,15 @@ pub fn make_continuous(
         }
         progress(1.0);
         Ok(copy)
-    })();
+    };
+    // The planned join first; should its copy fail or not check out, ffmpeg's
+    // own correction, which joined every source before task #58.
+    let result = match source.join.as_ref() {
+        Some(plan) => attempt(Some(plan)).or_else(|planned| {
+            attempt(None).map_err(|e| e.context(format!("the planned join failed too: {planned:#}")))
+        }),
+        None => attempt(None),
+    };
     if result.is_err() {
         let _ = std::fs::remove_file(output);
     }
@@ -588,9 +845,10 @@ mod tests {
 
     #[test]
     fn the_position_column_is_read_and_never_goes_back() {
-        // ffprobe's own order: stream_index, dts_time, pos (a TS line can
-        // end in an empty field; a PS sound packet often has no position).
-        let csv = "1,0.529978,2062\n1,0.553978,N/A\n0,1.40,564,\n0,1.44,5076,\n2,9.0,99999\n0,1.48,4000\n";
+        // ffprobe's own order: stream_index, dts_time, duration_time, pos
+        // (a TS line can end in an empty field; a PS sound packet often has
+        // no position).
+        let csv = "1,0.529978,0.024,2062\n1,0.553978,0.024,N/A\n0,1.40,0.04,564,\n0,1.44,0.04,5076,\n2,9.0,N/A,99999\n0,1.48,0.04,4000\n";
         let t = types();
         let mut s = ResetScanner::new(&t);
         let mut seen = Vec::new();
@@ -614,14 +872,14 @@ mod tests {
             "0,0.50\n0,0.54\n0,6.46\n0,0.50\n0,0.54\n",
             "0,1.0\n0,16.0\n0,16.04\n",
             "0,6.0\n0,N/A\n0,0.5\n",
-            "1,6.5,10\n1,0.53,20\n2,9.0,30\n2,0.0,40\n3,9.0\n3,0.0\n0,0.5,50\n",
+            "1,6.5,0.024,10\n1,0.53,0.024,20\n2,9.0,0.04,30\n2,0.0,0.04,40\n3,9.0\n3,0.0\n0,0.5,0.04,50\n",
         ];
         let t = types();
         for csv in cases {
             let mut s = ResetScanner::new(&t);
             csv.lines().for_each(|l| s.push(l));
             assert_eq!(s.finish(), resets_from_packets(csv, &t), "{csv}");
-            // The old two-column lines and the new three-column lines agree.
+            // The old two-column lines and the new four-column lines agree.
             let two: String = csv
                 .lines()
                 .map(|l| l.split(',').take(2).collect::<Vec<_>>().join(",") + "\n")
@@ -632,7 +890,7 @@ mod tests {
 
     #[test]
     fn the_packet_probe_asks_for_the_position() {
-        assert!(PACKETS_PROBE_ARGS.join(" ").contains("packet=stream_index,dts_time,pos"));
+        assert!(PACKETS_PROBE_ARGS.join(" ").contains("packet=stream_index,dts_time,duration_time,pos"));
     }
 
     #[test]
@@ -649,16 +907,133 @@ mod tests {
 
     #[test]
     fn the_copy_keeps_the_container_and_drops_copyts() {
-        let a = continuous_copy_args("in.vob", "vob", "out.mpg", true);
+        let a = continuous_copy_args("in.vob", "vob", "out.mpg", true, None);
         let s = a.join(" ");
         assert!(!s.contains("copyts"), "{s}");
         assert!(s.contains("-map 0:v -map 0:a? -map 0:s? -c copy -map_metadata 0"), "{s}");
         assert!(s.ends_with("-f vob out.mpg"), "{s}");
-        let t = continuous_copy_args("in.ts", "mpegts", "out.ts", false).join(" ");
+        let t = continuous_copy_args("in.ts", "mpegts", "out.ts", false, None).join(" ");
         assert!(!t.contains("0:s?"), "{t}");
         assert!(t.ends_with("-f mpegts out.ts"), "{t}");
         // No -muxdelay: the copy keeps the source's start time.
         assert!(!t.contains("muxdelay"), "{t}");
+    }
+
+    /// The off-grid reset (`conf_reset_offgrid.mpg`'s shape): the picture
+    /// resets after 50 frames at 2.00 s, the sound after 84 packets, running
+    /// 16 ms past the last picture. Task #58.
+    fn offgrid_csv() -> String {
+        let mut rows = Vec::new();
+        let mut pos = 0i64;
+        let mut push = |s: u32, dts: f64, d: f64| {
+            rows.push(format!("{s},{dts:.6},{d:.6},{pos}"));
+            pos += 100;
+        };
+        for part in 0..2 {
+            for i in 0..50 {
+                push(0, 0.5 + i as f64 * 0.04, 0.04);
+            }
+            let sound = if part == 0 { 84 } else { 83 };
+            for i in 0..sound {
+                push(1, 0.529978 + i as f64 * 0.024, 0.024);
+            }
+        }
+        rows.join("\n")
+    }
+
+    #[test]
+    fn the_picture_decides_the_join_and_overhanging_sound_is_dropped() {
+        let plan = join_plan(&offgrid_csv(), &types()).expect("a plan");
+        assert_eq!(plan.streams.len(), 2);
+        let (v, a) = (&plan.streams[0], &plan.streams[1]);
+        assert_eq!((v.codec_type.as_str(), v.type_index), ("video", 0));
+        // Last picture 0.5 + 49 x 0.04 = 2.46, next at 2.50; the second part's
+        // first picture is at 0.50: everything after moves by exactly 2.00 s.
+        assert_eq!(v.cuts.len(), 1);
+        assert!((v.cuts[0].offset - 2.0).abs() < 1e-9, "{:?}", v.cuts);
+        assert_eq!(v.cuts[0].at, 50, "the second part's first picture");
+        assert!(!v.by_position && !a.by_position, "streams that reset are cut by packet index");
+        // The sound moves by the picture's offset, at its own reset.
+        assert!((a.cuts[0].offset - 2.0).abs() < 1e-9);
+        assert_eq!(a.cuts[0].at, 84);
+        // Its last packet ends 2.545978; the next part's first starts at
+        // 2.529978: 16 ms of a 24 ms packet overhang, so it goes.
+        assert_eq!(a.drop, vec![83]);
+        assert_eq!(plan.notes.len(), 1, "{:?}", plan.notes);
+        assert!(v.drop.is_empty());
+    }
+
+    #[test]
+    fn a_join_on_the_grid_drops_nothing_and_two_resets_add_up() {
+        // Sound and picture end together: 51 pictures = 85 MP2 packets.
+        let mut rows = Vec::new();
+        let mut pos = 0;
+        for _ in 0..3 {
+            for i in 0..51 {
+                rows.push(format!("0,{:.6},0.04,{pos}", 0.5 + i as f64 * 0.04));
+                pos += 10;
+            }
+            for i in 0..85 {
+                rows.push(format!("1,{:.6},0.024,{pos}", 0.5 + i as f64 * 0.024));
+                pos += 10;
+            }
+        }
+        let plan = join_plan(&rows.join("\n"), &types()).unwrap();
+        let offs: Vec<f64> = plan.streams[0].cuts.iter().map(|c| c.offset).collect();
+        assert_eq!(offs.len(), 2);
+        assert!((offs[0] - 2.04).abs() < 1e-9 && (offs[1] - 4.08).abs() < 1e-9, "{offs:?}");
+        assert!(plan.streams.iter().all(|s| s.drop.is_empty()));
+        assert!(plan.notes.is_empty());
+    }
+
+    #[test]
+    fn the_summary_says_what_the_join_dropped() {
+        let mut scan = scan_of(1, 100);
+        assert!(!scan.summary().contains("dropped"));
+        scan.join = join_plan(&offgrid_csv(), &types());
+        let s = scan.summary();
+        assert!(s.starts_with("timestamps reset at picture 150") && s.contains("16 ms past its last picture"), "{s}");
+    }
+
+    #[test]
+    fn no_plan_without_what_it_needs() {
+        // No durations (an older scan's two columns).
+        assert!(join_plan("0,6.46\n0,0.50\n", &types()).is_none());
+        // No video reset.
+        assert!(join_plan("0,0.5,0.04,0\n0,0.54,0.04,10\n1,3.0,0.024,20\n1,0.5,0.024,30\n", &types()).is_none());
+        // The sound resets twice, the picture once.
+        let csv = "0,2.46,0.04,0\n0,0.5,0.04,10\n1,2.0,0.024,20\n1,0.5,0.024,30\n1,3.0,0.024,40\n1,0.6,0.024,50\n";
+        assert!(join_plan(csv, &types()).is_none());
+    }
+
+    #[test]
+    fn the_join_filters_shift_by_position_and_keep_missing_timestamps() {
+        let plan = join_plan(&offgrid_csv(), &types()).unwrap();
+        let v = join_bsf(&plan.streams[0]);
+        assert_eq!(
+            v,
+            "setts=pts=if(eq(PTS\\,NOPTS)\\,NOPTS\\,PTS+round((if(gte(N\\,50)\\,2.000000000\\,0))/TB))\
+             :dts=if(eq(DTS\\,NOPTS)\\,NOPTS\\,DTS+round((if(gte(N\\,50)\\,2.000000000\\,0))/TB))"
+        );
+        assert!(join_bsf(&plan.streams[1]).ends_with(",noise=drop=eq(n\\,83)"));
+        let a = continuous_copy_args("in.vob", "vob", "out.mpg", true, Some(&plan)).join(" ");
+        assert!(a.contains("-v error -copyts -i in.vob"), "{a}");
+        assert!(a.contains("-bsf:v:0 setts=") && a.contains("-bsf:a:0 setts="), "{a}");
+    }
+
+    /// A subtitle stream has no reset of its own: it follows the picture's
+    /// cuts, and is left out with the subtitles.
+    #[test]
+    fn subtitles_follow_the_picture() {
+        let csv = format!("{}\n2,1.0,,50\n2,0.7,,20000\n", offgrid_csv());
+        let plan = join_plan(&csv, &types()).unwrap();
+        let sub = plan.streams.iter().find(|s| s.codec_type == "subtitle").unwrap();
+        assert!(sub.by_position);
+        assert_eq!(sub.cuts, vec![Cut { at: 13_400, offset: plan.streams[0].cuts[0].offset }]);
+        assert!(join_bsf(sub).contains("gte(POS\\,13400)"));
+        let without = continuous_copy_args("in.vob", "vob", "o.mpg", false, Some(&plan)).join(" ");
+        assert!(!without.contains("-bsf:s"), "{without}");
+        assert!(continuous_copy_args("in.vob", "vob", "o.mpg", true, Some(&plan)).join(" ").contains("-bsf:s:0 "));
     }
 
     fn scan_of(resets: usize, video: u64) -> ContinuityScan {
@@ -675,6 +1050,7 @@ mod tests {
                 })
                 .collect(),
             video_packets: video,
+            join: None,
         }
     }
 
