@@ -770,7 +770,25 @@ const knownFailuresTask = 56;
 // Task #56 fixed every entry this list held (F1-F4, F6, F7, F9; see
 // docs/reports/task-56-format-sweep-findings). A new finding goes here with
 // its task, and comes out with its fix.
-final knownFailures = <KnownFailure>[];
+final knownFailures = <KnownFailure>[
+  // Task #68: vspipe R78 can free the script while its last frame's
+  // callback still writes it (SIGSEGV; the core shows frameDoneCallback
+  // crashing, main in freeScript). A one-frame preview of a tiny row is
+  // fast enough to hit it: the push gate's 96x66 row once, and 2 in 1,800
+  // replays of this variant's 98x64 rows (docs/reports/task-66-qtgmc-draft-
+  // sigsegv). Any preview can, so this covers every row of the variant it
+  // was seen on; elsewhere Linux CI prints the backtrace. The text match
+  // keeps any other failure visible. Remove with #68 (VapourSynth R80+).
+  KnownFailure(
+    variant: 'deinterlace/qtgmc[preset=Draft]',
+    check: SweepCheck.runs,
+    rows: (r) => true,
+    error: 'vspipe exited with signal 11 (SIGSEGV)',
+    task: 68,
+    finding: 'vspipe R78 teardown race (intermittent SIGSEGV)',
+    flaky: true,
+  ),
+];
 
 KnownFailure? knownFailureFor(String variantId, SweepRow row, SweepCheck check) {
   for (final k in knownFailures) {

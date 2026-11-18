@@ -1,0 +1,24 @@
+# CI run 44092596209 (AMD EPYC 9V45)
+qtgmc_draft:98x96:YUV420P12: exit 99, ERROR SUMMARY: 3 errors from 2 contexts (suppressed: 0 from 0) by 0x8315914: newVideoFrame(
+qtgmc_draft:96x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_draft:98x96:YUV420P8: exit 1, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+degrain_qtgmc:98x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+degrain_qtgmc:96x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+compensate_qtgmc:98x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+degrain:98x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+compensate:98x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_draft:104x104:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+
+# CI run 44093850442 (AMD EPYC 7763)
+qtgmc_draft:98x96:YUV420P12: exit 99, ERROR SUMMARY: 3 errors from 2 contexts (suppressed: 0 from 0) by 0x8315914: newVideoFrame(
+qtgmc_draft:98x96:YUV420P8: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_draft:98x96:YUV420P16: exit 99, ERROR SUMMARY: 3 errors from 2 contexts (suppressed: 0 from 0) by 0x8315914: newVideoFrame(
+qtgmc_draft:100x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_draft:98x96:YUV422P12: exit 99, ERROR SUMMARY: 5 errors from 3 contexts (suppressed: 0 from 0) by 0x8315914: newVideoFrame(
+qtgmc_draft:98x96:YUV444P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_draft:722x480:YUV420P12: exit 99, ERROR SUMMARY: 5 errors from 3 contexts (suppressed: 0 from 0) by 0x8315914: newVideoFrame(
+qtgmc_draft:722x480:YUV420P8: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_draft:720x480:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_fast:98x96:YUV420P12: exit 99, ERROR SUMMARY: 3 errors from 2 contexts (suppressed: 0 from 0) by 0x8315914: newVideoFrame(
+qtgmc_slower:98x96:YUV420P12: exit 99, ERROR SUMMARY: 58773 errors from 104 contexts (suppressed: 0 from 0) by 0x833C122: VSNode::getFrameInternal(int,
+qtgmc_draft:96x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 

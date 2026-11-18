@@ -1,0 +1,278 @@
+name: Reproduce a native crash (Linux x64)
+
+# Reproduces an intermittent vspipe crash on a Linux x64 runner (task #66: QTGMC
+# Draft SIGSEGV at 96x66 4:2:0 in the push gate's format sweep). It runs one
+# test once with a capturing vspipe-bin (.github/scripts/replay-vspipe.sh),
+# which saves the script, arguments, environment and stdin of every vspipe run
+# whose script matches `match`. It then replays those runs directly through
+# vspipe, with no Flutter or worker in the loop, so hundreds of runs take
+# minutes:
+#   plain          `repeat` x every captured run, `parallel` at once: the crash
+#                  rate, and gdb backtraces of the first cores
+#   single-thread  the same with core.num_threads = 1: a crash that goes away
+#                  here is a race between threads
+#   valgrind       `valgrind_repeat` runs under memcheck, which reports an
+#                  out-of-bounds or uninitialised read whether or not it crashes
+# Optional, each off unless given:
+#   bisect       call:WxH:format runs of docs/reports/task-66-qtgmc-draft-sigsegv/
+#                scripts/bare.vpy (one call on a synthetic clip) under valgrind
+#   locate       the same through scripts/locate.py: which output samples are
+#                uninitialised (one memcheck process per region; slow)
+#   probe_calls  Scripts/probe-plugin-formats.py --calls, probe_repeat times
+#                (mv.FlowFPS at 64x48: task #69)
+#
+# Dispatch it, or push a change to this file on a branch: a workflow that is
+# not on the default branch cannot be dispatched, and a push then runs it with
+# the defaults below.
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_file:
+        description: 'Flutter test file whose vspipe runs to capture'
+        default: 'test/integration_format_sweep_test.dart'
+      plain_name:
+        description: '--plain-name of the test to run once'
+        default: 'format sweep (push gate) deinterlace/qtgmc[preset=Draft]'
+      match:
+        description: 'Capture only scripts matching this extended regex'
+        default: 'Preset="Draft"'
+      repeat:
+        description: 'Replays of every captured run, per mode'
+        default: '300'
+      parallel:
+        description: 'Replays at once'
+        default: '8'
+      modes:
+        description: 'Space-separated: plain single-thread valgrind'
+        default: 'plain single-thread valgrind'
+      valgrind_repeat:
+        description: 'Replays of every captured run under valgrind'
+        default: '2'
+      probe_calls:
+        description: 'Optional: probe-plugin-formats.py --calls to run too (comma-separated)'
+        default: ''
+      probe_repeat:
+        description: 'Times to run the probe'
+        default: '3'
+      bisect:
+        description: 'call:WxH:format runs of the report scripts/bare.vpy under valgrind'
+        default: ''
+      locate:
+        description: 'call:WxH:format runs of scripts/locate.py (which samples are uninitialised)'
+        default: ''
+      deps_run_id:
+        description: 'Optional build-deps-linux run ID to take the bundle from'
+        required: false
+        type: string
+  push:
+    # Branches only: merging a change to this file must not start a repro run on main.
+    branches-ignore: [main]
+    paths: ['.github/workflows/repro-native-crash.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  TEST_FILE: ${{ inputs.test_file || 'test/integration_format_sweep_test.dart' }}
+  PLAIN_NAME: ${{ inputs.plain_name || 'format sweep (push gate) deinterlace/qtgmc[preset=Draft]' }}
+  MATCH: ${{ inputs.match || 'Preset="Draft"' }}
+  REPEAT: ${{ inputs.repeat || '300' }}
+  PARALLEL: ${{ inputs.parallel || '8' }}
+  MODES: ${{ inputs.modes || 'plain single-thread valgrind' }}
+  VALGRIND_REPEAT: ${{ inputs.valgrind_repeat || '2' }}
+  PROBE_CALLS: ${{ inputs.probe_calls }}
+  PROBE_REPEAT: ${{ inputs.probe_repeat || '3' }}
+  # call:WxH:format runs of the report's bare.vpy under valgrind / locate.py.
+  BISECT: ${{ inputs.bisect }}
+  LOCATE: ${{ inputs.locate }}
+  CAPTURE: ${{ github.workspace }}/repro/capture
+  OUT: ${{ github.workspace }}/repro/out
+  VAPOURBOX_CORE_DIR: /tmp/cores
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04  # must match the deps-build runner (glibc)
+    timeout-minutes: 300
+    env:
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/linux-x64
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config \
+            libgtk-3-dev liblzma-dev unzip valgrind
+
+      - name: Keep core dumps
+        run: MAX_CORES=8 bash .github/scripts/enable-core-dumps.sh
+
+      - name: CPU
+        run: |
+          grep -m1 'model name' /proc/cpuinfo
+          nproc
+          grep -m1 -o 'avx512[a-z]*' /proc/cpuinfo | head -1 || echo "no avx512"
+
+      - name: Resolve deps tag
+        id: deps
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Download dependencies (linux-x64)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
+        run: |
+          bash .github/scripts/install-deps-bundle.sh linux-x64 \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/linux-x64
+
+      - name: Stage deps at XDG path for the Rust locator
+        run: |
+          mkdir -p "$HOME/.local/share/VapourBox"
+          ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
+
+      - name: Build worker (debug)
+        run: cd worker && cargo build
+
+      - name: Generate Dart serialization
+        run: |
+          cd app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Capture the test's vspipe runs
+        env:
+          VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
+        run: |
+          bash .github/scripts/replay-vspipe.sh install deps/linux-x64/vapoursynth "$MATCH" "$CAPTURE"
+          (cd app && flutter test "$TEST_FILE" --plain-name "$PLAIN_NAME") || echo "::warning::the test failed while capturing"
+          # The capture script stays: the replays run vspipe-bin.real.
+          ls "$CAPTURE"
+          for r in "$CAPTURE"/run.*; do echo "$(basename "$r"): exit $(cat "$r/rc" 2>/dev/null)"; done
+
+      - name: Replay
+        run: |
+          mkdir -p "$OUT"
+          for mode in $MODES; do
+            n=$REPEAT; [ "$mode" = valgrind ] && n=$VALGRIND_REPEAT
+            p=$PARALLEL; [ "$mode" = valgrind ] && p=$(nproc)
+            bash .github/scripts/replay-vspipe.sh run deps/linux-x64/vapoursynth "$CAPTURE" "$n" "$p" "$mode" "$OUT/$mode" \
+              | tee -a "$OUT/summary.txt"
+          done
+
+      - name: Valgrind findings
+        if: always()
+        run: |
+          shopt -s nullglob
+          logs=( "$OUT"/valgrind/err.* )
+          echo "${#logs[@]} valgrind run(s)"
+          for f in "${logs[@]}"; do
+            echo "=== $(basename "$f"): $(grep -m1 'ERROR SUMMARY' "$f" || echo 'no summary')"
+            # The first few errors, with their stacks; Python's own noise is
+            # mostly gone with PYTHONMALLOC=malloc.
+            awk '/^==[0-9]+== (Invalid|Conditional|Use of uninit|Syscall param|Mismatched|Source and dest|Process terminating)/{n++} n>0 && n<=8' "$f" | head -250
+          done
+
+      - name: Bisect (bare scripts under valgrind)
+        if: always() && env.BISECT != ''
+        run: |
+          # docs/reports/task-66-qtgmc-draft-sigsegv/scripts/bare.vpy: one call
+          # on a synthetic clip, no padding and no worker, under memcheck.
+          VS=deps/linux-x64/vapoursynth
+          REAL=$VS/vspipe-bin.real; [ -x "$REAL" ] || REAL=$VS/vspipe-bin
+          sed "s|^exec \"\$SCRIPT_DIR/vspipe-bin\" \"\$@\"\$|exec valgrind --error-exitcode=99 --track-origins=yes --num-callers=30 \"$PWD/$REAL\" \"\$@\"|" \
+            $VS/vspipe > $VS/vspipe.vg
+          chmod +x $VS/vspipe.vg
+          grep -q valgrind $VS/vspipe.vg
+          SCRIPTS=docs/reports/task-66-qtgmc-draft-sigsegv/scripts
+          mkdir -p "$OUT/bisect"
+          for spec in $BISECT; do
+            IFS=: read -r call size fmt <<< "$spec"
+            log="$OUT/bisect/$call.$size.$fmt.log"
+            rc=0
+            PYTHONMALLOC=malloc timeout 1800 $VS/vspipe.vg -a call=$call -a size=$size -a fmt=$fmt \
+              -c y4m $SCRIPTS/bare.vpy /dev/null > "$log" 2>&1 || rc=$?
+            origin=$(grep -A12 'Uninitialised value was created\|Invalid' "$log" | grep -m1 -o 'by 0x[0-9A-F]*: [A-Za-z_:<>0-9]*[Gg]et[Ff]rame[^ ]*\|by 0x[0-9A-F]*: [a-zA-Z_]*[(]' | head -1)
+            echo "$spec: exit $rc, $(grep -m1 'ERROR SUMMARY' "$log" | sed 's/==[0-9]*== //') ${origin}"
+          done | tee "$OUT/bisect/summary.txt"
+
+      - name: Locate uninitialised samples
+        if: always() && env.LOCATE != ''
+        run: |
+          # scripts/locate.py: one memcheck process per region of the output.
+          r=$(ls -d "$CAPTURE"/run.* 2>/dev/null | head -1)
+          [ -n "$r" ] || { echo "no captured run to take the environment from"; exit 0; }
+          W="${{ github.workspace }}"
+          PY=$W/deps/linux-x64/python/bin/python3
+          while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
+          for spec in $LOCATE; do
+            IFS=: read -r call size fmt <<< "$spec"
+            $PY $W/docs/reports/task-66-qtgmc-draft-sigsegv/scripts/locate.py "$PY" $call $size $fmt $(nproc) 2>&1 \
+              | grep -v 'already loaded' || true
+          done | tee "$OUT/locate.txt"
+
+      - name: Plugin probe loop
+        if: always() && env.PROBE_CALLS != ''
+        run: |
+          # The bundle's Python and environment, as WorkerHarness.workerEnv
+          # gives the heavy probe test.
+          r=$(ls -d "$CAPTURE"/run.* 2>/dev/null | head -1)
+          [ -n "$r" ] || { echo "no captured run to take the environment from"; exit 0; }
+          while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
+          export VAPOURBOX_PLATFORM=linux-x64
+          PY=deps/linux-x64/python/bin/python3
+          FF=deps/linux-x64/ffmpeg/ffmpeg
+          for i in $(seq 1 "$PROBE_REPEAT"); do
+            $PY Scripts/probe-plugin-formats.py --calls "$PROBE_CALLS" --ffmpeg "$FF" --out "$OUT/probe.$i.json" 2>&1 | tail -5 || true
+            $PY - "$OUT/probe.$i.json" <<'EOF' || true
+          import json, sys
+          t = json.load(open(sys.argv[1]))['calls']
+          for k, e in t.items():
+              bad = {c: r['error'] for c, r in e['cells'].items() if not r['ok']}
+              crashes = {c: v for c, v in bad.items() if v.startswith('crash')}
+              print(f"{k}: {len(e['cells'])} cells, {len(bad)} refused, {len(crashes)} crashed")
+              for c, v in sorted(crashes.items())[:12]:
+                  print(f"  {c}: {v}")
+          EOF
+          done
+
+      - name: Crash reports
+        if: always()
+        run: python3 .github/scripts/print-crash-reports.py
+
+      - name: Summary
+        if: always()
+        run: cat "$OUT/summary.txt" 2>/dev/null || true
+
+      - name: Upload captures, logs and cores
+        if: always()
+        run: |
+          mkdir -p repro/bundle
+          cp -r "$CAPTURE" "$OUT" repro/bundle/ 2>/dev/null || true
+          # The binaries a backtrace needs to be symbolised offline.
+          cp deps/linux-x64/vapoursynth/vspipe-bin.real repro/bundle/vspipe-bin 2>/dev/null || true
+          mkdir -p repro/bundle/plugins
+          cp deps/linux-x64/vapoursynth/plugins/libmvtools* deps/linux-x64/vapoursynth/plugins/libfmtconv* repro/bundle/plugins/ 2>/dev/null || true
+          ls -la /tmp/cores || true
+          sudo cp /tmp/cores/core.* repro/bundle/ 2>/dev/null || true
+          sudo chmod -R a+r repro/bundle || true
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: repro-native-crash
+          path: repro/bundle
+          retention-days: 7
+          if-no-files-found: ignore
