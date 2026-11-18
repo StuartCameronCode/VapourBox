@@ -1,0 +1,4 @@
+# trigger.vpy, 8 loops x 150, 4 busy-loop CPU hogs, macOS arm64 (M1 Pro), deps 1.17.0-rc3, 2026-11-19
+unpatched (bundle's R78 vspipe-bin): runs=1200 failures=0
+patched: runs=1200 failures=0
+arm64 does not reproduce the race unwidened (task #65 saw the same); see summary-widened-macos-arm64.txt and the x86 CI A/B.
