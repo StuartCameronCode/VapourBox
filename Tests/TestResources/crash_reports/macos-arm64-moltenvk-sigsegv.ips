@@ -1,0 +1,73 @@
+{"app_name": "vspipe-bin", "bug_type": "309"}
+{
+ "exception": {
+  "type": "EXC_BAD_ACCESS",
+  "signal": "SIGSEGV",
+  "subtype": "KERN_INVALID_ADDRESS at 0x000000000000000c"
+ },
+ "faultingThread": 0,
+ "usedImages": [
+  {
+   "name": "AppleParavirtGPUMetalIOGPUFamily",
+   "path": "/x/AppleParavirtGPUMetalIOGPUFamily"
+  },
+  {
+   "name": "libMoltenVK.dylib",
+   "path": "/x/libMoltenVK.dylib"
+  },
+  {
+   "name": "librife.dylib",
+   "path": "/x/librife.dylib"
+  },
+  {
+   "name": "libvapoursynth.4.dylib",
+   "path": "/x/libvapoursynth.4.dylib"
+  },
+  {
+   "name": "vspipe-bin",
+   "path": "/x/vspipe-bin"
+  },
+  {
+   "name": "dyld",
+   "path": "/x/dyld"
+  }
+ ],
+ "threads": [
+  {
+   "frames": [
+    {
+     "imageIndex": 0,
+     "imageOffset": 27772
+    },
+    {
+     "imageIndex": 1,
+     "symbol": "MVKImagePlane::updateMTLTextureContent(MVKImageSubresource&, unsigned long long, unsigned long long)"
+    },
+    {
+     "imageIndex": 1,
+     "symbol": "vkBindImageMemory"
+    },
+    {
+     "imageIndex": 2,
+     "symbol": "ncnn::VkBlobAllocator::fastMalloc(int, int, int, unsigned long, int)"
+    },
+    {
+     "imageIndex": 2,
+     "symbol": "rifeCreate(VSMap const*, VSMap*, void*, VSCore*, VSAPI const*)"
+    },
+    {
+     "imageIndex": 3,
+     "symbol": "invoke(VSPlugin*, char const*, VSMap const*)"
+    },
+    {
+     "imageIndex": 4,
+     "symbol": "main"
+    },
+    {
+     "imageIndex": 5,
+     "symbol": "start"
+    }
+   ]
+  }
+ ]
+}

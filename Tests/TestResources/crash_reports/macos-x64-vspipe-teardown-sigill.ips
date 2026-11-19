@@ -1,0 +1,76 @@
+{"app_name": "vspipe-bin", "bug_type": "309"}
+{
+ "exception": {
+  "type": "EXC_BAD_INSTRUCTION",
+  "signal": "SIGILL"
+ },
+ "faultingThread": 0,
+ "usedImages": [
+  {
+   "name": "libsystem_platform.dylib",
+   "path": "/x/libsystem_platform.dylib"
+  },
+  {
+   "name": "libsystem_pthread.dylib",
+   "path": "/x/libsystem_pthread.dylib"
+  },
+  {
+   "name": "libc++.1.dylib",
+   "path": "/x/libc++.1.dylib"
+  },
+  {
+   "name": "vspipe-bin",
+   "path": "/x/vspipe-bin"
+  },
+  {
+   "name": "libvapoursynth.4.dylib",
+   "path": "/x/libvapoursynth.4.dylib"
+  }
+ ],
+ "threads": [
+  {
+   "frames": [
+    {
+     "imageIndex": 0,
+     "symbol": "_os_unfair_lock_unowned_abort"
+    },
+    {
+     "imageIndex": 0,
+     "symbol": "_os_unfair_lock_unlock_slow"
+    },
+    {
+     "imageIndex": 1,
+     "symbol": "_pthread_cond_check_init_slow"
+    },
+    {
+     "imageIndex": 1,
+     "symbol": "pthread_cond_signal"
+    },
+    {
+     "imageIndex": 2,
+     "symbol": "std::__1::condition_variable::notify_one()"
+    },
+    {
+     "imageIndex": 3,
+     "symbol": "frameDoneCallback(void*, VSFrame const*, int, VSNode*, char const*)"
+    },
+    {
+     "imageIndex": 4,
+     "symbol": "VSThreadPool::returnFrame(VSFrameContext*, vs_intrusive_ptr<VSFrame> const&, std::__1::unique_lock<std::__1::mutex>&)"
+    },
+    {
+     "imageIndex": 4,
+     "symbol": "VSThreadPool::runTasks(bool&)"
+    },
+    {
+     "imageIndex": 1,
+     "symbol": "_pthread_start"
+    },
+    {
+     "imageIndex": 1,
+     "symbol": "thread_start"
+    }
+   ]
+  }
+ ]
+}
