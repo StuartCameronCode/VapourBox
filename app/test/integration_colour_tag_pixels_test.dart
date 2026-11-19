@@ -203,4 +203,125 @@ void main() {
     expect(tags['color_space'], 'bt709');
     expect(tags['color_range'], 'tv');
   }, timeout: const Timeout(Duration(minutes: 5)));
+
+  // Task #73: FFmpeg 9's `scale` has no in_color_matrix for ycgco, bt2020c,
+  // smpte2085, chroma-derived-* or ictcp, so an SDR source tagged with one
+  // failed its preview outright. `ColorMetadata::swscale_matrix` maps each to
+  // the nearest matrix scale has, or leaves it to auto. Each fixture is a
+  // real picture retagged without converting a sample (setparams on the
+  // decoded frame, FFV1), with a twin tagged as the preview should read it.
+  group('matrices scale cannot name (task #73)', () {
+    const small = 'Tests/TestResources/small_clip.mp4';
+    // (tag, primaries, the twin's matrix: what the preview reads it as)
+    const cases = [
+      ('ycgco', null, 'unknown'),
+      ('bt2020c', 'bt2020', 'bt2020nc'),
+      ('smpte2085', null, 'unknown'),
+      ('ictcp', null, 'bt2020nc'),
+      ('chroma-derived-nc', 'bt709', 'bt709'),
+    ];
+    const frames = 6;
+    const frame = 3;
+
+    Future<String> retag(String name, String matrix, String? primaries) async {
+      final out = '$_outDir/$name.mkv';
+      final r = await Process.run(
+        WorkerHarness.ffmpegPath,
+        [
+          '-v', 'error', '-y',
+          '-i', '${WorkerHarness.repoRoot}/$small',
+          '-map', '0:v:0', '-frames:v', '$frames',
+          '-vf',
+          'setparams=colorspace=$matrix:range=tv'
+              '${primaries == null ? '' : ':color_primaries=$primaries'}',
+          '-c:v', 'ffv1', out,
+        ],
+        environment: WorkerHarness.ffmpegEnv,
+      );
+      expect(r.exitCode, 0, reason: '${r.stderr}');
+      return out;
+    }
+
+    VideoJob tagJob(String input, String output, Map<String, dynamic> s,
+            {VideoCodec codec = VideoCodec.ffv1}) =>
+        VideoJob(
+          id: const Uuid().v4(),
+          inputPath: input,
+          outputPath: output,
+          processingPipeline: const ProcessingPipeline(
+            deinterlace: QTGMCParameters(enabled: false),
+          ),
+          encodingSettings: EncodingSettings(
+            codec: codec,
+            container: ContainerFormat.mkv,
+            audioMode: AudioMode.none,
+          ),
+          totalFrames: frames,
+          inputFrameRate: 29.97,
+          startFrame: 0,
+          endFrame: frames - 1,
+          inputWidth: s['width'] as int,
+          inputHeight: s['height'] as int,
+          inputPixelFormat: s['pix_fmt'] as String,
+          inputColorMatrix: s['color_space'] as String?,
+          inputColorPrimaries: s['color_primaries'] as String?,
+          inputColorTransfer: s['color_transfer'] as String?,
+          inputColorRange: s['color_range'] as String?,
+        );
+
+    Future<Map<String, dynamic>> tags(String path) async =>
+        (await WorkerHarness.firstStream(path, selector: 'v:0', entries: [
+          'pix_fmt', 'width', 'height', 'color_space', 'color_primaries',
+          'color_transfer', 'color_range',
+        ]))!;
+
+    for (final (matrix, primaries, reads) in cases) {
+      test('$matrix: the preview runs and reads it as $reads', () async {
+        final tagged = await retag('t73_$matrix', matrix, primaries);
+        final twin = await retag('t73_${matrix}_twin', reads, primaries);
+        final s = await tags(tagged);
+        expect(s['color_space'], matrix, reason: 'the fixture carries the tag');
+        expect(s['pix_fmt'], 'yuv420p');
+
+        final pv = await WorkerHarness.runPreview(
+            tagJob(tagged, '$_outDir/t73_$matrix.out.mkv', s).toJson(),
+            frame: frame,
+            label: 't73_$matrix');
+        expect(pv.success, isTrue,
+            reason: 'the preview of a $matrix source failed: $pv');
+        final pvTwin = await WorkerHarness.runPreview(
+            tagJob(twin, '$_outDir/t73_${matrix}_twin.out.mkv',
+                    await tags(twin))
+                .toJson(),
+            frame: frame,
+            label: 't73_${matrix}_twin');
+        expect(pvTwin.success, isTrue, reason: '$pvTwin');
+
+        final rgb = await WorkerHarness.imageToRgb24(pv.png!, label: 'pv');
+        final rgbTwin =
+            await WorkerHarness.imageToRgb24(pvTwin.png!, label: 'pvt');
+        expect(WorkerHarness.meanAbsDiff(rgb, rgbTwin), 0.0,
+            reason: '$matrix is not previewed as $reads');
+
+        final source = await WorkerHarness.previewFrameRgb24(tagged, frame,
+            label: 't73src');
+        final d = WorkerHarness.meanAbsDiff(rgb, source);
+        print('  $matrix: preview vs source ${d.toStringAsFixed(3)}/255');
+        expect(d, lessThan(0.5));
+      }, timeout: const Timeout(Duration(minutes: 5)));
+    }
+
+    // The encode never converts the samples, so FFmpeg's missing conversion
+    // does not reach it: the tag and every sample come through.
+    test('ycgco: a lossless encode keeps the tag and the samples', () async {
+      final tagged = await retag('t73_ycgco_enc', 'ycgco', null);
+      final s = await tags(tagged);
+      final out = await encode(
+          tagJob(tagged, '$_outDir/t73_ycgco_enc.out.mkv', s));
+      final o = await tags(out);
+      expect(o['color_space'], 'ycgco');
+      expect(o['pix_fmt'], 'yuv420p');
+      expect(await _sampleMd5(out), await _sampleMd5(tagged, frames: frames));
+    }, timeout: const Timeout(Duration(minutes: 5)));
+  });
 }

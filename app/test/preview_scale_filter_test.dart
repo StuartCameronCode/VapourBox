@@ -5,10 +5,13 @@
 // source, so a change to the preview's conversion fails the push gate rather
 // than a nightly. No worker or deps needed.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+
+import 'package:vapourbox/models/color_tags.dart';
 
 import 'support/worker_harness.dart';
 
@@ -49,15 +52,57 @@ void main() {
 
   test('the input options follow swscale_input_opts', () {
     final body = _rustFn(colour, 'swscale_input_opts');
-    // The matrix is stated unless it is the RGB identity; the range is pc
-    // for a full-range tag, tv otherwise. If either rule changes, the twin
-    // in WorkerHarness.previewScaleFilter must change with it.
-    expect(body, contains('if m != "rgb"'));
+    // The matrix is swscale_matrix()'s; the range is pc for a full-range tag,
+    // tv otherwise. If either rule changes, the twin in
+    // WorkerHarness.previewScaleFilter must change with it.
+    expect(body, contains('if let Some(m) = self.swscale_matrix()'));
     expect(body, contains('format!("in_color_matrix={m}")'));
     expect(body,
         contains('format!("in_range={}", if full { "pc" } else { "tv" })'));
     expect(_rustFn(colour, 'is_full_range'),
         contains('Some("pc") | Some("jpeg") | Some("full")'));
+  });
+
+  test('previewScaleMatrix maps every matrix as swscale_matrix does', () {
+    // Each `"tag" => Some("name")` / `=> None` / `=> derived()` arm of the
+    // Rust match, read from source, against the twin (task #73).
+    final body = _rustFn(colour, 'swscale_matrix');
+    final arms = {
+      for (final m in RegExp(r'^\s*"([^"]+)" => ([^,]+),$', multiLine: true)
+          .allMatches(body))
+        m.group(1)!: m.group(2)!.trim(),
+    };
+    expect(arms.keys.toSet(), ColorTags.matrices.toSet(),
+        reason: 'swscale_matrix decides every MATRICES entry');
+    for (final MapEntry(key: m, value: arm) in arms.entries) {
+      for (final prim in [null, 'bt709', 'bt2020', 'bt470bg']) {
+        final String? want = switch (arm) {
+          'None' => null,
+          'derived()' => prim == 'bt709' || prim == 'bt2020' ? prim : null,
+          _ => RegExp(r'^Some\("([^"]+)"\)$').firstMatch(arm)?.group(1) ??
+              (fail('unexpected arm $m => $arm')),
+        };
+        expect(WorkerHarness.previewScaleMatrix(m, prim), want,
+            reason: '$m / $prim');
+      }
+    }
+  });
+
+  test('matches the shared case table', () {
+    final table = jsonDecode(
+            _repoFile('Tests/TestResources/preview_scale_cases.json'))
+        as Map<String, dynamic>;
+    final cases = (table['cases'] as List).cast<Map<String, dynamic>>();
+    expect(cases.length, greaterThan(20));
+    for (final c in cases) {
+      expect(
+          WorkerHarness.previewScaleFilter(
+              matrix: c['matrix'] as String?,
+              primaries: c['primaries'] as String?,
+              range: c['range'] as String?),
+          c['filter'],
+          reason: '$c');
+    }
   });
 
   // The cases of color_metadata.rs's own tests, plus the raw values

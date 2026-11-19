@@ -1,0 +1,184 @@
+{
+ "_comment": "The preview's scale filter for an SDR picture's raw ffprobe tags (task #73): worker preview_scale_filter(&ColorMetadata::from_raw(matrix, primaries, None, range).swscale_input_opts()) and app WorkerHarness.previewScaleFilter must both give 'filter'. preview_scale_ffmpeg_test.dart runs every filter through the bundled ffmpeg.",
+ "cases": [
+  {
+   "matrix": "bt709",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_color_matrix=bt709:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "fcc",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_color_matrix=fcc:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "bt470bg",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_color_matrix=bt470bg:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "smpte170m",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_color_matrix=smpte170m:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "smpte240m",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_color_matrix=smpte240m:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "bt2020nc",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_color_matrix=bt2020nc:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "rgb",
+   "primaries": null,
+   "range": "pc",
+   "filter": "scale=in_range=pc:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "the RGB identity: scale has no entry"
+  },
+  {
+   "matrix": "bt2020c",
+   "primaries": "bt2020",
+   "range": "tv",
+   "filter": "scale=in_color_matrix=bt2020:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "constant luminance read with the NCL coefficients"
+  },
+  {
+   "matrix": "bt2020c",
+   "primaries": null,
+   "range": "pc",
+   "filter": "scale=in_color_matrix=bt2020:in_range=pc:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "ictcp",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_color_matrix=bt2020:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "ICtCp exists only with BT.2020 primaries"
+  },
+  {
+   "matrix": "ycgco",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "no YCbCr matrix comes close: auto"
+  },
+  {
+   "matrix": "ycgco",
+   "primaries": "bt709",
+   "range": "pc",
+   "filter": "scale=in_range=pc:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "smpte2085",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "Y'D'zD'x (XYZ): auto"
+  },
+  {
+   "matrix": "chroma-derived-nc",
+   "primaries": "bt709",
+   "range": "tv",
+   "filter": "scale=in_color_matrix=bt709:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "derived from BT.709 primaries = BT.709"
+  },
+  {
+   "matrix": "chroma-derived-nc",
+   "primaries": "bt2020",
+   "range": "tv",
+   "filter": "scale=in_color_matrix=bt2020:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "chroma-derived-nc",
+   "primaries": "bt470bg",
+   "range": "tv",
+   "filter": "scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "other primaries: auto"
+  },
+  {
+   "matrix": "chroma-derived-nc",
+   "primaries": null,
+   "range": "tv",
+   "filter": "scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "chroma-derived-c",
+   "primaries": "bt709",
+   "range": "pc",
+   "filter": "scale=in_color_matrix=bt709:in_range=pc:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "chroma-derived-c",
+   "primaries": "bt2020",
+   "range": "tv",
+   "filter": "scale=in_color_matrix=bt2020:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "chroma-derived-c",
+   "primaries": "smpte432",
+   "range": "tv",
+   "filter": "scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": null,
+   "primaries": null,
+   "range": null,
+   "filter": "scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "untagged"
+  },
+  {
+   "matrix": "unknown",
+   "primaries": "unknown",
+   "range": "unknown",
+   "filter": "scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "what ffprobe reports untagged"
+  },
+  {
+   "matrix": "reserved",
+   "primaries": "reserved",
+   "range": "full",
+   "filter": "scale=in_range=pc:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "dropped by from_raw"
+  },
+  {
+   "matrix": "BT709",
+   "primaries": " BT709 ",
+   "range": " PC ",
+   "filter": "scale=in_color_matrix=bt709:in_range=pc:out_range=pc:flags=accurate_rnd+full_chroma_int",
+   "note": "normalised"
+  },
+  {
+   "matrix": "Chroma-Derived-NC",
+   "primaries": "BT2020",
+   "range": "jpeg",
+   "filter": "scale=in_color_matrix=bt2020:in_range=pc:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "bt470bg",
+   "primaries": null,
+   "range": "mpeg",
+   "filter": "scale=in_color_matrix=bt470bg:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "smpte170m",
+   "primaries": null,
+   "range": "limited",
+   "filter": "scale=in_color_matrix=smpte170m:in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  },
+  {
+   "matrix": "bt709",
+   "primaries": null,
+   "range": "full",
+   "filter": "scale=in_color_matrix=bt709:in_range=pc:out_range=pc:flags=accurate_rnd+full_chroma_int"
+  }
+ ]
+}

@@ -5519,3 +5519,29 @@ FlowInter cell on Linux x64, every run.
 - **Not fixed:** QTGMC's own `mv.Mask` (InputType 2/3, BlockSize 32) hits the
   8-bit tail under 4 block columns (64x96 at 32/16: an invalid write before
   a 5-byte block), and havsfunc makes the call. Task #79.
+
+### The preview's matrix: names FFmpeg 9's `scale` can't take (task #73, 2026-11-19)
+
+`swscale_input_opts` handed the preview's `scale=in_color_matrix=` any
+matrix on `MATRICES` but `rgb`. FFmpeg 9.0.2's `scale` names only auto,
+bt601/bt470/smpte170m/bt470bg, bt709, fcc, smpte240m and bt2020/bt2020nc, so
+an SDR source tagged `ycgco`, `bt2020c`, `smpte2085`, `chroma-derived-nc`,
+`chroma-derived-c` or `ictcp` failed its preview ("Undefined constant",
+ffmpeg exit 234). Their numeric values fail too ("Unsupported input color
+matrix"): scale has no conversion for them, so the only fix is a mapping.
+`ColorMetadata::swscale_matrix` is it: `bt2020c` → bt2020 (same Kr/Kb, the
+nearest swscale has), `chroma-derived-*` → bt709 / bt2020 when the primaries
+are those (H.273 derives exactly those coefficients), else auto; `ictcp` →
+bt2020 (it exists only with BT.2100's primaries); `ycgco` and `smpte2085` →
+auto, since no YCbCr matrix comes close: their preview colours are wrong,
+the encode keeps samples and tag (checked: FFV1 keeps `ycgco` and every
+sample). Heavy: each tag's preview equals the preview of a twin tagged as it
+is read, and the source decoded as the preview converts, 0.000/255.
+
+Found on the way: FFmpeg 9 can't convert a frame **tagged** with any of the
+six at all (negotiation offers only unknown, gbr, bt709, fcc, bt470bg,
+smpte170m, smpte240m, bt2020nc), so the app's before frame, thumbnails, the
+detectors' converting decodes and an encode whose encoder converts fail on
+such a source. Same-format decodes work, so the processed preview does.
+Filed as task #76 (extend the decode neutraliser with this mapping). Report:
+[docs/reports/task-73-swscale-matrix-tags](reports/task-73-swscale-matrix-tags/index.html).
