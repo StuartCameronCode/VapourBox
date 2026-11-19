@@ -1,0 +1,90 @@
+==6346== Memcheck, a memory error detector
+==6346== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==6346== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==6346== Command: /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/vspipe-bin -a call=degrain_merge -a size=98x96 -a fmt=YUV420P12 -c y4m docs/reports/task-66-qtgmc-draft-sigsegv/scripts/bare.vpy /dev/null
+==6346== 
+==6346== Thread 3:
+==6346== Syscall param write(buf) points to uninitialised byte(s)
+==6346==    at 0x4C3E83D: __libc_write (write.c:26)
+==6346==    by 0x4C3E83D: write (write.c:24)
+==6346==    by 0x4BB5A34: _IO_file_write@@GLIBC_2.2.5 (fileops.c:1183)
+==6346==    by 0x4BB4630: new_do_write (fileops.c:451)
+==6346==    by 0x4BB4630: _IO_do_write@@GLIBC_2.2.5 (fileops.c:428)
+==6346==    by 0x4BB5B6E: _IO_new_file_xsputn (fileops.c:1246)
+==6346==    by 0x4BB5B6E: _IO_file_xsputn@@GLIBC_2.2.5 (fileops.c:1199)
+==6346==    by 0x4BA8AF1: fwrite (iofwrite.c:39)
+==6346==    by 0x11501F: outputFrame(VSFrame const*, VSPipeOutputData*) (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/vspipe-bin)
+==6346==    by 0x11593C: frameDoneCallback(void*, VSFrame const*, int, VSNode*, char const*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/vspipe-bin)
+==6346==    by 0x8350F8A: VSThreadPool::returnFrame(VSFrameContext*, vs_intrusive_ptr<VSFrame> const&, std::unique_lock<std::mutex>&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0x8353B24: VSThreadPool::runTasks(bool&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0x4960DB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+==6346==    by 0x4BBEB63: start_thread (pthread_create.c:447)
+==6346==    by 0x4C4BC83: clone (clone.S:100)
+==6346==  Address 0x7505e38 is 2,584 bytes inside a block of size 4,096 alloc'd
+==6346==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==6346==    by 0x4BA7294: _IO_file_doallocate (filedoalloc.c:101)
+==6346==    by 0x4BB75E3: _IO_doallocbuf (genops.c:347)
+==6346==    by 0x4BB504F: _IO_file_overflow@@GLIBC_2.2.5 (fileops.c:747)
+==6346==    by 0x4BB5B6E: _IO_new_file_xsputn (fileops.c:1246)
+==6346==    by 0x4BB5B6E: _IO_file_xsputn@@GLIBC_2.2.5 (fileops.c:1199)
+==6346==    by 0x4BA8AF1: fwrite (iofwrite.c:39)
+==6346==    by 0x1194B0: initializeVideoOutput(VSPipeOutputData*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/vspipe-bin)
+==6346==    by 0x10D7B6: main (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/vspipe-bin)
+==6346==  Uninitialised value was created by a heap allocation
+==6346==    at 0x484E366: posix_memalign (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==6346==    by 0x832FF7F: VSPlaneData::VSPlaneData(unsigned long, vs::MemoryUse&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0x8315914: newVideoFrame(VSVideoFormat const*, int, int, VSFrame const*, VSCore*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0xEDD7CB9: VSFrame const* mvdegrainGetFrame<1>(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==6346==    by 0x833C122: VSNode::getFrameInternal(int, int, VSFrameContext*) (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0x83520E4: VSThreadPool::runTasks(bool&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0x4960DB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+==6346==    by 0x4BBEB63: start_thread (pthread_create.c:447)
+==6346==    by 0x4C4BC83: clone (clone.S:100)
+==6346== 
+==6346== Thread 1:
+==6346== Syscall param write(buf) points to uninitialised byte(s)
+==6346==    at 0x4C3E83D: __libc_write (write.c:26)
+==6346==    by 0x4C3E83D: write (write.c:24)
+==6346==    by 0x4BB5A34: _IO_file_write@@GLIBC_2.2.5 (fileops.c:1183)
+==6346==    by 0x4BB4630: new_do_write (fileops.c:451)
+==6346==    by 0x4BB4630: _IO_do_write@@GLIBC_2.2.5 (fileops.c:428)
+==6346==    by 0x4BB517F: _IO_file_sync@@GLIBC_2.2.5 (fileops.c:801)
+==6346==    by 0x4BA7916: fflush (iofflush.c:40)
+==6346==    by 0x10C84E: main (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/vspipe-bin)
+==6346==  Address 0x750546c is 76 bytes inside a block of size 4,096 alloc'd
+==6346==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==6346==    by 0x4BA7294: _IO_file_doallocate (filedoalloc.c:101)
+==6346==    by 0x4BB75E3: _IO_doallocbuf (genops.c:347)
+==6346==    by 0x4BB504F: _IO_file_overflow@@GLIBC_2.2.5 (fileops.c:747)
+==6346==    by 0x4BB5B6E: _IO_new_file_xsputn (fileops.c:1246)
+==6346==    by 0x4BB5B6E: _IO_file_xsputn@@GLIBC_2.2.5 (fileops.c:1199)
+==6346==    by 0x4BA8AF1: fwrite (iofwrite.c:39)
+==6346==    by 0x1194B0: initializeVideoOutput(VSPipeOutputData*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/vspipe-bin)
+==6346==    by 0x10D7B6: main (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/vspipe-bin)
+==6346==  Uninitialised value was created by a heap allocation
+==6346==    at 0x484E366: posix_memalign (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==6346==    by 0x832FF7F: VSPlaneData::VSPlaneData(unsigned long, vs::MemoryUse&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0x8315937: newVideoFrame(VSVideoFormat const*, int, int, VSFrame const*, VSCore*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0xEDD7CB9: VSFrame const* mvdegrainGetFrame<1>(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==6346==    by 0x833C122: VSNode::getFrameInternal(int, int, VSFrameContext*) (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0x83520E4: VSThreadPool::runTasks(bool&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==6346==    by 0x4960DB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+==6346==    by 0x4BBEB63: start_thread (pthread_create.c:447)
+==6346==    by 0x4C4BC83: clone (clone.S:100)
+==6346== 
+Output 1 frames in 2.06 seconds (0.49 fps)
+==6346== 
+==6346== HEAP SUMMARY:
+==6346==     in use at exit: 7,486,738 bytes in 59,718 blocks
+==6346==   total heap usage: 552,283 allocs, 492,565 frees, 58,143,363 bytes allocated
+==6346== 
+==6346== LEAK SUMMARY:
+==6346==    definitely lost: 0 bytes in 0 blocks
+==6346==    indirectly lost: 0 bytes in 0 blocks
+==6346==      possibly lost: 6,673,909 bytes in 50,345 blocks
+==6346==    still reachable: 812,829 bytes in 9,373 blocks
+==6346==         suppressed: 0 bytes in 0 blocks
+==6346== Rerun with --leak-check=full to see details of leaked memory
+==6346== 
+==6346== For lists of detected and suppressed errors, rerun with: -s
+==6346== ERROR SUMMARY: 3 errors from 2 contexts (suppressed: 0 from 0)

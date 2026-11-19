@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Odd Chroma Width Memcheck</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; --pad:#f6d7d4; --val:#d6ecdc; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; --pad:#5a2a26; --val:#20412a; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+svg text { fill: var(--fg); font: 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+svg .val { fill: var(--val); stroke: var(--line); } svg .pad { fill: var(--pad); stroke: var(--line); }
+svg .half { fill: none; stroke: var(--no); stroke-width: 2; } svg .halfok { fill: none; stroke: var(--ok); stroke-width: 2; stroke-dasharray: 4 3; }
+</style>
+</head>
+<body>
+<h1>QTGMC's "uninitialised memory" at an odd chroma width: a memcheck false positive</h1>
+<p class="meta">Task #70, 2026-11-19. Measured on GitHub's <code>ubuntu-24.04</code> runners: AMD EPYC 9V74 (run 44498405213) and Intel Xeon 6975P-C (run 44498392281), the same inputs on each (<code>data/workflow-inputs.txt</code>). Deps 1.16.0 linux-x64 (VapourSynth R78, MVTools <code>master</code> built from source, havsfunc r31), valgrind 3.22.0. macOS arm64 (deps 1.16.0) for the harness and the push-gate test. Every number comes from <code>.github/workflows/repro-native-crash.yml</code> with the inputs in <code>data/</code>, or from <code>scripts/</code>.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><strong>QTGMC does not read uninitialised memory into its picture.</strong> Task #66 found valgrind reporting QTGMC's output as uninitialised on x86 Linux when the chroma width is odd and the depth is above 8 bits (98x96 and 722x480 4:2:0 at 10–16 bits, 4:2:2 12-bit). Three independent checks on x86 show that those bytes never reach the output:
+  <ul>
+  <li><strong>Two memory fills:</strong> every flagged case run under valgrind with every allocation filled with <code>0x00</code>, then <code>0xff</code>, writes the same output (table 2). A deliberate padding read in the same harness writes different output.</li>
+  <li><strong>Padding poison:</strong> the row padding of every frame QTGMC's filters produce, filled with a different pattern per seed, gives the same picture for seeds 1, 2 and 3 in all 32 cases: Draft, Fast, Slower and Placebo × 98x96 and 722x480 × 4:2:0 10/12/16-bit and 4:2:2 12-bit (table 3).</li>
+  <li><strong>VapourSynth's C kernels:</strong> with <code>core.std.SetMaxCPU('none')</code>, every flagged QTGMC case is valgrind-clean (table 1).</li>
+  </ul></li>
+<li><strong>The cause is valgrind's model of one instruction.</strong> QTGMC follows <code>mv.Degrain1</code> with <code>std.Merge</code>. VapourSynth's AVX2 16-bit merge reads whole vectors, stride padding included, and multiplies with <code>vpmaddwd</code>. valgrind treats that instruction as one opaque operation per 64-bit half, and each half holds two adjacent columns. So at an odd plane width the last real column shares a half with a padding column, and memcheck marks it undefined. The real arithmetic never mixes the two columns (section 2). <code>Degrain1</code> + <code>std.Merge</code> alone reproduces the report exactly, with no QTGMC.</li>
+<li><strong>Nothing to patch.</strong> No MVTools patch, no deps release, no template guard. Padding the width to 724 (the task's proposed guard) would have changed every 718- and 722-wide QTGMC job for no gain: the <code>havsfunc.QTGMC</code> contract in <code>plugin_formats.py</code> records that padding the width moves columns up to 5 levels at 854x480.</li>
+<li><strong>Kept:</strong> a push-gate test, <code>app/test/qtgmc_stride_padding_test.dart</code>, runs the poison harness on every CI platform (x86 included) and fails if a VapourSynth or MVTools update lets padding reach QTGMC's picture. The repro workflow gains <code>verify</code> (the two memory fills) and <code>poison</code> inputs, so the next memcheck finding can be checked at the output in one dispatch.</li>
+</ul>
+
+<p class="box">Correction to task #66's report: its "Found on the way" list says QTGMC <em>reads</em> uninitialised memory at these sizes. That is what memcheck reported. This report shows the bytes never reach the output. A dated note there links here.</p>
+
+<h2>1. Reproducing it without QTGMC</h2>
+<p><code>bare.vpy</code> (task #66's report, <code>scripts/bare.vpy</code>, extended here) runs one call on a synthetic moving clip under <code>valgrind --track-origins=yes --error-exitcode=99</code>, writing y4m. New for this task: <code>degrain_merge</code> is <code>mv.Degrain1</code> (QTGMC's arrangement: <code>levels=1</code> super, vectors from a search super) followed by <code>std.Merge(out, source, 0.25)</code>, as QTGMC Draft's <code>binomial1</code> does. <code>cpu=none</code> calls <code>core.std.SetMaxCPU('none')</code> first, which switches VapourSynth's own kernels to C (plugins are unaffected). <code>defined=1</code> makes the source write its whole buffer, padding included.</p>
+<table>
+<caption>Table 1. memcheck on the AMD EPYC 9V74 runner (<code>data/bisect-amd.txt</code>; the Intel runner's is identical). "dirty" = exit 99, uninitialised bytes passed to <code>write()</code>.</caption>
+<tr><th>call</th><th>size, format</th><th>option</th><th>result</th><th>origin of the bytes</th></tr>
+<tr><td>qtgmc_draft</td><td>98x96 YUV420P12</td><td></td><td class="no">dirty (3 errors)</td><td><code>newVideoFrame</code> ← <code>mvdegrainGetFrame&lt;1&gt;</code></td></tr>
+<tr><td>degrain_merge</td><td>98x96 YUV420P12</td><td></td><td class="no">dirty (3 errors)</td><td>the same</td></tr>
+<tr><td>degrain_merge</td><td>98x96 YUV420P12</td><td>defined=1</td><td class="no">dirty (3 errors)</td><td>the same: Degrain's own frame, not the source</td></tr>
+<tr><td>degrain_qtgmc (no Merge)</td><td>98x96 YUV420P12</td><td></td><td class="ok">clean</td><td></td></tr>
+<tr><td>degrain_merge</td><td>100x96 YUV420P12 (chroma 50)</td><td></td><td class="ok">clean</td><td></td></tr>
+<tr><td>degrain_merge</td><td>98x96 YUV420P8</td><td></td><td class="ok">clean</td><td></td></tr>
+<tr><td>degrain_merge</td><td>98x96 YUV444P12 (chroma 98)</td><td></td><td class="ok">clean</td><td></td></tr>
+<tr><td>degrain_merge</td><td>98x96 YUV420P12</td><td>cpu=none</td><td class="ok">clean</td><td></td></tr>
+<tr><td>merge (source with itself)</td><td>98x96 YUV420P12</td><td>defined=0 and 1</td><td class="ok">clean</td><td></td></tr>
+<tr><td>qtgmc_draft, qtgmc_fast, qtgmc_slower</td><td>98x96 YUV420P12</td><td>cpu=none</td><td class="ok">clean</td><td></td></tr>
+<tr><td>qtgmc_draft</td><td>722x480 YUV420P12</td><td>cpu=none</td><td class="ok">clean</td><td></td></tr>
+<tr><td>qtgmc_slower</td><td>98x96 YUV422P16</td><td>cpu=none</td><td class="ok">clean</td><td></td></tr>
+</table>
+<p>The pattern is exactly task #66's: an odd plane width at 16 bits a sample, a producer that leaves its padding unwritten (Degrain), and a consumer in VapourSynth's AVX2 kernels (Merge). Take any one away and it is clean. <code>data/memcheck-degrain_merge-98x96-YUV420P12-amd.txt</code> is the full memcheck log of the reproduction.</p>
+
+<h2>2. Why memcheck flags a column it doesn't need to</h2>
+<p>VapourSynth allocates each plane row with a 64-byte-aligned stride and initialises nothing. <code>mv.Degrain1</code> writes every visible sample (the right and bottom strips that blocks don't cover are copied from the source, <code>MVDegrains.cpp</code>), but not the padding. At 98x96 4:2:0 16-bit storage a chroma row is 49 samples (98 bytes) in a 128-byte stride.</p>
+<p>VapourSynth R78's 16-bit merge, <code>vs_merge_word_avx2</code> (<code>src/core/kernel/x86/merge_avx2.cpp</code>, lines 64–100), works 16 samples at a time, so the last vector of the row includes padding. It interleaves the two inputs (<code>_mm256_unpacklo_epi16(v1, v2)</code>, line 82) and multiplies each pair by the weights with <code>_mm256_madd_epi16</code> (line 86): each 32-bit result is <code>w1·v1[c] + w2·v2[c]</code>, one column. Column 48's result never involves column 49.</p>
+<p>valgrind 3.22 translates <code>vpmaddwd</code> (<code>VEX/priv/guest_amd64_toIR.c</code>: <code>math_PMADDWD_256</code> at line 11414 splits into two <code>math_PMADDWD_128</code>, line 11392) into a call to the helper <code>amd64g_calculate_mmx_pmaddwd</code> for each 64-bit half. memcheck can't see inside such a helper: one undefined bit in its inputs makes its whole 64-bit result undefined. After the interleave, a 64-bit half holds two columns:</p>
+<svg viewBox="0 0 640 120" width="100%" role="img" aria-label="One 64-bit half of the interleaved vector holds v1 and v2 of columns 48 and 49. Column 49 is padding, so memcheck marks the whole half, column 48 included, undefined.">
+  <text x="10" y="18">interleaved words (unpacklo v1, v2), last vector of a 49-sample row:</text>
+  <g transform="translate(10,30)">
+    <rect class="val" x="0" y="0" width="70" height="30"/><text x="8" y="20">v1[46]</text>
+    <rect class="val" x="70" y="0" width="70" height="30"/><text x="78" y="20">v2[46]</text>
+    <rect class="val" x="140" y="0" width="70" height="30"/><text x="148" y="20">v1[47]</text>
+    <rect class="val" x="210" y="0" width="70" height="30"/><text x="218" y="20">v2[47]</text>
+    <rect class="val" x="280" y="0" width="70" height="30"/><text x="288" y="20">v1[48]</text>
+    <rect class="val" x="350" y="0" width="70" height="30"/><text x="358" y="20">v2[48]</text>
+    <rect class="pad" x="420" y="0" width="70" height="30"/><text x="428" y="20">v1[49]</text>
+    <rect class="pad" x="490" y="0" width="70" height="30"/><text x="498" y="20">v2[49]</text>
+    <rect class="halfok" x="0" y="-4" width="280" height="38"/>
+    <rect class="half" x="280" y="-4" width="280" height="38"/>
+    <text x="40" y="58">one 64-bit half: columns 46, 47, all defined</text>
+    <text x="290" y="58">one 64-bit half: column 48 + padding column 49</text>
+    <text x="290" y="76">→ memcheck: all of it undefined</text>
+  </g>
+</svg>
+<p>That explains every row of task #66's table:</p>
+<ul>
+<li><strong>Odd chroma width</strong> (49 at 98 wide; 361 at 722): the last column shares a half with padding. Even widths (50, 48, 98 at 4:4:4, 360) pair real with real and padding with padding.</li>
+<li><strong>Above 8 bits:</strong> 8-bit merge (<code>vs_merge_byte_avx2</code>) uses <code>vpmulhrsw</code>, which memcheck tracks lane by lane.</li>
+<li><strong>"It takes QTGMC's arrangement":</strong> it takes a Merge after the Degrain. Degrain alone is written by vspipe row by row, visible bytes only.</li>
+<li><strong>Slower's 58,773 errors:</strong> Slower's search clip is <code>std.Merge(Resize(…), repair0, 0.1)</code>, so the same pairing taints its last chroma column. MVTools' motion search compares blocks there with branches, so memcheck reports each branch, and every output sample that depends on a vector inherits "undefined". The vectors themselves are computed from defined data, as tables 2 and 3 show.</li>
+</ul>
+
+<h2>3. The bytes never reach the output</h2>
+<p><strong>Two memory fills</strong> (workflow input <code>verify</code>): each case runs twice under valgrind, with <code>--malloc-fill=0x00</code> and <code>0xff</code>, which fill every new heap block. Bytes no filter wrote differ between the two runs. If they reached the output, the output would differ.</p>
+<table>
+<caption>Table 2. Output sha256 (first 16 hex digits) under two fills, AMD EPYC 9V74 (<code>data/verify-amd.txt</code>). Every run still exits 99: memcheck reports what it reports. The question is only whether the output changes.</caption>
+<tr><th>case</th><th>fill 0x00</th><th>fill 0xff</th><th>verdict</th></tr>
+<tr><td><code>leak</code> 98x96 YUV420P12 (positive control: the padding after each chroma row copied into the row's first sample)</td><td>b1c9395a87e2ecd0</td><td>d66b603da51f9569</td><td class="no">different</td></tr>
+<tr><td>qtgmc_draft 98x96 YUV420P12</td><td>dacae9b87d765bac</td><td>dacae9b87d765bac</td><td class="ok">same</td></tr>
+<tr><td>qtgmc_fast 98x96 YUV420P12</td><td>017d2fe9dc9682c6</td><td>017d2fe9dc9682c6</td><td class="ok">same</td></tr>
+<tr><td>qtgmc_slower 98x96 YUV420P12</td><td>9a0c11e8b349eec5</td><td>9a0c11e8b349eec5</td><td class="ok">same</td></tr>
+<tr><td>qtgmc_slower 98x96 YUV422P16</td><td>f652e05c2e69efb7</td><td>f652e05c2e69efb7</td><td class="ok">same</td></tr>
+<tr><td>qtgmc_draft 722x480 YUV420P12</td><td>754e42218c96eb53</td><td>754e42218c96eb53</td><td class="ok">same</td></tr>
+<tr><td>degrain_merge 98x96 YUV420P12</td><td>05c46978605bfbb4</td><td>05c46978605bfbb4</td><td class="ok">same</td></tr>
+</table>
+<p><strong>Padding poison</strong> (<code>scripts/poison.py</code>, workflow input <code>poison</code>): havsfunc's, mvsfunc's and adjust's <code>core</code> is replaced by a proxy. Each <code>core.&lt;ns&gt;.&lt;fn&gt;(…)</code> call's output passes through a <code>std.ModifyFrame</code> that copies the frame and fills its row padding with a pattern derived from the seed. The source is poisoned the same way. Then QTGMC's visible output (4 frames) is hashed. A positive control reads back the padding of one poisoned <code>mv.Degrain1</code> frame, which must differ by seed. <code>scripts/leak_check.py</code> is the negative control: QTGMC followed by one deliberate padding read gives different hashes per seed.</p>
+<table>
+<caption>Table 3. QTGMC with poisoned padding, seeds 1, 2, 3, natively on the AMD EPYC 9V74 runner (<code>data/poison-amd.jsonl</code>; every line also lists the functions poisoned). "1 picture" = all three seeds hash equal.</caption>
+<tr><th>preset</th><th>calls poisoned</th><th>98x96: 420P10, 420P12, 420P16, 422P12</th><th>722x480: the same four</th></tr>
+<tr><td>Draft</td><td>7–9</td><td class="ok">1 picture each</td><td class="ok">1 picture each</td></tr>
+<tr><td>Fast</td><td>56–58</td><td class="ok">1 picture each</td><td class="ok">1 picture each</td></tr>
+<tr><td>Slower</td><td>70–72</td><td class="ok">1 picture each</td><td class="ok">1 picture each</td></tr>
+<tr><td>Placebo</td><td>94–98</td><td class="ok">1 picture each</td><td class="ok">1 picture each</td></tr>
+</table>
+<p>The same harness on macOS arm64 (deps 1.16.0) gives one picture per case too, and the push-gate test now checks four of these cases on macOS arm64, macOS x64, Windows and Linux on every push.</p>
+<p><strong>Intel Xeon 6975P-C (run 44498392281):</strong> every row of tables 1, 2 and 3 is the same, and the output hashes are identical to the AMD runner's, case for case (<code>data/*-intel.*</code>). Padding poisoned per seed reaches whatever SIMD path each CPU takes, so a padding read on either would have split its own seeds.</p>
+
+<h2>Limits</h2>
+<ul>
+<li><strong>Poison covers what the proxy reaches.</strong> Calls havsfunc makes as clip methods (<code>clip.std.X(…)</code>, <code>DitherLumaRebuild(…).mv.Super(…)</code>) don't go through <code>core</code>, so their outputs keep unpoisoned padding (their inputs are poisoned). The two-fill check covers those buffers.</li>
+<li><strong>Two fills cover fresh allocations only.</strong> VapourSynth recycles frame buffers within a process. A recycled buffer holds an earlier frame's bytes, which are the same in both runs, so the check cannot see a read of those. The runs are short and the poison check covers recycled frames, because it writes the padding on every frame.</li>
+<li><strong>What is proved:</strong> QTGMC's visible output does not depend on stride padding at these sizes, on these runners and bundles. Not proved: that no other nondeterminism exists. Task #62 (FFT3DFilter) was a different cause and is fixed in deps 1.18.0.</li>
+<li>Every poison row ran at the default thread count; the plan's one single-thread row was not run. Threads change which buffer a frame lands in, not what is written to its padding, which the poison sets on every frame either way.</li>
+<li>arm64 has no valgrind run. It doesn't need one for this finding: the poison test runs there on every push.</li>
+</ul>
+
+<h2>Checking the next memcheck finding</h2>
+<p>A memcheck "uninitialised" report on a VapourSynth graph at more than 8 bits with an odd plane width is expected, and is not by itself a bug. Before acting on one, dispatch <code>repro-native-crash.yml</code> with <code>modes: none</code> and the case in <code>verify</code> (two fills) and <code>bisect</code> with <code>:cpu=none</code>. If the outputs are the same and the C kernels are clean, it is this false positive. If the outputs differ, it is real; <code>poison</code> and <code>locate</code> narrow it down.</p>
+
+<h2>Files</h2>
+<ul>
+<li><code>scripts/poison.py</code>: the padding poison harness (used by the push-gate test and the workflow).</li>
+<li><code>scripts/leak_check.py</code>: its negative control.</li>
+<li><code>../task-66-qtgmc-draft-sigsegv/scripts/bare.vpy</code>: gained <code>cpu=</code>, <code>defined=</code>, <code>degrain_merge</code>, <code>merge</code>, <code>leak</code>, <code>qtgmc_placebo</code>.</li>
+<li><code>data/</code>: the runs' summaries (bisect, verify, poison) and one full memcheck log.</li>
+</ul>
+</body>
+</html>

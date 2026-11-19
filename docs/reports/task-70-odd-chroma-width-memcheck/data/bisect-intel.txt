@@ -1,0 +1,16 @@
+# run 44498392281, Intel(R) Xeon(R) 6975P-C
+qtgmc_draft:98x96:YUV420P12: exit 99, ERROR SUMMARY: 3 errors from 2 contexts (suppressed: 0 from 0) by 0x8315914: newVideoFrame(
+degrain_merge:98x96:YUV420P12: exit 99, ERROR SUMMARY: 3 errors from 2 contexts (suppressed: 0 from 0) by 0x8315914: newVideoFrame(
+degrain_merge:98x96:YUV420P12:defined=1: exit 99, ERROR SUMMARY: 3 errors from 2 contexts (suppressed: 0 from 0) by 0x8315914: newVideoFrame(
+degrain_merge:100x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+degrain_merge:98x96:YUV420P8: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+degrain_merge:98x96:YUV444P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+degrain_merge:98x96:YUV420P12:cpu=none: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+merge:98x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+merge:98x96:YUV420P12:defined=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+degrain_qtgmc:98x96:YUV420P12: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_draft:98x96:YUV420P12:cpu=none: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_fast:98x96:YUV420P12:cpu=none: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_slower:98x96:YUV420P12:cpu=none: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_draft:722x480:YUV420P12:cpu=none: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 
+qtgmc_slower:98x96:YUV422P16:cpu=none: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0) 

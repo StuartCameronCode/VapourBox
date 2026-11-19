@@ -5453,3 +5453,39 @@ now read 0.000; the passthrough parity baseline is 0.19. Found on the way:
 `swscale_input_opts` passes matrix names `scale` refuses (`ycgco`,
 `bt2020c`, …), filed as task #73. Report:
 [docs/reports/task-67-preview-rgb-decode](reports/task-67-preview-rgb-decode/index.html).
+
+### QTGMC's "uninitialised memory" at an odd chroma width was memcheck's model of `vpmaddwd` (task #70, 2026-11-19)
+
+Task #66 saw valgrind report QTGMC's output as uninitialised on x86 Linux at
+an odd chroma width above 8 bits (98x96 and 722x480 4:2:0 at 10–16 bits,
+4:2:2 12-bit): the last chroma column in Draft, everything in Slower. It is
+a false positive, and nothing was patched:
+
+- **Cause.** `mv.Degrain1` writes every visible sample but not its frame's
+  stride padding, and QTGMC merges its output with `std.Merge`.
+  VapourSynth R78's `vs_merge_word_avx2` reads whole vectors (padding
+  included), interleaves the two inputs and multiplies with `vpmaddwd`.
+  valgrind 3.22 runs that instruction as a helper call per 64-bit half
+  (`math_PMADDWD_128`), and memcheck marks a helper's whole result undefined
+  if any input bit is. A half holds two adjacent columns, so at an odd plane
+  width the last column is marked with the padding beside it. 8-bit merge
+  uses `vpmulhrsw` (tracked per lane); even widths pair padding with
+  padding. `Degrain1` + `std.Merge` alone reproduces it; `SetMaxCPU('none')`
+  makes every QTGMC case clean.
+- **The bytes never reach the output.** Two valgrind runs with
+  `--malloc-fill=0x00` / `0xff` write the same output for every flagged case
+  (a deliberate padding read differs). Filling every frame's padding with a
+  per-seed pattern (`poison.py`) gives one picture for seeds 1–3 in 32
+  cases: Draft, Fast, Slower, Placebo x 98x96 / 722x480 x 4:2:0 10/12/16-bit
+  and 4:2:2 12-bit.
+- **No template guard.** Padding 722 → 724 would have moved every 718- and
+  722-wide QTGMC job (up to 5 levels at 854x480, per the `havsfunc.QTGMC`
+  contract) for no gain.
+- **Kept:** `app/test/qtgmc_stride_padding_test.dart` (push gate) runs the
+  poison harness on every platform, with a positive control so it can't
+  pass vacuously; `repro-native-crash.yml` gains `verify` (the two fills)
+  and `poison`, and `bare.vpy` gains `cpu=`, `defined=`, `degrain_merge`,
+  `merge`, `leak`. Check any memcheck "uninitialised" finding with `verify`
+  before acting on it.
+
+Report: [docs/reports/task-70-odd-chroma-width-memcheck](reports/task-70-odd-chroma-width-memcheck/index.html).

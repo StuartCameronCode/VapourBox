@@ -3599,6 +3599,15 @@ Rules:
     in vspipe's own `frameDoneCallback` / `outputFrame` and main in
     `freeScript` is vspipe R78's teardown race** (task #68, fixed in R80), not
     the script: any one-frame preview can hit it, roughly 1 in 1,000.
+    **A memcheck "uninitialised" report at more than 8 bits and an odd
+    plane width is expected and harmless on its own** (task #70):
+    VapourSynth's AVX2 kernels read stride padding into lanes they discard,
+    and memcheck models `vpmaddwd` per 64-bit half, so the last column is
+    marked with the padding beside it. Confirm a finding at the output
+    before acting on it: the repro workflow's `verify` input (two
+    `--malloc-fill` runs, compared) and `bisect` with `:cpu=none`.
+    `qtgmc_stride_padding_test.dart` (push gate) checks QTGMC's picture
+    ignores padding on every platform.
 
 ## Platform-Specific Notes
 

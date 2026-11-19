@@ -2,10 +2,10 @@
 //
 // VapourSynth leaves the bytes between a row's last sample and the next row
 // uninitialised. memcheck flagged QTGMC's output at an odd chroma width and
-// > 8 bits (722x480 4:2:0 12-bit) as uninitialised on x86 Linux. Task #70's
-// working explanation is memcheck's model of `pmaddwd` in VapourSynth's own
-// std.Merge kernel, which reads padding into lanes it then discards (to be
-// confirmed on x86: docs/reports/task-70-odd-chroma-width-memcheck). This keeps the real
+// > 8 bits (722x480 4:2:0 12-bit) as uninitialised on x86 Linux. Task #70
+// found that to be memcheck's model of `vpmaddwd` in VapourSynth's own AVX2
+// std.Merge kernel, which reads padding into lanes it then discards
+// (docs/reports/task-70-odd-chroma-width-memcheck). This keeps the real
 // question answered on every CI platform: the report's poison.py fills the
 // padding of every frame havsfunc's `core.<ns>.<fn>` calls produce with a
 // pattern per seed and hashes QTGMC's visible output. Different seeds must give
