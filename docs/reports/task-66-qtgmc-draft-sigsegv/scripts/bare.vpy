@@ -1,8 +1,27 @@
 # One MVTools call (or QTGMC) on a synthetic clip, for valgrind (task #66).
 # vspipe -a call=<name> -a size=WxH -a fmt=<vs format name> bare.vpy -
-#   call: qtgmc_draft | qtgmc_fast | qtgmc_slower | degrain_qtgmc | compensate_qtgmc | degrain | compensate
+#   call: qtgmc_draft | qtgmc_fast | qtgmc_slower | qtgmc_placebo | degrain_qtgmc |
+#         compensate_qtgmc | degrain | compensate | degrain_merge | merge
+# Task #70 added, all optional:
+#   cpu=none|sse2|avx2|...  core.std.SetMaxCPU before the graph: 'none' runs
+#                           VapourSynth's own kernels in C (plugins unaffected)
+#   defined=1               the source writes its whole buffer, stride padding
+#                           included, so its frames carry no undefined bytes
+#   degrain_merge           degrain_qtgmc, then std.Merge(out, source, 0.25):
+#                           QTGMC Draft's `binomial1` arrangement
+#   merge                   std.Merge of the source with itself shifted a frame
+#   leak                    degrain_qtgmc, then the bytes just past each chroma
+#                           row's last sample (padding Degrain never writes)
+#                           copied into that row's first sample: a deliberate
+#                           padding read, the positive control for `verify`
+import ctypes
 import vapoursynth as vs
 core = vs.core
+cpu = globals().get('cpu', b'')
+cpu = cpu.decode() if isinstance(cpu, bytes) else cpu
+if cpu:
+    core.std.SetMaxCPU(cpu)
+defined = globals().get('defined', b'0') in (b'1', '1')
 
 call = globals().get('call', b'qtgmc_draft')
 size = globals().get('size', b'98x96')
@@ -20,6 +39,10 @@ import math
 def _fill(n, f):
     fo = f.copy()
     for p in range(fo.format.num_planes):
+        if defined:
+            ph = fo.height >> (fo.format.subsampling_h if p else 0)
+            ctypes.memset(ctypes.cast(fo.get_write_ptr(p), ctypes.c_void_p).value, 0,
+                          fo.get_stride(p) * ph)
         m = fo[p]
         ph, pw = m.shape
         for y in range(ph):
@@ -43,12 +66,35 @@ def vectors(clip):
 
 if call.startswith('qtgmc_'):
     import havsfunc as haf
-    preset = {'draft': 'Draft', 'fast': 'Fast', 'slower': 'Slower'}[call[6:]]
+    preset = {'draft': 'Draft', 'fast': 'Fast', 'slower': 'Slower', 'placebo': 'Placebo'}[call[6:]]
     out = haf.QTGMC(c, Preset=preset, TFF=True)
 elif call == 'degrain_qtgmc':
     srch, bv, fv = vectors(c)
     sup = core.mv.Super(c, pel=1, levels=1, hpad=8, vpad=8)
     out = core.mv.Degrain1(c, sup, bv, fv, thsad=640)
+elif call == 'degrain_merge':
+    srch, bv, fv = vectors(c)
+    sup = core.mv.Super(c, pel=1, levels=1, hpad=8, vpad=8)
+    out = core.std.Merge(core.mv.Degrain1(c, sup, bv, fv, thsad=640), c, weight=[0.25])
+elif call == 'leak':
+    srch, bv, fv = vectors(c)
+    sup = core.mv.Super(c, pel=1, levels=1, hpad=8, vpad=8)
+    deg = core.mv.Degrain1(c, sup, bv, fv, thsad=640)
+
+    def _leak(n, f):
+        fo = f.copy()
+        bps = fo.format.bytes_per_sample
+        for p in range(1, fo.format.num_planes):
+            pw = fo.width >> fo.format.subsampling_w
+            ph = fo.height >> fo.format.subsampling_h
+            src = ctypes.cast(f.get_read_ptr(p), ctypes.c_void_p).value
+            dst = ctypes.cast(fo.get_write_ptr(p), ctypes.c_void_p).value
+            for y in range(ph):
+                ctypes.memmove(dst + y * fo.get_stride(p), src + y * f.get_stride(p) + pw * bps, bps)
+        return fo
+    out = core.std.ModifyFrame(deg, deg, _leak)
+elif call == 'merge':
+    out = core.std.Merge(c, c[1:] + c[-1], weight=[0.25])
 elif call == 'compensate_qtgmc':
     srch, bv, fv = vectors(c)
     sup = core.mv.Super(c, pel=1, levels=1, hpad=8, vpad=8)
