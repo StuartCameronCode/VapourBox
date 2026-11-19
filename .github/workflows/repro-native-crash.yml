@@ -14,8 +14,17 @@ name: Reproduce a native crash (Linux x64)
 #   valgrind       `valgrind_repeat` runs under memcheck, which reports an
 #                  out-of-bounds or uninitialised read whether or not it crashes
 # Optional, each off unless given:
-#   bisect       call:WxH:format runs of docs/reports/task-66-qtgmc-draft-sigsegv/
-#                scripts/bare.vpy (one call on a synthetic clip) under valgrind
+#   bisect       call:WxH:format[:k=v,...] runs of docs/reports/task-66-qtgmc-draft-sigsegv/
+#                scripts/bare.vpy (one call on a synthetic clip) under valgrind; the
+#                optional fourth field passes bare.vpy's own arguments (cpu=none,
+#                defined=1)
+#   verify       the same specs run twice under valgrind with --malloc-fill=0x00
+#                and 0xff, comparing the outputs: `same` means the bytes memcheck
+#                calls uninitialised never reach the picture (task #70)
+#   poison       preset:WxH:format runs of docs/reports/task-70-odd-chroma-width-memcheck/
+#                scripts/poison.py: QTGMC with every frame's stride padding filled
+#                per seed (1, 2, 3); equal hashes = no padding reaches the output
+# modes `none` skips the capture and the replays (for bisect/verify/poison only).
 #   locate       the same through scripts/locate.py: which output samples are
 #                uninitialised (one memcheck process per region; slow)
 #   probe_calls  Scripts/probe-plugin-formats.py --calls, probe_repeat times
@@ -44,7 +53,7 @@ on:
         description: 'Replays at once'
         default: '8'
       modes:
-        description: 'Space-separated: plain single-thread valgrind'
+        description: 'Space-separated: plain single-thread valgrind (or none)'
         default: 'plain single-thread valgrind'
       valgrind_repeat:
         description: 'Replays of every captured run under valgrind'
@@ -57,6 +66,12 @@ on:
         default: '3'
       bisect:
         description: 'call:WxH:format runs of the report scripts/bare.vpy under valgrind'
+        default: ''
+      verify:
+        description: 'call:WxH:format[:k=v,...] bare.vpy runs compared under two --malloc-fill values'
+        default: ''
+      poison:
+        description: 'preset:WxH:format runs of the task-70 report scripts/poison.py'
         default: ''
       locate:
         description: 'call:WxH:format runs of scripts/locate.py (which samples are uninitialised)'
@@ -87,6 +102,8 @@ env:
   # call:WxH:format runs of the report's bare.vpy under valgrind / locate.py.
   BISECT: ${{ inputs.bisect }}
   LOCATE: ${{ inputs.locate }}
+  VERIFY: ${{ inputs.verify }}
+  POISON: ${{ inputs.poison }}
   CAPTURE: ${{ github.workspace }}/repro/capture
   OUT: ${{ github.workspace }}/repro/out
   VAPOURBOX_CORE_DIR: /tmp/cores
@@ -153,7 +170,21 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
+      - name: Bundle environment
+        run: |
+          # As WorkerHarness.workerEnv builds it for Linux, for steps that run
+          # the bundle's Python directly (locate, poison).
+          D="${{ github.workspace }}/deps/linux-x64"
+          mkdir -p repro
+          {
+            echo "export PYTHONHOME=$D/python PYTHONPATH=$D:$D/python-packages PYTHONNOUSERSITE=1"
+            echo "export XDG_CONFIG_HOME=$D/config PATH=$D/python/bin:$D/vapoursynth:$D/ffmpeg:\$PATH"
+            echo "export LD_LIBRARY_PATH=$D/vapoursynth:$D/python/lib:$D/lib"
+          } > repro/bundle-env.sh
+          cat repro/bundle-env.sh
+
       - name: Capture the test's vspipe runs
+        if: env.MODES != 'none'
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
         run: |
@@ -164,6 +195,7 @@ jobs:
           for r in "$CAPTURE"/run.*; do echo "$(basename "$r"): exit $(cat "$r/rc" 2>/dev/null)"; done
 
       - name: Replay
+        if: env.MODES != 'none'
         run: |
           mkdir -p "$OUT"
           for mode in $MODES; do
@@ -200,24 +232,71 @@ jobs:
           SCRIPTS=docs/reports/task-66-qtgmc-draft-sigsegv/scripts
           mkdir -p "$OUT/bisect"
           for spec in $BISECT; do
-            IFS=: read -r call size fmt <<< "$spec"
-            log="$OUT/bisect/$call.$size.$fmt.log"
+            IFS=: read -r call size fmt extra <<< "$spec"
+            args=(); for kv in ${extra//,/ }; do args+=(-a "$kv"); done
+            log="$OUT/bisect/$call.$size.$fmt.${extra//[,=]/_}.log"
             rc=0
-            PYTHONMALLOC=malloc timeout 1800 $VS/vspipe.vg -a call=$call -a size=$size -a fmt=$fmt \
+            PYTHONMALLOC=malloc timeout 1800 $VS/vspipe.vg -a call=$call -a size=$size -a fmt=$fmt "${args[@]}" \
               -c y4m $SCRIPTS/bare.vpy /dev/null > "$log" 2>&1 || rc=$?
             origin=$(grep -A12 'Uninitialised value was created\|Invalid' "$log" | grep -m1 -o 'by 0x[0-9A-F]*: [A-Za-z_:<>0-9]*[Gg]et[Ff]rame[^ ]*\|by 0x[0-9A-F]*: [a-zA-Z_]*[(]' | head -1)
             echo "$spec: exit $rc, $(grep -m1 'ERROR SUMMARY' "$log" | sed 's/==[0-9]*== //') ${origin}"
           done | tee "$OUT/bisect/summary.txt"
 
+      - name: Verify (does memcheck's finding reach the picture?)
+        if: always() && env.VERIFY != ''
+        run: |
+          # Each spec twice under valgrind, every heap block filled with 0x00 and
+          # then 0xff when allocated. A fresh process allocates nearly every frame
+          # buffer anew, so bytes nothing wrote differ between the two runs; equal
+          # outputs mean they never reach the visible picture (task #70).
+          VS=deps/linux-x64/vapoursynth
+          REAL=$VS/vspipe-bin.real; [ -x "$REAL" ] || REAL=$VS/vspipe-bin
+          SCRIPTS=docs/reports/task-66-qtgmc-draft-sigsegv/scripts
+          mkdir -p "$OUT/verify"
+          for fill in 0x00 0xff; do
+            sed "s|^exec \"\$SCRIPT_DIR/vspipe-bin\" \"\$@\"\$|exec valgrind --malloc-fill=$fill --error-exitcode=99 --num-callers=4 \"$PWD/$REAL\" \"\$@\"|" \
+              $VS/vspipe > $VS/vspipe.$fill
+            chmod +x $VS/vspipe.$fill
+            grep -q "malloc-fill=$fill" $VS/vspipe.$fill
+          done
+          for spec in $VERIFY; do
+            IFS=: read -r call size fmt extra <<< "$spec"
+            args=(); for kv in ${extra//,/ }; do args+=(-a "$kv"); done
+            line="$spec:"
+            for fill in 0x00 0xff; do
+              rc=0
+              PYTHONMALLOC=malloc timeout 1800 $VS/vspipe.$fill -a call=$call -a size=$size -a fmt=$fmt "${args[@]}" \
+                -c y4m $SCRIPTS/bare.vpy "$OUT/verify/out.$fill.y4m" > "$OUT/verify/$call.$size.$fmt.$fill.log" 2>&1 || rc=$?
+              h=$(sha256sum "$OUT/verify/out.$fill.y4m" | cut -c1-16)
+              line="$line fill $fill exit $rc $h,"
+              eval "h_$fill=$h"
+            done
+            [ "$h_0x00" = "$h_0xff" ] && verdict=same || verdict=DIFFERENT
+            echo "$line $verdict"
+            rm -f "$OUT"/verify/out.*.y4m
+          done | tee "$OUT/verify/summary.txt"
+
+      - name: Poison stride padding (natively)
+        if: always() && env.POISON != ''
+        run: |
+          # QTGMC with every frame's row padding filled per seed; a filter that
+          # reads padding into the picture gives different hashes (task #70).
+          . repro/bundle-env.sh
+          PY=deps/linux-x64/python/bin/python3
+          mkdir -p "$OUT/poison"
+          for spec in $POISON; do
+            IFS=: read -r preset size fmt <<< "$spec"
+            $PY docs/reports/task-70-odd-chroma-width-memcheck/scripts/poison.py $preset $size $fmt 1 2 3 2>&1 \
+              | grep -v 'already loaded' | tail -3
+          done | tee "$OUT/poison/results.jsonl"
+
       - name: Locate uninitialised samples
         if: always() && env.LOCATE != ''
         run: |
           # scripts/locate.py: one memcheck process per region of the output.
-          r=$(ls -d "$CAPTURE"/run.* 2>/dev/null | head -1)
-          [ -n "$r" ] || { echo "no captured run to take the environment from"; exit 0; }
           W="${{ github.workspace }}"
           PY=$W/deps/linux-x64/python/bin/python3
-          while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
+          . repro/bundle-env.sh
           for spec in $LOCATE; do
             IFS=: read -r call size fmt <<< "$spec"
             $PY $W/docs/reports/task-66-qtgmc-draft-sigsegv/scripts/locate.py "$PY" $call $size $fmt $(nproc) 2>&1 \
@@ -229,9 +308,7 @@ jobs:
         run: |
           # The bundle's Python and environment, as WorkerHarness.workerEnv
           # gives the heavy probe test.
-          r=$(ls -d "$CAPTURE"/run.* 2>/dev/null | head -1)
-          [ -n "$r" ] || { echo "no captured run to take the environment from"; exit 0; }
-          while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
+          . repro/bundle-env.sh
           export VAPOURBOX_PLATFORM=linux-x64
           PY=deps/linux-x64/python/bin/python3
           FF=deps/linux-x64/ffmpeg/ffmpeg

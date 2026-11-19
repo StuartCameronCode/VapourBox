@@ -1,0 +1,8 @@
+# run 44498392281, Intel(R) Xeon(R) 6975P-C
+leak:98x96:YUV420P12: fill 0x00 exit 99 b1c9395a87e2ecd0, fill 0xff exit 99 d66b603da51f9569, DIFFERENT
+qtgmc_draft:98x96:YUV420P12: fill 0x00 exit 99 dacae9b87d765bac, fill 0xff exit 99 dacae9b87d765bac, same
+qtgmc_fast:98x96:YUV420P12: fill 0x00 exit 99 017d2fe9dc9682c6, fill 0xff exit 99 017d2fe9dc9682c6, same
+qtgmc_slower:98x96:YUV420P12: fill 0x00 exit 99 9a0c11e8b349eec5, fill 0xff exit 99 9a0c11e8b349eec5, same
+qtgmc_slower:98x96:YUV422P16: fill 0x00 exit 99 f652e05c2e69efb7, fill 0xff exit 99 f652e05c2e69efb7, same
+qtgmc_draft:722x480:YUV420P12: fill 0x00 exit 99 754e42218c96eb53, fill 0xff exit 99 754e42218c96eb53, same
+degrain_merge:98x96:YUV420P12: fill 0x00 exit 99 05c46978605bfbb4, fill 0xff exit 99 05c46978605bfbb4, same
