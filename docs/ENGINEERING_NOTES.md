@@ -5505,7 +5505,8 @@ FlowInter cell on Linux x64, every run.
   the AVX2 file, and its C resizer stays inside its buffers.
 - **Under valgrind (Linux x64):** 2,790–29,520 errors in the AVX2 resizer at
   64 wide with 16/8 blocks and at 176 (QCIF) with 32/8; 0 at 66 and 178, and
-  0 with `opt=0` or the guard. The first matrix showed Flow clean because its
+  0 with `opt=0` or the guard; the write is 2 bytes before a 14-byte block
+  (`workp[-1]` of `malloc(7 × int16)`). The first matrix showed Flow clean because its
   synthetic clip was a scene change on every frame, so FlowInter blended and
   never upsized: a Flow test needs `thscd1` raised (16320) or real motion.
 - **The fix is an argument.** `plugin_formats.mvtools_flow_opt(width,
