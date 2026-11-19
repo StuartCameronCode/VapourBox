@@ -3,6 +3,10 @@ real footage. measure=0 is planned first, so its plans are its own (MEASURE
 never reuses an ESTIMATE plan). Prints per call and depth: max abs diff and
 share of samples differing (in the clip's own levels, and in 8-bit levels for
 16-bit), mean abs diff, PSNR. argv: none."""
+import os
+import sys
+# Windows' embeddable Python (._pth) does not put the script's folder on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import json
 import math
 

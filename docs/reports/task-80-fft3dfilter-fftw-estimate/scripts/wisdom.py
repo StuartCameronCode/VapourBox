@@ -3,6 +3,10 @@ process? FFTW reuses wisdom from a more patient planner for a less patient
 request. Plans every call at measure=1 first, then prints the measure=0
 hashes, in xproc.py's format: compare them with a fresh `xproc.py 0`.
 argv: none."""
+import os
+import sys
+# Windows' embeddable Python (._pth) does not put the script's folder on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import json
 
 from common import CASES, core, digest, fixture, synthetic

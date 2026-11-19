@@ -3,6 +3,10 @@ constructor, so a preview pays it on every script evaluation), time to the
 first frame, and frames per second over the rest.
 argv: measure (0 | 1 | default) [frames]. One measure per process (plans
 are cached per process)."""
+import os
+import sys
+# Windows' embeddable Python (._pth) does not put the script's folder on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import json
 import sys
 import time
