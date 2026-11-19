@@ -1,7 +1,8 @@
-FFT3DFilter R2 (myrsloik/VapourSynth-FFT3DFilter, tag R2 = 50194b4): two
-faults that make its output differ from run to run, so a preview never
-matches the encode (VapourBox task #62,
-docs/reports/task-62-fft3dfilter-determinism).
+FFT3DFilter R2 (myrsloik/VapourSynth-FFT3DFilter, tag R2 = 50194b4): three
+causes of output that differs from run to run, so a preview never matches the
+encode (VapourBox tasks #62 and #80,
+docs/reports/task-62-fft3dfilter-determinism,
+docs/reports/task-80-fft3dfilter-fftw-estimate).
 
 1. FFT3DFilterTransform.cpp, FramePlaneToCoverbuf: each line of the padded
    cover buffer mirrored its left border BEFORE copying the source line into
@@ -16,6 +17,17 @@ docs/reports/task-62-fft3dfilter-determinism).
    fmParallel and the edge frames (btcur 1) write the 2D value while middle
    frames write and read the 3D one (x bt). Two threads interleaving filtered
    a middle frame at 1/bt of its sigma. Now a local in both functions.
+
+3. Plugin.cpp: measure defaults to 0 (FFTW_ESTIMATE) instead of 1
+   (FFTW_MEASURE). MEASURE times FFTW's candidate plans once per process and
+   keeps the fastest, which depends on the machine's load at that moment;
+   plans round floats differently, so two processes (a preview and its
+   encode) could filter differently. The Windows push gate saw it (task #80).
+   ESTIMATE picks by heuristics: one plan per machine, in every process. It
+   is the default, not only VapourBox's own argument, because havsfunc
+   (QTGMC, MCTemporalDenoise) passes none, and because FFTW reuses a MEASURE
+   plan made earlier in a process for a later ESTIMATE request of the same
+   problem (measured in task #80), so one measured call would undo the rest.
 
 Applied by download-deps-{macos,linux}.sh and download-deps-windows.ps1 right
 after the clone; each build fails if it stops applying.
@@ -81,3 +93,16 @@ index a7a7e7e..91adbc8 100644
              for (int w = src_width + mirw; w < coverwidth; w++) {
                  coverbuf1[w] = coverbuf1[width2 - w]; /* mirror right border */
              }
+diff --git a/Plugin.cpp b/Plugin.cpp
+index c8006b1..2330533 100644
+--- a/Plugin.cpp
++++ b/Plugin.cpp
+@@ -133,7 +133,7 @@ static void VS_CC createFFT3DFilter
+         set_option_float(&svr, 1.0, "svr", in, vsapi);
+         set_option_float(&smin, 4.0, "smin", in, vsapi);
+         set_option_float(&smax, 20.0, "smax", in, vsapi);
+-        set_option_int(&measure, 1, "measure", in, vsapi);
++        set_option_int(&measure, 0, "measure", in, vsapi); /* FFTW_ESTIMATE: a measured plan is timed per process, so two processes could filter differently (VapourBox task #80) */
+         set_option_int(&interlaced, 0, "interlaced", in, vsapi);
+         set_option_int(&wintype, 0, "wintype", in, vsapi);
+         set_option_int(&pframe, 0, "pframe", in, vsapi);
