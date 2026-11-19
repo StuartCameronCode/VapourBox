@@ -26,6 +26,12 @@ fmt = arg('fmt', 'YUV420P8')
 blksize = int(arg('blksize', '16'))
 overlap = int(arg('overlap', '8'))
 opt_arg = arg('opt', '1')
+# MVTools' scene-change threshold. This clip moves 3 px a frame over a fine
+# texture, and at the default (400) every frame is a scene change: FlowInter
+# and FlowFPS then blend the two frames and never upsize a vector, so the
+# upsizer this script exists to exercise does not run (task #69 review). The
+# default here (MVTools' maximum, an 8x8 block's whole range) switches it off; -a thscd1=400 restores MVTools' own.
+thscd1 = int(arg('thscd1', '16320'))
 
 c = core.std.BlankClip(width=w, height=h, format=getattr(vs, fmt), length=10)
 peak = (1 << c.format.bits_per_sample) - 1
@@ -55,7 +61,7 @@ if opt_arg == 'guard':
     opt = pf.mvtools_flow_opt(w, blksize, overlap)
 else:
     opt = opt_arg == '1'
-print('flow.vpy: %s %dx%d %s %d/%d opt=%s' % (call, w, h, fmt, blksize, overlap, opt), file=sys.stderr)
+print('flow.vpy: %s %dx%d %s %d/%d opt=%s thscd1=%d' % (call, w, h, fmt, blksize, overlap, opt, thscd1), file=sys.stderr)
 
 if call == 'qtgmc_inputtype2':
     # havsfunc's QTGMC runs mv.Mask(kind=1) on InputType 2/3 with ProgSADMask
@@ -67,11 +73,11 @@ else:
     bw = core.mv.Analyse(sup, isb=True, blksize=blksize, overlap=overlap)
     fw = core.mv.Analyse(sup, isb=False, blksize=blksize, overlap=overlap)
     if call == 'flowinter':
-        out = core.mv.FlowInter(c, sup, bw, fw, time=50.0, opt=opt)
+        out = core.mv.FlowInter(c, sup, bw, fw, time=50.0, thscd1=thscd1, opt=opt)
     elif call == 'flowfps':
-        out = core.mv.FlowFPS(c, sup, bw, fw, num=60000, den=1001, opt=opt)
+        out = core.mv.FlowFPS(c, sup, bw, fw, num=60000, den=1001, thscd1=thscd1, opt=opt)
     elif call == 'mask':
-        out = core.mv.Mask(c, bw, kind=1, ml=10, opt=opt)
+        out = core.mv.Mask(c, bw, kind=1, ml=10, thscd1=thscd1, opt=opt)
     else:
         raise vs.Error('flow.vpy: unknown call ' + call)
 
