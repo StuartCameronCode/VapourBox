@@ -1,0 +1,2 @@
+sweep unpatched (fix marker: no): runs=6340 failures=100 (20 exit 139; 80 exit 1; ); crash reports: 20 image:OpenCL, 
+sweep patched (fix marker: yes): runs=6340 failures=100 (20 exit 139; 80 exit 1; ); crash reports: 6 image:OpenCL, 

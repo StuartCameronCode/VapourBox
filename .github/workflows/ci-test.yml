@@ -130,6 +130,26 @@ jobs:
         if: failure()
         run: python3 .github/scripts/print-crash-reports.py
 
+      - name: Keep the raw crash reports (on failure)
+        # The .ips files themselves, for symbolication or a second look: the
+        # step above prints only their top frames (task #72).
+        if: failure()
+        run: |
+          mkdir -p crash-reports
+          for f in ~/Library/Logs/DiagnosticReports/{vspipe-bin,python3,vapourbox-worker}*.ips; do
+            [ -f "$f" ] && cp "$f" crash-reports/
+          done
+          ls crash-reports
+
+      - name: Upload the raw crash reports (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: crash-reports-macos-${{ matrix.arch }}
+          path: crash-reports/*.ips
+          if-no-files-found: ignore
+          retention-days: 14
+
   windows:
     runs-on: windows-latest
     env:

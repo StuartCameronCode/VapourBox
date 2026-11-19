@@ -33,7 +33,8 @@ if [ -n "\$script" ] && grep -Eq '$MATCH' "\$script" 2>/dev/null; then
   d=\$(mktemp -d "$CAP/run.XXXXXX")
   cp "\$script" "\$d/script.vpy"
   printf '%s\0' "\$@" > "\$d/args"
-  env -0 > "\$d/env"
+  # BSD env (macOS 15) may lack -0; perl is on every runner.
+  env -0 > "\$d/env" 2>/dev/null || perl -e 'print "\$_=\$ENV{\$_}\0" for keys %ENV' > "\$d/env"
   cat > "\$d/stdin.raw"
   "\$REAL" "\$@" < "\$d/stdin.raw"
   rc=\$?
@@ -73,7 +74,7 @@ run)
       case "$a" in *.vpy) args+=("$script") ;; *) args+=("$a") ;; esac
     done < "$r/args"
     (
-      mode="$RV_MODE" vspipe="$RV_VSPIPE"
+      mode="$RV_MODE" vspipe="$RV_VSPIPE" RV_TIMEOUT="$RV_TIMEOUT"
       while IFS= read -r -d '' kv; do export "$kv" 2>/dev/null; done < "$r/env"
       pre=()
       if [ "$mode" = valgrind ]; then
@@ -81,7 +82,9 @@ run)
         export PYTHONMALLOC=malloc
         pre=(valgrind --error-exitcode=99 --track-origins=yes --num-callers=40 --error-limit=no)
       fi
-      timeout 3600 "${pre[@]}" "$vspipe" "${args[@]}" < "$r/stdin.raw" > /dev/null 2> "$err"
+      # GNU timeout where there is one (macOS 15 has none built in).
+      tmo=(); [ -n "$RV_TIMEOUT" ] && tmo=("$RV_TIMEOUT" 3600)
+      "${tmo[@]}" "${pre[@]}" "$vspipe" "${args[@]}" < "$r/stdin.raw" > /dev/null 2> "$err"
     )
     rc=$?
     printf '%s\t%s\t%s\n' "$i" "$(basename "$r")" "$rc" >> "$RV_OUT/results.tsv"
@@ -90,6 +93,7 @@ run)
   }
   export -f one
   export RV_MODE="$MODE" RV_VSPIPE="$VSPIPE" RV_OUT="$OUT"
+  RV_TIMEOUT="$(command -v timeout || command -v gtimeout || true)"; export RV_TIMEOUT
   : > "$OUT/results.tsv"
   start=$(date +%s)
   for i in $(seq 1 "$REPEAT"); do for r in "${runs[@]}"; do printf '%s\0%s\0' "$i" "$r"; done; done \

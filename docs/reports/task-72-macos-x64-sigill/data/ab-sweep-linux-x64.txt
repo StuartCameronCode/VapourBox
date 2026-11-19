@@ -1,0 +1,2 @@
+sweep unpatched (fix marker: no): runs=6300 failures=60 (60 exit 1; ); cores: 0 classified (0 the race)
+sweep patched (fix marker: yes): runs=6300 failures=60 (60 exit 1; ); cores: 0 classified (0 the race)

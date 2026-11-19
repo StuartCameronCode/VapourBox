@@ -23,7 +23,6 @@ code { font:.9em ui-monospace, Menlo, monospace; }
 </style>
 </head>
 <body>
-<body>
 <main>
 <h1>Task #68: vspipe's teardown race, backported to R78</h1>
 <p class="sub">2026-11-19 · macOS arm64 (M1 Pro), deps 1.17.0-rc3 · scripts in <code>scripts/</code>, raw counts in <code>data/</code></p>
@@ -102,6 +101,11 @@ previews on macOS x64).</p>
 pre-#65 template, which crashed 2–3%) on Linux x64, macOS x64 and Windows x64. That workflow
 (<code>.github/workflows/repro-vspipe-teardown.yml</code>, temporary) had not run when this report was written; its counts
 belong here when it has.</p>
+<p class="note"><strong>2026-11-19, measured in task #72</strong> (run 44500126463,
+<a href="../task-72-macos-x64-sigill/index.html">its report</a>, section 3): with only <code>vspipe-bin</code> swapped in a
+1.17.0-rc3 bundle, R78 crashed 71 of 32,160 one-frame runs and the 1.18.0-rc1 vspipe 0 (Linux x64 66 vs 0, macOS x64 2 vs 0,
+Windows x64 3 vs 0), with this report's <code>compare_vspipe.sh</code> under CPU load. The workflow is kept in task #72's
+<code>scripts/</code>.</p>
 </main>
 </body>
 </html>

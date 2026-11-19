@@ -1,0 +1,183 @@
+name: Repro vspipe teardown A/B (task 72, temporary)
+
+# Task #72: R78's own vspipe against the one with task #68's backported fix,
+# in the same deps bundle (1.17.0-rc3), on x86 runners. It ran from
+# .github/workflows/ on the task's branch (run 44500126463) and is kept here
+# with the report; copy it back into .github/workflows/ (and point the push
+# trigger at your branch) to run it again.
+#
+#   loops  task #68's compare_vspipe.sh: vspipe on its trigger script, and the
+#          worker's IVTC (pre-#65 template) and Bwdif previews, 4 loops at
+#          once under CPU load
+#   sweep  the push gate's format sweep captured once (replay-vspipe.sh), then
+#          every captured vspipe run replayed `sweep_repeat` times per side
+
+on:
+  push:
+    branches: [stuart/72-macos-x64-ci-format-sweep-previews-die-w]
+    paths:
+      - .github/workflows/repro-vspipe-teardown.yml
+      - docs/reports/task-72-macos-x64-sigill/scripts/**
+  workflow_dispatch:
+    inputs:
+      passes:
+        description: 'Preview passes over the 30-frame fixture, per loop (4 loops)'
+        default: '28'
+      runs:
+        description: 'Trigger-script runs per loop (4 loops)'
+        default: '1000'
+      sweep_repeat:
+        description: 'Replays of every captured format-sweep run, per side'
+        default: '10'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  UNPATCHED_TAG: deps-v1.17.0-rc3
+  PATCHED_TAG: deps-v1.18.0-rc1
+  PASSES: ${{ inputs.passes || '28' }}
+  RUNS: ${{ inputs.runs || '1000' }}
+  SWEEP_REPEAT: ${{ inputs.sweep_repeat || '10' }}
+
+jobs:
+  loops:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: macos-x64, runner: macos-15-intel}
+          - {platform: linux-x64, runner: ubuntu-24.04}
+          - {platform: windows-x64, runner: windows-latest}
+    name: loops (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 340
+    defaults:
+      run:
+        shell: bash
+    env:
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v5
+        with: {fetch-depth: 0}
+      - name: Deps (R78 bundle, and the patched vspipe from 1.18.0-rc1)
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          P=${{ matrix.platform }}
+          bash .github/scripts/install-deps-bundle.sh "$P" "$UNPATCHED_TAG" "${UNPATCHED_TAG#deps-v}" "deps/$P"
+          bash .github/scripts/install-deps-bundle.sh "$P" "$PATCHED_TAG" "${PATCHED_TAG#deps-v}" "patched/$P"
+          if [ "$P" = windows-x64 ]; then
+            cp "patched/$P/vapoursynth/Lib/site-packages/vapoursynth/vspipe.exe" patched/vspipe
+          else
+            cp "patched/$P/vapoursynth/vspipe-bin" patched/vspipe
+          fi
+          rm -rf "patched/$P"
+          grep -ac 'VapourBox patch: vspipe frame-done count' patched/vspipe
+          if [ "$P" = macos-x64 ]; then xattr -cr deps 2>/dev/null || true; brew install stress-ng || true; fi
+          if [ "$P" = linux-x64 ]; then
+            sudo apt-get update && sudo apt-get install -y stress-ng gdb file
+            mkdir -p "$HOME/.local/share/VapourBox"
+            ln -sfn "$GITHUB_WORKSPACE/deps" "$HOME/.local/share/VapourBox/deps"
+            bash .github/scripts/enable-core-dumps.sh "$GITHUB_WORKSPACE/repro-cores"
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build worker
+        run: cd worker && cargo build
+      - name: Loops
+        run: |
+          export CORE_DIR="$GITHUB_WORKSPACE/repro-cores"
+          bash docs/reports/task-68-vspipe-teardown-backport/scripts/compare_vspipe.sh \
+            "deps/${{ matrix.platform }}" patched/vspipe 'f3706092^1' repro
+          echo "## loops: ${{ matrix.platform }}" >> "$GITHUB_STEP_SUMMARY"
+          sed 's/$/  /' repro/summary.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Classify the crashes
+        if: always()
+        run: |
+          mkdir -p repro/crash-reports
+          if [ -d ~/Library/Logs/DiagnosticReports ]; then
+            find ~/Library/Logs/DiagnosticReports -name 'vspipe-bin*.ips' -exec cp {} repro/crash-reports/ \;
+            shopt -s nullglob; f=(repro/crash-reports/*.ips)
+            if [ ${#f[@]} -gt 0 ]; then
+              python3 -I .github/scripts/print-crash-reports.py --classify "${f[@]}" | tee repro/crash-reports/classified.tsv
+              echo "crash reports: $(cut -f2 repro/crash-reports/classified.tsv | sort | uniq -c | tr '\n' ' ')" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+          if [ -d repro-cores ]; then
+            VAPOURBOX_CORE_DIR=repro-cores python3 .github/scripts/print-crash-reports.py | tee repro/crash-reports/cores.txt
+          fi
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: loops-${{ matrix.platform }}
+          path: |
+            repro/summary.txt
+            repro/**/*.log
+            repro/**/*.err
+            repro/crash-reports/
+          if-no-files-found: ignore
+
+  sweep:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {platform: macos-x64, runner: macos-15-intel}
+          - {platform: linux-x64, runner: ubuntu-24.04}
+    name: sweep (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 340
+    env:
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/${{ matrix.platform }}
+      CAPTURE: ${{ github.workspace }}/repro/capture
+    steps:
+      - uses: actions/checkout@v5
+      - name: Deps (R78 bundle, and the patched vspipe from 1.18.0-rc1)
+        env: {GH_TOKEN: '${{ github.token }}'}
+        run: |
+          P=${{ matrix.platform }}
+          bash .github/scripts/install-deps-bundle.sh "$P" "$UNPATCHED_TAG" "${UNPATCHED_TAG#deps-v}" "deps/$P"
+          bash .github/scripts/install-deps-bundle.sh "$P" "$PATCHED_TAG" "${PATCHED_TAG#deps-v}" "patched/$P"
+          cp "patched/$P/vapoursynth/vspipe-bin" patched/vspipe; rm -rf "patched/$P"
+          grep -ac 'VapourBox patch: vspipe frame-done count' patched/vspipe
+          if [ "$P" = macos-x64 ]; then xattr -cr deps 2>/dev/null || true; fi
+          if [ "$P" = linux-x64 ]; then
+            mkdir -p "$HOME/.local/share/VapourBox"
+            ln -sfn "$GITHUB_WORKSPACE/deps" "$HOME/.local/share/VapourBox/deps"
+            bash .github/scripts/enable-core-dumps.sh
+          fi
+      - uses: subosito/flutter-action@v2
+        with: {channel: stable, cache: true}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build worker and generated code
+        run: |
+          (cd worker && cargo build)
+          cd app && flutter pub get && dart run build_runner build --delete-conflicting-outputs
+      - name: Capture the push gate's format sweep
+        env:
+          VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
+        run: |
+          bash .github/scripts/replay-vspipe.sh install "deps/${{ matrix.platform }}/vapoursynth" '.' "$CAPTURE"
+          (cd app && flutter test test/integration_format_sweep_test.dart --exclude-tags heavy,gpu) \
+            || echo "::warning::the sweep failed while capturing (R78's vspipe: expected now and then)"
+          echo "captured $(ls -d "$CAPTURE"/run.* | wc -l) vspipe runs; $(du -sh "$CAPTURE" | cut -f1)"
+      - name: Replay, R78 then patched
+        run: |
+          P=$(getconf _NPROCESSORS_ONLN)
+          bash docs/reports/task-72-macos-x64-sigill/scripts/ab_sweep_replay.sh \
+            "deps/${{ matrix.platform }}/vapoursynth" patched/vspipe "$CAPTURE" "$SWEEP_REPEAT" "$P" repro/ab
+          echo "## sweep: ${{ matrix.platform }} ($(ls -d "$CAPTURE"/run.* | wc -l) captured runs)" >> "$GITHUB_STEP_SUMMARY"
+          sed 's/$/  /' repro/ab/summary.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: sweep-${{ matrix.platform }}
+          path: |
+            repro/ab/summary.txt
+            repro/ab/*.log
+            repro/ab/*/err.*
+            repro/ab/*/results.tsv
+            repro/ab/*/classified.tsv
+            repro/ab/*/cores.txt
+            repro/ab/*/*.ips
+          if-no-files-found: ignore
