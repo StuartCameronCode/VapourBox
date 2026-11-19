@@ -1,0 +1,121 @@
+name: Probe FFT3DFilter FFTW plans (task #80, temporary)
+
+# TEMPORARY (task #80): delete before merge. Runs
+# docs/reports/task-80-fft3dfilter-fftw-estimate/scripts/probe.py on every
+# platform: FFT3DFilter's hashes across fresh processes at measure 0, 1 and
+# the plugin's default; whether ESTIMATE inherits a MEASURE plan in one
+# process; speed; and how far measure=0 moves the picture. Six Windows jobs
+# sample different runner CPUs (the push gate failed on some, not others).
+
+on:
+  workflow_dispatch:
+    inputs:
+      deps_run_id:
+        description: 'Optional comma-separated build-deps-* run IDs to take the bundles from'
+        required: false
+        type: string
+      processes:
+        description: 'Fresh processes per measure value'
+        default: '20'
+      speed_runs:
+        description: 'speed.py runs per measure value'
+        default: '3'
+      parts:
+        description: 'xproc,wisdom,speed,move'
+        default: 'xproc,wisdom,speed,move'
+  push:
+    branches-ignore: [main]
+    paths:
+      - '.github/workflows/probe-fft3d-fftw.yml'
+      - 'docs/reports/task-80-fft3dfilter-fftw-estimate/scripts/**'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PROCESSES: ${{ inputs.processes || '20' }}
+  SPEED_RUNS: ${{ inputs.speed_runs || '3' }}
+  PARTS: ${{ inputs.parts || 'xproc,wisdom,speed,move' }}
+
+jobs:
+  probe:
+    name: ${{ matrix.platform }} ${{ matrix.n }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, platform: windows-x64, n: 1 }
+          - { os: windows-latest, platform: windows-x64, n: 2 }
+          - { os: windows-latest, platform: windows-x64, n: 3 }
+          - { os: windows-latest, platform: windows-x64, n: 4 }
+          - { os: windows-latest, platform: windows-x64, n: 5 }
+          - { os: windows-latest, platform: windows-x64, n: 6 }
+          - { os: ubuntu-24.04, platform: linux-x64, n: 1 }
+          - { os: ubuntu-24.04, platform: linux-x64, n: 2 }
+          - { os: macos-15-intel, platform: macos-x64, n: 1 }
+          - { os: macos-15, platform: macos-arm64, n: 1 }
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: CPU
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Windows) powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).Name; (Get-CimInstance Win32_Processor).Description" ;;
+            Linux) grep -m1 'model name' /proc/cpuinfo ;;
+            macOS) sysctl -n machdep.cpu.brand_string ;;
+          esac
+          echo "nproc: $(getconf _NPROCESSORS_ONLN 2>/dev/null || echo "$NUMBER_OF_PROCESSORS")"
+
+      - name: Resolve deps tag
+        id: deps
+        shell: bash
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])" 2>/dev/null \
+             || python -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download dependencies
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
+        run: |
+          bash .github/scripts/install-deps-bundle.sh "${{ matrix.platform }}" \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" "deps/${{ matrix.platform }}"
+          [ "$RUNNER_OS" = macOS ] && xattr -cr "deps/${{ matrix.platform }}" 2>/dev/null || true
+          cat "deps/${{ matrix.platform }}/version.json"
+
+      - name: Probe (macOS / Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p probe-out
+          SCRATCH="$RUNNER_TEMP/task80" bash docs/reports/task-80-fft3dfilter-fftw-estimate/scripts/run.sh \
+            "deps/${{ matrix.platform }}" probe.py "$PROCESSES" "$SPEED_RUNS" "$PARTS" > probe-out/probe.json
+
+      - name: Probe (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path probe-out | Out-Null
+          $env:SCRATCH = Join-Path $env:RUNNER_TEMP 'task80'
+          & docs/reports/task-80-fft3dfilter-fftw-estimate/scripts/run.ps1 "deps/${{ matrix.platform }}" probe.py $env:PROCESSES $env:SPEED_RUNS $env:PARTS | Out-File -Encoding utf8 probe-out/probe.json
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          S=docs/reports/task-80-fft3dfilter-fftw-estimate/scripts/summarize.py
+          python3 "$S" probe-out/probe.json 2>/dev/null || python "$S" probe-out/probe.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-${{ matrix.platform }}-${{ matrix.n }}
+          path: probe-out/
