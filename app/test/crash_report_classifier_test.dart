@@ -2,8 +2,8 @@
 // what it is, on both platforms, and names the faulting image of anything
 // else (task #72).
 //
-// The macOS x64 push gate failed a random format-sweep row in about half its
-// runs with "vspipe exited with signal 4 (SIGILL)", which reads like a plugin
+// The macOS x64 push gate failed a random format-sweep row in about a quarter
+// of its runs on deps 1.17.0-rc3 (5 of 20) with "vspipe exited with signal 4 (SIGILL)", which reads like a plugin
 // using an instruction the runner lacks. It was the teardown race: vspipe's
 // frameDoneCallback signalling a condition variable main had already freed,
 // which macOS traps in _os_unfair_lock_unowned_abort (SIGILL); on Linux the
