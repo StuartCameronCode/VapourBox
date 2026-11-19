@@ -3615,6 +3615,14 @@ Rules:
     in vspipe's own `frameDoneCallback` / `outputFrame` and main in
     `freeScript` is vspipe R78's teardown race** (task #68, fixed in R80), not
     the script: any one-frame preview can hit it, roughly 1 in 1,000.
+    **On macOS the same race is a SIGILL** (task #72): `pthread_cond_signal`
+    from vspipe's `frameDoneCallback` on the condition variable main has
+    freed traps in `_os_unfair_lock_unowned_abort`. It is not an instruction
+    the CPU lacks. The crash-report step prints every thread, names this
+    signature and says whether the bundle's vspipe has the fix
+    (`print-crash-reports.py --classify FILE…` does it for any `.ips` or
+    gdb text); the macOS jobs upload the raw `.ips` as
+    `crash-reports-*` artifacts.
     **A memcheck "uninitialised" report at more than 8 bits and an odd
     plane width is expected and harmless on its own** (task #70):
     VapourSynth's AVX2 kernels read stride padding into lanes they discard,
