@@ -1,9 +1,10 @@
 name: Repro vspipe teardown A/B (task 72, temporary)
 
-# TEMPORARY (task #72): R78's own vspipe against the one with task #68's
-# backported fix, in the same deps bundle (1.17.0-rc3), on x86 runners. Its
-# copy lives in docs/reports/task-72-macos-x64-sigill/scripts/; delete this
-# file before the task's PR is merged.
+# Task #72: R78's own vspipe against the one with task #68's backported fix,
+# in the same deps bundle (1.17.0-rc3), on x86 runners. It ran from
+# .github/workflows/ on the task's branch (run 44500126463) and is kept here
+# with the report; copy it back into .github/workflows/ (and point the push
+# trigger at your branch) to run it again.
 #
 #   loops  task #68's compare_vspipe.sh: vspipe on its trigger script, and the
 #          worker's IVTC (pre-#65 template) and Bwdif previews, 4 loops at

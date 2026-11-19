@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>macOS x64 sweep SIGILL</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #72: the macOS x64 format-sweep SIGILL was vspipe's teardown race</h1>
+<p class="sub">2026-11-19 · GitHub-hosted x86 runners (macos-15-intel, ubuntu-24.04, windows-latest) · deps 1.17.0-rc3 against 1.18.0-rc1 ·
+scripts in <code>scripts/</code>, raw counts in <code>data/</code></p>
+
+<h2>Outcome</h2>
+<ul>
+<li><strong>Every macOS x64 SIGILL in the push gate was task #68's race.</strong> On deps 1.17.0-rc3, 4 push-gate runs
+failed a random format-sweep row with <code>vspipe exited with signal 4 (SIGILL)</code> (5 rows). Every one left a crash
+report, and every report has the same faulting thread: vspipe's <code>frameDoneCallback</code> →
+<code>condition_variable::notify_one</code> → <code>pthread_cond_signal</code> →
+<code>_os_unfair_lock_unowned_abort</code> (section 1).</li>
+<li><strong>It is fixed by deps 1.18.0-rc1</strong>, which carries upstream's vspipe fix (task #68). On the same x86
+runners, with only <code>vspipe-bin</code> swapped, R78's own vspipe crashed <span class="bad">71 of 32,160</span> one-frame
+runs and the patched one <span class="good">0 of 32,160</span> (section 3).</li>
+<li><strong>No retry or quarantine was added.</strong> The sweep's native-crash class still finds real bugs (tasks #69, #70).
+Instead, the CI crash-report step now names this signature and says whether the bundle has the fix (section 4).</li>
+</ul>
+
+<h2>1. What the crash reports say</h2>
+<p><code>scripts/classify_ci_failures.py</code> reads every failed push-gate job's log (<code>gh run view --job --log</code>),
+lists its failed tests and native-crash rows, and classifies each crash report the log printed with
+<code>print-crash-reports.py</code>'s <code>classify()</code>. Output: <code>data/ci-failures.tsv</code> (19 failed jobs,
+deps 1.17.0-rc2 and rc3).</p>
+<table>
+<tr><th>Platform</th><th>Sweep rows that died natively</th><th>Signal</th><th>Crash reports</th><th>Verdict</th></tr>
+<tr><td>macOS x64</td><td class="n">5 (4 runs)</td><td>SIGILL</td><td class="n">5 <code>.ips</code></td><td>5 × <code>vspipe-teardown</code> (<code>frameDoneCallback</code>)</td></tr>
+<tr><td>Linux x64</td><td class="n">10 (9 runs)</td><td>SIGSEGV</td><td class="n">1 gdb core (the rest predate core capture)</td><td><code>vspipe-teardown</code> (<code>outputFrame</code>; main in <code>vpy4_freeScript</code>)</td></tr>
+<tr><td>macOS arm64</td><td class="n">0</td><td></td><td class="n">1 (a Bifrost-era test)</td><td><code>image:AppleParavirtGPUMetalIOGPUFamily</code>, not the race</td></tr>
+</table>
+<p>The rows were all over the sweep (QTGMC Fast, Crop &amp; Resize, Edge Repair, CTMF, Colour Correction, at different sizes and
+formats), which is what a race in vspipe's exit looks like and what a plugin bug does not.</p>
+
+<h3>The three suspected causes</h3>
+<table>
+<tr><th>Hypothesis (task description)</th><th>Verdict</th><th>Why</th></tr>
+<tr><td>A CPU-dispatched instruction the runner lacks</td><td class="good">ruled out</td><td>No plugin image is on the
+faulting thread; the faulting instruction is <code>ud2</code> in libsystem_platform, put there deliberately.</td></tr>
+<tr><td>A Zig <code>ud2</code> (vszip / zsmooth safety trap)</td><td class="good">ruled out</td><td>Same: the trap is in
+<code>_os_unfair_lock_unowned_abort</code>, called from vspipe, with neither plugin on the stack.</td></tr>
+<tr><td>vspipe R78's teardown race (task #68)</td><td class="bad">the cause</td><td>Every report: vspipe's callback signalling a
+condition variable that main has already freed.</td></tr>
+</table>
+
+<h3>Why the same race is SIGILL on macOS and SIGSEGV on Linux</h3>
+<p>R78's <code>frameDoneCallback</code> increments <code>completedFrames</code> before it writes the frame and notifies. Main can
+see "every frame done" in that gap and free <code>VSPipeOutputData</code>, its mutex and condition variable included. What the
+callback then does with freed memory decides the signal:</p>
+<ul>
+<li><strong>macOS</strong>: <code>pthread_cond_signal</code> takes the condition variable's internal <code>os_unfair_lock</code>.
+In freed (or reused) memory its owner field no longer matches, and libplatform aborts on purpose with <code>ud2</code>:
+<code>EXC_BAD_INSTRUCTION</code>, SIGILL. When the callback is still in <code>outputFrame</code> writing to the freed buffer,
+it is a SIGSEGV instead; both A/B crashes on macOS x64 (section 3) were that form.</li>
+<li><strong>Linux</strong>: glibc's condition variable has no owner check, so the fault is the write itself: SIGSEGV in
+<code>outputFrame</code>, with main in <code>vpy4_freeScript</code>.</li>
+<li><strong>Windows</strong>: an access violation (<code>0xC0000005</code>).</li>
+</ul>
+<p class="note">The fixture <code>Tests/TestResources/crash_reports/macos-x64-vspipe-teardown-sigill.ips</code> is one of these
+reports as CI printed it (paths reduced to the runner's own).</p>
+
+<h2>2. Push-gate tally since deps 1.18.0-rc1</h2>
+<p>The macOS x64 push gate runs 588 sweep rows a job. On rc3, 5 rows died in 20 jobs (11,760 rows): about 1 in 2,400.</p>
+<table>
+<tr><th>Run</th><th>Branch</th><th>macOS x64</th></tr>
+<tr><td>44411658811</td><td>task #68</td><td class="good">passed</td></tr>
+<tr><td>44481983232</td><td>main</td><td class="good">passed</td></tr>
+<tr><td>44484258865</td><td>task #67</td><td class="good">passed</td></tr>
+<tr><td>44497719057</td><td>main</td><td>failed: quick-probe 15 min timeout (task #75), no sweep row failed</td></tr>
+<tr><td>44500281558</td><td>task #70</td><td class="good">passed</td></tr>
+<tr><td>44510129664</td><td>task #73</td><td class="good">passed</td></tr>
+<tr><td>44510992864</td><td>task #70</td><td class="good">passed</td></tr>
+<tr><td>44515328673</td><td>task #75</td><td>failed: one 30 s test timeout (task #75), no sweep row failed</td></tr>
+</table>
+<p>8 jobs, 4,704 rows, no SIGILL. At the rc3 rate 2.0 were expected; the chance of none by luck alone is about 0.14.</p>
+<p class="note">Limit: this is consistent with the fix but would not establish it on its own. The A/B in section 3 is the evidence.
+<em>Corrections:</em> the plan for this task gave P(0) ≈ 0.08 for the first three green runs; at 588 rows a job that is
+1,764 rows and P(0) ≈ 0.47. The plan and the review also counted 5 runs and 6 SIGILL rows on rc3; <code>data/ci-failures.tsv</code>
+has 4 runs and 5 rows (with 5 reports). The eight runs above bring P(0) to 0.14.</p>
+
+<h2>3. The x86 A/B</h2>
+<p><code>scripts/repro-vspipe-teardown.yml</code> (the temporary workflow, copied here; run 44500126463). Every job installs the
+deps 1.17.0-rc3 bundle and runs it twice, once with its own <code>vspipe-bin</code> (R78) and once with the
+<code>vspipe-bin</code> from 1.18.0-rc1 (R78 + the patch, checked by its <code>--version</code> marker). Nothing else differs.</p>
+
+<h3>Loops</h3>
+<p>Task #68's <code>compare_vspipe.sh</code>, 4 loops at once beside CPU hogs: vspipe on <code>trigger.vpy</code> (1,000 runs a
+loop), and the worker's IVTC preview with the pre-#65 template and its Bwdif preview (28 passes over the 30-frame fixture a loop).
+<code>data/ab-loops-*.txt</code>.</p>
+<table>
+<tr><th>Platform</th><th>Script</th><th>Runs per side</th><th>R78</th><th>R78 + patch</th></tr>
+<tr><td rowspan="3">Linux x64</td><td>trigger</td><td class="n">4,000</td><td class="n">0</td><td class="n">0</td></tr>
+<tr><td>IVTC</td><td class="n">3,360</td><td class="n bad">66</td><td class="n good">0</td></tr>
+<tr><td>Bwdif</td><td class="n">3,360</td><td class="n">0</td><td class="n">0</td></tr>
+<tr><td rowspan="3">macOS x64</td><td>trigger</td><td class="n">4,000</td><td class="n bad">1</td><td class="n good">0</td></tr>
+<tr><td>IVTC</td><td class="n">3,360</td><td class="n bad">1</td><td class="n good">0</td></tr>
+<tr><td>Bwdif</td><td class="n">3,360</td><td class="n">0</td><td class="n">0</td></tr>
+<tr><td rowspan="3">Windows x64</td><td>trigger</td><td class="n">4,000</td><td class="n bad">1</td><td class="n good">0</td></tr>
+<tr><td>IVTC</td><td class="n">3,360</td><td class="n bad">2</td><td class="n good">0</td></tr>
+<tr><td>Bwdif</td><td class="n">3,360</td><td class="n">0</td><td class="n">0</td></tr>
+<tr><th colspan="2">Total</th><th class="n">32,160</th><th class="n bad">71</th><th class="n good">0</th></tr>
+</table>
+<ul>
+<li>Both macOS crashes left a report; both classify as <code>vspipe-teardown</code>, one in <code>frameDoneCallback</code>, one in
+<code>outputFrame</code>, both SIGSEGV (<code>data/ab-loops-macos-x64-crash-reports.tsv</code>). The Windows ones were access
+violations (<code>0xC0000005</code>); Windows keeps no crash report on the runner.</li>
+<li>If the two sides crashed at the same rate, 71 crashes all falling on R78 would have probability 2<sup>−71</sup>. Without Linux
+(macOS and Windows, 5 against 0) it is 2<sup>−5</sup> ≈ 0.03; macOS alone (2 against 0) is 0.25, not significant by itself.</li>
+<li>The patched rate is below 3 in 32,160 (about 1 in 10,700) at 95% confidence; on macOS x64 alone, below 3 in 10,720.</li>
+</ul>
+<p class="note">Limits: the loops are task #65's workloads, not the sweep's. They hit the race much more often on Linux (IVTC: 2%)
+than on macOS (1 in 5,400 over all three scripts), so on macOS they do not reproduce the push gate's rate of about 1 in 2,400, and
+neither macOS crash was the SIGILL form. What they show on macOS is that the race fires there, under the same signature, and that
+the patched side did not crash in 10,720 runs.</p>
+
+<h3>Format-sweep replays: inconclusive</h3>
+<p>Each sweep job ran the push gate's format sweep once with a capturing <code>vspipe-bin</code>
+(<code>.github/scripts/replay-vspipe.sh</code>), then replayed every captured run 10 times with each vspipe
+(<code>scripts/ab_sweep_replay.sh</code>; <code>data/ab-sweep-*.txt</code>).</p>
+<table>
+<tr><th>Platform</th><th>Captured runs</th><th>Runs per side</th><th>R78</th><th>R78 + patch</th></tr>
+<tr><td>macOS x64</td><td class="n">634</td><td class="n">6,340</td><td class="n">100</td><td class="n">100</td></tr>
+<tr><td>Linux x64</td><td class="n">630</td><td class="n">6,300</td><td class="n">60</td><td class="n">60</td></tr>
+</table>
+<p>The failures are the same few captured runs failing all 10 times on both sides: KNLMeansCL refusing the runner's OpenCL
+device ("the opencl device does not support this video format", exit 1) and, on macOS, an OpenCL kernel build crashing
+(exit 139, crash reports in <code>image:OpenCL</code>). In the test these rows run with the worker's OpenCL probe, which a
+bare replay skips. <strong>No replay hit the race on either side</strong>, so this arm says nothing about the fix. Replayed
+alone, without the sweep's other jobs and the test runner around them, a run is apparently too quiet to open the window.</p>
+
+<h2>4. What changed</h2>
+<ul>
+<li><code>.github/scripts/print-crash-reports.py</code>: prints every thread of a macOS <code>.ips</code> (it printed the
+faulting thread only), classifies a report (<code>vspipe-teardown</code>, <code>image:&lt;name&gt;</code> or
+<code>unknown</code>), and says whether the bundle's vspipe carries the fix (its <code>--version</code> marker read from the
+binary). <code>--classify FILE…</code> runs it on any <code>.ips</code> or gdb text and never fails.</li>
+<li><code>ci-test.yml</code> and <code>nightly.yml</code>: the macOS jobs upload the raw <code>.ips</code> files as
+<code>crash-reports-*</code> artifacts on failure (14 days).</li>
+<li><code>app/test/crash_report_classifier_test.dart</code> (push gate): the macOS SIGILL and the Linux SIGSEGV fixtures both
+classify as the race; a plugin/driver crash is named by its image.</li>
+<li><code>replay-vspipe.sh</code>: runs on macOS (no <code>env -0</code> or <code>timeout</code> there).</li>
+<li>CLAUDE.md Debugging Tip 11: the macOS signature.</li>
+</ul>
+
+<h2>5. Not tested</h2>
+<ul>
+<li>The SIGILL form itself under the A/B: the loops on macOS x64 produced only the SIGSEGV form. The SIGILL form's evidence is the
+five CI reports' stacks, which are the same callback.</li>
+<li>A larger macOS-only A/B. 10,720 runs a side gave 2 against 0; telling the two apart on macOS alone would take roughly
+five times as many runs.</li>
+</ul>
+
+<h2>Files</h2>
+<ul>
+<li><code>scripts/classify_ci_failures.py</code> → <code>data/ci-failures.tsv</code></li>
+<li><code>scripts/repro-vspipe-teardown.yml</code> (workflow, removed from <code>.github/workflows/</code>) with
+<code>scripts/ab_sweep_replay.sh</code> and task #68's <code>compare_vspipe.sh</code> → <code>data/ab-*.txt</code>,
+<code>data/ab-loops-macos-x64-crash-reports.tsv</code></li>
+</ul>
+</main>
+</body>
+</html>

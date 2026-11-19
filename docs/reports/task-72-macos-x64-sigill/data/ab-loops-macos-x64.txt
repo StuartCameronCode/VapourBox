@@ -1,0 +1,6 @@
+unpatched trigger (4 loops, CPU load): runs=4000 failures=1
+unpatched ivtc (4 loops, CPU load): runs=3360 failures=1
+unpatched bwdif (4 loops, CPU load): runs=3360 failures=0
+patched trigger (4 loops, CPU load): runs=4000 failures=0
+patched ivtc (4 loops, CPU load): runs=3360 failures=0
+patched bwdif (4 loops, CPU load): runs=3360 failures=0

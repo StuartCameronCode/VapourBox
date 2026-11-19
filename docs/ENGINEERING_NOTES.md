@@ -5392,6 +5392,31 @@ consumes a significant amount of CPU" (Task Manager: vspipe.exe 50%).
   in-process plugin crashes take the encoder down, preview needs the same
   change.
 
+### The macOS x64 sweep SIGILL was vspipe's teardown race (task #72, 2026-11-19)
+
+Report: [docs/reports/task-72-macos-x64-sigill](reports/task-72-macos-x64-sigill/index.html).
+
+- **A SIGILL is not always an instruction the CPU lacks.** On deps 1.17.0-rc3
+  the macOS x64 push gate lost a random format-sweep row in 4 of 20 runs
+  (5 rows) to `vspipe exited with signal 4 (SIGILL)`. Every crash report has
+  vspipe's own `frameDoneCallback` → `notify_one` → `pthread_cond_signal` →
+  `_os_unfair_lock_unowned_abort`: macOS's deliberate `ud2` when a lock's
+  owner field is garbage, here because main had freed the condition variable
+  (task #68's race). No plugin is on the stack, so neither CPU dispatch nor a
+  Zig safety trap. Linux shows the same race as SIGSEGV in `outputFrame`;
+  on macOS it is SIGSEGV too when the callback is still writing the frame.
+- **Measured fixed on x86.** With only `vspipe-bin` swapped in a 1.17.0-rc3
+  bundle: R78 71 of 32,160 one-frame runs crashed, deps 1.18.0-rc1's 0
+  (Linux x64 66 vs 0, macOS x64 2 vs 0, Windows x64 3 vs 0). Since rc1, 8
+  macOS x64 push-gate jobs (4,704 rows) had no SIGILL (2.0 expected).
+- **Replaying captured sweep runs did not reproduce it** (0 races in 6,340
+  replays a side on macOS x64): a run replayed alone is too quiet. Use the
+  loops of task #68's `compare_vspipe.sh` under CPU load instead.
+- **No retry or quarantine**: the sweep's native-crash class still finds real
+  plugin bugs (tasks #69, #70). `print-crash-reports.py` now names the
+  signature and whether the bundle has the fix, and the macOS jobs upload the
+  raw `.ips`.
+
 ### vspipe's teardown race: upstream's fix backported to R78, not R80 (task #68, 2026-11-19)
 
 Report: [docs/reports/task-68-vspipe-teardown-backport](reports/task-68-vspipe-teardown-backport/index.html).
