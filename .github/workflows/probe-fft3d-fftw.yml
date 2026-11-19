@@ -83,7 +83,8 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
+          # A push can't pass inputs: default to the 1.18.0-rc2 build-deps runs.
+          DEPS_RUN_ID: ${{ inputs.deps_run_id || '44621393568,44621399073,44621408062' }}
         run: |
           bash .github/scripts/install-deps-bundle.sh "${{ matrix.platform }}" \
             "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" "deps/${{ matrix.platform }}"

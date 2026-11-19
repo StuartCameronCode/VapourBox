@@ -80,8 +80,9 @@ def fixture(w, h, frames=20, bits=8):
 
 
 class _MeasureCore:
-    """havsfunc's `core`, with `measure` added to every FFT3DFilter call:
-    havsfunc passes none, so this is how its QTGMC call is run at 0 or 1."""
+    """A module's `core`, with `measure` set on every FFT3DFilter call:
+    havsfunc passes none, and the template's TemporalDegrain2 passes 0, so
+    this is how their calls are run at 0 or 1."""
 
     def __init__(self, real, measure):
         self._real, self._measure = real, measure
@@ -94,7 +95,7 @@ class _MeasureCore:
 
         class _NS:
             def FFT3DFilter(self, *a, **kw):
-                kw.setdefault('measure', m)
+                kw['measure'] = m
                 return attr.FFT3DFilter(*a, **kw)
         return _NS()
 
@@ -116,6 +117,19 @@ def qtgmc(c, measure):
         haf.core = real
 
 
+def td2(c, measure):
+    """The template's TemporalDegrain2 (worker/templates) with its FFT3D post
+    pass (postFFT 1), as a whole: what a TD2 job pays, not one call."""
+    sys.path.insert(0, os.path.join(REPO, 'worker', 'templates'))
+    import temporaldegrain2 as td2m
+    real = td2m.core
+    td2m.core = _MeasureCore(real, measure)
+    try:
+        return td2m.TemporalDegrain2(c, postFFT=1)
+    finally:
+        td2m.core = real
+
+
 # The calls VapourBox makes (task #62's report, section 5), by argument class.
 CASES = {
     # TemporalDegrain2's spatial pass at its defaults: a sigma pattern, bt 3, 32 px.
@@ -130,6 +144,8 @@ CASES = {
     # havsfunc's QTGMC with the fft3dfilter denoiser (FFT3DFilter at bt 3 inside).
     'qtgmc': qtgmc,
 }
+# Timed only (speed.py): a whole TD2 job.
+SPEED_CASES = dict(CASES, td2_full=td2)
 
 
 def cached(c):
