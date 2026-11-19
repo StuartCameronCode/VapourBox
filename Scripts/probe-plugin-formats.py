@@ -201,7 +201,7 @@ def _calls():
     call('havsfunc.SMDegrain', ['havsfunc.SMDegrain'], lambda c: haf.SMDegrain(c, tr=2, thSAD=300, thSADC=150, RefineMotion=True, prefilter=2, contrasharp=False))
     call('havsfunc.MCTemporalDenoise', ['havsfunc.MCTemporalDenoise'], lambda c: haf.MCTemporalDenoise(c, settings='medium', sigma=4.0, radius=2))
     call('dfttest.DFTTest', ['dfttest.DFTTest'], lambda c: core.dfttest.DFTTest(c, sigma=8.0, tbsize=3, sbsize=16))
-    call('fft3dfilter.FFT3DFilter', ['fft3dfilter.FFT3DFilter'], lambda c: core.fft3dfilter.FFT3DFilter(c, sigma=2.0, bt=3, sharpen=0.0))
+    call('fft3dfilter.FFT3DFilter', ['fft3dfilter.FFT3DFilter'], lambda c: core.fft3dfilter.FFT3DFilter(c, sigma=2.0, bt=3, sharpen=0.0, measure=0))
     call('ttmpsm.TTempSmooth', ['ttmpsm.TTempSmooth'], lambda c: core.ttmpsm.TTempSmooth(c, maxr=3, thresh=[4], mdiff=[2], strength=2))
     call('flux.SmoothT', ['flux.SmoothT'], lambda c: core.flux.SmoothT(c, temporal_threshold=7))
     call('flux.SmoothST', ['flux.SmoothST'], lambda c: core.flux.SmoothST(c, temporal_threshold=7, spatial_threshold=7))

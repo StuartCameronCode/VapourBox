@@ -77,6 +77,12 @@ Each was measured against the plugins VapourBox actually bundles.
    makes different choices on a finer input — but it does mean the output
    depends on the source's bit depth, which is worth a decision rather than a
    slider.
+
+8. **Both FFT3DFilter calls pass ``measure=0``** (FFTW_ESTIMATE). The
+   plugin's ``measure=1`` times FFTW's candidate plans once per process, so a
+   preview and its encode (two vspipe processes) could filter with different
+   plans: different by float rounding, which the Windows push gate caught
+   (task #80, docs/reports/task-80-fft3dfilter-fftw-estimate).
 """
 
 from typing import Optional
@@ -352,7 +358,7 @@ def TemporalDegrain2(
 
         spat = core.fft3dfilter.FFT3DFilter(
             clip, planes=fPlane, sigma=s1, sigma2=s2, sigma3=s3, sigma4=s4, bt=3,
-            bw=limitBlksz, bh=limitBlksz, ow=ov, oh=ov, ncpu=fftThreads)
+            bw=limitBlksz, bh=limitBlksz, ow=ov, oh=ov, ncpu=fftThreads, measure=0)
         spatD = core.std.MakeDiff(clip, spat)
 
     # Every other Super only needs the finest level.
@@ -406,7 +412,7 @@ def TemporalDegrain2(
     elif postFFT > 0:
         dnWindow = core.fft3dfilter.FFT3DFilter(
             noiseWindow, sigma=postSigma * sigmaScale, planes=fPlane, bt=postTD,
-            ncpu=fftThreads, bw=postBlkSize, bh=postBlkSize)
+            ncpu=fftThreads, bw=postBlkSize, bh=postBlkSize, measure=0)
     else:
         dnWindow = RG(noiseWindow, mode=1)
 

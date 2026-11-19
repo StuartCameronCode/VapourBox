@@ -3715,6 +3715,8 @@ fn test_96_fft3dfilter_noise_reduction() {
             "sigma=3.5",
             "bt=4",
             "sharpen=0.4",
+            // Task #80: FFTW_ESTIMATE, so preview and encode plan alike.
+            "measure=0,",
         ],
     )
     .unwrap();
@@ -10029,4 +10031,61 @@ fn test_260_mvtools_flow_calls_pass_the_upsizer_guard() {
         assert!(script.find("import plugin_formats as _pf").unwrap() < script.find("_vfr_src = clip").unwrap(),
                 "{name}: _pf must be imported before the VFR block");
     }
+}
+
+#[test]
+fn test_261_every_fft3dfilter_call_plans_with_fftw_estimate() {
+    // Task #80: FFT3DFilter's default measure=1 has FFTW time its candidate
+    // plans once per process, and different plans round differently. A
+    // preview and its encode are two vspipe processes, so on a busy machine
+    // they filtered differently (the Windows push gate's second-process
+    // check). Every call the templates make passes measure=0 (FFTW_ESTIMATE,
+    // the same plan in every process on one machine); the deps patch makes it
+    // the plugin's default for havsfunc's calls (from deps 1.18.0-rc2).
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let mut calls = 0;
+    for entry in std::fs::read_dir(&templates_dir).expect("read templates dir") {
+        let path = entry.unwrap().path();
+        let Some(ext) = path.extension() else { continue };
+        if ext != "py" && ext != "vpy" {
+            continue;
+        }
+        let body = std::fs::read_to_string(&path).unwrap().replace("\r\n", "\n");
+        let mut from = 0;
+        while let Some(at) = body[from..].find("fft3dfilter.FFT3DFilter(") {
+            let start = from + at;
+            from = start + 1;
+            let line_start = body[..start].rfind('\n').map_or(0, |i| i + 1);
+            let line = &body[line_start..start];
+            if line.trim_start().starts_with('#') || line.contains('`') {
+                continue;
+            }
+            // The call's arguments: up to the parenthesis that closes it.
+            let open = start + "fft3dfilter.FFT3DFilter".len();
+            let mut depth = 0;
+            let mut end = open;
+            for (i, ch) in body[open..].char_indices() {
+                match ch {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = open + i;
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let args = &body[open..=end];
+            assert!(
+                args.contains("measure=0"),
+                "{}: an FFT3DFilter call without measure=0 (task #80): {args}",
+                path.display()
+            );
+            calls += 1;
+        }
+    }
+    // pipeline_template.vpy's FFT3D method and TemporalDegrain2's two passes.
+    assert!(calls >= 3, "only {calls} FFT3DFilter calls found in the templates");
 }
