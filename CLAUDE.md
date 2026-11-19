@@ -134,7 +134,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
 | `worker/templates/stabilize.py` | Stabilize pass: the weave (`Stab` measured at 16-bit) and the vertical pitch correction (see "Stabilize") |
 | `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
-| `worker/templates/plugin_formats.py` | Each limited plugin's format `Contract` and `run_within()`, the one way a pass runs a plugin outside its formats; `pad_around()` / `read_padded()` for a frame size it refuses (see "High Bit Depth Sources") |
+| `worker/templates/plugin_formats.py` | Each limited plugin's format `Contract` and `run_within()`, the one way a pass runs a plugin outside its formats; `pad_around()` / `read_padded()` for a frame size it refuses (see "High Bit Depth Sources"); `mvtools_blocks()` and `mvtools_flow_opt()` for MVTools' small-picture faults |
 | `Scripts/probe-plugin-formats.py` | Runs every plugin call the template makes at every format and size a pass can be handed; writes / checks `Tests/TestResources/plugin_format_table.json` (task #48) |
 | `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
@@ -434,7 +434,13 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   window with `(by + nBlkY - 3) / (nBlkY - 2)`, so a picture two block rows
   tall is SIGFPE on x86 and silently 100+ levels off on arm64, and one block
   row or column is that far off everywhere; the helper pads a picture under
-  64x96 (task #56 F9). Check on a fixture with real low
+  64x96 (task #56 F9). **Anything that reaches MVTools' Flow, FlowFPS,
+  FlowInter, FlowBlur, Mask or BlockFPS passes
+  `opt=_pf.mvtools_flow_opt(<width>, <blksize>, <overlap>)`** (test_260):
+  MVTools' AVX2 vector upsizer writes before its buffer with fewer than 8
+  block columns (64x48 at 16/8, QCIF at 32/8), corrupting the heap on every
+  x86 CPU with AVX2; the helper selects the C upsizer there and leaves
+  MVTools' default everywhere else (task #69). Check on a fixture with real low
   bits that the plugin leaves the samples it doesn't change exact — see
   "High Bit Depth Sources"
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**

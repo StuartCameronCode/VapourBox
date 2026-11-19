@@ -33,8 +33,9 @@ reproduce.sh, or WorkerHarness.workerEnv). --out writes the table
 --check compares every cell measured with that table and exits 1 on any
 difference. --quick measures the reachable set for the calls with a
 contract or a known limit (plugin_formats.CONTRACTS / HANDLED), plus 4:2:0 at
-720x486 for a contract with a frame-size step, and one format per depth for
-every other call: the push gate's subset. A contracted call's cells are also
+720x486 for a contract with a frame-size step, one format per depth for every other
+call, and QUICK_SIZES (a size a template argument keeps working): the push
+gate's subset. A contracted call's cells are also
 run through plugin_formats.run_within() (the `within` result, task #57): the
 plugin may refuse a size its contract pads. --quick does that only for a
 contract with a frame-size step.
@@ -86,10 +87,16 @@ def _calls():
         return core.std.ShufflePlanes(c, 0, vs.GRAY)
 
     def mv_flow(c, fn):
+        # fn gets opt= as the template passes it: on x86 with AVX2, MVTools'
+        # vector upsizer writes before its buffer with fewer than 8 block
+        # columns (64x48 here), which crashed every 64x48 cell on Linux x64;
+        # plugin_formats.mvtools_flow_opt() selects the C upsizer there
+        # (task #69). QUICK_SIZES keeps those cells in the push gate.
+        import plugin_formats
         sup = core.mv.Super(c, pel=2)
         bw = core.mv.Analyse(sup, isb=True, blksize=16, overlap=8)
         fw = core.mv.Analyse(sup, isb=False, blksize=16, overlap=8)
-        return fn(c, sup, bw, fw)
+        return fn(c, sup, bw, fw, plugin_formats.mvtools_flow_opt(c.width, 16, 8))
 
     def mcds(c, frames):
         sup_s = core.mv.Super(c, pel=2, sharp=1)
@@ -258,9 +265,9 @@ def _calls():
     call('havsfunc.GrainFactory3', ['havsfunc.GrainFactory3'], lambda c: haf.GrainFactory3(c, g1str=7.0, g2str=5.0, g3str=3.0, temp_avg=0))
     # Frame rate
     call('mv.FlowFPS', ['mv.Super', 'mv.Analyse', 'mv.FlowFPS'],
-         lambda c: mv_flow(c, lambda c, s, b, f: core.mv.FlowFPS(c, s, b, f, num=60000, den=1001)))
+         lambda c: mv_flow(c, lambda c, s, b, f, opt: core.mv.FlowFPS(c, s, b, f, num=60000, den=1001, opt=opt)))
     call('mv.FlowInter', ['mv.FlowInter'],
-         lambda c: mv_flow(c, lambda c, s, b, f: core.mv.FlowInter(c, s, b, f, time=50.0)))
+         lambda c: mv_flow(c, lambda c, s, b, f, opt: core.mv.FlowInter(c, s, b, f, time=50.0, opt=opt)))
     call('havsfunc.ChangeFPS', ['havsfunc.ChangeFPS'], lambda c: haf.ChangeFPS(c, 60000, 1001))
     return C
 
@@ -308,14 +315,24 @@ def size_grid():
             for b in (8, 16) for f in (0, 2)]
 
 
-def quick_grid(limited, padded=False):
+# Extra sizes --quick measures for a call, beyond its usual grid: sizes where
+# the template's own arguments avoid a crash the plugin has there, so the push
+# gate fails if that guard is lost (MVTools' Flow upsizer at 64x48, task #69).
+QUICK_SIZES = {
+    'mv.FlowFPS': [(64, 48)],
+    'mv.FlowInter': [(64, 48)],
+}
+
+
+def quick_grid(limited, padded=False, key=None):
     if limited:
         grid = base_grid()
         if padded:
             # A contract with a frame-size step: the size it pads (task #57).
             grid += [cell('420', 8, f, 720, 486) for f in (0, 2)]
-        return grid
-    return [cell('420', b, 0, *BASE) for b in DEPTHS]
+    else:
+        grid = [cell('420', b, 0, *BASE) for b in DEPTHS]
+    return grid + [cell('420', b, 0, w, h) for (w, h) in QUICK_SIZES.get(key, []) for b in (8, 16)]
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +544,7 @@ def main():
     grids = {}
     for k in keys:
         if a.quick:
-            grids[k] = quick_grid(k in limited, k in padded)
+            grids[k] = quick_grid(k in limited, k in padded, k)
         else:
             grids[k] = base_grid() + doc_grid() + size_grid()
     sizes = sorted({(c['w'], c['h']) for g in grids.values() for c in g})

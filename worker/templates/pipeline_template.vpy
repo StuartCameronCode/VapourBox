@@ -163,7 +163,11 @@ if _vfr_gaps:
     # One FlowInter per distinct position: frame k of it lies that percentage
     # of the way from stored frame k to k + 1.
     for _vfr_t in sorted(set(_vfr_gaps.values())):
-        _vfr_inter[_vfr_t] = core.mv.FlowInter(_vfr_src, _vfr_super, _vfr_bw, _vfr_fw, time=_vfr_t)
+        _vfr_inter[_vfr_t] = core.mv.FlowInter(
+            _vfr_src, _vfr_super, _vfr_bw, _vfr_fw, time=_vfr_t,
+            # MVTools' AVX2 upsizer corrupts the heap below 8 block columns (task #69).
+            opt=_pf.mvtools_flow_opt(_vfr_src.width, {{FPS_BLOCK_SIZE}}, {{FPS_OVERLAP}}),
+        )
 def _vfr_pick(n):
     _t = _vfr_gaps.get(n)
     _c = _vfr_src if _t is None else _vfr_inter[_t]
@@ -2955,6 +2959,8 @@ _fps_len = len(clip) * _fps_ratio.numerator // _fps_ratio.denominator
 clip = core.mv.FlowFPS(
     clip, _fps_super, _fps_bw, _fps_fw,
     num={{FPS_TARGET_NUM}}, den={{FPS_TARGET_DEN}},
+    # MVTools' AVX2 upsizer corrupts the heap below 8 block columns (task #69).
+    opt=_pf.mvtools_flow_opt(clip.width, {{FPS_BLOCK_SIZE}}, {{FPS_OVERLAP}}),
 )
 # Exactly floor(n_in * ratio) frames on every MVTools version. v24 is at most
 # one short (ratio > 1) or one long (ratio < 1). The missing frame lies past

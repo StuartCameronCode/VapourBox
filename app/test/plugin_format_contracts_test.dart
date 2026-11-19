@@ -243,6 +243,50 @@ except vs.Error as e:
 print(json.dumps(problems))
 ''';
 
+// Task #69: MVTools' AVX2 vector upsizer writes before its buffer with fewer
+// than 8 block columns. mvtools_flow_opt() against MVTools' own arithmetic
+// (Analyse's nBlkX, grown by Flow* to nBlkXP), then FlowFPS and FlowInter
+// through it at the sizes that corrupted the heap on x86: a crash kills this
+// process (64x48 crashed 3 runs in 3 on Linux x64 without the guard).
+const _flowGuardCheck = r'''
+import json, sys
+import vapoursynth as vs
+core = vs.core
+sys.path.insert(0, sys.argv[1])
+import plugin_formats as pf
+
+problems = []
+table = {(64, 16, 8): False, (65, 16, 8): True, (176, 32, 8): False, (177, 32, 8): True,
+         (224, 32, 0): False, (225, 32, 0): True, (128, 32, 16): False, (129, 32, 16): True,
+         (96, 16, 8): True, (720, 16, 8): True}
+for (w, b, o), want in table.items():
+    if pf.mvtools_flow_opt(w, b, o) != want:
+        problems.append('mvtools_flow_opt(%d, %d, %d) is %s, not %s' % (w, b, o, not want, want))
+for b in (4, 8, 16, 32):
+    for o in range(0, b // 2 + 1, 2):
+        for w in range(max(16, 2 * b), 400, 2):
+            step = b - o
+            cols = max((w - o) // step, -(-(w - o) // step))
+            if pf.mvtools_flow_opt(w, b, o) != (cols >= 8):
+                problems.append('mvtools_flow_opt(%d, %d, %d) disagrees with nBlkXP = %d' % (w, b, o, cols))
+
+base = core.std.BlankClip(width=240, height=180, format=vs.YUV444P16, length=12,
+                          color=[30000, 32768, 32768])
+base = core.grain.Add(base, var=400, uvar=400, constant=False, seed=1)
+for (w, h, b, o) in ((64, 48, 16, 8), (176, 144, 32, 8)):
+    for fmt in (vs.YUV420P8, vs.YUV420P16):
+        c = core.resize.Bicubic(base, w, h, format=fmt)
+        sup = core.mv.Super(c, pel=2)
+        bw = core.mv.Analyse(sup, isb=True, blksize=b, overlap=o)
+        fw = core.mv.Analyse(sup, isb=False, blksize=b, overlap=o)
+        opt = pf.mvtools_flow_opt(c.width, b, o)
+        for out in (core.mv.FlowFPS(c, sup, bw, fw, num=60000, den=1001, opt=opt),
+                    core.mv.FlowInter(c, sup, bw, fw, time=50.0, opt=opt)):
+            for n in range(out.num_frames):
+                out.get_frame(n)
+print(json.dumps(problems))
+''';
+
 void main() {
   setUpAll(() async {
     await WorkerHarness.ensureReady();
@@ -370,6 +414,11 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
             'plugin\'s limits, re-run Scripts/probe-plugin-formats.py --out on every platform, '
             'then update plugin_formats.CONTRACTS and the report:\n${r.stdout}\n${r.stderr}');
   }, timeout: const Timeout(Duration(minutes: 15)));
+
+  test('MVTools Flow calls avoid the AVX2 upsizer below 8 block columns (task #69)', () async {
+    final problems = await _pythonJson(_flowGuardCheck) as List;
+    expect(problems, isEmpty, reason: problems.join('\n'));
+  });
 
   test('run_within keeps every sample the plugin leaves alone, and refuses clearly', () async {
     final problems = await _pythonJson(_runWithinCheck) as List;

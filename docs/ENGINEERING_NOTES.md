@@ -5489,3 +5489,33 @@ a false positive, and nothing was patched:
   before acting on it.
 
 Report: [docs/reports/task-70-odd-chroma-width-memcheck](reports/task-70-odd-chroma-width-memcheck/index.html).
+
+### MVTools' AVX2 upsizer corrupts the heap below 8 block columns (task #69, 2026-11-19)
+
+Report: [docs/reports/task-69-mvtools-flow-avx2](reports/task-69-mvtools-flow-avx2/index.html).
+Found by task #66: the nightly plugin probe crashed every 64x48 FlowFPS /
+FlowInter cell on Linux x64, every run.
+
+- **The fault.** `simpleResize_int16_t_avx2` (MVTools master and v24) does a
+  row's tail as one 8-sample step ending at `src_width`, the block-column
+  count (`nBlkXP` for FlowInter/FlowFPS). Below 8 columns the step starts
+  before its malloc'd buffer and overwrites the chunk header; task #66's core
+  shows exactly that (`size=0x3000000000020` for a 14-byte malloc). The
+  8-bit twin (masks) fails below 4. x86 with AVX2 only: arm64 never builds
+  the AVX2 file, and its C resizer stays inside its buffers.
+- **Under valgrind (Linux x64):** 2,790–29,520 errors in the AVX2 resizer at
+  64 wide with 16/8 blocks and at 176 (QCIF) with 32/8; 0 at 66 and 178, and
+  0 with `opt=0` or the guard; the write is 2 bytes before a 14-byte block
+  (`workp[-1]` of `malloc(7 × int16)`). The first matrix showed Flow clean because its
+  synthetic clip was a scene change on every frame, so FlowInter blended and
+  never upsized: a Flow test needs `thscd1` raised (16320) or real motion.
+- **The fix is an argument.** `plugin_formats.mvtools_flow_opt(width,
+  blksize, overlap)` is `False` (the C upsizer) exactly when nBlkXP < 8, and
+  `True`, MVTools' default, elsewhere, so working jobs keep their output. The
+  Frame Rate FlowFPS, the VFR gap FlowInter and the probe pass it; test_260
+  fails on a Flow/Mask/BlockFPS call in the templates without it, and the
+  probe's `--quick` measures 64x48. A deps patch was rejected: Windows and
+  macOS x64 ship v24 prebuilt, and Windows has no from-source path.
+- **Not fixed:** QTGMC's own `mv.Mask` (InputType 2/3, BlockSize 32) hits the
+  8-bit tail under 4 block columns (64x96 at 32/16: an invalid write before
+  a 5-byte block), and havsfunc makes the call. Task #79.

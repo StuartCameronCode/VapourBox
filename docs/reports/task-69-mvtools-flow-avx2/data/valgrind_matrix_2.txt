@@ -1,0 +1,22 @@
+# Repro run 44502029930 (attempt 1), Linux x64 ubuntu-24.04, deps 1.18.0-rc1 linux-x64, valgrind 3.22 memcheck
+# flow.vpy with thscd1=16320 (scene-change test off) unless a cell says otherwise
+flowfps:176x144:YUV420P8:blksize=32,overlap=8,opt=guard: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowfps:64x48:YUV420P8:opt=1: exit 99, ERROR SUMMARY: 2790 errors from 24 contexts (suppressed: 0 from 0) [Invalid read of size 16] at 0xF0D5ED1: simpleResize_int16_t_avx2(SimpleResize by 0xEE056DB: mvflowfpshelperGetFrame(int,
+flowfps:64x48:YUV420P8:opt=guard: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowfps:64x48:YUV444P16:opt=0: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowfps:64x48:YUV444P16:opt=1: exit 99, ERROR SUMMARY: 3720 errors from 24 contexts (suppressed: 0 from 0) [Invalid read of size 16] at 0xF0D5ED1: simpleResize_int16_t_avx2(SimpleResize by 0xEE056DB: mvflowfpshelperGetFrame(int,
+flowfps:64x48:YUV444P16:opt=guard: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowinter:176x144:YUV420P8:blksize=32,overlap=8,opt=1: exit 99, ERROR SUMMARY: 11400 errors from 32 contexts (suppressed: 0 from 0) [Invalid read of size 16] at 0xF0D5ED1: simpleResize_int16_t_avx2(SimpleResize by 0xEE161C9: mvflowinterGetFrame(int,
+flowinter:176x144:YUV420P8:blksize=32,overlap=8,opt=guard: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowinter:178x144:YUV420P8:blksize=32,overlap=8,opt=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowinter:64x48:YUV420P8:opt=0: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowinter:64x48:YUV420P8:opt=1,thscd1=400: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowinter:64x48:YUV420P8:opt=1: exit 99, ERROR SUMMARY: 3720 errors from 32 contexts (suppressed: 0 from 0) [Invalid read of size 16] at 0xF0D5ED1: simpleResize_int16_t_avx2(SimpleResize by 0xEE161C9: mvflowinterGetFrame(int,
+flowinter:64x48:YUV420P8:opt=guard: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowinter:64x48:YUV444P16:opt=1: exit 99, ERROR SUMMARY: 4960 errors from 32 contexts (suppressed: 0 from 0) [Invalid read of size 16] at 0xF0D5ED1: simpleResize_int16_t_avx2(SimpleResize by 0xEE161C9: mvflowinterGetFrame(int,
+flowinter:64x48:YUV444P16:opt=guard: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowinter:64x480:YUV420P8:opt=1: exit 99, ERROR SUMMARY: 29520 errors from 32 contexts (suppressed: 0 from 0) [Invalid read of size 16] at 0xF0D5ED1: simpleResize_int16_t_avx2(SimpleResize by 0xEE161C9: mvflowinterGetFrame(int,
+flowinter:66x48:YUV420P8:opt=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+flowinter:72x48:YUV420P8:opt=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+mask:64x48:YUV420P8:blksize=32,overlap=16,opt=0: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+mask:64x48:YUV420P8:blksize=32,overlap=16,opt=1: exit 99, ERROR SUMMARY: 720 errors from 4 contexts (suppressed: 0 from 0) [Invalid read of size 4] at 0xF0D5B79: simpleResize_uint8_t_avx2(SimpleResize by 0xEE1FED2: mvmaskGetFrame(int,

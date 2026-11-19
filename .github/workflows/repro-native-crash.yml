@@ -14,21 +14,22 @@ name: Reproduce a native crash (Linux x64)
 #   valgrind       `valgrind_repeat` runs under memcheck, which reports an
 #                  out-of-bounds or uninitialised read whether or not it crashes
 # Optional, each off unless given:
-#   bisect       call:WxH:format[:k=v,...] runs of docs/reports/task-66-qtgmc-draft-sigsegv/
-#                scripts/bare.vpy (one call on a synthetic clip) under valgrind; the
-#                optional fourth field passes bare.vpy's own arguments (cpu=none,
-#                defined=1)
+#   bisect       call:WxH:format[:k=v,k=v] runs of bisect_script (default
+#                docs/reports/task-66-qtgmc-draft-sigsegv/scripts/bare.vpy, one
+#                call on a synthetic clip) under valgrind; each k=v is one more
+#                -a argument (bare.vpy takes cpu=none, defined=1; task #69's flow.vpy
+#                takes blksize, overlap, opt, thscd1)
 #   verify       the same specs run twice under valgrind with --malloc-fill=0x00
 #                and 0xff, comparing the outputs: `same` means the bytes memcheck
 #                calls uninitialised never reach the picture (task #70)
 #   poison       preset:WxH:format runs of docs/reports/task-70-odd-chroma-width-memcheck/
 #                scripts/poison.py: QTGMC with every frame's stride padding filled
 #                per seed (1, 2, 3); equal hashes = no padding reaches the output
-# modes `none` skips the capture and the replays (for bisect/verify/poison only).
 #   locate       the same through scripts/locate.py: which output samples are
 #                uninitialised (one memcheck process per region; slow)
 #   probe_calls  Scripts/probe-plugin-formats.py --calls, probe_repeat times
 #                (mv.FlowFPS at 64x48: task #69)
+# modes `none` skips the capture and the replays (for bisect/verify/poison only).
 #
 # Dispatch it, or push a change to this file on a branch: a workflow that is
 # not on the default branch cannot be dispatched, and a push then runs it with
@@ -65,8 +66,11 @@ on:
         description: 'Times to run the probe'
         default: '3'
       bisect:
-        description: 'call:WxH:format runs of the report scripts/bare.vpy under valgrind'
+        description: 'call:WxH:format[:k=v,...] runs of bisect_script under valgrind'
         default: ''
+      bisect_script:
+        description: 'The .vpy the bisect runs (repo path)'
+        default: 'docs/reports/task-66-qtgmc-draft-sigsegv/scripts/bare.vpy'
       verify:
         description: 'call:WxH:format[:k=v,...] bare.vpy runs compared under two --malloc-fill values'
         default: ''
@@ -101,6 +105,7 @@ env:
   PROBE_REPEAT: ${{ inputs.probe_repeat || '3' }}
   # call:WxH:format runs of the report's bare.vpy under valgrind / locate.py.
   BISECT: ${{ inputs.bisect }}
+  BISECT_SCRIPT: ${{ inputs.bisect_script || 'docs/reports/task-66-qtgmc-draft-sigsegv/scripts/bare.vpy' }}
   LOCATE: ${{ inputs.locate }}
   VERIFY: ${{ inputs.verify }}
   POISON: ${{ inputs.poison }}
@@ -229,17 +234,18 @@ jobs:
             $VS/vspipe > $VS/vspipe.vg
           chmod +x $VS/vspipe.vg
           grep -q valgrind $VS/vspipe.vg
-          SCRIPTS=docs/reports/task-66-qtgmc-draft-sigsegv/scripts
           mkdir -p "$OUT/bisect"
           for spec in $BISECT; do
             IFS=: read -r call size fmt extra <<< "$spec"
-            args=(); for kv in ${extra//,/ }; do args+=(-a "$kv"); done
-            log="$OUT/bisect/$call.$size.$fmt.${extra//[,=]/_}.log"
+            more=(); for kv in ${extra//,/ }; do more+=(-a "$kv"); done
+            log="$OUT/bisect/$call.$size.$fmt${extra:+.${extra//[=,]/_}}.log"
             rc=0
-            PYTHONMALLOC=malloc timeout 1800 $VS/vspipe.vg -a call=$call -a size=$size -a fmt=$fmt "${args[@]}" \
-              -c y4m $SCRIPTS/bare.vpy /dev/null > "$log" 2>&1 || rc=$?
+            PYTHONMALLOC=malloc timeout 1800 $VS/vspipe.vg -a call=$call -a size=$size -a fmt=$fmt "${more[@]}" \
+              -c y4m "$BISECT_SCRIPT" /dev/null > "$log" 2>&1 || rc=$?
             origin=$(grep -A12 'Uninitialised value was created\|Invalid' "$log" | grep -m1 -o 'by 0x[0-9A-F]*: [A-Za-z_:<>0-9]*[Gg]et[Ff]rame[^ ]*\|by 0x[0-9A-F]*: [a-zA-Z_]*[(]' | head -1)
-            echo "$spec: exit $rc, $(grep -m1 'ERROR SUMMARY' "$log" | sed 's/==[0-9]*== //') ${origin}"
+            # The function an invalid write or read happens in (task #69).
+            first=$(grep -m1 -A1 'Invalid write\|Invalid read' "$log" | grep -m1 -o 'at 0x[0-9A-F]*: [^ ]*' || true)
+            echo "$spec: exit $rc, $(grep -m1 'ERROR SUMMARY' "$log" | sed 's/==[0-9]*== //') ${first:+[$(grep -m1 -o 'Invalid [a-z]* of size [0-9]*' "$log")] $first} ${origin}"
           done | tee "$OUT/bisect/summary.txt"
 
       - name: Verify (does memcheck's finding reach the picture?)

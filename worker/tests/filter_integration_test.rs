@@ -9929,3 +9929,104 @@ fn test_259_the_template_requests_no_frame_while_it_is_evaluated() {
     }
     assert!(!preview.contains("get_frame(_j)"));
 }
+
+/// Task #69: MVTools' AVX2 vector upsizer (SimpleResize_AVX2.cpp) writes its
+/// row tail before its buffer when fewer than 8 block columns cover the
+/// picture: heap corruption on every x86 CPU with AVX2 (64x48 at 16/8, QCIF at
+/// 32/8). Every call that reaches it passes the opt= that selects the C
+/// upsizer there, `_pf.mvtools_flow_opt(width, blksize, overlap)`, in the
+/// template and in every module beside it
+/// (docs/reports/task-69-mvtools-flow-avx2).
+#[test]
+fn test_260_mvtools_flow_calls_pass_the_upsizer_guard() {
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let read = |name: &str| {
+        std::fs::read_to_string(templates_dir.join(name))
+            .unwrap_or_else(|e| panic!("read {name}: {e}"))
+            .replace("\r\n", "\n")
+    };
+    let formats = read("plugin_formats.py");
+    assert!(formats.contains("MVTOOLS_RESIZE_MIN_BLOCKS = 8"));
+    assert!(formats.contains("def mvtools_flow_opt(width, blksize, overlap):"));
+
+    // The functions that build a SimpleResize upsizer from the vectors.
+    let upsized = [".mv.Flow(", ".mv.FlowFPS(", ".mv.FlowInter(", ".mv.FlowBlur(", ".mv.Mask(", ".mv.BlockFPS("];
+    let mut sites = 0;
+    let mut problems = Vec::new();
+    for entry in std::fs::read_dir(&templates_dir).expect("templates dir") {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_str().unwrap().to_string();
+        if !(name.ends_with(".py") || name.ends_with(".vpy")) || name == "plugin_formats.py" {
+            continue;
+        }
+        let body = read(&name);
+        let mut offset = 0;
+        for line in body.split_inclusive('\n') {
+            let start = offset;
+            offset += line.len();
+            if line.trim_start().starts_with('#') {
+                continue;
+            }
+            let Some((call, at)) = upsized.iter().find_map(|c| line.find(c).map(|i| (*c, start + i))) else {
+                continue;
+            };
+            sites += 1;
+            // The call's argument list, to its matching parenthesis.
+            let open = at + call.len();
+            let mut depth = 1;
+            let mut end = open;
+            for (i, ch) in body[open..].char_indices() {
+                match ch {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+                if depth == 0 {
+                    end = open + i;
+                    break;
+                }
+            }
+            let args = &body[open..end];
+            if !args.contains("opt=_pf.mvtools_flow_opt(") {
+                let line_no = body[..at].matches('\n').count() + 1;
+                problems.push(format!(
+                    "{name}:{line_no}: {} must pass opt=_pf.mvtools_flow_opt(<width>, <blksize>, <overlap>)",
+                    call.trim_start_matches('.').trim_end_matches('(')
+                ));
+            }
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    assert!(sites >= 2, "the scan found only {sites} Flow call sites (FlowFPS, the VFR gap FlowInter)");
+
+    // The generated scripts: the Frame Rate pass and the VFR gap fill, with
+    // the block settings substituted into the guard.
+    let generator = ScriptGenerator::new().unwrap().with_rife(Ok(rife_files()))
+        .with_addons(model_addons(), "macos-arm64");
+    let mut job = rife_job("test_260_flowfps");
+    let fr = &mut job.processing_pipeline.as_mut().unwrap().frame_rate;
+    fr.method = FrameRateMethod::FlowFps;
+    fr.block_size = 32;
+    fr.overlap = 8;
+    let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("opt=_pf.mvtools_flow_opt(clip.width, 32, 8),"), "{name}: FlowFPS guard");
+    }
+
+    let vfr = generator.with_timeline(Some(vfr_window()));
+    let job = vfr_job("test_260_vfr_gap", FrameRateParameters {
+        enabled: true,
+        target: FrameRateTarget::Ntsc5994,
+        method: FrameRateMethod::FlowFps,
+        block_size: 16,
+        overlap: 4,
+        ..Default::default()
+    });
+    let (encode, preview) = both_scripts_with(&vfr, &job).unwrap();
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("opt=_pf.mvtools_flow_opt(_vfr_src.width, 16, 4),"), "{name}: VFR FlowInter guard");
+        assert!(script.contains("opt=_pf.mvtools_flow_opt(clip.width, 16, 4),"), "{name}: FlowFPS guard");
+        assert!(script.find("import plugin_formats as _pf").unwrap() < script.find("_vfr_src = clip").unwrap(),
+                "{name}: _pf must be imported before the VFR block");
+    }
+}
