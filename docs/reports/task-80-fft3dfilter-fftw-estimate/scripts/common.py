@@ -20,6 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.abspath(os.path.join(HERE, '..', '..', '..', '..'))
 FIXTURE = os.path.join(REPO, 'Tests', 'TestResources', 'interlaced_test.avi')
 SCRATCH = os.environ.get('SCRATCH') or tempfile.mkdtemp()
+os.makedirs(SCRATCH, exist_ok=True)
 FFMPEG = os.environ.get('VAPOURBOX_FFMPEG', 'ffmpeg')
 
 

@@ -2,6 +2,10 @@
 argv: measure (0 | 1 | default). Run it in many fresh processes and count
 distinct hashes per key (probe.sh / probe.ps1): FFTW plans once per process,
 so a second process is the only way to see a different plan."""
+import os
+import sys
+# Windows' embeddable Python (._pth) does not put the script's folder on sys.path.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import json
 import sys
 
