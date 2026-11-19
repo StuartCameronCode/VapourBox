@@ -878,23 +878,54 @@ class WorkerHarness {
   /// `preview_scale_filter_test.dart` reads them from the Rust source.
   static const previewScaleFlags = 'accurate_rnd+full_chroma_int';
 
-  /// The preview's `scale` filter for an SDR picture tagged [matrix] and
-  /// [range]: the twin of `preview_scale_filter(&swscale_input_opts())`, rule
-  /// for rule. The matrix is stated unless it is missing, not one FFmpeg
-  /// accepts, or the RGB identity; the range is `pc` for a full-range tag and
+  /// The preview's `scale` filter for an SDR picture tagged [matrix],
+  /// [primaries] and [range]: the twin of
+  /// `preview_scale_filter(&swscale_input_opts())`, rule for rule. The matrix
+  /// is [previewScaleMatrix]'s; the range is `pc` for a full-range tag and
   /// `tv` for anything else. Takes ffprobe's raw values.
-  static String previewScaleFilter({String? matrix, String? range}) {
-    final m = matrix?.trim().toLowerCase();
+  /// `preview_scale_filter_test.dart` checks it against
+  /// `Tests/TestResources/preview_scale_cases.json`, as the Rust does.
+  static String previewScaleFilter(
+      {String? matrix, String? primaries, String? range}) {
     final r = range?.trim().toLowerCase();
     final full = r == 'pc' || r == 'jpeg' || r == 'full';
+    final m = previewScaleMatrix(matrix, primaries);
     return 'scale=${[
-      if (m != null && m != 'rgb' && ColorTags.matrices.contains(m))
-        'in_color_matrix=$m',
+      if (m != null) 'in_color_matrix=$m',
       'in_range=${full ? 'pc' : 'tv'}',
       'out_range=pc',
       'flags=$previewScaleFlags',
     ].join(':')}';
   }
+
+  /// The twin of `ColorMetadata::swscale_matrix` (task #73): the matrix the
+  /// preview's `scale` names for raw tags [matrix] / [primaries], or null to
+  /// leave it out (swscale then reads BT.601). FFmpeg 9's `scale` has no
+  /// conversion for `ycgco`, `bt2020c`, `smpte2085`, `chroma-derived-*` or
+  /// `ictcp`, so those are mapped to the nearest matrix it has, or left out.
+  static String? previewScaleMatrix(String? matrix, String? primaries) {
+    final m = matrix?.trim().toLowerCase();
+    if (m == null || !ColorTags.matrices.contains(m)) return null;
+    final prim = primaries?.trim().toLowerCase();
+    final derived = prim == 'bt709' || prim == 'bt2020' ? prim : null;
+    return switch (m) {
+      'bt709' || 'fcc' || 'bt470bg' || 'smpte170m' || 'smpte240m' ||
+      'bt2020nc' =>
+        m,
+      'bt2020c' || 'ictcp' => 'bt2020',
+      'chroma-derived-nc' || 'chroma-derived-c' => derived,
+      _ => null, // rgb, ycgco, smpte2085
+    };
+  }
+
+  /// Whether a frame TAGGED [matrix] can't be converted by FFmpeg 9's scaler
+  /// at all (it negotiates only unknown, gbr, bt709, fcc, bt470bg,
+  /// smpte170m, smpte240m and bt2020nc). Task #76 is to clear these in the
+  /// shared decode neutraliser; until then [_frameRgb24] clears them itself.
+  static bool _scalerRefusesMatrix(String? matrix) => const [
+        'ycgco', 'bt2020c', 'smpte2085', 'chroma-derived-nc',
+        'chroma-derived-c', 'ictcp',
+      ].contains(matrix?.trim().toLowerCase());
 
   /// [previewScaleFilter] for the tags [videoPath]'s first video stream
   /// carries. An encode carries the tags the worker stamped, which are the
@@ -912,7 +943,8 @@ class WorkerHarness {
       throw ArgumentError(
           '$videoPath is HDR ($trc): the preview tone-maps it, not this scale');
     }
-    return previewScaleFilter(matrix: tags.matrix, range: tags.range);
+    return previewScaleFilter(
+        matrix: tags.matrix, primaries: tags.primaries, range: tags.range);
   }
 
   /// Frame [index] of [videoPath] as packed rgb24, converted to RGB exactly as
@@ -930,7 +962,9 @@ class WorkerHarness {
     if (matrix != null || range != null) {
       final tags = await _colourTags(videoPath);
       scale = previewScaleFilter(
-          matrix: matrix ?? tags.matrix, range: range ?? tags.range);
+          matrix: matrix ?? tags.matrix,
+          primaries: tags.primaries,
+          range: range ?? tags.range);
     } else {
       scale = await previewScaleFilterFor(videoPath);
     }
@@ -954,7 +988,10 @@ class WorkerHarness {
 
   /// [frameRgb24]'s decode, with [scale] (if any) after the frame pick. A
   /// tag FFmpeg's scaler refuses (`reserved`) is cleared first, as the
-  /// worker's decoders do.
+  /// worker's decoders do. So is a matrix the scaler can't convert
+  /// ([_scalerRefusesMatrix], task #73): [scale] names the matrix itself, so
+  /// clearing the frame's changes no pixel, and every other file's arguments
+  /// are as before.
   static Future<Uint8List> _frameRgb24(String videoPath, int index,
       {required String label, String? scale}) async {
     final png = File(p.join(Directory.systemTemp.path,
@@ -966,6 +1003,12 @@ class WorkerHarness {
           matrix: tags.matrix,
           primaries: tags.primaries,
           transfer: tags.transfer);
+      if (_scalerRefusesMatrix(tags.matrix)) {
+        neutraliser = [
+          if (neutraliser != null) neutraliser,
+          'setparams=colorspace=unknown',
+        ].join(',');
+      }
     }
     try {
       final r = await Process.run(

@@ -4188,6 +4188,32 @@ mod tests {
         assert!(preview_scale_filter(&[]).ends_with(":flags=accurate_rnd+full_chroma_int"));
     }
 
+    /// The shared table (`Tests/TestResources/preview_scale_cases.json`,
+    /// task #73): `WorkerHarness.previewScaleFilter` checks the same rows, and
+    /// `preview_scale_ffmpeg_test.dart` runs each through the bundled ffmpeg.
+    #[test]
+    fn preview_scale_filter_matches_the_shared_table() {
+        let table: serde_json::Value = serde_json::from_str(include_str!(
+            "../../Tests/TestResources/preview_scale_cases.json"
+        ))
+        .unwrap();
+        let cases = table["cases"].as_array().unwrap();
+        assert!(cases.len() > 20);
+        for c in cases {
+            let color = crate::models::ColorMetadata::from_raw(
+                c["matrix"].as_str(),
+                c["primaries"].as_str(),
+                None,
+                c["range"].as_str(),
+            );
+            assert_eq!(
+                preview_scale_filter(&color.swscale_input_opts()),
+                c["filter"].as_str().unwrap(),
+                "{c}"
+            );
+        }
+    }
+
     #[test]
     fn test_field_order_note() {
         use crate::models::FieldOrder;

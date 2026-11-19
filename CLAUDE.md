@@ -992,7 +992,17 @@ validates against FFmpeg's own accepted values rather than forwarding ffprobe's
 rather than calling it, so anything added to one must be added to the other.
 The preview path needs the same source tags fed to swscale
 (`swscale_input_opts()`) or it guesses the matrix and shows a colour shift the
-real encode doesn't have.
+real encode doesn't have. **The matrix it names is `ColorMetadata::swscale_matrix`
+(task #73)**: FFmpeg 9's `scale` knows only bt601/bt470bg/smpte170m, bt709,
+fcc, smpte240m and bt2020/bt2020nc, and has no conversion at all for `ycgco`,
+`bt2020c`, `smpte2085`, `chroma-derived-*` or `ictcp` (each failed the whole
+preview), so those are mapped (`bt2020c`/`ictcp` → bt2020, `chroma-derived-*`
+by primaries) or left to auto (`ycgco`, `smpte2085`). The rows are
+`Tests/TestResources/preview_scale_cases.json`, checked by the Rust, by the
+test twin `WorkerHarness.previewScaleFilter` and through each platform's
+bundled ffmpeg (`preview_scale_ffmpeg_test.dart`, push gate). A frame
+**tagged** with one of those six can't be converted at all either (before
+frame, thumbnails, detectors): task #76 (docs/reports/task-73-swscale-matrix-tags).
 
 **A tag FFmpeg rejects (ProRes's `reserved`) is cleared before any decode
 converts, and only that tag.** FFmpeg 9's scaler fails a frame tagged

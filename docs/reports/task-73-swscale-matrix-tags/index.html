@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview matrix names</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #73: matrices FFmpeg 9's <code>scale</code> can't name</h1>
+<p class="sub">2026-11-19 · macOS arm64 (M1 Pro) · deps 1.17.0-rc3 (FFmpeg 9.0.2, martin-riedl build) · branch <code>stuart/73-sdr-preview-fails-for-sources-tagged-ycg</code></p>
+
+<h2>Summary</h2>
+<p>The preview converts its untagged Y4M frame to RGB with <code>scale=in_color_matrix=&lt;m&gt;</code>, where <code>&lt;m&gt;</code> was the source's matrix tag as written (only <code>rgb</code> was dropped). FFmpeg 9's <code>scale</code> has no conversion for six of the H.273 matrices the worker accepts as tags. An SDR source tagged with any of them got no preview (ffmpeg exit 234). <span class="good">Fixed</span>: <code>ColorMetadata::swscale_matrix</code> maps each one to the nearest matrix <code>scale</code> has, or leaves it out so <code>auto</code> (BT.601) applies.</p>
+<p><span class="bad">Wider finding, not fixed here:</span> FFmpeg 9 can't convert a frame <em>tagged</em> with these matrices at all. The app's before frame, its thumbnails, the detectors' converting decodes and an encode whose encoder converts all fail on such a source. Filed as task #76.</p>
+
+<h2>1. What <code>scale</code> accepts</h2>
+<p><code>ffmpeg -h filter=scale</code> lists <code>in_color_matrix</code> as an integer (−1…17) with these named constants: auto, bt601, bt470, smpte170m, bt470bg (all 5), bt709 (1), fcc (4), smpte240m (7), bt2020, bt2020nc (both 9). The table shows the preview's own filter (<code>in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int</code>) on a 96x64 testsrc2 Y4M, untagged like the preview's pipe.</p>
+<table>
+<tr><th>in_color_matrix</th><th>Result</th></tr>
+<tr><td>auto, bt601, bt470bg, smpte170m</td><td class="good">ok (identical output)</td></tr>
+<tr><td>bt709 / fcc / smpte240m</td><td class="good">ok (each different)</td></tr>
+<tr><td>bt2020, bt2020nc</td><td class="good">ok (identical output)</td></tr>
+<tr><td>ycgco, bt2020c, smpte2085, chroma-derived-nc, chroma-derived-c, ictcp</td><td class="bad">Undefined constant or missing '(' in '&lt;m&gt;'</td></tr>
+<tr><td>8, 10, 11, 12, 13, 14 (their AVCOL_SPC numbers)</td><td class="bad">Unsupported input color matrix '&lt;m&gt;'</td></tr>
+</table>
+<p>The numeric values fail as well, so the scaler has no conversion for these matrices; there is no other spelling to fall back on. Raw output: <a href="data/probe-macos-arm64.txt">data/probe-macos-arm64.txt</a>.</p>
+
+<h2>2. Decision, per tag</h2>
+<table>
+<tr><th>Tag</th><th>Preview reads it as</th><th>Why</th></tr>
+<tr><td>bt709, fcc, bt470bg, smpte170m, smpte240m, bt2020nc</td><td>itself</td><td>Accepted as written. Every existing preview keeps its arguments byte for byte.</td></tr>
+<tr><td>rgb</td><td>left out</td><td>Identity matrix; <code>scale</code> has no entry for it (unchanged).</td></tr>
+<tr><td>bt2020c</td><td>bt2020</td><td>Same Kr/Kb as the non-constant-luminance form. Reading constant-luminance samples with those coefficients is the nearest swscale can do, and is how FFmpeg's swscale treated it before 9.</td></tr>
+<tr><td>chroma-derived-nc / -c</td><td>bt709 or bt2020 when the primaries are those; else left out</td><td>H.273 derives Kr/Kb from the primaries. From BT.709 or BT.2020 primaries they are exactly those matrices' coefficients. For other or missing primaries, <code>scale</code> has nothing closer than auto.</td></tr>
+<tr><td>ictcp</td><td>bt2020</td><td>ICtCp exists only with BT.2100 (BT.2020 primaries). An SDR picture carrying it is most likely BT.2020 YCbCr with a wrong or missing transfer tag. <code>display_tonemap_filter</code> reads an unusable HDR matrix as BT.2020 for the same reason.</td></tr>
+<tr><td>ycgco</td><td>left out (auto)</td><td>YCgCo is not a Kr/Kb matrix (Cg and Co are not B−Y and R−Y), so every choice shows wrong hues. Auto is what an untagged picture gets.</td></tr>
+<tr><td>smpte2085</td><td>left out (auto)</td><td>Y′D′zD′x is for XYZ-coded content and has no YCbCr equivalent. zimg doesn't implement it either.</td></tr>
+</table>
+<p class="note">The preview of a <code>ycgco</code> or <code>smpte2085</code> source therefore shows wrong colours; the encode keeps the samples and the tag. An exact preview would need zscale, which knows ycgco, 2020_cl, chroma-derived and ictcp. That was rejected for now: it would be a third conversion path, for tags no real source has been seen with, and the before frame and the test twin would need it too.</p>
+
+<h2>3. Verification</h2>
+<ul>
+<li><b>Rust</b> (<code>color_metadata.rs</code>): every <code>MATRICES</code> × <code>PRIMARIES</code> (and none) combination names only constants on the pinned list. Each <code>MATRICES</code> entry has a decided reading, so adding a tag fails the test until its reading is chosen.</li>
+<li><b>Shared table</b> <code>Tests/TestResources/preview_scale_cases.json</code> (28 rows): the Rust <code>preview_scale_filter</code> and the test twin <code>WorkerHarness.previewScaleFilter</code> both reproduce every row. <code>preview_scale_filter_test.dart</code> also reads <code>swscale_matrix</code>'s arms from the Rust source and checks the twin against them.</li>
+<li><b>Bundled ffmpeg</b> (<code>preview_scale_ffmpeg_test.dart</code>, push gate): every row's filter is run on an untagged Y4M frame, on each CI platform's own FFmpeg build.</li>
+<li><b>Heavy</b> (<code>integration_colour_tag_pixels_test.dart</code>): <code>small_clip.mp4</code> retagged ycgco, bt2020c (bt2020 primaries), smpte2085, ictcp and chroma-derived-nc (bt709 primaries) with <code>setparams</code>, so no sample is converted.
+  <ul>
+  <li>Each preview succeeds and is identical (0.000/255) to the preview of a twin tagged as it is read.</li>
+  <li>Each also matches the source decoded as the preview converts it (0.000/255).</li>
+  <li>With main's worker the ycgco case fails: "ffmpeg encoder exited with exit code 234".</li>
+  <li>A lossless FFV1 encode of the ycgco fixture keeps <code>color_space=ycgco</code> and every sample.</li>
+  </ul></li>
+</ul>
+
+<h2>4. Wider finding: tagged frames can't be converted (task #76)</h2>
+<p>Each row is a yuv420p FFV1 file tagged with the matrix through <code>setparams</code>, then decoded one frame to each target.</p>
+<table>
+<tr><th>Tag</th><th>→ yuv420p</th><th>→ JPEG</th><th>→ rgb24</th><th>→ gray16le</th><th>→ yuv422p</th><th>tag cleared first → rgb24</th></tr>
+<tr><td>bt709</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td></tr>
+<tr><td>each of the six</td><td class="good">ok</td><td class="bad">fail</td><td class="bad">fail</td><td class="bad">fail</td><td class="bad">fail</td><td class="good">ok</td></tr>
+</table>
+<p>Every failure says "Impossible to convert between the formats…". The negotiation lists the matrices the scaler accepts: <code>unknown gbr bt709 fcc bt470bg smpte170m smpte240m bt2020nc</code>. This is the class <code>decode_tag_neutraliser</code> handles for <code>reserved</code>. Task #76 is to clear or map these tags the same way before converting decodes. Until then, <code>WorkerHarness._frameRgb24</code> clears them itself before the preview's <code>scale</code>. That changes no pixel: the scale names its matrix explicitly, and with the tag cleared the output matches the untagged Y4M through the same scale, md5 for md5.</p>
+
+<h2>Limits and what wasn't tested</h2>
+<ul>
+<li>The probe ran on the macOS arm64 FFmpeg only. The other platforms' builds (BtbN on Windows and Linux, martin-riedl x64) are covered by the push-gate test rather than by this report.</li>
+<li>The heavy fixtures are a real 8-bit 4:2:0 picture whose samples were never encoded in these matrices. The test shows how the preview reads the tag, not that the picture looks right. No real ycgco, bt2020c or ictcp SDR source was available.</li>
+<li>Deeper formats were not run; the preview's scale is the same filter at every depth.</li>
+</ul>
+
+<h2>Scripts</h2>
+<p><a href="scripts/probe-scale-matrices.sh">scripts/probe-scale-matrices.sh</a> produces every table here. Set <code>FFMPEG</code> to a bundle's ffmpeg (the default is the repo's <code>deps/&lt;platform&gt;</code>) and optionally <code>SCRATCH</code>.</p>
+</main>
+</body>
+</html>

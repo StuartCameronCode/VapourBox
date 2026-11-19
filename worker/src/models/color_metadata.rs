@@ -337,6 +337,55 @@ impl ColorMetadata {
         ))
     }
 
+    /// The matrix the preview's `scale=in_color_matrix=` names for this
+    /// picture, or `None` to leave it out (swscale then reads BT.601).
+    ///
+    /// FFmpeg 9's `scale` knows only auto, bt601/bt470/smpte170m/bt470bg,
+    /// bt709, fcc, smpte240m and bt2020/bt2020nc, and has no conversion at all
+    /// for the other H.273 matrices (even by number: "Unsupported input color
+    /// matrix"), so a tag it can't name failed the whole preview (task #73,
+    /// docs/reports/task-73-swscale-matrix-tags). Each is mapped to the
+    /// nearest matrix scale has, or left out:
+    ///
+    /// - `bt2020c` -> `bt2020`: the same Kr/Kb as NCL, the nearest swscale
+    ///   can do (FFmpeg's own swscale read it so before 9).
+    /// - `chroma-derived-nc`/`-c` -> `bt709` or `bt2020` when the primaries
+    ///   are those (H.273 derives exactly those coefficients from them), else
+    ///   left out.
+    /// - `ictcp` -> `bt2020`: ICtCp exists only with BT.2100's primaries, so an
+    ///   SDR picture tagged with it is most likely BT.2020 YCbCr (as
+    ///   `display_tonemap_filter` reads it).
+    /// - `ycgco`, `smpte2085`, `rgb` -> left out: no YCbCr matrix comes close
+    ///   (YCgCo's Cg/Co are not colour differences; Y'D'zD'x is for XYZ).
+    ///   The preview's colours are then wrong; the encode keeps the samples
+    ///   and the tag.
+    ///
+    /// The six that need this also fail any decode that converts a frame
+    /// TAGGED with them: task #76.
+    pub fn swscale_matrix(&self) -> Option<&'static str> {
+        let derived = || match self.primaries.as_deref() {
+            Some("bt709") => Some("bt709"),
+            Some("bt2020") => Some("bt2020"),
+            _ => None,
+        };
+        match self.matrix.as_deref()? {
+            "bt709" => Some("bt709"),
+            "fcc" => Some("fcc"),
+            "bt470bg" => Some("bt470bg"),
+            "smpte170m" => Some("smpte170m"),
+            "smpte240m" => Some("smpte240m"),
+            "bt2020nc" => Some("bt2020nc"),
+            "bt2020c" => Some("bt2020"),
+            "chroma-derived-nc" => derived(),
+            "chroma-derived-c" => derived(),
+            "ictcp" => Some("bt2020"),
+            "ycgco" => None,
+            "smpte2085" => None,
+            "rgb" => None,
+            _ => None,
+        }
+    }
+
     /// swscale input options for the preview's YUV→RGB conversion.
     ///
     /// The preview's second stage reads a Y4M pipe, which carries no colour
@@ -346,15 +395,12 @@ impl ColorMetadata {
     /// shift no filter had caused. `in_range` was previously hardcoded `tv`,
     /// which also stretched a full-range source a second time.
     ///
-    /// swscale spells the matrix differently from `-colorspace` in one case:
-    /// it wants `bt470bg` for 601 PAL, which matches, but it has no entry for
-    /// the RGB identity matrix, so that is dropped.
+    /// The matrix is `swscale_matrix()`: `scale` has no entry for the RGB
+    /// identity or for six valid tags (task #73).
     pub fn swscale_input_opts(&self) -> Vec<String> {
         let mut opts = Vec::new();
-        if let Some(m) = self.matrix.as_deref() {
-            if m != "rgb" {
-                opts.push(format!("in_color_matrix={m}"));
-            }
+        if let Some(m) = self.swscale_matrix() {
+            opts.push(format!("in_color_matrix={m}"));
         }
         // Anything but an explicit full-range tag is treated as limited, which
         // is what an untagged SD capture almost always is.
@@ -555,6 +601,65 @@ mod tests {
         assert!(bare.display_tonemap_filter().unwrap().starts_with(
             "setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=smpte2084:range=tv,"
         ));
+    }
+
+    /// `scale`'s `in_color_matrix` constants, from `ffmpeg -h filter=scale`
+    /// of the bundled FFmpeg 9.0.2 (task #73). `preview_scale_ffmpeg_test.dart`
+    /// runs every case of `preview_scale_cases.json` through each platform's
+    /// bundled ffmpeg, so a build without one of these fails the push gate.
+    const SWSCALE_IN_COLOR_MATRIX: &[&str] = &[
+        "auto", "bt601", "bt470", "smpte170m", "bt470bg", "bt709", "fcc",
+        "smpte240m", "bt2020", "bt2020nc",
+    ];
+
+    #[test]
+    fn every_matrix_previews_with_a_name_scale_accepts() {
+        let prims: Vec<Option<&str>> =
+            PRIMARIES.iter().map(|p| Some(*p)).chain([None]).collect();
+        for m in MATRICES.iter().map(|m| Some(*m)).chain([None]) {
+            for p in &prims {
+                let c = ColorMetadata::from_raw(m, *p, None, None);
+                for o in c.swscale_input_opts() {
+                    if let Some(v) = o.strip_prefix("in_color_matrix=") {
+                        assert!(SWSCALE_IN_COLOR_MATRIX.contains(&v), "{m:?}/{p:?}: {o}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// One decision per `MATRICES` entry, made on purpose: a tag added to
+    /// `MATRICES` fails here until its preview reading is chosen.
+    #[test]
+    fn every_matrix_has_a_decided_preview_reading() {
+        // (matrix, with bt709 primaries, with bt2020, with none)
+        let table: &[(&str, [Option<&str>; 3])] = &[
+            ("rgb", [None, None, None]),
+            ("bt709", [Some("bt709"); 3]),
+            ("fcc", [Some("fcc"); 3]),
+            ("bt470bg", [Some("bt470bg"); 3]),
+            ("smpte170m", [Some("smpte170m"); 3]),
+            ("smpte240m", [Some("smpte240m"); 3]),
+            ("ycgco", [None, None, None]),
+            ("bt2020nc", [Some("bt2020nc"); 3]),
+            ("bt2020c", [Some("bt2020"); 3]),
+            ("smpte2085", [None, None, None]),
+            ("chroma-derived-nc", [Some("bt709"), Some("bt2020"), None]),
+            ("chroma-derived-c", [Some("bt709"), Some("bt2020"), None]),
+            ("ictcp", [Some("bt2020"); 3]),
+        ];
+        let keys: Vec<&str> = table.iter().map(|(m, _)| *m).collect();
+        assert_eq!(keys, MATRICES, "decide the preview reading of every matrix");
+        for (m, want) in table {
+            for (p, w) in [Some("bt709"), Some("bt2020"), None].iter().zip(want) {
+                let c = ColorMetadata::from_raw(Some(m), *p, None, None);
+                assert_eq!(c.swscale_matrix(), *w, "{m} / {p:?}");
+            }
+        }
+        // Other primaries leave a derived matrix to auto.
+        let c = ColorMetadata::from_raw(Some("chroma-derived-nc"), Some("bt470bg"), None, None);
+        assert_eq!(c.swscale_input_opts(), vec!["in_range=tv"]);
+        assert_eq!(ColorMetadata::default().swscale_matrix(), None);
     }
 
     #[test]

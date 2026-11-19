@@ -1,0 +1,46 @@
+ffmpeg version 9.0.2-https://www.martin-riedl.de Copyright (c) 2000-2026 the FFmpeg developers
+
+## scale's in_color_matrix constants
+   in_color_matrix   <int>        ..FV....... set input YCbCr type (from -1 to 17) (default auto)
+     auto            -1           ..FV.......
+     bt601           5            ..FV.......
+     bt470           5            ..FV.......
+     smpte170m       5            ..FV.......
+     bt470bg         5            ..FV.......
+     bt709           1            ..FV.......
+     fcc             4            ..FV.......
+     smpte240m       7            ..FV.......
+     bt2020          9            ..FV.......
+     bt2020nc        9            ..FV.......
+
+## The preview's scale on an untagged Y4M (md5 of the rgb24 output)
+auto               ok 64ce0479
+bt601              ok 64ce0479
+bt470bg            ok 64ce0479
+smpte170m          ok 64ce0479
+bt709              ok 03cfe270
+fcc                ok fa3473a2
+smpte240m          ok 8fdce49c
+bt2020             ok 6674fabb
+bt2020nc           ok 6674fabb
+ycgco              FAIL: [Eval @ 0x16eefe870] Undefined constant or missing '(' in 'ycgco'
+bt2020c            FAIL: [Eval @ 0x16ef6a870] Undefined constant or missing '(' in 'bt2020c'
+smpte2085          FAIL: [Eval @ 0x16d19a870] Undefined constant or missing '(' in 'smpte2085'
+chroma-derived-nc  FAIL: [Eval @ 0x16ee8e860] Undefined constant or missing '(' in 'chroma-derived-nc'
+chroma-derived-c   FAIL: [Eval @ 0x16d466860] Undefined constant or missing '(' in 'chroma-derived-c'
+ictcp              FAIL: [Eval @ 0x16f322870] Undefined constant or missing '(' in 'ictcp'
+8                  FAIL: Unsupported input color matrix 'ycgco'
+10                 FAIL: Unsupported input color matrix 'bt2020c'
+11                 FAIL: Unsupported input color matrix 'smpte2085'
+12                 FAIL: Unsupported input color matrix 'chroma-derived-nc'
+13                 FAIL: Unsupported input color matrix 'chroma-derived-c'
+14                 FAIL: Unsupported input color matrix 'ictcp'
+
+## Converting decodes of a yuv420p FFV1 file tagged with the matrix
+bt709: same.raw=ok b.jpg=ok r.raw=ok g.raw=ok p.raw=ok cleared-first-rgb=ok
+ycgco: same.raw=ok b.jpg=FAIL r.raw=FAIL g.raw=FAIL p.raw=FAIL cleared-first-rgb=ok
+bt2020c: same.raw=ok b.jpg=FAIL r.raw=FAIL g.raw=FAIL p.raw=FAIL cleared-first-rgb=ok
+smpte2085: same.raw=ok b.jpg=FAIL r.raw=FAIL g.raw=FAIL p.raw=FAIL cleared-first-rgb=ok
+chroma-derived-nc: same.raw=ok b.jpg=FAIL r.raw=FAIL g.raw=FAIL p.raw=FAIL cleared-first-rgb=ok
+chroma-derived-c: same.raw=ok b.jpg=FAIL r.raw=FAIL g.raw=FAIL p.raw=FAIL cleared-first-rgb=ok
+ictcp: same.raw=ok b.jpg=FAIL r.raw=FAIL g.raw=FAIL p.raw=FAIL cleared-first-rgb=ok
