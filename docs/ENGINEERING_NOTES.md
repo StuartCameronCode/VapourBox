@@ -5362,3 +5362,44 @@ macOS `.ips` files only. Report: [docs/reports/task-66-qtgmc-draft-sigsegv](repo
 - A buffer-pool probe (render after filling VapourSynth's pool with two values,
   compare) found nothing even where valgrind found uninitialised output; it
   was dropped. Use valgrind.
+
+### vspipe's teardown race: upstream's fix backported to R78, not R80 (task #68, 2026-11-19)
+
+Report: [docs/reports/task-68-vspipe-teardown-backport](reports/task-68-vspipe-teardown-backport/index.html).
+Follows task #65 (the fault) and task #66 (its QTGMC Draft sweep crash was the same race).
+
+- **R80+ is blocked by API 3, not by the race.** R80 "dropped api3 support":
+  R82's plugin loader finds `VapourSynthPluginInit` without
+  `VapourSynthPluginInit2` and refuses the plugin. 12 of the 40 plugins in the
+  1.17.0-rc3 macOS arm64 bundle are API 3 only (`scan_plugin_api.py`; `nm -gU`
+  agrees): DFTTest (QTGMC's dfttest path, SMDegrain), nnedi3 (the ARM path),
+  NNEDI3CL, neo_f3kdb (Deband), CTMF, AWarpSharp2, FluxSmooth, TemporalMedian,
+  LGhost, Retinex, FillBorders v2 and VSNCNN (every AI upscaler). Only
+  FillBorders has an API 4 release (v4); vs-mlrt's master and neo_f3kdb r11
+  are still API 3. R79–R82 otherwise changed nothing CLAUDE.md's R78 notes
+  rely on, as far as their ChangeLog says; R80 also stops nodes and functions
+  being stored as frame properties and adds a Vulkan/glslang build, and R81
+  clamps negative frame requests.
+- **The fix is one hunk pair, and R78 takes it as is.** 4ff3f8a0's
+  `vspipe.cpp` change (count at the end of `frameDoneCallback`, under the
+  mutex) applies to R78 with only line offsets.
+  `patches/vapoursynth-r78-vspipe-frame-done-count.patch` adds a `--version`
+  line as the marker the deps scripts and `vapoursynth_integration_test`
+  check, since the race itself is too rare to test for.
+- **Windows can be patched after all.** The wheel's `vspipe.exe` is four C++
+  files over `vsscript.dll`'s C API (`getVSScriptAPI`,
+  `getVSScriptAPILastError`). Zig 0.15.2 builds it from patched R78 against an
+  import library for those two exports, with R78's meson defines
+  (`VS_TARGET_OS_WINDOWS`, `UNICODE`, `VS_USE_LATEST_API`, …) and upstream's
+  manifest embedded (`longPathAware`). It imports only `vsscript.dll`,
+  KERNEL32 and the UCRT.
+- **The race fires on demand once its window is widened.** A 20 ms sleep
+  before `outputFrame` writes and 5 ms between `outputNode`'s requests and its
+  wait check (`widen_race.py`, test-only): unpatched R78 crashed 400 of 400
+  one-frame runs (SIGSEGV), the patch 0 of 400, on macOS arm64. Unwidened,
+  arm64 doesn't reproduce it (0/1200 under load, either binary), as in
+  task #65.
+- **Task #66's `flaky` known failure is removed** with deps 1.18.0-rc1: it
+  covered the QTGMC Draft variant for exactly this SIGSEGV, and a `flaky`
+  entry never fails when its row starts passing, so it would have hidden a
+  return of the crash.

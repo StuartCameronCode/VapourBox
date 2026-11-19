@@ -1,0 +1,3 @@
+# widened_race_ab.sh deps/macos-arm64 (1.17.0-rc3) <out> 400 -- macOS arm64 (M1 Pro), 2026-11-19
+widened-unpatched: runs=400 failures=400 (400 x rc=139; )
+widened-patched: runs=400 failures=0 

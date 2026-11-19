@@ -112,6 +112,26 @@ void main() {
       expect(result.stdout.toString(), contains('VapourSynth'));
     });
 
+    // Task #68: R78's vspipe counts a frame done before it writes it, so its
+    // main thread could free the script under the last frame's callback
+    // (SIGSEGV after the last frame, intermittently; tasks #65 and #66).
+    // Every download-deps-* script builds vspipe with
+    // patches/vapoursynth-r78-vspipe-frame-done-count.patch, upstream's fix
+    // (4ff3f8a0, R80), whose --version line says so. The race itself is too
+    // rare to test for on every push; this checks the bundle has the fix.
+    // docs/reports/task-68-vspipe-teardown-backport.
+    test('vspipe carries the frame-done count fix (task #68)', () async {
+      if (_depsVersionAtMost(depsDir, [1, 17])) {
+        markTestSkipped("deps <= 1.17.x ship R78's unpatched vspipe "
+            '(task #68); enforced from deps 1.18.0');
+        return;
+      }
+      final result = await Process.run(vspipePath, ['--version']);
+      expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
+      expect(result.stdout.toString(),
+          contains('VapourBox patch: vspipe frame-done count (task #68)'));
+    });
+
     test('all required plugins load', () async {
       final script = '''
 import vapoursynth as vs

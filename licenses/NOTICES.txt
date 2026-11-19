@@ -30,6 +30,12 @@ VapourSynth — LGPL-2.1-or-later
   Licence text: LGPL-2.1.txt
   The video processing framework. Includes libvapoursynth, libvapoursynthfilters
   (the core std/resize/text filters), libvsscript and the vspipe tool.
+  Built from the R78 tag (macOS/Linux) or taken from R78's wheel (Windows).
+  VapourBox applies Scripts/patches/vapoursynth-r78-zimg-api-guard.patch and
+  Scripts/patches/vapoursynth-r78-vspipe-frame-done-count.patch, both
+  backports of upstream commits (37eed3dd, 4ff3f8a0); the second also adds a
+  line to `vspipe --version`. On Windows, vspipe.exe is built from the R78
+  tag with that patch applied, replacing the wheel's.
 
 zimg — WTFPL
   Copyright (c) sekrit-twc

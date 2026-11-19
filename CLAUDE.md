@@ -1982,8 +1982,9 @@ time span `[t, t+1)`; the worker reports `sub_frame`, `sub_frames` and
   there, so the target's frame was ready the moment vspipe asked, and
   **R78's vspipe counts a frame done before writing it**: its main thread
   tore the script down under the frame callback (SIGSEGV, 2-3% of x86 IVTC
-  previews under load). R80 fixed vspipe (upstream 4ff3f8a0); until the
-  bundle has it, any preview can still hit it, only far more rarely.
+  previews under load). The bundle's vspipe carries upstream's fix from
+  deps 1.18.0 (task #68, see "R78: …" below); before it, any preview could
+  still hit it, only far more rarely.
   `test_259` allows only the border colour's one-frame swatch. Stabilize's pitch
   lookup starts at `preview_source_offset` (`first + skip - pad`).
   `integration_ivtc_preview_test.dart` (heavy) checks previews against a
@@ -3414,6 +3415,28 @@ the Python module reports must be the same file. Consequences:
   the autoload directory). `vspipe_environment_test` (Rust) runs vspipe under
   the worker's environment and fails on any "already loaded" line (task #61).
 
+**vspipe is R78 plus one backported fix (task #68).** R78's vspipe counted a
+frame done before writing it, so its main thread could free the script under
+the last frame's callback: SIGSEGV after the last frame, intermittently (tasks
+#65, #66). `Scripts/patches/vapoursynth-r78-vspipe-frame-done-count.patch` is
+upstream's fix (4ff3f8a0, R80) plus a `vspipe --version` line, `VapourBox
+patch: vspipe frame-done count (task #68)`, which every `download-deps-*`
+script requires (and rebuilds a vspipe without), and
+`vapoursynth_integration_test` checks from deps 1.18.0. macOS and Linux apply
+it in their source build; **Windows replaces the wheel's `vspipe.exe`** with
+one Zig builds from patched R78 (import library for the wheel's
+`vsscript.dll`, upstream's manifest embedded: it sets `longPathAware`). The
+race is too rare to test unaided; `widened_race_ab.sh` in
+docs/reports/task-68-vspipe-teardown-backport makes it fire every run.
+
+**Moving past R79 means every plugin must be API 4.** R80 dropped API 3 and
+refuses a plugin that only exports `VapourSynthPluginInit` ("uses API 3,
+which is no longer supported"). Twelve bundled plugins are API 3 only
+(DFTTest, nnedi3, NNEDI3CL, neo_f3kdb, CTMF, AWarpSharp2, FluxSmooth,
+TemporalMedian, LGhost, Retinex, FillBorders v2, VSNCNN), most with no API 4
+release; `scan_plugin_api.py` in the same report lists a bundle's. When
+VapourSynth does move, drop the vspipe patch (and the zimg guard).
+
 No source-indexing plugin is bundled — sources are read as raw frames piped
 from ffmpeg (`templates/pipe_source.py`); BestSource was removed in 2026-08-07
 once nothing called it. If a source filter is ever needed again, add it back
@@ -3981,4 +4004,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |
 | 1.16.0 | 2026-11-09 | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Published as the tested `deps-v1.16.0-rc2` bundles with only the version changed (`Scripts/promote-deps-rc.py`) |
 | 1.17.0 | rc1 2026-11-15, rc2 2026-11-16, rc3 2026-11-17 | **Task #36**: macOS arm64 libdvdread built from 6.1.3 source (patched to find a user's libdvdcss in `/opt/homebrew/lib`, `/usr/local/lib`, `/opt/local/lib`) instead of Homebrew's bottle, which linked `/opt/homebrew/opt/libdvdcss/…` and failed to load on Macs without it; macOS x64 gets the same patched build. Absolute build-machine rpaths stripped from libvapoursynth, vapoursynth.abi3.so, libfftw3f*, libboost_charconv, bm3d, dctfilter and mvtools (inert: nothing used `@rpath`). Windows and Linux binaries unchanged; libdvdread is now a required file on every platform. **rc2** (task #45): macOS x64 FFmpeg evermeet 9.0.1 → martin-riedl 9.0.2 (build 1789931006, pinned by SHA-256), which has SVT-AV1, so AV1 output works on Intel Macs; x264/x265/MP3 bitstreams change there, native codecs byte-identical. **rc3** (task #60): **Bifrost** v3.0 → **4.0** from its PyPI wheels on every platform (was the v3.0 tag's `bifrost.c` built from source on macOS/Linux, v3.0's 7z on Windows), under the same file names; v3.0 left chroma past the last whole 4x4 block uninitialised (different output run to run at width 98, 720x486), v4.0 initialises it and runs at 8–16 bits natively. No AVX, so `_tierFiles` unchanged |
-| 1.18.0 | unreleased | **Task #62**: FFT3DFilter built from source at R2 with `patches/fft3dfilter-r2-determinism.patch` on every platform (Windows: Zig cross-compile replacing the R2 release DLL; macOS arm64: replacing yuygfgg's prebuilt), so its output no longer differs from run to run. One build for both x64 tiers; file names unchanged |
+| 1.18.0 | rc1 2026-11-19 | **Task #62**: FFT3DFilter built from source at R2 with `patches/fft3dfilter-r2-determinism.patch` on every platform (Windows: Zig cross-compile replacing the R2 release DLL; macOS arm64: replacing yuygfgg's prebuilt), so its output no longer differs from run to run. One build for both x64 tiers; file names unchanged. **Task #68**: vspipe R78 with upstream's frame-done count fix (`patches/vapoursynth-r78-vspipe-frame-done-count.patch`, 4ff3f8a0) on every platform (Windows: Zig build replacing the wheel's `vspipe.exe`), so a one-frame preview can no longer be torn down under its last frame's callback (SIGSEGV). VapourSynth stays R78: R80 dropped API 3, which 12 bundled plugins need |
