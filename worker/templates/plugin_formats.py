@@ -121,6 +121,18 @@ KNOWN = {}
 MVTOOLS_MIN_ROWS = 96
 MVTOOLS_MIN_COLS = 64
 
+# MVTools' AVX2 vector and mask upsizer (SimpleResize_AVX2.cpp, in master and
+# v24 alike) resizes each row 8 int16 samples (4 uint8) at a time and does the
+# row's tail as one more step ending at src_width, the number of block
+# columns. With fewer block columns than that step, the tail starts before its
+# malloc'd row buffer and overwrites malloc's chunk header: heap corruption,
+# SIGSEGV or SIGABRT in free() on every x86 CPU with AVX2 (Flow, FlowInter,
+# FlowFPS at 64x48 with 16/8 blocks; QCIF at 32/8; task #69,
+# docs/reports/task-69-mvtools-flow-avx2). opt=False selects the C upsizer --
+# what arm64 and a CPU without AVX2 run -- which stays inside its buffers at
+# any size. Every Flow* call passes opt=mvtools_flow_opt(...) (test_260).
+MVTOOLS_RESIZE_MIN_BLOCKS = 8
+
 _SS = {'420': (1, 1), '422': (1, 0), '444': (0, 0)}
 
 _akarin_expr = getattr(getattr(core, 'akarin', None), 'Expr', None)
@@ -382,6 +394,23 @@ def _change(clip, target, fn, delta_only, name, needs):
                        % (name, needs, work.num_frames, work.width, work.height, work.format.name,
                           out.num_frames, out.width, out.height, out.format.name))
     return _expr([clip, back(out), back(work)], 'x y + z -')
+
+
+def mvtools_flow_opt(width, blksize, overlap):
+    """opt= for mv.Flow / FlowInter / FlowFPS / FlowBlur / Mask / BlockFPS on
+    vectors analysed at [blksize] / [overlap] over a picture [width] luma
+    columns wide: True (MVTools' own default) unless fewer than
+    MVTOOLS_RESIZE_MIN_BLOCKS block columns cover it, when MVTools' AVX2
+    upsizer writes before its buffer (task #69). Mirrors MVTools: Analyse's
+    nBlkX = (W - o) // (b - o), grown by Flow* to nBlkXP until the blocks
+    reach the right edge. FlowBlur's and Mask's unpadded nBlkX is at most
+    nBlkXP, and the 8-bit (4-sample) tail needs fewer columns, so one test
+    covers them all."""
+    step = blksize - overlap
+    cols = (width - overlap) // step
+    while cols * step + overlap < width:
+        cols += 1
+    return cols >= MVTOOLS_RESIZE_MIN_BLOCKS
 
 
 def mvtools_blocks(clip, fn, *, label=None):
