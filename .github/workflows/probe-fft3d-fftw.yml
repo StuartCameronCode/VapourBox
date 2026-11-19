@@ -97,7 +97,7 @@ jobs:
         run: |
           mkdir -p probe-out
           SCRATCH="$RUNNER_TEMP/task80" bash docs/reports/task-80-fft3dfilter-fftw-estimate/scripts/run.sh \
-            "deps/${{ matrix.platform }}" probe.py "$PROCESSES" "$SPEED_RUNS" "$PARTS" > probe-out/probe.json
+            "deps/${{ matrix.platform }}" probe.py "$PROCESSES" "$SPEED_RUNS" "$PARTS" 5 > probe-out/probe.json
 
       - name: Probe (Windows)
         if: runner.os == 'Windows'
@@ -105,7 +105,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path probe-out | Out-Null
           $env:SCRATCH = Join-Path $env:RUNNER_TEMP 'task80'
-          & docs/reports/task-80-fft3dfilter-fftw-estimate/scripts/run.ps1 "deps/${{ matrix.platform }}" probe.py $env:PROCESSES $env:SPEED_RUNS $env:PARTS | Out-File -Encoding utf8 probe-out/probe.json
+          & docs/reports/task-80-fft3dfilter-fftw-estimate/scripts/run.ps1 "deps/${{ matrix.platform }}" probe.py $env:PROCESSES $env:SPEED_RUNS $env:PARTS 5 | Out-File -Encoding utf8 probe-out/probe.json
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Summary
