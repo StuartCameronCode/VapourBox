@@ -5649,7 +5649,7 @@ platform-specific runtime fault in one pass still fails the PR; that adds an
 estimated 1–2 min to macOS x64's flutter job, not yet measured. Report:
 [docs/reports/task-84-pr-ci-time](reports/task-84-pr-ci-time/index.html).
 
-### havsfunc's mask ANDs as one Expr: 10-bit LUTDeCrawl/LUTDeRainbow previews 10x faster (task #82, 2026-11-20)
+### havsfunc's mask ANDs as one Expr: 10-bit LUTDeCrawl/LUTDeRainbow previews in 0.33 s, not ~18 s (task #82, 2026-11-20)
 
 Report: [docs/reports/task-82-havsfunc-mask-and](reports/task-82-havsfunc-mask-and/index.html).
 Found by task #75 (the quick plugin probe timing out on macOS x64).
