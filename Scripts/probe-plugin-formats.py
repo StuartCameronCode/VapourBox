@@ -358,6 +358,8 @@ def quick_grid(limited, padded=False, key=None):
 # a function that depends on nothing but its arguments (no closure, no
 # defaults, no global or attribute names) is evaluated this way, and each
 # table once per process; every other Lut2 call passes through untouched.
+# Handing VapourSynth a cached list still costs about 0.28 s per table, so a
+# 10-bit cell goes from 7.7 s to 1.1 s on an M1, not to nothing.
 # --no-lut-memo runs the calls exactly as havsfunc writes them.
 # ---------------------------------------------------------------------------
 

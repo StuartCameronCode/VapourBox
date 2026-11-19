@@ -289,7 +289,7 @@ print(json.dumps(problems))
 ''';
 
 // The probe evaluates havsfunc's pure Lut2 functions into one list per
-// process (task #75: 7.9 s -> 0.3 s per 10-bit LUTDeCrawl cell). The list must
+// process (task #75: 7.7 s -> 1.1 s per 10-bit LUTDeCrawl cell on an M1). The list must
 // give the same picture and format as the function, a function that reads
 // anything but its arguments must pass through, and havsfunc's own calls must
 // still take the memo (else the probe is slow again, silently).
@@ -324,17 +324,20 @@ def clip(fmt, seed):
 memo = probe._LutMemoCore(core)
 asym8 = lambda x, y: (x * 3 + (y >> 1)) & 255
 asym10 = lambda x, y: (x * 3 + (y >> 1)) & 1023
+# Mixed depths pin the index order both ways (x + (y << bits_a)) at a quarter
+# of a 10x10 table's cost: the reference is built the slow way, which takes
+# seconds per 10-bit table on the Intel runners.
 for fa, fb, f in ((vs.GRAY8, vs.GRAY8, asym8), (vs.GRAY8, vs.GRAY10, asym8),
-                  (vs.GRAY10, vs.GRAY10, asym10), (vs.YUV420P10, vs.YUV420P8, asym10)):
+                  (vs.YUV420P10, vs.YUV420P8, asym10)):
     a, b = clip(fa, 1), clip(fb, 2)
     n = len(memo.std.tables)
     got = memo.std.Lut2(a, b, function=f)
     check(len(memo.std.tables) == n + 1, '%s x %s: the memo was not used' % (a.format.name, b.format.name))
     check(same(got, core.std.Lut2(a, b, function=f)),
           '%s x %s: the list differs from the function' % (a.format.name, b.format.name))
-    got = memo.std.Lut2(clipa=a, clipb=b, function=f, planes=[0])
-    check(same(got, core.std.Lut2(a, b, function=f, planes=[0])),
-          '%s x %s, keywords and planes: the list differs' % (a.format.name, b.format.name))
+a, b = clip(vs.YUV420P8, 1), clip(vs.YUV420P8, 2)
+check(same(memo.std.Lut2(clipa=a, clipb=b, function=asym8, planes=[0]), core.std.Lut2(a, b, function=asym8, planes=[0])),
+      'keywords and planes: the list differs')
 
 t = 5
 n = len(memo.std.tables)
@@ -497,7 +500,8 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
     } finally {
       if (script.existsSync()) script.deleteSync();
     }
-  });
+    // About 6 s on an M1; the reference tables are much slower on the Intel runners.
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('MVTools Flow calls avoid the AVX2 upsizer below 8 block columns (task #69)', () async {
     final problems = await _pythonJson(_flowGuardCheck) as List;
