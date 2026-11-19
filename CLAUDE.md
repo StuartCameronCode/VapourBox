@@ -3143,7 +3143,13 @@ Headless Dart-VM tests. Three groups:
   `schema_converter_integration_test`, `template_call_arguments_test`,
   `plugin_format_contracts_test` (the quick plugin format probe against its
   table, the contracts, and `run_within()` on real low bits; the full probe
-  is the heavy `plugin_format_probe_test`), `removedirt_determinism_test`
+  is the heavy `plugin_format_probe_test`. Both print each call's time as it
+  finishes and stop themselves with `--budget` before their timeout, naming
+  the calls still running. The probe evaluates havsfunc's pure `Lut2`
+  functions once per process into lists, bit-identical and checked in the
+  push gate (task #75: LUTDeCrawl's 10-bit tables were 80% of the quick
+  probe, and the full probe never finished on macOS x64);
+  `--no-lut-memo` runs them as written), `removedirt_determinism_test`
   (task #57); need the per-arch `deps/` and
   (for whisper) `addons/`.
 - **Integration tests** — `integration_*_test.dart`. They spawn the worker
