@@ -3156,6 +3156,23 @@ compares rendered frames (`imageToRgb24` + `meanAbsDiff`) — preview and encode
 are separate scripts and separate ffmpeg invocations, so assert both; a filter
 can render fine and still fail the preview.
 
+> **Decode the side a preview is compared with as the preview converts:
+> `WorkerHarness.previewFrameRgb24` (or `previewScaleFilterFor` in a
+> test's own `-vf`), never `frameRgb24`.** The preview turns YUV into RGB
+> with `scale=…:out_range=pc:flags=accurate_rnd+full_chroma_int` and the
+> picture's tags (`preview_scale_filter`, task #56 F8); `frameRgb24` uses
+> ffmpeg's defaults, and the two conversions of one frame differ by
+> 0.2–0.5 levels on camera 8-bit 4:2:0, 0.9 on chroma-detailed 10-bit 4:2:2
+> and 2.5 on the synthetic testsrc2 fixtures. A lossless preview = encode
+> or preview = source check then reads 0.000, as it must against a 0.5
+> bound. The helper reads the tags the decoded file carries
+> (an encode's are the stamped output tags), so it needs no copy of
+> `output_color_metadata`; `preview_scale_filter_test.dart` (push gate) pins
+> it to the Rust. `frameRgb24` stays right for comparisons that don't
+> involve the preview (encode vs source, the app's before frame). Never
+> loosen a bound to absorb a conversion difference
+> (docs/reports/task-67-preview-rgb-decode).
+
 > `vapoursynth_integration_test`'s "all required plugins load" list is the
 > runtime contract for a **complete deps install** and must name every
 > namespace a filter can reach. Add the namespace whenever

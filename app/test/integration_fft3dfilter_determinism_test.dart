@@ -107,7 +107,10 @@ void main() {
       final out = r.outputPath ?? p.join(_dir, '$name.mkv');
 
       for (final frame in [_start + 8, _start + 12]) {
-        final encoded = await WorkerHarness.frameRgb24(out, frame - _start, label: '${name}_enc');
+        // Converted to RGB as the preview converts its picture (task #67):
+        // ffmpeg's default conversion of the same frame is not sample-exact.
+        final encoded =
+            await WorkerHarness.previewFrameRgb24(out, frame - _start, label: '${name}_enc');
         Future<Uint8List> preview(int run) async {
           final pv = await WorkerHarness.runPreview(_job('${name}_pv', nr, trimmed: false),
               frame: frame);

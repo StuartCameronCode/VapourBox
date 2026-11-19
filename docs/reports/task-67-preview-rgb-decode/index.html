@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview RGB decode</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #67: heavy preview tests decode as the preview converts</h1>
+<p class="sub">2026-11-18 · macOS arm64 (M1 Pro) · deps 1.17.0-rc3 (FFmpeg 9.0.2) · main at 7df4630 · scripts in <code>scripts/</code>, numbers in <code>data/</code></p>
+
+<h2>Decision</h2>
+<p>Task #56 F8 changed the preview's YUV → RGB step to
+<code>scale=[in_color_matrix=&lt;tag&gt;:]in_range=tv|pc:out_range=pc:flags=accurate_rnd+full_chroma_int</code>
+(<code>preview_scale_filter</code>). The heavy tests compared the preview with a decode of the encode or the source
+that used ffmpeg's <strong>default</strong> conversion (<code>WorkerHarness.frameRgb24</code>), so one frame no
+longer read 0.00 against itself. Of 105 heavy test cases that failed on main in the set run here, all but two
+(an add-on install race and task #64's Unblend fault) failed because of it (table 2).</p>
+<ul>
+<li>One helper, <code>WorkerHarness.previewFrameRgb24</code> (and <code>previewScaleFilterFor</code> for a test's
+own <code>-vf</code>), decodes a frame as the preview converts it: the same <code>scale</code> built from the tags
+the file carries, the same PNG stage, the same <code>imageToRgb24</code>. Every comparison of a preview with a
+decode now uses it; comparisons that don't involve the preview keep <code>frameRgb24</code>.</li>
+<li><strong>No bound was loosened.</strong> Lossless preview = encode and preview = source checks now read
+0.000 (they read up to 5.1 before), so a 0.5 bound measures the frame again, not the conversion.</li>
+<li><code>preview_scale_filter_test.dart</code> (push gate) pins the helper to the Rust source: the appended
+options, the matrix rule, the range rule and the worker's own test cases.</li>
+<li>Found on the way and filed as task #73: <code>swscale_input_opts</code> passes <code>ycgco</code>,
+<code>bt2020c</code>, <code>smpte2085</code>, <code>chroma-derived-*</code> and <code>ictcp</code> to
+<code>scale=in_color_matrix</code>, which FFmpeg 9.0.2 refuses ("Undefined constant or missing '(' in
+'ycgco'"), so an SDR preview of such a source fails.</li>
+</ul>
+
+<h2>1. The two conversions of one frame</h2>
+<p><code>scripts/measure.sh</code>: frame 20 of each fixture, (A) as <code>frameRgb24</code> does it and (B) as the
+preview does, both ending in the same PNG → rgb24 step. Output: <code>data/measure.txt</code>.</p>
+<table>
+<tr><th>fixture</th><th>format</th><th>mean</th><th>max</th></tr>
+<tr><td><code>blended_film_50i.mkv</code></td><td>8-bit 4:2:0</td><td class="n">0.183</td><td class="n">2</td></tr>
+<tr><td><code>small_clip.mp4</code></td><td>8-bit 4:2:0</td><td class="n">0.352</td><td class="n">4</td></tr>
+<tr><td><code>pal-dvbt-fieldcoded-25i.ts</code></td><td>8-bit 4:2:0</td><td class="n">0.346</td><td class="n">39</td></tr>
+<tr><td><code>face_restore_test.mp4</code></td><td>8-bit 4:2:0</td><td class="n">0.498</td><td class="n">15</td></tr>
+<tr><td><code>interlaced_test.avi</code></td><td>8-bit 4:2:2</td><td class="n">0.280</td><td class="n">7</td></tr>
+<tr><td><code>pal-sd-25.mov</code></td><td>10-bit 4:2:2 ProRes</td><td class="n">0.391</td><td class="n">46</td></tr>
+<tr><td><code>prores422_10bit_telecine.mov</code></td><td>10-bit 4:2:2 ProRes</td><td class="n">0.912</td><td class="n">102</td></tr>
+<tr><td><code>late_video.mkv</code> (testsrc2)</td><td>8-bit 4:2:0</td><td class="n bad">2.564</td><td class="n">146</td></tr>
+<tr><td><code>seek_dvd_pal.mpg</code> (testsrc2)</td><td>8-bit 4:2:0</td><td class="n bad">2.345</td><td class="n">150</td></tr>
+<tr><td>small_clip → 8-bit 4:2:2</td><td>FFV1</td><td class="n">0.347</td><td class="n">4</td></tr>
+<tr><td>small_clip → 8-bit 4:2:0, full range</td><td>FFV1</td><td class="n">0.025</td><td class="n">4</td></tr>
+<tr><td>small_clip → 10-bit 4:2:0 / 4:2:2</td><td>FFV1</td><td class="n">0.013</td><td class="n">3</td></tr>
+<tr><td>small_clip → 8-bit 4:4:4</td><td>FFV1</td><td class="n">0.000</td><td class="n">0</td></tr>
+</table>
+<ul>
+<li>The difference is the chroma: <code>full_chroma_int</code> interpolates where the default 8-bit path does not
+(4:4:4 has nothing to interpolate: 0.000). It grows with chroma detail, so the synthetic testsrc2 fixtures with
+their saturated sharp edges are the worst case (2.3–2.6), and deeper sources are not exempt (0.9 on the ProRes
+telecine fixture).</li>
+<li>The matrix plays no part: <code>scale</code>'s default <code>in_color_matrix=auto</code> already reads the
+frame's tag, and stating it changed nothing on tagged files.</li>
+</ul>
+<p class="note"><strong>Correction to the plan.</strong> The plan listed full-range 8-bit 4:2:0 at 0.328; that run
+forced <code>in_range=tv</code> on side B. Read as full range on both sides, as the preview reads a
+<code>pc</code>-tagged picture, it is 0.025.</p>
+
+<h2>2. The heavy tests, before and after</h2>
+<p>Before: main at 7df4630 with the tests unchanged. After: this branch. Both on deps 1.17.0-rc3. Each value is the
+difference at the frame the test matched (the lowest of its comparisons), from a temporary log in
+<code>meanAbsDiff</code> (<code>scripts/mad_log.patch</code>, <code>scripts/best_match.py</code>;
+<code>data/best_match.txt</code>). Where a test makes several comparisons, the worst of them is shown.</p>
+<table>
+<tr><th>test (preview against …)</th><th>bound</th><th>before</th><th>after</th></tr>
+<tr><td>seek alignment: preview of frame n vs source frame n, 78 cases</td><td class="n">0.5</td><td class="n bad">max 2.965, median 2.242 (most failed)</td><td class="n good">0.000</td></tr>
+<tr><td>source grid: preview vs stored frame, 26 cases</td><td class="n">0.5</td><td class="n bad">max 5.093, median 2.193 (17 failed)</td><td class="n good">0.000</td></tr>
+<tr><td>video start offset: preview vs source frame, 44 checks</td><td class="n">1.0</td><td class="n bad">max 2.954, median 2.253 (24 failed)</td><td class="n good">preview 0.000; the before frame's own checks, unchanged, up to 0.852</td></tr>
+<tr><td>unblend: preview vs the FFV1 encode</td><td class="n">0.5</td><td class="n bad">0.538 (failed)</td><td class="n good">0.000</td></tr>
+<tr><td>face restoration: preview vs the encode</td><td class="n">0.5</td><td class="n">0.496 (and the coupled “restored &gt; diff×4” failed)</td><td class="n good">0.000</td></tr>
+<tr><td>colourisation: preview vs the encode</td><td class="n">0.5</td><td>not run: two files installed the same add-on at once (harness race)</td><td class="n">0.180 (DDColor previews on the CPU, the encode on Core ML)</td></tr>
+<tr><td>template parity: preview vs the encode</td><td class="n">0.5</td><td class="n">0.001</td><td class="n">0.001</td></tr>
+<tr><td>DeScratch on yuv422p10le: preview vs encode</td><td class="n">0.5</td><td class="n bad">2.569 (failed)</td><td class="n good">0.000</td></tr>
+<tr><td>dedot / decrawl / derainbow on 10/12-bit 4:2:2</td><td class="n">0.5</td><td class="n bad">1.909–2.942 (3 failed)</td><td class="n good">0.000</td></tr>
+<tr><td>bifrost on yuv422p10le</td><td class="n">0.5</td><td class="n bad">1.905 (failed)</td><td class="n good">0.000</td></tr>
+<tr><td>BT.709 conversion: preview vs the converted encode</td><td class="n">1.0</td><td class="n bad">1.553 (failed)</td><td class="n good">0.000</td></tr>
+<tr><td>BT.709 Always without geometry</td><td class="n">1.0</td><td class="n">0.674</td><td class="n good">0.000</td></tr>
+<tr><td>colour tags: 10-bit 4:2:2 BT.709</td><td class="n">1.0</td><td class="n">0.381</td><td class="n good">0.000</td></tr>
+<tr><td>Descale: preview vs encode</td><td class="n">1.0</td><td class="n">0.836</td><td class="n good">0.000</td></tr>
+<tr><td>v210 / ProRes HQ: preview vs encode</td><td class="n">1.0</td><td class="n">0.167 / 0.000</td><td class="n good">0.000 / 0.000</td></tr>
+<tr><td>AI upscale, 14 models (gpu)</td><td class="n">1.0</td><td class="n">0.24–0.35</td><td class="n good">0.000</td></tr>
+<tr><td>IVTC preview vs the FFV1 encode's film frame, 6 cases</td><td class="n">1.5</td><td class="n bad">max 2.169, median 1.552 (3 failed)</td><td class="n good">max 0.010</td></tr>
+<tr><td>AV1: preview vs the lossy encode</td><td class="n">2.0</td><td>not run</td><td class="n">0.026</td></tr>
+<tr><td>upscale / resize: preview vs render, 3 cases</td><td class="n">2.0</td><td>not run</td><td class="n good">0.000</td></tr>
+<tr><td>frame mapping: preview vs every output frame, 8 cases</td><td>argmin</td><td>not run</td><td class="n good">0.000</td></tr>
+<tr><td>VFR: preview of a gap vs the FlowFPS encode</td><td>argmin</td><td>not run</td><td class="n">0.439 (lossy encode)</td></tr>
+</table>
+<p>One test failed in both runs and is not a preview comparison: Unblend's “a 10-bit copy of the source gives the
+8-bit result” (13.1 levels), which is task #64's (PR #221).</p>
+
+<h2>3. Preview-against-preview baselines</h2>
+<p>These compare two previews, so F8 changed both sides together; only their comments described the old
+conversion. Re-measured after the change:</p>
+<table>
+<tr><th>test</th><th>comment said</th><th>now</th></tr>
+<tr><td>high bit depth: 8 vs 10-bit parity, passthrough</td><td class="n">~0.6</td><td class="n">0.190</td></tr>
+<tr><td>soft telecine: 4:2:2 vs original preview, frame 40</td><td class="n">1.08</td><td class="n">0.130</td></tr>
+<tr><td>format sweep: passthrough on noisy 4:2:0 chroma</td><td class="n">~4.5</td><td>0.000 per F8's own measurement (the sweep was not re-run here)</td></tr>
+</table>
+
+<h2>4. How the helper decides the conversion</h2>
+<ul>
+<li>It reads the tags the decoded file carries. An encode carries the tags the worker stamped, which are
+<code>output_color_metadata()</code>, the same decision the preview's conversion reads. A source carries the job's
+input tags, which an every-pass-off preview reads. So no test holds a copy of the worker's output-tag logic, and a
+wrongly stamped tag still fails the comparison.</li>
+<li>The matrix is stated unless it is missing, unknown to FFmpeg or <code>rgb</code>; the range is <code>pc</code>
+for <code>pc</code>/<code>jpeg</code>/<code>full</code>, else <code>tv</code>; then
+<code>out_range=pc:flags=accurate_rnd+full_chroma_int</code>. That is <code>swscale_input_opts</code> and
+<code>preview_scale_filter</code> rule for rule.</li>
+<li>A PQ/HLG file throws: the preview tone-maps those (<code>display_tonemap_filter</code>), and the HDR tests
+compare the preview with the app's before frame, which uses the same chain.</li>
+<li>A <code>reserved</code> tag is cleared first with <code>ColorTags.decodeNeutraliser</code>, as the worker's
+decoders clear it.</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>One platform. Windows, Linux and macOS x64 have the same FFmpeg 9.0 series, but only the nightly run shows they
+convert identically; it has not run on this branch yet.</li>
+<li>Table 1 is one frame per fixture; the difference depends on chroma detail, so other content lands elsewhere.</li>
+<li>The before values for colourisation, AV1, upscale/resize, frame mapping and VFR were not collected (setup race,
+or not in the before set). Those tests pass after.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>The format sweep (preview against preview, so unaffected; only its comment changed).</li>
+<li>HDR tests (they compare preview with before frame through the tone map, unaffected).</li>
+</ul>
+</main>
+</body>
+</html>

@@ -30,6 +30,7 @@ import 'package:path/path.dart' as p;
 // importing this file does NOT initialize the app's rhttp HTTP client, which is
 // why the harness does its own dart:io download below (rhttp's native bindings
 // don't load under the headless `flutter test` VM).
+import 'package:vapourbox/models/color_tags.dart';
 import 'package:vapourbox/models/source_model.dart';
 import 'package:vapourbox/services/addon_manager.dart';
 import 'package:vapourbox/services/addon_service.dart';
@@ -862,17 +863,121 @@ class WorkerHarness {
   ///
   /// Pairs with [imageToRgb24] and [meanAbsDiff] to answer "is this the frame
   /// the pipeline says it is" rather than merely "did something render".
+  ///
+  /// Converts to RGB with ffmpeg's defaults. **Not for the side a preview is
+  /// compared with**: the preview converts with its own flags, and the two
+  /// conversions of one frame differ by 0.2–0.5 levels on camera 8-bit 4:2:0,
+  /// ~0.9 on chroma-detailed 10-bit 4:2:2 and ~2.5 on testsrc2 (task #67).
+  /// Use [previewFrameRgb24] there.
   static Future<Uint8List> frameRgb24(String videoPath, int index,
-      {String label = 'frame'}) async {
+          {String label = 'frame'}) =>
+      _frameRgb24(videoPath, index, label: label);
+
+  /// The swscale flags of the preview's YUV -> RGB step
+  /// (`preview_scale_filter` in worker/src/pipeline_executor.rs, task #56 F8).
+  /// `preview_scale_filter_test.dart` reads them from the Rust source.
+  static const previewScaleFlags = 'accurate_rnd+full_chroma_int';
+
+  /// The preview's `scale` filter for an SDR picture tagged [matrix] and
+  /// [range]: the twin of `preview_scale_filter(&swscale_input_opts())`, rule
+  /// for rule. The matrix is stated unless it is missing, not one FFmpeg
+  /// accepts, or the RGB identity; the range is `pc` for a full-range tag and
+  /// `tv` for anything else. Takes ffprobe's raw values.
+  static String previewScaleFilter({String? matrix, String? range}) {
+    final m = matrix?.trim().toLowerCase();
+    final r = range?.trim().toLowerCase();
+    final full = r == 'pc' || r == 'jpeg' || r == 'full';
+    return 'scale=${[
+      if (m != null && m != 'rgb' && ColorTags.matrices.contains(m))
+        'in_color_matrix=$m',
+      'in_range=${full ? 'pc' : 'tv'}',
+      'out_range=pc',
+      'flags=$previewScaleFlags',
+    ].join(':')}';
+  }
+
+  /// [previewScaleFilter] for the tags [videoPath]'s first video stream
+  /// carries. An encode carries the tags the worker stamped, which are the
+  /// job's output colour metadata, the same decision the preview's conversion
+  /// reads; a source carries the tags an every-pass-off preview reads. So no
+  /// test needs a copy of the worker's output-tag logic, and a wrongly
+  /// stamped tag still fails the comparison.
+  ///
+  /// Throws for a PQ or HLG stream: the preview tone-maps those
+  /// (`display_tonemap_filter`) rather than scaling them.
+  static Future<String> previewScaleFilterFor(String videoPath) async {
+    final tags = await _colourTags(videoPath);
+    final trc = tags.transfer?.trim().toLowerCase();
+    if (trc == 'smpte2084' || trc == 'arib-std-b67') {
+      throw ArgumentError(
+          '$videoPath is HDR ($trc): the preview tone-maps it, not this scale');
+    }
+    return previewScaleFilter(matrix: tags.matrix, range: tags.range);
+  }
+
+  /// Frame [index] of [videoPath] as packed rgb24, converted to RGB exactly as
+  /// the preview converts its picture: the frame, then
+  /// [previewScaleFilterFor]'s `scale`, then a PNG at the depth that leaves
+  /// (rgb24, or rgb48be for a deeper picture, as the preview's PNG is), then
+  /// [imageToRgb24], which the preview's PNG goes through too.
+  ///
+  /// Use it for the side a preview is compared with; a lossless encode then
+  /// compares 0.00 with its preview. [matrix] / [range] override the file's
+  /// own tags (pass both, or the file's are used for the other).
+  static Future<Uint8List> previewFrameRgb24(String videoPath, int index,
+      {String label = 'pvframe', String? matrix, String? range}) async {
+    final String scale;
+    if (matrix != null || range != null) {
+      final tags = await _colourTags(videoPath);
+      scale = previewScaleFilter(
+          matrix: matrix ?? tags.matrix, range: range ?? tags.range);
+    } else {
+      scale = await previewScaleFilterFor(videoPath);
+    }
+    return _frameRgb24(videoPath, index, label: label, scale: scale);
+  }
+
+  /// ffprobe's raw colour tags for [videoPath]'s first video stream.
+  static Future<({String? matrix, String? range, String? transfer, String? primaries})>
+      _colourTags(String videoPath) async {
+    final s = await firstStream(videoPath,
+        selector: 'v:0',
+        entries: ['color_space', 'color_range', 'color_transfer', 'color_primaries']);
+    if (s == null) throw Exception('no video stream in $videoPath');
+    return (
+      matrix: s['color_space'] as String?,
+      range: s['color_range'] as String?,
+      transfer: s['color_transfer'] as String?,
+      primaries: s['color_primaries'] as String?,
+    );
+  }
+
+  /// [frameRgb24]'s decode, with [scale] (if any) after the frame pick. A
+  /// tag FFmpeg's scaler refuses (`reserved`) is cleared first, as the
+  /// worker's decoders do.
+  static Future<Uint8List> _frameRgb24(String videoPath, int index,
+      {required String label, String? scale}) async {
     final png = File(p.join(Directory.systemTemp.path,
         'vb_${label}_${DateTime.now().microsecondsSinceEpoch}_$index.png'));
+    String? neutraliser;
+    if (scale != null) {
+      final tags = await _colourTags(videoPath);
+      neutraliser = ColorTags.decodeNeutraliser(
+          matrix: tags.matrix,
+          primaries: tags.primaries,
+          transfer: tags.transfer);
+    }
     try {
       final r = await Process.run(
         ffmpegPath,
         [
           '-y', '-v', 'error',
           '-i', videoPath,
-          '-vf', 'select=eq(n\\,$index)',
+          '-vf', [
+            if (neutraliser != null) neutraliser,
+            'select=eq(n\\,$index)',
+            if (scale != null) scale,
+          ].join(','),
           '-frames:v', '1',
           png.path,
         ],

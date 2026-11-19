@@ -314,12 +314,10 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 10)));
 
     test('the preview shows the encode\'s frame', () async {
-      // Decoded as the preview converts to RGB (pipeline_executor.rs,
-      // preview_scale_filter, task #56 F8; the fixture is untagged, so
-      // limited range): with ffmpeg's default flags the same frame read
-      // 0.54 apart.
-      final encoded = await _frames(filmEncode,
-          vf: 'scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int');
+      // Converted to RGB as the preview converts its picture (task #67): with
+      // ffmpeg's default conversion the same frame read 0.54 off it.
+      final encoded =
+          await _frames(filmEncode, vf: await WorkerHarness.previewScaleFilterFor(filmEncode));
       // Near the start (the detector starts at the clip's first frame) and
       // past the window, where the preview decodes only part of the clip.
       for (final t in [3, 30, 60, 100, 140]) {

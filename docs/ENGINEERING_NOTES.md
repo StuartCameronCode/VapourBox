@@ -5246,7 +5246,8 @@ Report: [docs/reports/2026-11-srestore](reports/2026-11-srestore/index.html), se
 - The preview test's own decode had drifted too: task #56 F8 made the
   preview convert with `accurate_rnd+full_chroma_int`, which put the same
   frame 0.54 rgb levels from a default-flags decode of the encode. The test
-  now decodes the encode with the preview's flags (0.00 again).
+  now decodes the encode with the preview's flags (0.00 again); task #67
+  moved it to the shared `WorkerHarness.previewScaleFilterFor`.
 
 
 ### What the output conformance matrix found, fixed (task #58, 2026-11-17)
@@ -5403,3 +5404,24 @@ Follows task #65 (the fault) and task #66 (its QTGMC Draft sweep crash was the s
   covered the QTGMC Draft variant for exactly this SIGSEGV, and a `flaky`
   entry never fails when its row starts passing, so it would have hidden a
   return of the crash.
+
+### Heavy preview tests decode as the preview converts (task #67, 2026-11-18)
+
+Task #56 F8 gave the preview its own YUV -> RGB step (`scale=…:out_range=pc:
+flags=accurate_rnd+full_chroma_int`, from the picture's tags). The heavy tests
+compared the preview with `WorkerHarness.frameRgb24`, ffmpeg's default
+conversion, so one frame no longer read 0.00 against itself: 0.2–0.5 levels on
+camera 8-bit 4:2:0 (0.498 on `face_restore_test.mp4`, against 0.5 bounds),
+0.9 on the 10-bit ProRes telecine fixture and 2.3–2.6 on the synthetic
+testsrc2 fixtures, whose saturated edges are all chroma. About 100 cases
+failed on main (seek alignment, source grid, video start offset, unblend,
+BT.709, IVTC, DeScratch/dedot/decrawl/derainbow/bifrost). The fix is in the
+tests, not the bounds: `WorkerHarness.previewFrameRgb24` /
+`previewScaleFilterFor` decode the compared side with the preview's `scale`,
+built from the tags the file carries (an encode's are the stamped output
+tags, so no test copies `output_color_metadata`), and
+`preview_scale_filter_test.dart` pins it to the Rust. Lossless comparisons
+now read 0.000; the passthrough parity baseline is 0.19. Found on the way:
+`swscale_input_opts` passes matrix names `scale` refuses (`ycgco`,
+`bt2020c`, …), filed as task #73. Report:
+[docs/reports/task-67-preview-rgb-decode](reports/task-67-preview-rgb-decode/index.html).

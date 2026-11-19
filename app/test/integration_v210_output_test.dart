@@ -221,7 +221,7 @@ void main() {
     expect(pv.png, isNotNull, reason: '${pv.error}\n${pv.logs}');
     final diff = WorkerHarness.meanAbsDiff(
       await WorkerHarness.imageToRgb24(pv.png!, label: 'v210_pv'),
-      await WorkerHarness.frameRgb24(out, 10, label: 'v210_enc'),
+      await WorkerHarness.previewFrameRgb24(out, 10, label: 'v210_enc'),
     );
     print('  v210 preview vs encode: meanAbsDiff ${diff.toStringAsFixed(3)}');
     expect(diff, lessThan(1.0), reason: 'the preview is not the encoded picture');
@@ -331,7 +331,7 @@ void main() {
       expect(pv.png, isNotNull, reason: '${pv.error}\n${pv.logs}');
       final diff = WorkerHarness.meanAbsDiff(
         await WorkerHarness.imageToRgb24(pv.png!, label: 'prores_pv'),
-        await WorkerHarness.frameRgb24(out, 3, label: 'prores_enc'),
+        await WorkerHarness.previewFrameRgb24(out, 3, label: 'prores_enc'),
       );
       print('  ProRes HQ preview vs encode: meanAbsDiff ${diff.toStringAsFixed(3)}');
       expect(diff, lessThan(1.0), reason: 'the preview is not the encoded picture');

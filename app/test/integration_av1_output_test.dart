@@ -201,7 +201,7 @@ void main() {
     expect(pv.png, isNotNull, reason: '${pv.error}\n${pv.logs}');
     final diff = WorkerHarness.meanAbsDiff(
       await WorkerHarness.imageToRgb24(pv.png!, label: 'av1_pv'),
-      await WorkerHarness.frameRgb24(out, 10, label: 'av1_enc'),
+      await WorkerHarness.previewFrameRgb24(out, 10, label: 'av1_enc'),
     );
     print('  AV1 preview vs encode: meanAbsDiff ${diff.toStringAsFixed(3)}');
     // The preview is the script's output before the lossy encode.

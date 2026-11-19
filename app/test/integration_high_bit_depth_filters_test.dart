@@ -553,8 +553,9 @@ class _Pass {
   final bool changesPicture;
 
   /// Allowed mean absolute difference (0-255) between the 8-bit and >8-bit
-  /// results. The passthrough baseline is ~0.6 — pure 10->8-bit rounding in the
-  /// preview's PNG conversion — so 2.0 leaves headroom for a filter's own
+  /// results. The passthrough baseline is 0.19 (0.6 before task #56 F8's
+  /// preview conversion) — pure 10->8-bit rounding in the preview's PNG
+  /// conversion — so 2.0 leaves headroom for a filter's own
   /// rounding while still catching an unscaled threshold, which moved the
   /// picture by 93/255 (Levels) and 2.8/255 (Tweak brightness).
   final double tolerance;
@@ -1729,7 +1730,7 @@ void main() {
       expect(result.success, isTrue, reason: result.error);
       final diff = WorkerHarness.meanAbsDiff(
           await WorkerHarness.imageToRgb24(preview.png!, label: 'dsp'),
-          await WorkerHarness.frameRgb24(result.outputPath!, _previewFrame,
+          await WorkerHarness.previewFrameRgb24(result.outputPath!, _previewFrame,
               label: 'dse'));
       print('  preview vs encode: mean abs diff ${diff.toStringAsFixed(3)}');
       expect(diff, lessThan(0.5));
@@ -2003,7 +2004,7 @@ void main() {
         expect(result.success, isTrue, reason: result.error);
         final diff = WorkerHarness.meanAbsDiff(
             await WorkerHarness.imageToRgb24(preview.png!, label: 'cfp'),
-            await WorkerHarness.frameRgb24(result.outputPath!, _previewFrame,
+            await WorkerHarness.previewFrameRgb24(result.outputPath!, _previewFrame,
                 label: 'cfe'));
         print('  ${c.name} preview vs encode: mean abs diff '
             '${diff.toStringAsFixed(3)}');
@@ -2112,7 +2113,7 @@ void main() {
       expect(result.success, isTrue, reason: result.error);
       final diff = WorkerHarness.meanAbsDiff(
           await WorkerHarness.imageToRgb24(preview.png!, label: 'bfp'),
-          await WorkerHarness.frameRgb24(result.outputPath!, _previewFrame,
+          await WorkerHarness.previewFrameRgb24(result.outputPath!, _previewFrame,
               label: 'bfe'));
       print('  bifrost preview vs encode: mean abs diff '
           '${diff.toStringAsFixed(3)}');

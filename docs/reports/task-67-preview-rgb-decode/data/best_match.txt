@@ -1,0 +1,76 @@
+# Lowest comparison per test (the matched frame), grouped by the line that
+# called meanAbsDiff. BEFORE: main 7df4630, tests unchanged. AFTER: this branch.
+# Line numbers are each run's own (the files moved by a few lines).
+
+BEFORE
+integration_ai_upscale_test:228   tests=  14 best-match max=3.613 median=1.855
+integration_ai_upscale_test:231   tests=  14 best-match max=3.788 median=2.120
+integration_ai_upscale_test:244   tests=  14 best-match max=0.353 median=0.313
+integration_ai_upscale_test:404   tests=   1 best-match max=0.514 median=0.514
+integration_ai_upscale_test:420   tests=   1 best-match max=1.701 median=1.701
+integration_ai_upscale_test:473   tests=   1 best-match max=0.618 median=0.618
+integration_ai_upscale_test:509   tests=   1 best-match max=0.000 median=0.000
+integration_ai_upscale_test:510   tests=   1 best-match max=0.526 median=0.526
+integration_bt709_conversion_test:296   tests=   1 best-match max=1.553 median=1.553
+integration_bt709_conversion_test:332   tests=   1 best-match max=0.674 median=0.674
+integration_colour_tag_pixels_test:176   tests=   1 best-match max=0.381 median=0.381
+integration_descale_test:258   tests=   1 best-match max=0.836 median=0.836
+integration_face_restore_test:206   tests=   1 best-match max=0.496 median=0.496
+integration_face_restore_test:207   tests=   1 best-match max=0.206 median=0.206
+integration_high_bit_depth_filters_test:1690  tests=   1 best-match max=2.569 median=2.569
+integration_high_bit_depth_filters_test:1964  tests=   3 best-match max=2.942 median=2.180
+integration_high_bit_depth_filters_test:2073  tests=   1 best-match max=1.905 median=1.905
+integration_ivtc_preview_test:213   tests=   6 best-match max=2.169 median=1.552
+integration_seek_alignment_test:215   tests=  78 best-match max=2.965 median=2.242
+integration_source_grid_test:191   tests=  26 best-match max=5.093 median=2.193
+integration_template_parity_test:89    tests=   1 best-match max=0.001 median=0.001
+integration_unblend_test:195   tests=   1 best-match max=0.583 median=0.583
+integration_unblend_test:221   tests=   1 best-match max=0.538 median=0.538
+integration_unblend_test:72    tests=   2 best-match max=1.034 median=1.034
+integration_v210_output_test:222   tests=   1 best-match max=0.167 median=0.167
+integration_v210_output_test:332   tests=   1 best-match max=0.000 median=0.000
+integration_video_start_offset_test:126   tests=  44 best-match max=2.954 median=2.253
+
+AFTER
+integration_ai_upscale_test:228   tests=  14 best-match max=3.613 median=1.855
+integration_ai_upscale_test:231   tests=  14 best-match max=3.788 median=2.120
+integration_ai_upscale_test:244   tests=  14 best-match max=0.000 median=0.000
+integration_ai_upscale_test:404   tests=   1 best-match max=0.514 median=0.514
+integration_ai_upscale_test:420   tests=   1 best-match max=1.701 median=1.701
+integration_ai_upscale_test:473   tests=   1 best-match max=0.618 median=0.618
+integration_ai_upscale_test:509   tests=   1 best-match max=0.000 median=0.000
+integration_ai_upscale_test:510   tests=   1 best-match max=0.526 median=0.526
+integration_av1_output_test:202   tests=   1 best-match max=0.026 median=0.026
+integration_bt709_conversion_test:295   tests=   1 best-match max=0.000 median=0.000
+integration_bt709_conversion_test:331   tests=   1 best-match max=0.000 median=0.000
+integration_colorize_test:212   tests=   1 best-match max=0.180 median=0.180
+integration_colorize_test:214   tests=   1 best-match max=40.899 median=40.899
+integration_colour_tag_pixels_test:176   tests=   1 best-match max=0.000 median=0.000
+integration_descale_test:258   tests=   1 best-match max=0.000 median=0.000
+integration_face_restore_test:209   tests=   1 best-match max=0.000 median=0.000
+integration_face_restore_test:211   tests=   1 best-match max=0.206 median=0.206
+integration_frame_mapping_test:441   tests=   3 best-match max=0.000 median=0.000
+integration_frame_mapping_test:523   tests=   2 best-match max=0.000 median=0.000
+integration_frame_mapping_test:631   tests=   2 best-match max=0.000 median=0.000
+integration_frame_mapping_test:658   tests=   1 best-match max=0.000 median=0.000
+integration_high_bit_depth_filters_test:1224  tests=   1 best-match max=0.190 median=0.190
+integration_high_bit_depth_filters_test:1690  tests=   1 best-match max=0.000 median=0.000
+integration_high_bit_depth_filters_test:1964  tests=   3 best-match max=0.000 median=0.000
+integration_high_bit_depth_filters_test:2073  tests=   1 best-match max=0.000 median=0.000
+integration_ivtc_preview_test:217   tests=   6 best-match max=0.010 median=0.000
+integration_seek_alignment_test:217   tests=  78 best-match max=0.000 median=0.000
+integration_soft_telecine_field_based_test:178   tests=   1 best-match max=0.130 median=0.130
+integration_source_grid_test:193   tests=  26 best-match max=0.000 median=0.000
+integration_template_parity_test:91    tests=   1 best-match max=0.001 median=0.001
+integration_unblend_test:195   tests=   1 best-match max=0.583 median=0.583
+integration_unblend_test:224   tests=   1 best-match max=0.000 median=0.000
+integration_unblend_test:72    tests=   2 best-match max=1.034 median=1.034
+integration_upscale_resize_test:302   tests=   1 best-match max=1.064 median=1.064
+integration_upscale_resize_test:397   tests=   3 best-match max=0.000 median=0.000
+integration_v210_output_test:222   tests=   1 best-match max=0.000 median=0.000
+integration_v210_output_test:332   tests=   1 best-match max=0.000 median=0.000
+integration_vfr_source_test:122   tests=   1 best-match max=1.188 median=1.188
+integration_vfr_source_test:123   tests=   1 best-match max=3.413 median=3.413
+integration_vfr_source_test:139   tests=   1 best-match max=0.433 median=0.433
+integration_vfr_source_test:158   tests=   1 best-match max=0.439 median=0.439
+integration_video_start_offset_test:129   tests=  44 best-match max=0.852 median=0.000

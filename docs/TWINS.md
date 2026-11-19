@@ -39,6 +39,15 @@ not listed here, or when a listed file no longer exists.
 | `app/lib/models/color_correction_parameters.dart` | `effectiveLevelsPoints` | `ColorCorrectionParameters::effective_levels_points` | `color_correction_panel_test.dart` | **Kept**: one line; the panel hides sliders from it |
 | `app/lib/services/pitch_factor_file.dart` | the factor file's line rules (for the summary shown when a video is added) | `parse_pitch_factors` | `pitch_factor_file_test.dart` | **Candidate for a worker call** (`--check-pitch-file`), so the error wording and line number are the worker's. The worker already refuses a bad file at job time |
 
+### Test-side twins
+
+Not app code, so `twin_registry_test.dart` doesn't look for them, but kept
+the same way:
+
+| Test file | What | Worker side | Pinned by |
+|---|---|---|---|
+| `app/test/support/worker_harness.dart` | `previewScaleFilter` / `previewScaleFlags`: the preview's YUV -> RGB `scale` for a picture's tags, so a heavy test decodes the side it compares with a preview as the preview converts (task #67) | `preview_scale_filter`, `ColorMetadata::swscale_input_opts`, `is_full_range` | `preview_scale_filter_test.dart` (parses both Rust functions; the matrix list through `ColorTags.matrices`, pinned by `color_tags_test.dart`) |
+
 ## Deleted or single-sourced
 
 | What | Now | Since |

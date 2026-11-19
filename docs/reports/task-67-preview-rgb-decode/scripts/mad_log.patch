@@ -1,0 +1,14 @@
+Temporary hook used for the before/after runs (not committed): appended to
+WorkerHarness.meanAbsDiff in app/test/support/worker_harness.dart, with
+`import 'package:test_api/src/backend/invoker.dart';`. Run the heavy tests with
+VB_MAD_LOG=<file>, then `python3 best_match.py <file>`.
+
+    final log = Platform.environment['VB_MAD_LOG'];
+    if (log != null) {
+      final caller = StackTrace.current.toString().split('\n').skip(1)
+          .firstWhere((l) => l.contains('integration_'), orElse: () => '?').trim();
+      File(log).writeAsStringSync(
+          '${Invoker.current?.liveTest.test.name}\t$caller\t'
+          '${(total / a.length).toStringAsFixed(4)}\n',
+          mode: FileMode.append);
+    }
