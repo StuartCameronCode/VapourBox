@@ -5648,3 +5648,32 @@ were measured on Linux only and then put on every platform at review, so a
 platform-specific runtime fault in one pass still fails the PR; that adds an
 estimated 1–2 min to macOS x64's flutter job, not yet measured. Report:
 [docs/reports/task-84-pr-ci-time](reports/task-84-pr-ci-time/index.html).
+
+### havsfunc's mask ANDs as one Expr: 10-bit LUTDeCrawl/LUTDeRainbow previews 10x faster (task #82, 2026-11-20)
+
+Report: [docs/reports/task-82-havsfunc-mask-and](reports/task-82-havsfunc-mask-and/index.html).
+Found by task #75 (the quick plugin probe timing out on macOS x64).
+
+- **The cost.** havsfunc r31's only `Lut2` calls, eight of them, are
+  LUTDeCrawl's and LUTDeRainbow's `function=lambda x, y: x & y` mask ANDs. At
+  10 bits VapourSynth calls the lambda 2^20 times per table: 7.9 s of script
+  evaluation per filter on an M1 (0.49 s at 8 bits), at every evaluation, so
+  every preview of a 10-bit source, and of a 12/16-bit one, which
+  `run_within` takes to 10. A 10-bit ProRes 4:2:2 preview with both filters
+  on took 17.4–19.4 s through the worker. A `lut=` list (task #75's probe memo) is
+  still 1.2 s per filter: VapourSynth copies a million Python ints.
+- **The fix is havsfunc patch 8**: `_mask_and(a, b)` = `Expr 'x y min'`.
+  Exact because one operand of every call is a strict 0/peak mask
+  (`Binarize`, or an Expr giving `{peak} 0 ?`; LUTDeRainbow's Bilinear-resized
+  luma mask has intermediate values but is always ANDed with one), and
+  `x & y == min(x, y)` for every x when y is 0 or peak (checked exhaustively).
+  R78's `std.Expr` has no `bitand`, and akarin's would leave macOS x64 out.
+  Bit-identical in 36/36 cases (both filters, linkUV on/off, output and
+  mask, 8/10-bit, 4:2:0/4:2:2/4:4:4), through akarin and through plain
+  `std.Expr`; 0.0002 s per filter; the 10-bit preview 0.33 s, the same PNG.
+- **Unlike patches 1–7 it fails the build** if havsfunc's call counts
+  change: the exactness argument is about these eight call sites, not about
+  `Lut2` in general.
+- **Not measured on an Intel Mac** (none available locally); task #75 saw
+  several times the M1's cost for the old tables there, and the Expr's cost
+  is independent of the CPU's Python speed.

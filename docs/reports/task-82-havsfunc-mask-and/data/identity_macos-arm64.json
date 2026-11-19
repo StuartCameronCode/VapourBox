@@ -1,0 +1,302 @@
+{
+ "machine": "arm64",
+ "vapoursynth": [
+  78,
+  0
+ ],
+ "akarin": true,
+ "exhaustive": {
+  "8": true,
+  "10": true
+ },
+ "identical": [
+  {
+   "format": "YUV420P8",
+   "call": "LUTDeCrawl",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV420P8",
+   "call": "LUTDeCrawl",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV420P8",
+   "call": "LUTDeRainbow",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV420P8",
+   "call": "LUTDeRainbow",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.573
+  },
+  {
+   "format": "YUV420P8",
+   "call": "LUTDeRainbow unlinked",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV420P8",
+   "call": "LUTDeRainbow unlinked",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.573
+  },
+  {
+   "format": "YUV422P8",
+   "call": "LUTDeCrawl",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV422P8",
+   "call": "LUTDeCrawl",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV422P8",
+   "call": "LUTDeRainbow",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV422P8",
+   "call": "LUTDeRainbow",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV422P8",
+   "call": "LUTDeRainbow unlinked",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV422P8",
+   "call": "LUTDeRainbow unlinked",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV444P8",
+   "call": "LUTDeCrawl",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV444P8",
+   "call": "LUTDeCrawl",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV444P8",
+   "call": "LUTDeRainbow",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV444P8",
+   "call": "LUTDeRainbow",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV444P8",
+   "call": "LUTDeRainbow unlinked",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV444P8",
+   "call": "LUTDeRainbow unlinked",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV420P10",
+   "call": "LUTDeCrawl",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV420P10",
+   "call": "LUTDeCrawl",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV420P10",
+   "call": "LUTDeRainbow",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV420P10",
+   "call": "LUTDeRainbow",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV420P10",
+   "call": "LUTDeRainbow unlinked",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV420P10",
+   "call": "LUTDeRainbow unlinked",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV422P10",
+   "call": "LUTDeCrawl",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV422P10",
+   "call": "LUTDeCrawl",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV422P10",
+   "call": "LUTDeRainbow",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV422P10",
+   "call": "LUTDeRainbow",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV422P10",
+   "call": "LUTDeRainbow unlinked",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV422P10",
+   "call": "LUTDeRainbow unlinked",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV444P10",
+   "call": "LUTDeCrawl",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV444P10",
+   "call": "LUTDeCrawl",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV444P10",
+   "call": "LUTDeRainbow",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV444P10",
+   "call": "LUTDeRainbow",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  },
+  {
+   "format": "YUV444P10",
+   "call": "LUTDeRainbow unlinked",
+   "what": "output",
+   "identical": true,
+   "identical_std_expr": true
+  },
+  {
+   "format": "YUV444P10",
+   "call": "LUTDeRainbow unlinked",
+   "what": "mask",
+   "identical": true,
+   "identical_std_expr": true,
+   "mask_average": 0.574
+  }
+ ],
+ "eval_seconds": {
+  "YUV422P8 LUTDeCrawl upstream": 0.496,
+  "YUV422P8 LUTDeCrawl lut": 0.0744,
+  "YUV422P8 LUTDeCrawl expr": 0.0002,
+  "YUV422P8 LUTDeCrawl std_expr": 0.0002,
+  "YUV422P8 LUTDeRainbow upstream": 0.495,
+  "YUV422P8 LUTDeRainbow lut": 0.0741,
+  "YUV422P8 LUTDeRainbow expr": 0.0002,
+  "YUV422P8 LUTDeRainbow std_expr": 0.0002,
+  "YUV422P10 LUTDeCrawl upstream": 8.0162,
+  "YUV422P10 LUTDeCrawl lut": 1.3256,
+  "YUV422P10 LUTDeCrawl expr": 0.0002,
+  "YUV422P10 LUTDeCrawl std_expr": 0.0002,
+  "YUV422P10 LUTDeRainbow upstream": 8.0358,
+  "YUV422P10 LUTDeRainbow lut": 1.2282,
+  "YUV422P10 LUTDeRainbow expr": 0.0002,
+  "YUV422P10 LUTDeRainbow std_expr": 0.0002
+ }
+}

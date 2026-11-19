@@ -1,0 +1,12 @@
+bundle run 1: 0.42 s
+bundle run 2: 0.33 s
+bundle run 3: 0.33 s
+bundle run 4: 0.33 s
+bundle run 5: 0.33 s
+bundle png md5: 4f6f753e96f7777961f93e040dd9d6df
+other run 1: 17.60 s
+other run 2: 17.35 s
+other run 3: 19.41 s
+other run 4: 18.22 s
+other run 5: 17.93 s
+other png md5: 4f6f753e96f7777961f93e040dd9d6df

@@ -11,7 +11,7 @@
     - FFTW library (required by dfttest)
     - Python packages (havsfunc, mvsfunc, adjust)
     - NNEDI3 weights
-    - Patches havsfunc for API compatibility (mvtools, DFTTest, YCOCG, EEDI3CL fallback)
+    - Patches havsfunc for API compatibility (mvtools, DFTTest, YCOCG, EEDI3CL fallback, ...)
 
 .PARAMETER TargetDir
     The target directory for dependencies. Default: deps/windows-x64
@@ -1375,6 +1375,44 @@ if _akarin_expr is not None:
 "@
         $Content = $Content -replace "(import math\r?\n)", "`$1$PatchFunction"
         $PatchesApplied += "akarin Expr routing"
+    }
+
+    # Patch 8: havsfunc's mask ANDs as one Expr (task #82).
+    # LUTDeCrawl and LUTDeRainbow AND two masks with
+    # core.std.Lut2(a, b, function=lambda x, y: x & y): eight calls, the only
+    # Lut2 calls in havsfunc. At 10 bits VapourSynth calls that lambda 2^20
+    # times per table, so each filter spent 7.9 s building tables on an M1 at
+    # every script evaluation: every preview of a 10/12/16-bit source paid it.
+    # In every call one operand is a strict 0/peak mask (Binarize, or an Expr
+    # giving `{peak} 0 ?`), and then x & y == min(x, y) exactly, so
+    # Expr 'x y min' gives the same picture in no measurable time. R78's
+    # std.Expr has no bitand, and akarin's would leave macOS x64 out. Applied
+    # here so every platform runs an identical havsfunc, as patches 5-7. The
+    # counts are checked, so a havsfunc that changes these calls fails the
+    # build (docs/reports/task-82-havsfunc-mask-and).
+    if ($Content -notmatch "_mask_and") {
+        Write-Host "  Applying mask AND as Expr patch..." -ForegroundColor Gray
+        $OldCall = "core.std.Lut2("
+        $OldFn = ", function=lambda x, y: x & y)"
+        $OldFnMl = ",`n                          function=lambda x, y: x & y)"
+        $Counts = @(
+            ([regex]::Matches($Content, [regex]::Escape($OldCall))).Count,
+            ([regex]::Matches($Content, [regex]::Escape($OldFn))).Count,
+            ([regex]::Matches($Content, [regex]::Escape($OldFnMl))).Count
+        )
+        if (($Counts -join ",") -ne "8,7,1") {
+            throw "havsfunc's Lut2 calls changed (calls, one-line, multi-line = $($Counts -join ', '), expected 8, 7, 1): patch 8 no longer applies"
+        }
+        $Content = $Content.Replace($OldFnMl, ")").Replace($OldFn, ")").Replace($OldCall, "_mask_and(")
+        $PatchFunction = @"
+
+# AND of two masks, one always 0 or peak, so min is exact (see download-deps-*).
+def _mask_and(clipa, clipb):
+    return core.std.Expr([clipa, clipb], ['x y min'])
+
+"@
+        $Content = $Content -replace "(import math\r?\n)", "`$1$PatchFunction"
+        $PatchesApplied += "mask AND as Expr (8 sites)"
     }
 
     if ($PatchesApplied.Count -gt 0) {

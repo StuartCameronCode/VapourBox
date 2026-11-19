@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>havsfunc mask AND</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>havsfunc's mask ANDs as one Expr: LUTDeCrawl and LUTDeRainbow at 10 bits</h1>
+<p class="meta">Task #82, 2026-11-20. Found by task #75. Measured on an Apple M1 (macOS arm64), deps 1.18.0-rc1 (VapourSynth R78, havsfunc r31, akarin present) with only <code>havsfunc.py</code> changed by patch 8. Not measured on x86.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>Cause:</b> havsfunc r31's only <code>core.std.Lut2</code> calls, eight of them, are LUTDeCrawl's and LUTDeRainbow's mask ANDs, <code>Lut2(a, b, function=lambda x, y: x &amp; y)</code>. At 10 bits VapourSynth fills a 2<sup>20</sup>-entry table by calling the lambda once per entry, four tables per filter, at every script evaluation: <b>8.0 s per filter</b> (0.5 s at 8 bits). The template's contract runs both at 8–10 bits, so 10-bit sources, and 12/16-bit ones converted to 10 by <code>run_within</code>, paid it on every preview and the encode.</li>
+<li><b>Fix:</b> havsfunc patch 8 in all three <code>download-deps-*</code> scripts routes the eight calls through <code>_mask_and(a, b)</code> = <code>core.std.Expr([a, b], ['x y min'])</code>. <b>Bit-identical in 36 of 36 cases</b>, through akarin's Expr and through VapourSynth's own <code>std.Expr</code>; <b>0.0002 s</b> per filter.</li>
+<li><b>Preview through the worker</b> (10-bit ProRes 4:2:2 fixture, Chroma Fixes with both filters on): <b>17.4–19.4 s → 0.33 s</b>, the same PNG byte for byte.</li>
+<li><b>Ships in</b> deps 1.18.0-rc3. The patch fails the deps build if havsfunc's calls change, rather than doing nothing, because the exactness argument below is about these call sites only.</li>
+</ul>
+
+<h2>Why <code>min</code> is exact here</h2>
+<p>R78's <code>std.Expr</code> has no <code>bitand</code> (akarin's has, but the macOS x64 bundle has no akarin), so the AND has to be another operation. <code>x &amp; y == min(x, y)</code> holds for every <code>x</code> whenever <code>y</code> is 0 or peak (all ones at the clip's depth): <code>peak &amp; x = x</code>, <code>0 &amp; x = 0</code>. Checked exhaustively at 8 and 10 bits, both argument orders: <span class="ok">true</span>. It does not hold for two arbitrary values (<code>5 &amp; 3 = 1</code>, <code>min = 3</code>), so it rests on how havsfunc builds the operands:</p>
+<table>
+<tr><th>Filter</th><th>Call</th><th>Operands</th></tr>
+<tr><td>LUTDeCrawl</td><td><code>diffs_y = diffplus_y &amp; diffminus_y</code></td><td>both <code>Expr '… {peak} 0 ?'</code>: 0/peak</td></tr>
+<tr><td>LUTDeCrawl</td><td><code>ymask &amp; diffs_y</code></td><td><code>Binarize</code> (v0 = 0, v1 = peak) and the above</td></tr>
+<tr><td>LUTDeCrawl</td><td><code>cmask = Binarize(u) &amp; Binarize(v)</code></td><td>both 0/peak (then <code>resize.Point</code>, still 0/peak)</td></tr>
+<tr><td>LUTDeCrawl</td><td><code>themask = ymask &amp; cmask</code></td><td>both 0/peak</td></tr>
+<tr><td>LUTDeRainbow</td><td><code>themask = umask &amp; vmask</code></td><td>both <code>Binarize</code></td></tr>
+<tr><td>LUTDeRainbow</td><td><code>umask &amp; average_y</code>, <code>vmask &amp; average_y</code>, <code>themask &amp; average_y</code></td><td><code>average_y</code> is a 0/peak Expr <b>resized with Bilinear</b> to the chroma size, so on 4:2:0 and 4:2:2 it has intermediate values; the other operand is always 0/peak</td></tr>
+</table>
+<p>Output format and frame properties: <code>Expr</code> takes the first clip's, as <code>Lut2</code> does (its <code>bits</code> defaults to the first clip's). <code>min</code> of two integers involves no rounding, so akarin's half-tie difference from <code>std.Expr</code> (patch 7) cannot arise; the table below checks both.</p>
+
+<h2>End to end: patched filters against upstream's table</h2>
+<p>720x480, 6 frames: mid grey with grain that changes every frame over the top two thirds, a static band below, so every mask is partly set and both branches of every AND occur (the mask column gives the set fraction of frame 2). Reference: the same havsfunc call with <code>_mask_and</code> replaced by upstream's <code>Lut2(function=lambda x, y: x &amp; y)</code>. Compared in every plane of every frame (<code>PlaneStatsDiff == 0</code>) and by format id. <code>scripts/mask_and_identity.py</code>; raw output in <code>data/identity_macos-arm64.json</code>.</p>
+<table>
+<tr><th>Format</th><th>Call</th><th>Result</th><th>Mask set</th><th>Expr via akarin (bundle)</th><th>plain <code>std.Expr</code></th></tr>
+<tr><td>YUV420P8</td><td>LUTDeCrawl</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P8</td><td>LUTDeCrawl</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P8</td><td>LUTDeRainbow</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P8</td><td>LUTDeRainbow</td><td>mask</td><td class="num">0.573</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P8</td><td>LUTDeRainbow unlinked</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P8</td><td>LUTDeRainbow unlinked</td><td>mask</td><td class="num">0.573</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P8</td><td>LUTDeCrawl</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P8</td><td>LUTDeCrawl</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P8</td><td>LUTDeRainbow</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P8</td><td>LUTDeRainbow</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P8</td><td>LUTDeRainbow unlinked</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P8</td><td>LUTDeRainbow unlinked</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P8</td><td>LUTDeCrawl</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P8</td><td>LUTDeCrawl</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P8</td><td>LUTDeRainbow</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P8</td><td>LUTDeRainbow</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P8</td><td>LUTDeRainbow unlinked</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P8</td><td>LUTDeRainbow unlinked</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P10</td><td>LUTDeCrawl</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P10</td><td>LUTDeCrawl</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P10</td><td>LUTDeRainbow</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P10</td><td>LUTDeRainbow</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P10</td><td>LUTDeRainbow unlinked</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV420P10</td><td>LUTDeRainbow unlinked</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P10</td><td>LUTDeCrawl</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P10</td><td>LUTDeCrawl</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P10</td><td>LUTDeRainbow</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P10</td><td>LUTDeRainbow</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P10</td><td>LUTDeRainbow unlinked</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV422P10</td><td>LUTDeRainbow unlinked</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P10</td><td>LUTDeCrawl</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P10</td><td>LUTDeCrawl</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P10</td><td>LUTDeRainbow</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P10</td><td>LUTDeRainbow</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P10</td><td>LUTDeRainbow unlinked</td><td>output</td><td class="num"></td><td class="ok">identical</td><td class="ok">identical</td></tr>
+<tr><td>YUV444P10</td><td>LUTDeRainbow unlinked</td><td>mask</td><td class="num">0.574</td><td class="ok">identical</td><td class="ok">identical</td></tr>
+
+</table>
+<p class="box">Limit: one synthetic fixture. That is enough for an exactness argument that holds per pixel (the comparison exercises both mask states in every call), not as evidence about picture quality, which this change cannot alter.</p>
+
+<h2>Evaluation time</h2>
+<p>Seconds to build one filter's graph (no frames requested), median of 5, 720x480. <code>upstream</code>: <code>Lut2(function=…)</code>; <code>lut</code>: <code>Lut2(lut=[…])</code>, a precomputed list (task #75's probe memo); <code>expr</code>: patch 8 as the bundle runs it (akarin); <code>std_expr</code>: VapourSynth's own Expr (what macOS x64 runs).</p>
+<table>
+<tr><th>Format</th><th>Filter</th><th>upstream</th><th>lut</th><th>expr</th><th>std_expr</th></tr>
+<tr><td>YUV422P8</td><td>LUTDeCrawl</td><td class="num">0.4960</td><td class="num">0.0744</td><td class="num">0.0002</td><td class="num">0.0002</td></tr>
+<tr><td>YUV422P8</td><td>LUTDeRainbow</td><td class="num">0.4950</td><td class="num">0.0741</td><td class="num">0.0002</td><td class="num">0.0002</td></tr>
+<tr><td>YUV422P10</td><td>LUTDeCrawl</td><td class="num">8.0162</td><td class="num">1.3256</td><td class="num">0.0002</td><td class="num">0.0002</td></tr>
+<tr><td>YUV422P10</td><td>LUTDeRainbow</td><td class="num">8.0358</td><td class="num">1.2282</td><td class="num">0.0002</td><td class="num">0.0002</td></tr>
+
+</table>
+<p>A list is no answer by itself: VapourSynth still converts a million Python ints, 1.2–1.3 s per filter.</p>
+
+<h2>Preview latency through the worker</h2>
+<p><code>vapourbox-worker --preview --frame 10</code> on <code>Tests/TestResources/prores422_10bit_telecine.mov</code> (10-bit 4:2:2), Chroma Fixes with LUTDeCrawl and LUTDeRainbow on, nothing else; debug worker. <code>bundle</code> is the patched havsfunc, <code>other</code> the rc1 bundle's (upstream r31 plus patches 1–7). <code>scripts/preview_latency.sh</code>; the output, verbatim:</p>
+<pre>bundle run 1: 0.42 s
+bundle run 2: 0.33 s
+bundle run 3: 0.33 s
+bundle run 4: 0.33 s
+bundle run 5: 0.33 s
+bundle png md5: 4f6f753e96f7777961f93e040dd9d6df
+other run 1: 17.60 s
+other run 2: 17.35 s
+other run 3: 19.41 s
+other run 4: 18.22 s
+other run 5: 17.93 s
+other png md5: 4f6f753e96f7777961f93e040dd9d6df</pre>
+<p>The first patched run includes a cold start. An earlier single run in the same setup measured 1.79 s patched against 17.87 s unpatched, also with identical PNGs.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><b>Expr over a <code>lut=</code> list</b>: the list is exact by construction but still costs 1.2 s per filter per evaluation; the Expr costs nothing measurable and is exact for these call sites.</li>
+<li><b>Rewrite the eight calls, not route <code>core.std.Lut2</code></b> through a proxy as patch 7 routes Expr: there are only eight call sites, all the same lambda, and a proxy would have to decide which functions are safe to replace.</li>
+<li><b><code>min</code>, not <code>bitand</code></b>: R78's <code>std.Expr</code> has no bitwise operators and the macOS x64 bundle has no akarin, and every platform must run an identical havsfunc.</li>
+<li><b>Fail the build on a changed havsfunc</b> (counts 8 calls, 7 on one line, 1 split over three), unlike patches 1–7: a havsfunc that ANDed two non-binary clips would make <code>min</code> silently wrong.</li>
+<li><b>Guarded in the push gate</b> (<code>vapoursynth_integration_test.dart</code>, “havsfunc mask AND (patch 8)”): both filters, output and mask, 8/10-bit and every subsampling, against upstream's table built as a <code>lut=</code> list (byte for byte the function's table, task #75, at a fraction of its cost); it also fails if a call takes over 2 s to build. Skipped on bundles up to 1.18.0-rc2, which predate the patch.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li><b>x86 (Intel Mac, Windows, Linux)</b>: no machine here. Task #75's probe saw the old tables cost several times the M1's on the Intel runners; the Expr's cost does not depend on Python's speed. The push-gate test prints the slowest build time on every CI row.</li>
+<li>The Windows patch text (PowerShell) could not be run here; <code>build-deps-windows.yml</code> applies it, and its count check makes a mismatch a failed build, not a silent skip.</li>
+<li>The encode: the change is to the script graph the encode and preview share, so the identity above covers it; no encode was timed.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>Scripts/download-deps-macos.sh            # or apply its havsfunc block to a bundle's havsfunc.py
+docs/reports/task-82-havsfunc-mask-and/scripts/bundle_python.sh deps/macos-arm64 \
+    docs/reports/task-82-havsfunc-mask-and/scripts/mask_and_identity.py
+(cd worker &amp;&amp; cargo build)
+docs/reports/task-82-havsfunc-mask-and/scripts/preview_latency.sh \
+    worker/target/debug/vapourbox-worker deps/macos-arm64 &lt;an unpatched havsfunc.py&gt; 5</pre>
+</body>
+</html>
