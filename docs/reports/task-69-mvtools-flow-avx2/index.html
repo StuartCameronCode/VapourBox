@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MVTools Flow heap overflow</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>MVTools FlowFPS / FlowInter corrupt the heap below 8 block columns on x86</h1>
+<p class="meta">Task #69, 2026-11-19. Measured on GitHub's <code>ubuntu-24.04</code> runners (Intel Xeon 6975P-C), deps 1.18.0-rc1 linux-x64 (MVTools <code>master</code> built from source, havsfunc r31), valgrind 3.22 memcheck, through <code>.github/workflows/repro-native-crash.yml</code> (inputs <code>bisect</code>, <code>bisect_script</code>, <code>probe_calls</code>). Source read from <code>dubhater/vapoursynth-mvtools</code> master. The guard was also run on macOS arm64 (where it is inert).</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>Cause:</b> MVTools' AVX2 vector upsizer, <code>simpleResize_int16_t_avx2</code> (<code>src/SimpleResize_AVX2.cpp</code>, master and v24 alike), does each row's tail as one more 8-sample step ending at <code>src_width</code>, the number of block columns. With fewer than 8 columns the step starts before its <code>malloc</code>'d row buffer: it reads before the source rows and writes over malloc's chunk header. Its 8-bit twin (masks) does the same with 4 samples. On any x86 CPU with AVX2 and <code>opt=1</code> (MVTools' default).</li>
+<li><b>Fix:</b> the template passes <code>opt=_pf.mvtools_flow_opt(width, blksize, overlap)</code> to the Frame Rate <code>mv.FlowFPS</code> and the VFR gap <code>mv.FlowInter</code>. It is <code>False</code> (MVTools' C upsizer, what arm64 runs) exactly when fewer than 8 block columns cover the picture, else <code>True</code>, MVTools' default. So every job that worked before generates the same picture; only the argument is new in the script.</li>
+<li><b>Who could hit it:</b> the probe (64x48 at 16/8, every cell, every run) and real jobs with a narrow picture and a large Frame Rate block: widths &le; 64 at 16/8, &le; 176 at 32/8 (QCIF, a real phone/3GP size), &le; 224 at 32/0.</li>
+<li><b>Not fixed here:</b> QTGMC's internal <code>mv.Mask</code> (InputType 2/3, BlockSize 32) hits the 8-bit twin below 4 block columns (widths under 80 at 32/16 after <code>mvtools_blocks()</code>' padding). havsfunc makes that call, so the template can't pass <code>opt</code>. Filed as task #79.</li>
+</ul>
+
+<h2>The fault, in the source</h2>
+<pre>int16_t *workp = (int16_t *)malloc(simple-&gt;src_width * sizeof(int16_t));
+...
+const int src_width_sse2 = simple-&gt;src_width &amp; ~(pixels_per_iteration - 1);   // 8
+for (int x = 0; x &lt; src_width_sse2; x += pixels_per_iteration)
+    simpleResize_int16_t_vertical_8px_avx2(workp, srcp1, srcp2, x, dwords_weights_v);
+if (src_width_sse2 &lt; simple-&gt;src_width)
+    simpleResize_int16_t_vertical_8px_avx2(workp, srcp1, srcp2, simple-&gt;src_width - pixels_per_iteration, ...);
+    //  _mm_loadu_si128(&amp;srcp1[x]) ... _mm_storeu_si128(&amp;workp[x], dst)   with x = src_width - 8 &lt; 0
+...
+free(workp);</pre>
+<p><code>src_width</code> is <code>nBlkXP</code> for FlowInter / FlowFPS (<code>simpleInit(&amp;d.upsizer, nWidthP, nHeightP, nBlkXP, nBlkYP, …)</code>): Analyse's <code>nBlkX = (W − o) / (b − o)</code>, grown while <code>nBlkXP·(b − o) + o &lt; W</code>. At 64x48 with 16/8, nBlkXP = 7, so the tail step is at <code>x = −1</code>.</p>
+<p><b>Task #66's core matches:</b> <code>_int_free_merge_chunk(size=0x3000000000020)</code> &larr; <code>free</code> &larr; <code>mvflowinterGetFrame</code> (repro run 44089474128). <code>0x20</code> is the chunk of a 14-byte malloc (7 &times; int16), and the top 16 bits are the sample written at <code>workp[−1]</code>. <code>free(workp)</code> is the resizer's last statement, a tail call, which is why the caller shows as <code>mvflowinterGetFrame</code>. Whether the corrupted size makes glibc abort ("free(): invalid size") or crash later depends on the value, hence SIGABRT or SIGSEGV.</p>
+
+<h2>Widths that corrupt the heap</h2>
+<p><code>bad ⇔ nBlkXP &lt; 8 ⇔ W ≤ 7·(b − o) + o</code>. Only the width matters. The horizontal tail uses the picture's padded width (or its chroma width), never below 8 at a size MVTools accepts.</p>
+<table>
+<tr><th>Block / overlap</th><th>Widths that corrupt</th><th>Checked under valgrind</th></tr>
+<tr><td>16 / 8 (default)</td><td>&le; 64</td><td>64 <span class="no">errors</span>, 66 and 72 <span class="ok">clean</span></td></tr>
+<tr><td>16 / 0</td><td>&le; 112</td><td>formula only</td></tr>
+<tr><td>32 / 16</td><td>&le; 128</td><td>formula only</td></tr>
+<tr><td>32 / 8</td><td>&le; 176 (QCIF)</td><td>176 <span class="no">errors</span>, 178 <span class="ok">clean</span></td></tr>
+<tr><td>32 / 0</td><td>&le; 224</td><td>formula only</td></tr>
+</table>
+<p><code>plugin_formats.mvtools_flow_opt</code> agrees with this formula for every block size 4–32, overlap 0–b/2 and width up to 400 (<code>plugin_format_contracts_test.dart</code>).</p>
+
+<h2>Valgrind matrix (repro run 44502029930)</h2>
+<p><code>scripts/flow.vpy</code>: one Flow call on a moving textured synthetic clip, 5 frames requested. Cells are <code>call:WxH:format[:args]</code>. Full summary: <code>data/valgrind_matrix_2.txt</code>.</p>
+<table>
+<tr><th>Cell</th><th>opt=1 (default)</th><th>opt=0</th><th>opt=guard</th></tr>
+<tr><td>flowinter 64x48 YUV420P8</td><td class="no">3720 errors, in <code>simpleResize_int16_t_avx2</code></td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>flowinter 64x48 YUV444P16</td><td class="no">4960 errors</td><td></td><td class="ok">0</td></tr>
+<tr><td>flowfps 64x48 YUV420P8</td><td class="no">2790 errors</td><td></td><td class="ok">0</td></tr>
+<tr><td>flowfps 64x48 YUV444P16</td><td class="no">3720 errors</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>flowinter 64x480 YUV420P8</td><td class="no">29520 errors (height doesn't matter)</td><td></td><td></td></tr>
+<tr><td>flowinter 66x48, 72x48 YUV420P8</td><td class="ok">0 (nBlkXP = 8)</td><td></td><td></td></tr>
+<tr><td>flowinter 176x144 YUV420P8, 32/8</td><td class="no">11400 errors</td><td></td><td class="ok">0</td></tr>
+<tr><td>flowfps 176x144 YUV420P8, 32/8</td><td></td><td></td><td class="ok">0</td></tr>
+<tr><td>flowinter 178x144 YUV420P8, 32/8</td><td class="ok">0</td><td></td><td></td></tr>
+<tr><td>mask 64x48 YUV420P8, 32/16 (nBlkX = 3)</td><td class="no">720 errors, in <code>simpleResize_uint8_t_avx2</code></td><td class="ok">0</td><td></td></tr>
+<tr><td>flowinter 64x48 YUV420P8, thscd1=400 (MVTools' default)</td><td class="ok">0: see the correction below</td><td></td><td></td></tr>
+</table>
+<p>QTGMC through havsfunc (run 44498321055, <code>data/valgrind_matrix_1.txt</code>): <code>Preset='Slow', InputType=2</code> at 64x96 with BlockSize 32 / Overlap 16 gives 1870 errors in <code>simpleResize_uint8_t_avx2</code> &larr; <code>mvmaskGetFrame</code>, among them "Invalid write of size 4 … 1 bytes before a block of size 5" (<code>malloc(nBlkX + 2)</code>, nBlkX = 3). 80x96 at 32/16 and 64x96 at 16/8 are clean. That is task #79.</p>
+<p class="box"><b>Correction, kept visible.</b> The first matrix (run 44498321055) showed FlowInter and FlowFPS <i>clean</i> at 64x48 with <code>opt=1</code>, against the diagnosis. The script was at fault. Its clip moves 3 px a frame over a fine texture, and at MVTools' default <code>thscd1=400</code> every frame counted as a scene change (<code>mv.SCDetection</code> sets <code>_SceneChangeNext</code> on every frame). FlowInter and FlowFPS then blend the two frames and never call the upsizer: FlowInter's output differs from a plain <code>std.Merge</code> blend by 0.0019 at 400 and by 0.049 at 16320 (macOS arm64). <code>flow.vpy</code> now defaults to <code>thscd1=16320</code>, MVTools' maximum, and the rows above are from that version. The probe's own clip keeps its vectors, which is why it crashed.</p>
+
+<h2>The probe, before and after</h2>
+<table>
+<tr><th></th><th>Runs</th><th>64x48 cells of FlowFPS / FlowInter (12 each)</th></tr>
+<tr><td>Before (task #66, nightly 43909344002, repro 44089474128)</td><td class="num">3</td><td class="no">every cell crashed (SIGSEGV or SIGABRT) in every run</td></tr>
+<tr><td>After (the probe passes the guard; repro 44498321055, <code>probe_calls=mv.FlowFPS,mv.FlowInter</code>)</td><td class="num">3</td><td class="ok">every cell ok in every run, at every other size too</td></tr>
+</table>
+<p>The committed table already said <code>ok</code> for these cells (measured on macOS arm64, which has no AVX2 path), so it is unchanged. <code>--quick</code> (the push gate) now measures 64x48 for both calls at 8 and 16 bits, so losing the guard fails every Linux x64 push, not only the nightly.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><b>A template argument, not a deps patch.</b> Windows and macOS x64 ship MVTools v24 prebuilt, which has the same code, and Windows has no from-source path for MVTools, so a patch would reach only Linux and macOS arm64 (which doesn't need it), and only with a deps release. <code>opt=False</code> adds no node and changes only the SIMD choice, only where the AVX2 path is broken.</li>
+<li><b>Not padding the width</b> (as <code>mvtools_blocks()</code> does for Degrain/Compensate): it would need up to 225 columns at 32/0 and would move the motion search at the edge.</li>
+<li><b><code>opt=False</code> also selects MVTools' C blend functions</b> for that call. At the affected widths, x86 output changes from heap-corrupting to the C result (what arm64 already gives). Every other width keeps <code>opt=True</code> and its output.</li>
+<li><b>Guarded by tests:</b> <code>test_260</code> (Rust) fails on any Flow / FlowFPS / FlowInter / FlowBlur / Mask / BlockFPS call in <code>worker/templates/</code> without the guard, and checks the generated FlowFPS and VFR-gap scripts. <code>plugin_format_contracts_test.dart</code> checks the helper against MVTools' arithmetic and runs both calls through it at 64x48 and 176x144. On an AVX2 x86 runner, a lost guard would crash that process.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li><b>arm64</b> under valgrind: clean by construction (meson builds <code>SimpleResize_AVX2.cpp</code> on x86 only, and the C <code>simpleResize&lt;&gt;</code> stays within <code>[0, src_width)</code> by reading), not by measurement.</li>
+<li><b>Windows and macOS x64</b> (MVTools v24): same source, not run under a memory checker. macOS x64 crashed once in <code>mvflowinterGetFrame</code> in task #66's runs.</li>
+<li>Valgrind sees only the paths a run takes: one clip, 5 frames, the formats listed.</li>
+<li>FlowBlur and BlockFPS are not called by any template; the guard rule covers them if one ever is.</li>
+</ul>
+
+<h2>Upstream issue (draft, not filed)</h2>
+<pre>simpleResize_int16_t_avx2 / simpleResize_uint8_t_avx2 write before workp when src_width &lt; 8 / &lt; 4
+
+The vertical pass handles the row's tail with one more step at src_width - pixels_per_iteration.
+When src_width (the block-column count) is below pixels_per_iteration, x is negative: the
+step reads srcp1[x], srcp2[x] before the row and stores to workp[x] before the malloc'd
+buffer, corrupting the heap (glibc: "free(): invalid size", or a later SIGSEGV). Reproduce:
+FlowInter or FlowFPS on a 64x48 clip with Analyse(blksize=16, overlap=8) (nBlkXP = 7), opt=1,
+on an AVX2 CPU; valgrind reports invalid reads and writes in simpleResize_int16_t_avx2.
+mv.Mask with nBlkX &lt; 4 hits the uint8 version. Suggested fix: fall back to the C
+simpleResize&lt;&gt; when src_width &lt; pixels_per_iteration (in simpleInit, or per call).</pre>
+
+<h2>Scripts and data</h2>
+<ul>
+<li><code>scripts/flow.vpy</code>: <code>vspipe -a call=flowinter|flowfps|mask|qtgmc_inputtype2 -a size=WxH -a fmt=YUV420P8 [-a blksize=16 -a overlap=8 -a opt=1|0|guard -a thscd1=16320] flow.vpy -</code>. In the repro workflow: <code>bisect_script=docs/reports/task-69-mvtools-flow-avx2/scripts/flow.vpy</code> and <code>bisect="flowinter:64x48:YUV420P8:opt=1 …"</code>.</li>
+<li><code>data/valgrind_matrix_1.txt</code> (first run, scene-change test on) and <code>data/valgrind_matrix_2.txt</code> (the table above).</li>
+</ul>
+</body>
+</html>
