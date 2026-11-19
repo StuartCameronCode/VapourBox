@@ -11,17 +11,14 @@ import json
 import sys
 import time
 
-from common import CASES, core, fixture, parse_measure
+from common import CASES, cached, core, fixture, parse_measure
 
 core.num_threads = 8
 measure = parse_measure(sys.argv[1])
-frames = int(sys.argv[2]) if len(sys.argv) > 2 else 60
+frames = int(sys.argv[2]) if len(sys.argv) > 2 else 120
 res = {}
 for w, h in ((720, 480), (1920, 1080)):
-    src = fixture(w, h, frames, 8)
-    # Read the source once so its decode is not timed.
-    for _ in src.frames(prefetch=16):
-        pass
+    src = cached(fixture(w, h, frames, 8))
     for name, fn in CASES.items():
         t0 = time.perf_counter()
         c = fn(src, measure)

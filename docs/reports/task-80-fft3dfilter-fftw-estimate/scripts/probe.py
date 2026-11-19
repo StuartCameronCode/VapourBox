@@ -54,14 +54,15 @@ if 'wisdom' in parts:
                      'keys': len(w)}
 if 'speed' in parts:
     out['speed'] = {}
-    for m in ('0', '1'):
-        runs = []
-        for i in range(speed_runs):
+    runs = {'0': [], '1': []}
+    for i in range(speed_runs):
+        for m in ('0', '1'):  # interleaved, so drift (thermal, neighbours) hits both
             print('speed measure=%s %d/%d' % (m, i + 1, speed_runs), file=sys.stderr, flush=True)
-            runs.append(run('speed.py', m)['speed'])
-        out['speed'][m] = {k: {f: statistics.median(r[k][f] for r in runs) for f in runs[0][k]}
-                           for k in runs[0]}
+            runs[m].append(run('speed.py', m)['speed'])
+    for m, rs in runs.items():
+        out['speed'][m] = {k: {f: statistics.median(r[k][f] for r in rs) for f in rs[0][k]}
+                           for k in rs[0]}
 if 'move' in parts:
     print('move', file=sys.stderr, flush=True)
-    out['move'] = run('move.py')
+    out['move'] = {**run('move.py', '8'), **run('move.py', '16')}
 print(json.dumps(out, indent=1, sort_keys=True))

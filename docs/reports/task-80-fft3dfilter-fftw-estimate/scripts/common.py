@@ -132,6 +132,13 @@ CASES = {
 }
 
 
+def cached(c):
+    """c rendered once and served from memory, so a timing measures the
+    filter, not this script's Python source."""
+    frames = [f.copy() for f in c.frames(prefetch=16)]
+    return core.std.ModifyFrame(c, c, lambda n, f: frames[n])
+
+
 def parse_measure(s):
     return None if s in ('default', 'none', '') else int(s)
 

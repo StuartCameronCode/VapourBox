@@ -2,7 +2,10 @@
 real footage. measure=0 is planned first, so its plans are its own (MEASURE
 never reuses an ESTIMATE plan). Prints per call and depth: max abs diff and
 share of samples differing (in the clip's own levels, and in 8-bit levels for
-16-bit), mean abs diff, PSNR. argv: none."""
+16-bit), mean abs diff, PSNR. argv: bits (8 | 16). One depth per process: an
+FFT3DFilter plan does not depend on the depth (it transforms floats), so a
+measure=1 plan made for 8 bits would be inherited by a later measure=0 call
+at 16 bits (see wisdom.py)."""
 import os
 import sys
 # Windows' embeddable Python (._pth) does not put the script's folder on sys.path.
@@ -14,7 +17,7 @@ from common import CASES, core, fixture
 
 core.num_threads = 8
 res = {}
-for bits in (8, 16):
+for bits in (int(sys.argv[1]),):
     src = fixture(720, 480, 20, bits)
     peak = (1 << bits) - 1
     for name, fn in CASES.items():
