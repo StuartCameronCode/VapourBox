@@ -5364,6 +5364,34 @@ macOS `.ips` files only. Report: [docs/reports/task-66-qtgmc-draft-sigsegv](repo
   compare) found nothing even where valgrind found uninitialised output; it
   was dropped. Use valgrind.
 
+### FFmpeg's VapourSynth demuxer is not a vspipe replacement (issue #225, 2026-11-19)
+
+Report: [docs/reports/issue-225-ffmpeg-vapoursynth-demuxer](reports/issue-225-ffmpeg-vapoursynth-demuxer/index.html).
+The issue: gyan.dev's FFmpeg now has `-f vapoursynth`, so drop vspipe, "which
+consumes a significant amount of CPU" (Task Manager: vspipe.exe 50%).
+
+- **vspipe's CPU is the filters.** Every VapourSynth filter runs in its
+  process. The pipe itself (Y4M write + read) measured 0.3 ms a frame at SD
+  and 1.5 ms at 1080p, under 1% of an x264 encode.
+- **The demuxer requests one frame at a time** (`getFrame` in
+  `read_packet_vs`, unchanged since 2024-08); vspipe keeps one async request
+  per thread. Same FFmpeg 9.0.2 binary, M1 Pro: QTGMC Medium 3.3x slower at SD
+  and 2.9x at HD into a null encoder, 1.4x / 1.2x slower into x264; a BoxBlur
+  16–19% slower. 6–13% less total CPU on QTGMC, but for a much longer job.
+  Output byte-identical (QTGMC, 1000 + 400 frames).
+- **Builds with R80+ headers can't load R78.** The demuxer asks for its
+  headers' `VSSCRIPT_API_VERSION`; R80–R82 say 4.4, R78 accepts up to 4.3
+  (probed: 4.4 returns NULL). BtbN, our Windows/Linux FFmpeg, enabled the
+  demuxer on 2026-10-02 with R80 headers and uses R82 now. It also dlopens
+  `libvapoursynth-script`, which R78's package names `libvsscript`.
+- **Not a plugin API change**: the demuxer is a client like vspipe, and R78
+  still loads API 3 plugins for it.
+- Revisit only if upstream's demuxer gains concurrent requests and the bundle
+  is on R80+ (task #74). Other costs listed in the report: live frame props
+  (`_Matrix`, `_SARNum`, … now reach the encoder, unlike through Y4M),
+  in-process plugin crashes take the encoder down, preview needs the same
+  change.
+
 ### vspipe's teardown race: upstream's fix backported to R78, not R80 (task #68, 2026-11-19)
 
 Report: [docs/reports/task-68-vspipe-teardown-backport](reports/task-68-vspipe-teardown-backport/index.html).
