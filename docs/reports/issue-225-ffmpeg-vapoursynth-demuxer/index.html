@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FFmpeg VapourSynth demuxer</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; --bar:#3b6fd4; --bar2:#9aa0a6; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; --bar:#6f9cf0; --bar2:#5f6368; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+.barcell { min-width:220px; }
+.bar { height:12px; background:var(--bar); display:inline-block; vertical-align:middle; }
+.ref { border-left:2px dashed var(--fg); height:16px; display:inline-block; vertical-align:middle; margin-left:-2px; }
+figure { margin:16px 0; } figcaption { color:var(--mut); font-size:.9em; }
+figure img { border:1px solid var(--line); max-width:100%; }
+</style>
+</head>
+<body>
+<main>
+<h1>Issue #225: FFmpeg's VapourSynth demuxer instead of vspipe</h1>
+<p class="sub">2026-11-19 · macOS arm64 (M1 Pro, 8 cores), deps 1.16.0 (VapourSynth R78), FFmpeg 9.0.2 built with
+<code>--enable-vapoursynth</code> · scripts in <code>scripts/</code>, raw runs in <code>data/</code></p>
+
+<h2>Outcome</h2>
+<ul>
+<li><strong>Not adopted.</strong> The demuxer gives byte-identical frames, but it runs a heavy script
+<span class="bad">1.2–3.3× slower</span> (QTGMC Medium: 135 → 41 fps at SD into a null encoder, 56 → 39 fps into x264),
+because it asks VapourSynth for one frame at a time. vspipe keeps one request per thread in flight.</li>
+<li><strong>vspipe's CPU in Task Manager is the filters, not the pipe.</strong> Every VapourSynth filter runs inside the vspipe
+process. With the demuxer the same work shows up under ffmpeg instead. The pipe itself (writing and reading Y4M) costs
+0.3 ms a frame at SD and 1.5 ms at 1080p, under 1% of a job that encodes with x264.</li>
+<li><strong>Current third-party builds can't load our VapourSynth.</strong> The demuxer asks for the VSScript API of
+the headers it was compiled against. Builds made with R80 or later headers (BtbN's, which we ship on Windows and Linux, have used
+R80–R82 since adding the demuxer on 2026-10-02) ask for VSScript 4.4, and R78 offers 4.3, so the request returns NULL. gyan.dev's headers were not checked; a build made since R80 (2026-10) would be refused the same way.
+Using the demuxer would mean building every platform's FFmpeg against R78 ourselves, or moving to R80+, which drops the 12
+API 3 plugins (task #74).</li>
+<li>It is not a plugin API change. The demuxer is a VapourSynth <em>client</em> like vspipe; the R78 core still loads our
+API 3 plugins whichever client asks for frames.</li>
+</ul>
+
+<h2>1. What the issue reports</h2>
+<figure>
+<a href="img/01-issue-ffmpeg-demuxers.png"><img src="img/01-issue-ffmpeg-demuxers.png" alt="ffmpeg -demuxers listing vapoursynth"></a>
+<figcaption>From the issue: a gyan.dev FFmpeg build lists <code>D vapoursynth  VapourSynth demuxer</code>.</figcaption>
+</figure>
+<figure>
+<a href="img/02-issue-task-manager.png"><img src="img/02-issue-task-manager.png" alt="Task Manager: vspipe.exe 50.1% CPU, ffmpeg.exe 42.4%"></a>
+<figcaption>From the issue: Windows Task Manager during a job, vspipe.exe at 50.1% CPU and ffmpeg.exe at 42.4%. The vspipe
+figure includes every VapourSynth filter (QTGMC and the rest), which run in its process; it is not the cost of piping.</figcaption>
+</figure>
+<p>The demuxer is not new. <code>libavformat/vapoursynth.c</code> has existed since FFmpeg 4.0 (2018). What changed is
+<code>d42cd5b75</code> (2024-08, FFmpeg 7.1), which loads <code>libvapoursynth-script</code> at run time instead of linking it,
+so third-party builds can enable it at no cost. gyan.dev has, and so has BtbN (2026-10-02).
+<a href="https://github.com/BtbN/FFmpeg-Builds/blob/master/scripts.d/50-vapoursynth.sh"><code>scripts.d/50-vapoursynth.sh</code></a>,
+confirmed in the current <code>ffmpeg-n9.0-latest-linux64-gpl-9.0</code> binary, which contains
+<code>--enable-vapoursynth</code> and the string <code>libvapoursynth-script.so</code>. The martin-riedl.de builds we ship
+on macOS do not enable it.</p>
+
+<h2>2. How the demuxer works (FFmpeg n9.0.2 source)</h2>
+<ul>
+<li><strong>One synchronous request at a time.</strong> <code>read_packet_vs</code> calls <code>vsapi-&gt;getFrame(n, …)</code>
+and returns the frame before FFmpeg asks for the next. VapourSynth still parallelises the work <em>within</em> one output
+frame (the upstream frames it needs), but no two output frames are worked on at once. vspipe uses
+<code>getFrameAsync</code> with <code>--requests</code> defaulting to the core's thread count. The file has had no
+functional change since 2024-08.</li>
+<li><strong>Zero copy.</strong> Planes are handed to FFmpeg by reference (<code>wrapped_avframe</code>); there is no Y4M
+serialisation and no pipe.</li>
+<li><strong>Frame properties become live.</strong> It reads <code>_Matrix</code>, <code>_Primaries</code>,
+<code>_Transfer</code>, <code>_ColorRange</code>, <code>_SARNum/_SARDen</code> into each frame. Our encode relies on the Y4M
+pipe stripping all of these and re-declares the tags on the encoder's input (see CLAUDE.md, "Colour metadata"). With the
+demuxer the script's props would reach the encoder, which would need re-checking with pixels. <code>_FieldBased</code> is
+not read.</li>
+<li><strong>Library lookup.</strong> It <code>dlopen</code>s <code>libvapoursynth-script.{so,dylib}</code>, or on Windows the
+registry's <code>VSScriptDLL</code>, else <code>VSScript.dll</code>. R78's package ships <code>libvsscript</code>; the test
+here needed a symlink.</li>
+<li><strong>Version check.</strong> It asks for <code>VSSCRIPT_API_VERSION</code> from the headers it was built with, and
+R78's <code>getVSScriptAPI</code> accepts only <code>major == 4 &amp;&amp; minor &lt;= 3</code>.</li>
+</ul>
+
+<h2>3. Which VSScript versions R78 accepts</h2>
+<table>
+<tr><th>VapourSynth headers</th><th>VSScript requested</th><th>Our bundle (R78) answers</th></tr>
+<tr><td>R78, R79</td><td class="n">4.3</td><td class="good">ok</td></tr>
+<tr><td>R80, R81, R82</td><td class="n">4.4</td><td class="bad">NULL: "Failed to initialize VSScript"</td></tr>
+</table>
+<p>Measured by <code>scripts/vsscript_api_probe.c</code>, which <code>dlopen</code>s the bundle's
+<code>libvsscript.dylib</code> and calls <code>getVSScriptAPI</code> for 4.1–4.4: 4.1, 4.2, 4.3 ok; 4.4 NULL. The header
+minors per release were read from each tag's <code>include/VSScript4.h</code>. BtbN's header pin was R80 (2026-10-02),
+R81 (10-26) and R82 (11-17).
+<span class="note">Not run: a BtbN or gyan.dev binary against the bundle (no Windows or Linux machine here). The refusal
+follows from the source and the probe.</span></p>
+
+<h2>4. Throughput and CPU</h2>
+<p>One FFmpeg binary for both arms (FFmpeg 9.0.2 built with <code>--enable-vapoursynth</code> and Homebrew's x264,
+<code>scripts/build_ffmpeg.sh</code>), so only the path through VapourSynth differs. Both arms read the source the way
+VapourBox does: a decoder ffmpeg pipes raw frames into the script's stdin, read by the worker's own
+<code>pipe_source.py</code>.</p>
+<ul>
+<li><strong>vspipe</strong>: <code>dec | vspipe -c y4m script.vpy - | ffmpeg -f yuv4mpegpipe -i - …</code></li>
+<li><strong>demuxer</strong>: <code>dec | ffmpeg -nostdin -f vapoursynth -i script.vpy …</code></li>
+</ul>
+<p>Sources: <code>testsrc2</code> with temporal noise, FFV1, 720x576 × 500 frames and 1920x1080 × 200 frames
+(<code>scripts/gen_sources.sh</code>). Scripts: <em>passthrough</em> (the pipe alone), <em>light</em> (<code>std.BoxBlur</code>),
+<em>qtgmc</em> (havsfunc QTGMC Medium, TFF, double rate). Encoders: <code>rawvideo</code> to null (isolates the VapourSynth
+side), and <code>libx264 -preset medium -crf 18</code> (a real job). Medians of 3 runs. CPU is user+sys of every process.</p>
+
+<table>
+<tr><th>Script</th><th>Size</th><th>Encoder</th><th>vspipe fps</th><th>demuxer fps</th><th class="barcell">demuxer throughput (dashed = vspipe)</th><th>Total CPU s, vspipe → demuxer</th></tr>
+<tr><td>passthrough</td><td>SD</td><td>null</td><td class="n">475.3</td><td class="n">475.3</td><td class="barcell"><span class="bar" style="width:150px"></span><span class="ref"></span> 1.00×</td><td class="n">5.5 → 5.3</td></tr>
+<tr><td>passthrough</td><td>SD</td><td>x264</td><td class="n">66.3</td><td class="n">66.8</td><td class="barcell"><span class="bar" style="width:151px"></span><span class="ref"></span> 1.01×</td><td class="n">49.6 → 49.6</td></tr>
+<tr><td>passthrough</td><td>HD</td><td>null</td><td class="n">127.6</td><td class="n">133.5</td><td class="barcell"><span class="bar" style="width:157px"></span><span class="ref" style="margin-left:-9px"></span> 1.05×</td><td class="n">9.6 → 9.3</td></tr>
+<tr><td>passthrough</td><td>HD</td><td>x264</td><td class="n">13.5</td><td class="n">13.3</td><td class="barcell"><span class="bar" style="width:148px"></span><span class="ref"></span> 0.99×</td><td class="n">100.5 → 100.7</td></tr>
+<tr><td>light</td><td>SD</td><td>null</td><td class="n">418.1</td><td class="n">339.0</td><td class="barcell"><span class="bar" style="width:122px"></span><span class="ref" style="margin-left:26px"></span> <span class="bad">0.81×</span></td><td class="n">6.6 → 6.2</td></tr>
+<tr><td>light</td><td>SD</td><td>x264</td><td class="n">130.9</td><td class="n">131.4</td><td class="barcell"><span class="bar" style="width:150px"></span><span class="ref"></span> 1.00×</td><td class="n">24.8 → 24.7</td></tr>
+<tr><td>light</td><td>HD</td><td>null</td><td class="n">109.3</td><td class="n">92.2</td><td class="barcell"><span class="bar" style="width:126px"></span><span class="ref" style="margin-left:22px"></span> <span class="bad">0.84×</span></td><td class="n">11.9 → 11.2</td></tr>
+<tr><td>light</td><td>HD</td><td>x264</td><td class="n">26.2</td><td class="n">25.1</td><td class="barcell"><span class="bar" style="width:144px"></span><span class="ref" style="margin-left:4px"></span> 0.96×</td><td class="n">51.2 → 50.8</td></tr>
+<tr><td>qtgmc</td><td>SD</td><td>null</td><td class="n">134.6</td><td class="n">40.8</td><td class="barcell"><span class="bar" style="width:45px"></span><span class="ref" style="margin-left:103px"></span> <span class="bad">0.30×</span></td><td class="n">48.2 → 44.4</td></tr>
+<tr><td>qtgmc</td><td>SD</td><td>x264</td><td class="n">56.1</td><td class="n">39.1</td><td class="barcell"><span class="bar" style="width:105px"></span><span class="ref" style="margin-left:43px"></span> <span class="bad">0.70×</span></td><td class="n">117.9 → 108.8</td></tr>
+<tr><td>qtgmc</td><td>HD</td><td>null</td><td class="n">27.4</td><td class="n">9.6</td><td class="barcell"><span class="bar" style="width:53px"></span><span class="ref" style="margin-left:95px"></span> <span class="bad">0.35×</span></td><td class="n">88.8 → 77.6</td></tr>
+<tr><td>qtgmc</td><td>HD</td><td>x264</td><td class="n">9.4</td><td class="n">7.9</td><td class="barcell"><span class="bar" style="width:126px"></span><span class="ref" style="margin-left:22px"></span> <span class="bad">0.84×</span></td><td class="n">236.7 → 222.1</td></tr>
+</table>
+<p class="note">fps counts output frames (QTGMC doubles them). <code>data/summary.csv</code> is <code>scripts/summarise.py</code>
+over <code>data/results.csv</code>; the per-process split is in the raw file.</p>
+
+<h3>What the numbers say</h3>
+<ul>
+<li><strong>The pipe is cheap.</strong> On passthrough the two arms run at the same speed. vspipe's process plus the
+encoder's Y4M read cost 0.98 s for 500 SD frames against the demuxer's 0.81 s (0.3 ms a frame), and 0.88 s against 0.59 s
+for 200 HD frames (1.5 ms a frame). x264 spends about 90 ms of CPU on each of those SD frames and 460 ms on each HD frame,
+so the pipe is under 1% of a real encode. vspipe's own process used 0.6–1.2 s in every passthrough run.</li>
+<li><strong>Serial requests cost throughput as soon as the script does real work.</strong> QTGMC through the demuxer is 3.3×
+slower at SD and 2.9× at HD when nothing else competes for the cores. x264 hides part of the loss by filling idle cores
+(0.70× and 0.84×), but every QTGMC case is slower. Even a one-pass blur loses 16–19% unencoded.</li>
+<li><strong>The demuxer used 6–13% less total CPU on QTGMC</strong> (e.g. 43.0 → 40.2 s for the VapourSynth side at SD,
+79.4 → 69.3 s at HD). Only ~0.3 s of that is the pipe, by the passthrough numbers; the rest is presumably the cost of
+running many frames at once (threads contending, more cache traffic), which is what buys vspipe its 3× throughput. Not
+investigated further. It is less CPU for a much longer job, not a saving on the same job.</li>
+<li><strong>Output is identical.</strong> QTGMC through both arms, frame MD5s: 1000 of 1000 SD frames and 400 of 400 HD
+frames equal (<code>scripts/identity.sh</code>).</li>
+</ul>
+<p class="note">Limits: one Apple Silicon machine (6 performance + 2 efficiency cores); Windows and x86 not measured, and the
+issue's report is from Windows. Synthetic sources; QTGMC's cost depends little on content, x264's a lot. Three runs per
+cell. The vspipe/QTGMC/HD/x264 runs spread from 34 to 49 s: a 146 MB download and <code>xz</code> extraction overlapped part
+of the benchmark, so that cell is the least reliable; no conclusion rests on it. Memory: the demuxer arm's encoder process
+peaked between 9 MB lower and 465 MB higher than vspipe's largest process, because it now holds the VapourSynth core as well; total memory was
+not compared.</p>
+
+<h2>5. What adopting it would take</h2>
+<p>Recorded for the next time this comes up. None of it was built.</p>
+<ul>
+<li><strong>Concurrent requests in the demuxer</strong> (upstream FFmpeg), so it keeps several frames in flight as vspipe
+does. Without this it is slower on every job that matters.</li>
+<li><strong>An FFmpeg that can load our VapourSynth</strong>: built by us against R78 headers on all four platforms (giving up
+BtbN's and martin-riedl's builds and their hardware encoders, SVT-AV1 and so on, or rebuilding them), or VapourSynth R80+,
+which needs every plugin on API 4 first (task #74). The FFmpeg pin would then be tied to the VapourSynth pin.</li>
+<li><strong>Library naming</strong>: a <code>libvapoursynth-script</code> link on macOS/Linux; on Windows
+<code>VSScript.dll</code> on the encoder's <code>PATH</code> (the portable R78 wheel registers nothing).</li>
+<li><strong>Error reporting</strong>: today a script error or a native plugin crash is vspipe's
+(<code>vspipe_failure::blame</code>, task #28). In-process, a plugin crash takes the encoder down with it, and a script
+error arrives as FFmpeg's one-line <code>Failed to parse script: …</code>.</li>
+<li><strong>Colour and aspect</strong>: the props the demuxer now honours (section 2) against the tags the encoder is given;
+checked with pixels, per CLAUDE.md.</li>
+<li><strong>stdin</strong>: the script reads the decoder's frames from stdin, so the encoder needs <code>-nostdin</code>
+(done here, and it works).</li>
+<li><strong>Preview</strong> runs vspipe as well and would need the same change.</li>
+</ul>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>Keep vspipe.</strong> The demuxer is slower on every job where filters do real work, the CPU it "saves" is the
+filters moving process, and the builds that ship it can't load R78.</li>
+<li><strong>Revisit only if</strong> FFmpeg's demuxer gains concurrent frame requests <em>and</em> the bundle has moved to
+VapourSynth R80+ (task #74). Then re-run <code>scripts/run_all.sh</code>.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre><code>WORK=/path/to/scratch DEPS=deps/macos-arm64 docs/reports/issue-225-ffmpeg-vapoursynth-demuxer/scripts/run_all.sh 3</code></pre>
+<p>Builds FFmpeg (needs Homebrew x264), makes the sources (~600 MB of FFV1), writes the scripts, runs the benchmark, the
+identity check and the VSScript probe. About 30 minutes on an M1 Pro.</p>
+</main>
+</body>
+</html>
