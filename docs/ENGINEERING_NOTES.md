@@ -5479,6 +5479,26 @@ now read 0.000; the passthrough parity baseline is 0.19. Found on the way:
 `bt2020c`, …), filed as task #73. Report:
 [docs/reports/task-67-preview-rgb-decode](reports/task-67-preview-rgb-decode/index.html).
 
+### The plugin format probe was slow, not hung: havsfunc's Lut2 tables (task #75, 2026-11-19)
+
+The push gate's quick probe timed out on macOS x64 (passing runs 442–857 s
+against 15 min, two timeouts in 25 runs), and nightly's full probe never
+finished there: its LUTDeCrawl child passed the probe's own 3600 s child
+limit. One cause: havsfunc's `LUTDeCrawl` and `LUTDeRainbow` build four
+`Lut2(function=lambda x, y: x & y)` tables per call, a million Python calls
+each at 10 bits (1.99 s per table on an M1, 7.7 s per cell), rebuilt in every
+cell: 80% of the quick probe. The probe's children now evaluate havsfunc's
+pure `Lut2` functions once per process into `lut=` lists (bit-identical, the
+same format checks; a cached list still costs ~0.28 s to hand over, so a cell
+is 1.1 s). Quick probe on CI: macOS x64 232 s, arm64 91 s, Windows 108 s,
+Linux 35 s; locally the full probe's two LUT calls went 654 s -> 96 s with the
+same cells. Kept in the push gate rather than moved to nightly (nightly runs a
+superset and was failing on the same cost). Every run now prints each call's
+time, and `--budget` stops it before the test's timeout naming the calls still
+running. Real 10-bit previews still pay ~8 s for the same tables (task #82);
+nightly's other probe differences are tasks #69 and #81. Report:
+[docs/reports/task-75-quick-probe-timeout](reports/task-75-quick-probe-timeout/index.html).
+
 ### QTGMC's "uninitialised memory" at an odd chroma width was memcheck's model of `vpmaddwd` (task #70, 2026-11-19)
 
 Task #66 saw valgrind report QTGMC's output as uninitialised on x86 Linux at

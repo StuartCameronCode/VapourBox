@@ -1,0 +1,7 @@
+havsfunc.LUTDeRainbow                     112 cells,   55 refused,    96.2 s
+havsfunc.LUTDeCrawl                       112 cells,   55 refused,    96.3 s
+probe: 2 calls in 97 s, --jobs 2, lut memo on
+real 97.27
+user 190.55
+sys 2.35
+memo exit 0
