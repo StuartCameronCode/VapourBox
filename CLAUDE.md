@@ -1244,7 +1244,9 @@ the **single** builder of both decoders' arguments (encode + preview):
     probes go through `ffprobe_run` (stderr kept, the exit status named,
     3 attempts, each failure logged on `--probe-source`'s stderr); a tail
     window that fails or keeps no picture falls back to listing every video
-    packet (`mov_last_kept`); when an MP4/MOV's head probe or the listing
+    packet (`answered_tail`, `mov_last_kept`), and a failed window never
+    reads as "no discards" (an edit's discards past its end show only in
+    the tail); when an MP4/MOV's head probe or the listing
     still fails, `--probe-source` returns an error, not a 3-frames-over count
     (docs/reports/task-83-mp4-tail-probe-flake).
   - **A job without a count takes the model's** (`apply_source_model`, over

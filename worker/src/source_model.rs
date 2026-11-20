@@ -342,7 +342,7 @@ pub fn frame_count_with_untimed_tail(
     n.max(by_duration)
 }
 
-/// What the tail probe ([`probe_tail`]) found among the last
+/// What the tail probe ([`tail_listing`]) found among the last
 /// [`TAIL_FRAMES_PROBE_SECONDS`] of a file's video packets.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct TailPictures {
@@ -557,6 +557,26 @@ pub fn mov_last_kept(
     })
 }
 
+/// An MP4/MOV's tail listing, as the count reads it: the windowed probe's
+/// answer, or when that failed after its retries, every video packet listed
+/// (task #83). A failed window must not read as "no discards": an edit
+/// list's discards past its end show only in the tail. `Err` only when the
+/// whole listing fails too.
+pub fn answered_tail(
+    windowed: Result<TailPictures, ProbeFailure>,
+    run: &mut ProbeRun,
+    delays: &[Duration],
+    log: &(dyn Fn(&str) + Sync),
+) -> Result<TailPictures, ProbeFailure> {
+    match windowed {
+        Ok(t) => Ok(t),
+        Err(e) => {
+            log(&format!("the tail probe gave no answer ({e}); listing every video packet"));
+            tail_listing(run, &tail_probe_args(None), "the whole-stream packet listing", delays, log)
+        }
+    }
+}
+
 /// The video-start probe's answer ([`source_decode::VIDEO_START_PROBE_ARGS`]),
 /// which must list packets: a source with a video stream has some, so an
 /// answer without them is a run cut short, not a fact.
@@ -710,6 +730,20 @@ pub fn probe_source_with(
     let (frame_times, frame_times_start) = match (&timeline, times) {
         (Some(_), Some((t, st))) => (Some(t), Some(st)),
         _ => (None, None),
+    };
+    // A windowed tail that gave no answer can't say there are no discards
+    // past the edit's end, so it is replaced by the whole listing before
+    // anything reads it (task #83 review).
+    let mov_tail = match mov_tail {
+        Some(windowed) => {
+            let mut run = |args: &[String]| ffprobe_run::run(ffprobe, env, args, input);
+            Some(Ok(answered_tail(windowed, &mut run, &ffprobe_run::RETRY_DELAYS, log).map_err(|e| {
+                anyhow::anyhow!(
+                    "could not count the frames of {input}: ffprobe's packet listing failed ({e})"
+                )
+            })?))
+        }
+        None => None,
     };
     let discards = start_json.as_ref().is_some_and(source_decode::discards_from_probe)
         || matches!(mov_tail, Some(Ok(t)) if t.discards);
@@ -1128,6 +1162,32 @@ mod tests {
         let mut s = Script::new(vec![Ok("1.0,_D_\n"), Ok("1.0,_D_\n")]);
         let lines = std::sync::Mutex::new(Vec::new());
         assert!(matches!(last_kept_of(&mut s, &lines), Err(ProbeFailure::Empty { .. })));
+    }
+
+    #[test]
+    fn a_failed_window_never_reads_as_no_discards() {
+        // Discards only past the edit's end (no `D` in the head probe): a
+        // window that fails every attempt is replaced by the whole listing,
+        // whose discards then decide the count.
+        let mut s = Script::new(vec![
+            Err(crashed()),
+            Err(crashed()),
+            Err(crashed()),
+            Ok("0.0,K__\n4.237567,___\n4.30,_D_\n"),
+        ]);
+        let lines = std::sync::Mutex::new(Vec::new());
+        let log = |m: &str| lines.lock().unwrap().push(m.to_string());
+        let mut run = |a: &[String]| s.run(a);
+        let windowed = tail_listing(&mut run, &tail_probe_args(Some(105.119119)), "the tail probe", &[], &log);
+        let t = answered_tail(windowed, &mut run, &[], &log).unwrap();
+        assert_eq!(t, TailPictures { last_kept: Some(4.237567), discards: true });
+        assert_eq!(s.calls, [true, true, true, false]);
+        // A window that answered is used as it is, with no second listing.
+        let mut s = Script::new(vec![]);
+        let mut run = |a: &[String]| s.run(a);
+        let ok = TailPictures { last_kept: Some(2.0), discards: false };
+        assert_eq!(answered_tail(Ok(ok), &mut run, &[], &log), Ok(ok));
+        assert!(s.calls.is_empty());
     }
 
     #[test]
