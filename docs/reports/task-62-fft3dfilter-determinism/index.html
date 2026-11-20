@@ -60,6 +60,14 @@ task #57 (10 frames), plus <code>colorize_test.mp4</code> through the worker · 
 <code>data/</code>, produced by <code>scripts/</code>.</p>
 
 <div class="card">
+<p><strong>Note, 2026-11-20 (task #80):</strong> the "Keep <code>measure=1</code>" decision below did not hold. On x86
+(Windows, Linux, Intel Mac) FFTW_MEASURE chose different plans in different processes, so a preview could still
+differ from its encode; every call now plans with <code>measure=0</code> and the patch makes it the default. Apple
+Silicon, where everything here was measured, agrees with itself either way. See
+<a href="../task-80-fft3dfilter-fftw-estimate/index.html">task-80-fft3dfilter-fftw-estimate</a>.</p>
+</div>
+
+<div class="card">
 <p><strong>Outcome: built, waiting on a deps release.</strong> TemporalDegrain2's run-to-run difference is not in
 TemporalDegrain2, MVTools or DFTTest. It is two faults in <strong>FFT3DFilter</strong>, in every build there is:
 the left border of each block buffer is mirrored from memory that has not been written yet, and a per-frame noise
@@ -286,6 +294,11 @@ template workaround was not bit-identical to the fixed plugin (section 9).</li>
 <li><strong>Build from source on every platform, never a prebuilt</strong>: every prebuilt has both faults.</li>
 <li><strong>Keep <code>measure=1</code></strong> (the default): processes agreed, and changing it would change output
 for no measured reason. <code>measure=0</code> is the fallback if CI shows a platform disagreeing.</li>
+<li><strong>Corrected by task #80 (2026-11-20):</strong> CI did show it. With <code>measure=1</code> the Windows push
+gate's second process filtered differently on some runners, and a probe of 20 processes per runner found more
+than one picture on Windows and Linux x64. Every call now passes <code>measure=0</code> and the patch makes it the
+default; the "processes agreed" above held on this Mac only. See
+<a href="../task-80-fft3dfilter-fftw-estimate/index.html">task-80-fft3dfilter-fftw-estimate</a>.</li>
 <li><strong>Kalman stays unreachable</strong>: no fix is possible without changing what it is.</li>
 </ul>
 

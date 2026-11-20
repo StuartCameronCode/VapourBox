@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FFT3DFilter FFTW plans</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  ul.notes { font-size: 14px; }
+  details summary { cursor: pointer; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>FFT3DFilter's timed FFTW plans differ between processes: plan with FFTW_ESTIMATE</h1>
+<p class="meta">2026-11-20 · task #80 (found by task #73's merge, on the Windows push gate) · measured on GitHub's
+hosted runners (Windows x64, Linux x64, macOS x64 and arm64) and an Apple M1 Pro, with the deps bundles 1.18.0-rc1 and
+the 1.18.0-rc2 build of this task · pictures: the push gate's synthetic textured clip (352x288) and
+<code>Tests/TestResources/interlaced_test.avi</code> scaled to 720x480 and 1920x1080 · every number below is in
+<code>data/</code>, produced by <code>scripts/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: fixed, in deps 1.18.0-rc2.</strong> FFT3DFilter's default <code>measure=1</code> makes FFTW time
+its candidate algorithms when the filter is created and keep the fastest. The winner depends on the machine's load
+at that moment, and different algorithms round floats differently, so <strong>two processes could filter the same
+frame differently</strong>. A preview and its encode are two vspipe processes, so this was the preview ≠ encode bug
+task #62 had just fixed, by another route. On x86 it happened on every platform: across 20 fresh processes, at least
+one argument class came out more than one way on <strong>every</strong> Windows, Linux and Intel-Mac runner probed.
+Apple Silicon agreed with itself every time, which is why task #62 (measured there) did not see it.</p>
+<p><code>measure=0</code> (FFTW_ESTIMATE) picks the plan from heuristics, with no timing: one picture per machine on
+every runner, every key, 20 processes each. The template's three FFT3DFilter calls now pass <code>measure=0</code>,
+and the patch makes it the plugin's default, for havsfunc's calls (QTGMC, MCTemporalDenoise). Both are needed:
+<strong>FFTW reuses a measured plan made earlier in the same process for a later ESTIMATE request of the same
+problem</strong>, so one measured call undoes an explicit <code>measure=0</code> (section 3).</p>
+<p>Cost: only TemporalDegrain2's FFT post pass (postFFT 1 or 2, off by default) changes speed or picture. That call
+alone is 13–32% slower on x86 and a whole TD2 job with it about 5–23% slower; its picture moves by at most 1 level in
+under 0.1% of 8-bit samples. The FFT3D method, TD2's spatial pass and QTGMC's fft3dfilter denoiser are within run
+noise for speed; their 8-bit pictures came out identical to every <code>measure=1</code> plan drawn, and at 16 bits
+two of them differed from some draws by one code value (1/257 of an 8-bit level) in under 0.25% of samples.</p>
+</div>
+
+<h2>1. What the push gate saw</h2>
+<p>Task #62's push-gate test (<code>vapoursynth_integration_test.dart</code>, "fft3dfilter is deterministic") runs
+each argument class in six fresh graphs, then runs the whole script in a second process and compares hashes. The six
+graphs always agreed (FFTW caches a plan per process); the second process sometimes did not:</p>
+<ul class="notes">
+<li>Run 44510129664 (PR #229, deps 1.18.0-rc1), Intel Family 6 Model 207: attempt 1 differed in <code>td2_spat</code>
+at 8 and 16 bits; attempt 2 in all 8 classes.</li>
+<li>Run 44611343325, AMD Family 25 Model 17: 5 of 8 classes.</li>
+<li>Six other Windows jobs on the same bundle passed, AMD Family 25 Model 17 among them: it is load, not the CPU model.</li>
+</ul>
+<p class="muted">Hashes: <code>data/ci-push-gate-windows.txt</code>. gh returned the same log for both attempts' job IDs
+of run 44510129664; the attempt 1 figures are the ones quoted in the task.</p>
+
+<h2>2. Why: the planner, and the evidence for it</h2>
+<p>At tag R2, <code>FFT3DFilterTransform</code> and <code>FFT3DFilterInvTransform</code> plan with
+<code>(measure ? FFTW_MEASURE : FFTW_ESTIMATE) | FFTW_DESTROY_INPUT</code>, and <code>Plugin.cpp</code> defaults
+<code>measure</code> to 1. FFTW_MEASURE runs and times the candidate algorithms; ESTIMATE chooses by a cost model.
+Plans are made in the filter's constructor, so once per graph, and FFTW keeps them as process-wide "wisdom".</p>
+<p><code>scripts/xproc.py</code> hashes six calls (the classes below) on two pictures at 8 and 16 bits, 22 keys in
+all, in one process at one <code>measure</code> value; <code>scripts/probe.py</code> runs it in 20 fresh processes per
+value and counts distinct hashes per key. "default" is the call with no <code>measure</code> argument.</p>
+<ul class="notes">
+<li><code>td2_spat</code>: TemporalDegrain2's spatial pass at its defaults (sigma pattern, bt 3, 32 px blocks).</li>
+<li><code>td2_post</code>: TD2's post pass, postFFT 1 (sigma 1, bt 3, 48 px blocks).</li>
+<li><code>nr_bt3</code>, <code>nr_bt5</code>: the Noise Reduction FFT3D method at bt 3 (its default) and 5.</li>
+<li><code>bt1</code>: sigma 16, bt 1, as in the push gate.</li>
+<li><code>qtgmc</code>: havsfunc's QTGMC, Preset Fast, NoiseProcess 1, Denoiser fft3dfilter, NoiseTR 1 (FFT3DFilter at
+bt 3 inside); run at 0 or 1 by injecting <code>measure</code> into havsfunc's <code>core</code>
+(<code>common._MeasureCore</code>).</li>
+</ul>
+
+<h3>Deps 1.18.0-rc1 (the plugin's default is measure=1)</h3>
+<!--T:run 1, rc1: cross-process hashes-->
+<table><thead><tr><th>job</th><th>CPU</th><th>measure=0</th><th>measure=1</th><th>default</th><th>0 after 1, one process</th></tr></thead><tbody>
+<tr><td>ci-rc1-run1-linux-x64-1</td><td>(x86_64)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">10/22 keys: &gt;1 (up to 2)</td><td class="bad">4/22 keys: &gt;1 (up to 3)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run1-linux-x64-2</td><td>(x86_64)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">16/22 keys: &gt;1 (up to 5)</td><td class="bad">16/22 keys: &gt;1 (up to 3)</td><td>td2_post, td2_spat (6 keys)</td></tr>
+<tr><td>ci-rc1-run1-macos-arm64-1</td><td>(arm)</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run1-macos-x64-1</td><td>(i386)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">22/22 keys: &gt;1 (up to 12)</td><td class="bad">4/22 keys: &gt;1 (up to 8)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run1-windows-x64-1</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">22/22 keys: &gt;1 (up to 4)</td><td class="bad">22/22 keys: &gt;1 (up to 5)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run1-windows-x64-2</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">22/22 keys: &gt;1 (up to 6)</td><td class="bad">22/22 keys: &gt;1 (up to 6)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run1-windows-x64-3</td><td>Intel64 Family 6 Model 207 Stepping 2</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 8)</td><td class="bad">4/22 keys: &gt;1 (up to 6)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run1-windows-x64-4</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 5)</td><td class="bad">15/22 keys: &gt;1 (up to 7)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run1-windows-x64-5</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 4)</td><td class="bad">4/22 keys: &gt;1 (up to 6)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run1-windows-x64-6</td><td>AMD64 Family 26 Model 2 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 7)</td><td class="bad">22/22 keys: &gt;1 (up to 7)</td><td>td2_post (4 keys)</td></tr>
+</tbody></table>
+<!--/T-->
+<!--T:run 2, rc1: cross-process hashes-->
+<table><thead><tr><th>job</th><th>CPU</th><th>measure=0</th><th>measure=1</th><th>default</th><th>0 after 1, one process</th></tr></thead><tbody>
+<tr><td>ci-rc1-run2-linux-x64-1</td><td>(x86_64)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">6/22 keys: &gt;1 (up to 5)</td><td class="bad">17/22 keys: &gt;1 (up to 6)</td><td>bt1, nr_bt3, nr_bt5, qtgmc, td2_post, td2_spat (15 keys)</td></tr>
+<tr><td>ci-rc1-run2-linux-x64-2</td><td>(x86_64)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">16/22 keys: &gt;1 (up to 4)</td><td class="bad">16/22 keys: &gt;1 (up to 3)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run2-macos-arm64-1</td><td>(arm)</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run2-macos-x64-1</td><td>(i386)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 9)</td><td class="bad">4/22 keys: &gt;1 (up to 7)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run2-windows-x64-1</td><td>AMD64 Family 26 Model 2 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">22/22 keys: &gt;1 (up to 5)</td><td class="bad">4/22 keys: &gt;1 (up to 4)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run2-windows-x64-2</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 7)</td><td class="bad">4/22 keys: &gt;1 (up to 4)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run2-windows-x64-3</td><td>AMD64 Family 25 Model 17 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 4)</td><td class="bad">22/22 keys: &gt;1 (up to 2)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run2-windows-x64-4</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 3)</td><td class="bad">10/22 keys: &gt;1 (up to 4)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run2-windows-x64-5</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">22/22 keys: &gt;1 (up to 7)</td><td class="bad">4/22 keys: &gt;1 (up to 6)</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc1-run2-windows-x64-6</td><td>AMD64 Family 25 Model 17 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 3)</td><td class="bad">22/22 keys: &gt;1 (up to 4)</td><td>td2_post (4 keys)</td></tr>
+</tbody></table>
+<!--/T-->
+<p>Each row is one runner; a cell counts the keys whose 20 processes did <em>not</em> all agree (and the most hashes
+any key had). Which keys disagree varies from run to run on the same runner type, as timing would. The local M1 Pro:</p>
+<!--T:local M1 Pro, rc1-->
+<table><thead><tr><th>job</th><th>CPU</th><th>measure=0</th><th>measure=1</th><th>default</th><th>0 after 1, one process</th></tr></thead><tbody>
+<tr><td>local-macos-arm64-rc1-xproc</td><td>(arm)</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+</tbody></table>
+<!--/T-->
+<p class="muted">Limits: 20 processes per value on 10 runners per run is a sample, not proof that ESTIMATE can never
+vary; a runner's CPU is in its CI log's "CPU" step and, for Windows, in the table. CI runners share their hosts, so
+timing noise there is likely higher than on a user's machine. That makes MEASURE flip more often on CI, but a user's
+preview runs while the machine is decoding and encoding, which is load too.</p>
+
+<h2>3. FFTW reuses a measured plan for an ESTIMATE request</h2>
+<p><code>scripts/wisdom.py</code> plans every key at <code>measure=1</code> in one process, then at
+<code>measure=0</code>, and compares the second hashes with a fresh <code>measure=0</code> process (last column of the
+tables). On every runner and the M1 Pro, the in-process <code>measure=0</code> differed from the fresh one wherever
+the two planners choose differently (always <code>td2_post</code>; on some x86 runs every class): FFTW's planner uses
+wisdom made at a more patient level for a less patient request. So an explicit <code>measure=0</code> is only safe if
+nothing in the process measured the same problem first. A job runs QTGMC (havsfunc, no <code>measure</code>
+argument) and TemporalDegrain2 in one script, so the plugin's default had to change too, not only the template's
+calls.</p>
+
+<h2>4. The rc2 build: default = measure=0</h2>
+<p>The same probe against the build-deps artifacts of this branch (runs 44621393568, 44621399073, 44621408062):</p>
+<!--T:run 3, rc2 build: cross-process hashes-->
+<table><thead><tr><th>job</th><th>CPU</th><th>measure=0</th><th>measure=1</th><th>default</th><th>0 after 1, one process</th></tr></thead><tbody>
+<tr><td>ci-rc2-run3-linux-x64-1</td><td>(x86_64)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">16/22 keys: &gt;1 (up to 4)</td><td class="ok">22/22 keys: 1 hash</td><td>bt1, nr_bt3, nr_bt5, qtgmc, td2_post, td2_spat (16 keys)</td></tr>
+<tr><td>ci-rc2-run3-linux-x64-2</td><td>(x86_64)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 4)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run3-macos-arm64-1</td><td>(arm)</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run3-windows-x64-1</td><td>AMD64 Family 25 Model 17 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">22/22 keys: &gt;1 (up to 6)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run3-windows-x64-2</td><td>AMD64 Family 25 Model 17 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 5)</td><td class="ok">22/22 keys: 1 hash</td><td>bt1, nr_bt3, nr_bt5, qtgmc, td2_post, td2_spat (22 keys)</td></tr>
+<tr><td>ci-rc2-run3-windows-x64-3</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">6/22 keys: &gt;1 (up to 9)</td><td class="ok">22/22 keys: 1 hash</td><td>bt1, nr_bt3, nr_bt5, qtgmc, td2_post, td2_spat (22 keys)</td></tr>
+<tr><td>ci-rc2-run3-windows-x64-4</td><td>AMD64 Family 25 Model 17 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 5)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run3-windows-x64-5</td><td>AMD64 Family 25 Model 17 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 4)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run3-windows-x64-6</td><td>AMD64 Family 25 Model 17 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 3)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+</tbody></table>
+<!--/T-->
+<!--T:run 4, rc2 build: cross-process hashes-->
+<table><thead><tr><th>job</th><th>CPU</th><th>measure=0</th><th>measure=1</th><th>default</th><th>0 after 1, one process</th></tr></thead><tbody>
+<tr><td>ci-rc2-run4-linux-x64-1</td><td>(x86_64)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">16/22 keys: &gt;1 (up to 4)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run4-linux-x64-2</td><td>(x86_64)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">16/22 keys: &gt;1 (up to 4)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run4-macos-arm64-1</td><td>(arm)</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run4-macos-x64-1</td><td>(i386)</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">22/22 keys: &gt;1 (up to 4)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run4-windows-x64-1</td><td>AMD64 Family 26 Model 2 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">11/22 keys: &gt;1 (up to 5)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run4-windows-x64-2</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 4)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run4-windows-x64-3</td><td>Intel64 Family 6 Model 207 Stepping 2</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">4/22 keys: &gt;1 (up to 5)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run4-windows-x64-4</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">5/22 keys: &gt;1 (up to 8)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run4-windows-x64-5</td><td>Intel64 Family 6 Model 207 Stepping 2</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">22/22 keys: &gt;1 (up to 8)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+<tr><td>ci-rc2-run4-windows-x64-6</td><td>AMD64 Family 25 Model 1 Stepping 1</td><td class="ok">22/22 keys: 1 hash</td><td class="bad">22/22 keys: &gt;1 (up to 6)</td><td class="ok">22/22 keys: 1 hash</td><td>td2_post (4 keys)</td></tr>
+</tbody></table>
+<!--/T-->
+<pre><!--T:default vs measure=0 (ci-rc2-*.json)-->
+ci-rc2-run3-linux-x64-1.json: default == measure=0 on every key: True
+ci-rc2-run3-linux-x64-2.json: default == measure=0 on every key: True
+ci-rc2-run3-macos-arm64-1.json: default == measure=0 on every key: True
+ci-rc2-run3-windows-x64-1.json: default == measure=0 on every key: True
+ci-rc2-run3-windows-x64-2.json: default == measure=0 on every key: True
+ci-rc2-run3-windows-x64-3.json: default == measure=0 on every key: True
+ci-rc2-run3-windows-x64-4.json: default == measure=0 on every key: True
+ci-rc2-run3-windows-x64-5.json: default == measure=0 on every key: True
+ci-rc2-run3-windows-x64-6.json: default == measure=0 on every key: True
+ci-rc2-run4-linux-x64-1.json: default == measure=0 on every key: True
+ci-rc2-run4-linux-x64-2.json: default == measure=0 on every key: True
+ci-rc2-run4-macos-arm64-1.json: default == measure=0 on every key: True
+ci-rc2-run4-macos-x64-1.json: default == measure=0 on every key: True
+ci-rc2-run4-windows-x64-1.json: default == measure=0 on every key: True
+ci-rc2-run4-windows-x64-2.json: default == measure=0 on every key: True
+ci-rc2-run4-windows-x64-3.json: default == measure=0 on every key: True
+ci-rc2-run4-windows-x64-4.json: default == measure=0 on every key: True
+ci-rc2-run4-windows-x64-5.json: default == measure=0 on every key: True
+ci-rc2-run4-windows-x64-6.json: default == measure=0 on every key: True
+<!--/T--></pre>
+<p><code>measure=1</code> still varies (it still exists); the default and <code>measure=0</code> agree everywhere, one
+hash per key. Locally, a build of the patched R2 dropped into the rc1 bundle gives the same: default = measure=0, and
+through the worker two previews and the FFV1 encode are identical for the FFT3D method, TD2 with postFFT 1 and QTGMC's
+fft3dfilter denoiser (<code>integration_fft3dfilter_determinism_test.dart</code>).</p>
+
+<h2>5. How far the picture moves</h2>
+<p><code>scripts/move.py</code> filters the 720x480 fixture (20 frames) at <code>measure=0</code> and then
+<code>measure=1</code> in one fresh process per depth (0 first: a MEASURE request never reuses an ESTIMATE plan), and
+compares. On x86 the <code>measure=1</code> side is whichever plan that process timed best, so run 4 repeats it 5
+times per depth per runner and keeps the worst; "8-bit levels" divides 16-bit differences by 257.</p>
+<!--T:move, run 2 (rc1), one draw per job-->
+<table><thead><tr><th>call, depth</th><th>jobs that moved</th><th>max (8-bit levels)</th><th>samples changed</th><th>mean (8-bit levels)</th><th>min PSNR</th></tr></thead><tbody>
+<tr><td>bt1 16</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>bt1 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt3 16</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt3 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt5 16</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt5 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>qtgmc 16</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>qtgmc 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>td2_post 16</td><td>10/10</td><td>0.004</td><td>5.8122%</td><td>0.00023</td><td>108.7 dB</td></tr>
+<tr><td>td2_post 8</td><td>10/10</td><td>1</td><td>0.0670%</td><td>0.00067</td><td>79.9 dB</td></tr>
+<tr><td>td2_spat 16</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>td2_spat 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+</tbody></table>
+<!--/T-->
+<!--T:move, run 4 (rc2), worst of 5 draws per job-->
+<table><thead><tr><th>call, depth</th><th>jobs that moved</th><th>max (8-bit levels)</th><th>samples changed</th><th>mean (8-bit levels)</th><th>min PSNR</th></tr></thead><tbody>
+<tr><td>bt1 16</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>bt1 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt3 16</td><td>3/10</td><td>0.004</td><td>0.2470%</td><td>0.00001</td><td>122.4 dB</td></tr>
+<tr><td>nr_bt3 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt5 16</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt5 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>qtgmc 16</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>qtgmc 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>td2_post 16</td><td>10/10</td><td>0.004</td><td>5.8122%</td><td>0.00023</td><td>108.7 dB</td></tr>
+<tr><td>td2_post 8</td><td>10/10</td><td>1</td><td>0.0670%</td><td>0.00067</td><td>79.9 dB</td></tr>
+<tr><td>td2_spat 16</td><td>3/10</td><td>0.004</td><td>0.0708%</td><td>0.00000</td><td>127.8 dB</td></tr>
+<tr><td>td2_spat 8</td><td>0/10</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+</tbody></table>
+<!--/T-->
+<!--T:move, local M1 Pro-->
+<table><thead><tr><th>call, depth</th><th>jobs that moved</th><th>max (8-bit levels)</th><th>samples changed</th><th>mean (8-bit levels)</th><th>min PSNR</th></tr></thead><tbody>
+<tr><td>bt1 16</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>bt1 8</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt3 16</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt3 8</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt5 16</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>nr_bt5 8</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>qtgmc 16</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>qtgmc 8</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>td2_post 16</td><td>1/1</td><td>0.004</td><td>4.0276%</td><td>0.00016</td><td>110.3 dB</td></tr>
+<tr><td>td2_post 8</td><td>1/1</td><td>1</td><td>0.0295%</td><td>0.00029</td><td>83.4 dB</td></tr>
+<tr><td>td2_spat 16</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+<tr><td>td2_spat 8</td><td>0/1</td><td>0</td><td>0</td><td>0</td><td>identical</td></tr>
+</tbody></table>
+<!--/T-->
+<p><code>td2_post</code>, the 48-px post pass, moved on every runner: at most 1 level at 8 bits, in under 0.1% of
+samples; at 16 bits up to 6% of samples by 1 code value (0.004 of an 8-bit level). With five draws per runner (run 4),
+<code>nr_bt3</code> and <code>td2_spat</code> at 16 bits also differed from some <code>measure=1</code> draws on 3 of
+10 runners, by 1 code value in under 0.25% of samples; with one draw (run 2) they had looked identical. Every other
+key, and every 8-bit key but <code>td2_post</code>, was identical to every draw.</p>
+<p class="muted">Correction in place: a first reading of run 2 (one draw per runner) said "only td2_post moves". The
+5-draw run shows the 16-bit exceptions above; the first version of <code>move.py</code> also ran both depths in one
+process, so the 16-bit run inherited the 8-bit run's measured plans and showed no difference at all (section 3's
+effect), and was replaced by one process per depth.</p>
+<p class="muted">Limits: one fixture (VHS, interlaced, scaled); identical classes mean no draw here picked a plan that
+rounds differently, not that none could (the cross-process tables show <code>measure=1</code> producing several
+pictures for those classes on some runners, so those pictures differ from each other, and ESTIMATE is one of them or
+equally close). PSNR at these levels says only "rounding".</p>
+
+<h2>6. Speed</h2>
+<p><code>scripts/speed.py</code>: one process per value, the fixture held in memory so only the filter is timed;
+frames per second over 119 frames after the first, median of runs interleaved 0/1/0/1 (3 per runner on CI, 7 on the
+M1 Pro). <code>td2_full</code> is the template's whole TemporalDegrain2 at postFFT 1. Each cell is the median change
+of <code>measure=0</code> against <code>measure=1</code> across that platform's runners, with the range. Filter
+creation, where FFTW plans, took milliseconds either way.</p>
+<!--T:speed, runs 3 and 4 (rc2)-->
+<table><thead><tr><th>call</th><th>windows-x64 (12)</th><th>linux-x64 (4)</th><th>macos-x64 (1)</th><th>macos-arm64 (2)</th></tr></thead><tbody>
+<tr><td>bt1 1920x1080</td><td>+0% (-3..+8)</td><td>-1% (-3..+2)</td><td>-4% (-4..-4)</td><td>+13% (+6..+20)</td></tr>
+<tr><td>bt1 720x480</td><td>+1% (-5..+19)</td><td>-1% (-1..+5)</td><td>+10% (+10..+10)</td><td>-13% (-21..-4)</td></tr>
+<tr><td>nr_bt3 1920x1080</td><td>+0% (-2..+6)</td><td>+0% (-2..+2)</td><td>-6% (-6..-6)</td><td>+10% (-9..+29)</td></tr>
+<tr><td>nr_bt3 720x480</td><td>+1% (-3..+23)</td><td>+1% (-1..+3)</td><td>+3% (+3..+3)</td><td>+10% (+3..+18)</td></tr>
+<tr><td>nr_bt5 1920x1080</td><td>+1% (-1..+1)</td><td>-1% (-2..+0)</td><td>-5% (-5..-5)</td><td>-7% (-46..+32)</td></tr>
+<tr><td>nr_bt5 720x480</td><td>+1% (-1..+25)</td><td>+0% (-1..+4)</td><td>+2% (+2..+2)</td><td>+8% (+4..+12)</td></tr>
+<tr><td>qtgmc 1920x1080</td><td>+0% (-4..+2)</td><td>-0% (-0..+1)</td><td>-1% (-1..-1)</td><td>-10% (-22..+3)</td></tr>
+<tr><td>qtgmc 720x480</td><td>+0% (-3..+20)</td><td>+0% (-1..+1)</td><td>+15% (+15..+15)</td><td>-1% (-3..+2)</td></tr>
+<tr><td>td2_full 1920x1080</td><td>-16% (-20..-12)</td><td>-14% (-17..-14)</td><td>-9% (-9..-9)</td><td>+37% (+29..+45)</td></tr>
+<tr><td>td2_full 720x480</td><td>-19% (-23..+1)</td><td>-5% (-8..-5)</td><td>-0% (-0..-0)</td><td>-10% (-13..-8)</td></tr>
+<tr><td>td2_post 1920x1080</td><td>-28% (-32..-24)</td><td>-15% (-22..-13)</td><td>-1% (-1..-1)</td><td>+2% (+1..+3)</td></tr>
+<tr><td>td2_post 720x480</td><td>-31% (-32..-28)</td><td>-19% (-22..-18)</td><td>-5% (-5..-5)</td><td>-1% (-15..+12)</td></tr>
+<tr><td>td2_spat 1920x1080</td><td>-0% (-2..+26)</td><td>-1% (-2..-0)</td><td>-3% (-3..-3)</td><td>-15% (-20..-10)</td></tr>
+<tr><td>td2_spat 720x480</td><td>+1% (-3..+11)</td><td>+1% (-1..+2)</td><td>+1% (+1..+1)</td><td>+1% (-6..+8)</td></tr>
+</tbody></table>
+<!--/T-->
+<!--T:speed, local M1 Pro-->
+<table><thead><tr><th>call</th><th>macos-arm64 (1)</th></tr></thead><tbody>
+<tr><td>bt1 1920x1080</td><td>-3% (-3..-3)</td></tr>
+<tr><td>bt1 720x480</td><td>-2% (-2..-2)</td></tr>
+<tr><td>nr_bt3 1920x1080</td><td>+2% (+2..+2)</td></tr>
+<tr><td>nr_bt3 720x480</td><td>-1% (-1..-1)</td></tr>
+<tr><td>nr_bt5 1920x1080</td><td>+1% (+1..+1)</td></tr>
+<tr><td>nr_bt5 720x480</td><td>-3% (-3..-3)</td></tr>
+<tr><td>qtgmc 1920x1080</td><td>+1% (+1..+1)</td></tr>
+<tr><td>qtgmc 720x480</td><td>-4% (-4..-4)</td></tr>
+<tr><td>td2_full 1920x1080</td><td>-15% (-15..-15)</td></tr>
+<tr><td>td2_full 720x480</td><td>-6% (-6..-6)</td></tr>
+<tr><td>td2_post 1920x1080</td><td>-11% (-11..-11)</td></tr>
+<tr><td>td2_post 720x480</td><td>-15% (-15..-15)</td></tr>
+<tr><td>td2_spat 1920x1080</td><td>-1% (-1..-1)</td></tr>
+<tr><td>td2_spat 720x480</td><td>+0% (+0..+0)</td></tr>
+</tbody></table>
+<!--/T-->
+<details><summary>Speed on rc1 (run 2, without td2_full)</summary>
+<!--T:speed, run 2 (rc1)-->
+<table><thead><tr><th>call</th><th>windows-x64 (6)</th><th>linux-x64 (2)</th><th>macos-x64 (1)</th><th>macos-arm64 (1)</th></tr></thead><tbody>
+<tr><td>bt1 1920x1080</td><td>-0% (-1..+1)</td><td>-1% (-2..+1)</td><td>-11% (-11..-11)</td><td>+15% (+15..+15)</td></tr>
+<tr><td>bt1 720x480</td><td>-0% (-5..+2)</td><td>+1% (+1..+2)</td><td>-5% (-5..-5)</td><td>+5% (+5..+5)</td></tr>
+<tr><td>nr_bt3 1920x1080</td><td>+0% (-1..+0)</td><td>-2% (-2..-1)</td><td>+21% (+21..+21)</td><td>-32% (-32..-32)</td></tr>
+<tr><td>nr_bt3 720x480</td><td>-1% (-3..+1)</td><td>+2% (+1..+2)</td><td>-1% (-1..-1)</td><td>+55% (+55..+55)</td></tr>
+<tr><td>nr_bt5 1920x1080</td><td>-1% (-2..+1)</td><td>-0% (-0..+0)</td><td>-12% (-12..-12)</td><td>-1% (-1..-1)</td></tr>
+<tr><td>nr_bt5 720x480</td><td>-0% (-4..+3)</td><td>+0% (-0..+1)</td><td>+17% (+17..+17)</td><td>+49% (+49..+49)</td></tr>
+<tr><td>qtgmc 1920x1080</td><td>+0% (-1..+2)</td><td>-1% (-1..-0)</td><td>-8% (-8..-8)</td><td>-2% (-2..-2)</td></tr>
+<tr><td>qtgmc 720x480</td><td>-0% (-1..+1)</td><td>-0% (-1..+0)</td><td>+30% (+30..+30)</td><td>-20% (-20..-20)</td></tr>
+<tr><td>td2_post 1920x1080</td><td>-28% (-30..-27)</td><td>-16% (-17..-16)</td><td>-6% (-6..-6)</td><td>-0% (-0..-0)</td></tr>
+<tr><td>td2_post 720x480</td><td>-31% (-32..-30)</td><td>-18% (-18..-18)</td><td>+19% (+19..+19)</td><td>+5% (+5..+5)</td></tr>
+<tr><td>td2_spat 1920x1080</td><td>-0% (-3..+3)</td><td>+0% (-0..+1)</td><td>+6% (+6..+6)</td><td>+10% (+10..+10)</td></tr>
+<tr><td>td2_spat 720x480</td><td>-2% (-5..+0)</td><td>-1% (-1..-0)</td><td>+8% (+8..+8)</td><td>-5% (-5..-5)</td></tr>
+</tbody></table>
+<!--/T-->
+</details>
+<p>Consistent across runners: <code>td2_post</code> alone is 13–22% slower on Linux, 24–32% on Windows, 11–15% on the
+M1 Pro; a whole TD2 job with the post pass is 12–23% slower on Windows, 5–17% on Linux, 6–15% on the M1 Pro.
+Everything else is within noise on Windows and Linux. The macOS CI runners (3–4 shared cores) swing by tens of
+percent between neighbouring cells in both directions, so their cells say nothing either way; the M1 Pro is the macOS
+figure.</p>
+<p class="muted">Limits: hosted runners, short clips, 8 threads. The post pass is off by default
+(<code>td2PostFft</code> 0), so a default TD2 job runs only the spatial pass, which costs nothing measurable.</p>
+
+<h2>Decisions</h2>
+<ul class="notes">
+<li><strong>Plan with ESTIMATE everywhere, and make it the plugin's default.</strong> The template's calls pass
+<code>measure=0</code> (so a bundle older than rc2 is fixed for them too, and the script says what it relies on);
+the patch's default covers havsfunc and closes the wisdom trap. <code>test_261</code> fails on a template call
+without it.</li>
+<li><strong>Accept the cost on TD2's post pass.</strong> Preview = encode is the point of task #62; a 15–30% slower
+opt-in pass is the price. The alternative, shipping FFTW wisdom measured once per platform at build time, would be
+deterministic only on the CPU it was measured on and needs import code in the plugin; not worth it at this cost.</li>
+<li><strong>Correction to task #62.</strong> Its decision "Keep <code>measure=1</code>: processes agreed" rested on an
+Apple Silicon Mac, where they do. A note at the top of that report links here.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul class="notes">
+<li>Users' machines: only hosted runners and one M1 Pro. Linux arm64 (no runner in this probe) and the v2 CPU tier
+(the plugin is the same file in both tiers; FFTW's own SIMD dispatch differs by CPU, which ESTIMATE still uses).</li>
+<li>Whether ESTIMATE agrees <em>between</em> machines: it need not, and nothing needs it to; preview and encode run
+on the same machine.</li>
+<li>The heavy determinism test on CI against rc2 (run locally on the M1 Pro only); the push gate on all four
+platforms against the rc2 artifacts is CI run 44696475156.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul class="notes">
+<li><code>common.py</code>: pictures, the six calls, <code>_MeasureCore</code>. <code>xproc.py</code>,
+<code>wisdom.py</code>, <code>speed.py</code>, <code>move.py</code>: one measurement each. <code>probe.py</code>: all
+of them, in fresh processes, one JSON document. <code>tables.py</code>: this page's tables from <code>data/</code>.
+<code>summarize.py</code>: a probe's headline.</li>
+<li>Run with a bundle's Python: <code>scripts/run.sh &lt;deps dir&gt; probe.py 20 3</code> (macOS/Linux) or
+<code>scripts/run.ps1 &lt;deps dir&gt; probe.py 20 3</code> (Windows). <code>SCRATCH</code> holds the decoded fixture.
+The CI runs used a temporary workflow (removed before merge) that installed each bundle with
+<code>.github/scripts/install-deps-bundle.sh</code> and ran exactly that.</li>
+<li>Data: <code>ci-rc1-run1-*</code> (run 44620262726; its speed/move came from first versions of the scripts that
+timed the Python source and let the 8-bit run's plans leak into the 16-bit one, so they were dropped),
+<code>ci-rc1-run2-*</code> (44621393009), <code>ci-rc2-run3-*</code> (44625885413, no macOS x64: its build was still
+running), <code>ci-rc2-run4-*</code> (44696474612), <code>local-*</code> (M1 Pro).</li>
+</ul>
+
+</main>
+</body>
+</html>

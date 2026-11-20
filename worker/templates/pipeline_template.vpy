@@ -1049,11 +1049,14 @@ clip = core.dfttest.DFTTest(
 
 {{#NR_FFT3D}}
 # FFT3DFilter — the classic 3D FFT spatio-temporal denoiser. Fast and
-# aggressive; the traditional first stop for VHS luma noise.
+# aggressive; the traditional first stop for VHS luma noise. measure=0
+# (FFTW_ESTIMATE): a timed plan can differ from process to process, so the
+# preview would not show what the encode writes (task #80).
 clip = core.fft3dfilter.FFT3DFilter(
     clip,
     sigma={{NR_FFT3D_SIGMA}},
     bt={{NR_FFT3D_BT}},
+    measure=0,
 {{#NR_FFT3D_SHARPEN}}
     sharpen={{NR_FFT3D_SHARPEN}},
 {{/NR_FFT3D_SHARPEN}}

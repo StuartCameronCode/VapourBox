@@ -633,6 +633,13 @@ print("fmtconv r31 chroma placement OK")
   // process must agree with the first (FFTW plans are chosen per process),
   // and a flat picture must come out flat at the left edge.
   // docs/reports/task-62-fft3dfilter-determinism.
+  //
+  // Task #80: with measure=1 (FFTW_MEASURE) FFTW times its plans once per
+  // process, so the second process sometimes chose another plan (Windows CI).
+  // The templates pass measure=0 (FFTW_ESTIMATE), and from deps 1.18.0-rc2
+  // the patch makes it the plugin's default, for havsfunc's calls (QTGMC),
+  // which pass none. Those two classes run only on such a bundle.
+  // docs/reports/task-80-fft3dfilter-fftw-estimate.
   group('fft3dfilter determinism', () {
     test('fft3dfilter is deterministic (task #62)', () async {
       if (_depsVersionAtMost(depsDir, [1, 17])) {
@@ -640,13 +647,16 @@ print("fmtconv r31 chroma placement OK")
             '(task #62); enforced from deps 1.18.0');
         return;
       }
-      const script = r'''
+      // The plugin's default is measure=0 from deps 1.18.0-rc2 (task #80).
+      final estimateDefault = !_depsVersionBefore(depsDir, '1.18.0-rc2');
+      final script = r'''
 import ctypes
 import hashlib
 import random
 import vapoursynth as vs
 core = vs.core
 core.num_threads = 8
+ESTIMATE_DEFAULT = False  # replaced from Dart: the bundle's default is measure=0
 
 # A textured, moving picture: seeded noise (a new pattern every frame) half
 # blurred, so every block has detail and every frame differs, on any platform.
@@ -668,15 +678,28 @@ clip8 = core.std.Merge(noise, core.std.BoxBlur(noise, hradius=3, vradius=3), 0.6
 assert clip8.format.id == vs.YUV420P8, clip8.format.name
 clip16 = core.resize.Point(clip8, format=vs.YUV420P16)
 
+# Every call passes measure=0, as the templates do (task #80).
 ARGS = {
     # TemporalDegrain2's spatial pass: a sigma pattern, bt=3.
     'td2_spat': dict(planes=[0, 1, 2], sigma=16, sigma2=10, sigma3=6, sigma4=4,
-                     bt=3, bw=32, bh=32, ow=8, oh=8),
-    # Noise Reduction's FFT3DFilter method and TD2's post pass: one sigma, bt>1.
-    'single_sigma_bt3': dict(sigma=2.0, bt=3),
-    'single_sigma_bt5': dict(sigma=4.0, bt=5),
-    'bt1': dict(sigma=16, bt=1),
+                     bt=3, bw=32, bh=32, ow=8, oh=8, measure=0),
+    # TD2's post pass: one sigma, bt=3, 48 px blocks (where FFTW_ESTIMATE and
+    # FFTW_MEASURE choose different plans on macOS arm64).
+    'td2_post': dict(planes=[0, 1, 2], sigma=1.0, bt=3, bw=48, bh=48, measure=0),
+    # Noise Reduction's FFT3DFilter method: one sigma, bt>1.
+    'single_sigma_bt3': dict(sigma=2.0, bt=3, measure=0),
+    'single_sigma_bt5': dict(sigma=4.0, bt=5, measure=0),
+    'bt1': dict(sigma=16, bt=1, measure=0),
 }
+CALLS = {name: (lambda c, kw=kw: core.fft3dfilter.FFT3DFilter(c, **kw))
+         for name, kw in ARGS.items()}
+if ESTIMATE_DEFAULT:
+    import havsfunc as haf
+    # havsfunc's calls pass no measure: the plugin's default must be ESTIMATE.
+    CALLS['default'] = lambda c: core.fft3dfilter.FFT3DFilter(
+        c, planes=[0, 1, 2], sigma=1.0, bt=3, bw=48, bh=48)
+    CALLS['qtgmc'] = lambda c: haf.QTGMC(
+        c, Preset='Fast', TFF=True, NoiseProcess=1, Denoiser='fft3dfilter', NoiseTR=1)
 
 def digest(c):
     m = hashlib.md5()
@@ -687,8 +710,8 @@ def digest(c):
 
 bad = []
 for depth, src in (('8', clip8), ('16', clip16)):
-    for name, kw in ARGS.items():
-        hashes = {digest(core.fft3dfilter.FFT3DFilter(src, **kw)) for _ in range(6)}
+    for name, call in CALLS.items():
+        hashes = {digest(call(src)) for _ in range(6)}
         print(f'HASH {depth}-bit {name} {len(hashes)} {sorted(hashes)[0]}')
         if len(hashes) != 1:
             bad.append(f'{depth}-bit {name}: {len(hashes)} different outputs in 6 runs')
@@ -701,7 +724,7 @@ flat = core.std.BlankClip(format=vs.YUV420P8, width=352, height=288, length=6,
 # The patched plugin rounds a flat picture to within 1 level everywhere, at
 # the edge as in the interior; the stale mirror was 4-33 levels off.
 worst = 0
-for f in core.fft3dfilter.FFT3DFilter(flat, sigma=2.0, bt=3).frames():
+for f in core.fft3dfilter.FFT3DFilter(flat, sigma=2.0, bt=3, measure=0).frames():
     for p in range(3):
         for row in f[p].tolist():
             ref = row[32 if p == 0 else 16]
@@ -713,7 +736,9 @@ if worst > 1:
 if bad:
     raise Exception('FFT3DFilter is not deterministic (task #62): ' + '; '.join(bad))
 print('fft3dfilter deterministic OK')
-flat.set_output()''';
+flat.set_output()'''
+          .replaceFirst('ESTIMATE_DEFAULT = False',
+              'ESTIMATE_DEFAULT = ${estimateDefault ? 'True' : 'False'}');
 
       Map<String, String> hashes(ProcessResult r) => {
             for (final m in RegExp(r'^HASH (\S+ \S+) \d+ ([0-9a-f]{32})',
@@ -730,10 +755,33 @@ flat.set_output()''';
           await _runVspipeScript(vspipePath, script, depsDir: depsDir);
       expect(second.exitCode, 0,
           reason: 'stdout: ${second.stdout}\nstderr: ${second.stderr}');
-      expect(hashes(first), hasLength(8));
+      expect(hashes(first), hasLength(estimateDefault ? 14 : 10));
       expect(hashes(second), equals(hashes(first)),
-          reason: 'a second process filtered differently: FFTW chose another '
-              'plan (task #62 plan, P5: pass measure=0)');
+          reason: 'a second process filtered differently. Every call here '
+              'plans with FFTW_ESTIMATE (task #80), which is one plan per '
+              'machine; check docs/reports/task-80-fft3dfilter-fftw-estimate');
+      if (estimateDefault) {
+        // The default and an explicit measure=0 are the same plan.
+        final h = hashes(first);
+        for (final depth in ['8-bit', '16-bit']) {
+          expect(h['$depth default'], equals(h['$depth td2_post']),
+              reason: 'FFT3DFilter\'s default is not measure=0 (task #80)');
+        }
+      }
+      // Two processes, each six graphs per class at two depths, QTGMC among
+      // them from 1.18.0-rc2: over the 30 s default on a 4-core Linux runner
+      // running other tests alongside.
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    // Task #80: the patch is what makes measure=0 the default for havsfunc's
+    // calls; no runtime property shows the default, so read the patch.
+    test('the fft3dfilter patch makes measure=0 the default (task #80)', () {
+      final patch = File(path.join(Directory.current.path, '..', 'Scripts',
+              'patches', 'fft3dfilter-r2-determinism.patch'))
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
+      expect(patch, contains('\n-        set_option_int(&measure, 1, "measure", in, vsapi);\n'));
+      expect(patch, contains('\n+        set_option_int(&measure, 0, "measure", in, vsapi);'));
     });
   });
 
@@ -774,6 +822,35 @@ bool _depsVersionAtMost(String depsDir, List<int> max) {
       if (v != max[i]) return v < max[i];
     }
     return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// Whether the deps bundle at [depsDir] is older than [version], pre-releases
+/// included (`1.18.0-rc1` < `1.18.0-rc2` < `1.18.0`). A missing or unreadable
+/// file counts as newer, so the check it guards still runs.
+bool _depsVersionBefore(String depsDir, String version) {
+  (List<int>, int) parse(String v) {
+    final dash = v.indexOf('-');
+    final core = (dash < 0 ? v : v.substring(0, dash)).split('.').map(int.parse).toList();
+    final rc = dash < 0
+        ? 1 << 30 // a release sorts after all its candidates
+        : int.parse(RegExp(r'(\d+)$').firstMatch(v.substring(dash))!.group(1)!);
+    return (core, rc);
+  }
+
+  try {
+    final json = jsonDecode(
+            File(path.join(depsDir, 'version.json')).readAsStringSync())
+        as Map<String, dynamic>;
+    final (have, haveRc) = parse(json['version'] as String);
+    final (want, wantRc) = parse(version);
+    for (var i = 0; i < want.length; i++) {
+      final v = i < have.length ? have[i] : 0;
+      if (v != want[i]) return v < want[i];
+    }
+    return haveRc < wantRc;
   } catch (_) {
     return false;
   }
