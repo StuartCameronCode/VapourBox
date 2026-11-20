@@ -133,13 +133,8 @@ jobs:
           test -x addons/whisper/bin/whisper-cli || { echo "::error::whisper-cli not found under $WP/bin"; exit 1; }
 
       - name: Build worker (debug)
+        id: build
         run: cd worker && cargo build
-
-      - name: Whisper subtitle test (Rust)
-        # #[ignore]d in the pull-request gate (task #84): it runs whisper-small
-        # on the CPU, 40-170 s.
-        if: ${{ matrix.suite == 'heavy' }}
-        run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 
       - name: Generate Dart serialization
         run: |
@@ -160,6 +155,13 @@ jobs:
         run: >-
           cd app && flutter test
           ${{ matrix.suite == 'sweep' && '--tags sweep --exclude-tags gpu' || '--tags heavy --exclude-tags gpu,sweep' }}
+
+      - name: Whisper subtitle test (Rust)
+        # #[ignore]d in the pull-request gate (task #84): it runs whisper-small
+        # on the CPU, 40-170 s. After the heavy tests, and run whatever they
+        # did, so a failure of either never hides the other's result.
+        if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.build.outcome == 'success' }}
+        run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 
       - name: Format sweep results
         # Every row's outcome, time and differences (integration_format_sweep_test.dart).
@@ -273,13 +275,8 @@ jobs:
           cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
 
       - name: Build worker (debug)
+        id: build
         run: cd worker && cargo build
-
-      - name: Whisper subtitle test (Rust)
-        # #[ignore]d in the pull-request gate (task #84): it runs whisper-small
-        # on the CPU, 40-170 s.
-        if: ${{ matrix.suite == 'heavy' }}
-        run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 
       - name: Generate Dart serialization
         run: |
@@ -297,6 +294,13 @@ jobs:
         run: >-
           cd app && flutter test
           ${{ matrix.suite == 'sweep' && '--tags sweep --exclude-tags gpu' || '--tags heavy --exclude-tags gpu,sweep' }}
+
+      - name: Whisper subtitle test (Rust)
+        # #[ignore]d in the pull-request gate (task #84): it runs whisper-small
+        # on the CPU, 40-170 s. After the heavy tests, and run whatever they
+        # did, so a failure of either never hides the other's result.
+        if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.build.outcome == 'success' }}
+        run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 
       - name: Format sweep results
         # Every row's outcome, time and differences (integration_format_sweep_test.dart).
@@ -394,13 +398,8 @@ jobs:
           ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
 
       - name: Build worker (debug)
+        id: build
         run: cd worker && cargo build
-
-      - name: Whisper subtitle test (Rust)
-        # #[ignore]d in the pull-request gate (task #84): it runs whisper-small
-        # on the CPU, 40-170 s.
-        if: ${{ matrix.suite == 'heavy' }}
-        run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 
       - name: Generate Dart serialization
         run: |
@@ -421,6 +420,13 @@ jobs:
         run: >-
           cd app && flutter test
           ${{ matrix.suite == 'sweep' && '--tags sweep --exclude-tags gpu' || '--tags heavy --exclude-tags gpu,sweep' }}
+
+      - name: Whisper subtitle test (Rust)
+        # #[ignore]d in the pull-request gate (task #84): it runs whisper-small
+        # on the CPU, 40-170 s. After the heavy tests, and run whatever they
+        # did, so a failure of either never hides the other's result.
+        if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.build.outcome == 'success' }}
+        run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 
       - name: Format sweep results
         # Every row's outcome, time and differences (integration_format_sweep_test.dart).

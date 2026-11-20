@@ -46,7 +46,8 @@ fi
 while IFS= read -r file; do
   [ -z "$file" ] && continue
   for pattern in "${PATTERNS[@]}"; do
-    # shellcheck disable=SC2053 — the pattern is a glob on purpose
+    # The pattern is a glob on purpose.
+    # shellcheck disable=SC2053
     if [[ "$file" == $pattern ]]; then
       echo "deps-sensitive: $file" >&2
       echo true
