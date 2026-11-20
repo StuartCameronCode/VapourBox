@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plugin probe timeout</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+td.n { text-align:right; font-variant-numeric:tabular-nums; }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #75: the plugin format probe timed out on macOS x64</h1>
+<p class="sub">2026-11-19 · local: macOS arm64 (M-series), deps 1.18.0-rc1 (1.16.0 where marked) · CI: GitHub's
+macos-15-intel (i7-8700B, 4 vCPU), macos-15 (M1, 3 vCPU), windows-latest, ubuntu-24.04 · scripts in
+<code>scripts/</code>, numbers in <code>data/</code></p>
+
+<h2>Decision</h2>
+<p>The push gate's quick plugin format probe (<code>plugin_format_contracts_test.dart</code>) failed on macOS x64
+with "Test timed out after 15 minutes". It was <strong>slow, not hung</strong>, and one thing made it slow:
+havsfunc's <code>LUTDeCrawl</code> and <code>LUTDeRainbow</code> build four
+<code>core.std.Lut2(a, b, function=lambda x, y: x &amp; y)</code> tables per call, and at 10 bits VapourSynth calls
+that lambda a million times per table. The probe rebuilt them in every 10-bit cell. The same cost kept the
+<strong>nightly full probe from ever finishing on macOS x64</strong>: its LUTDeCrawl child passed the probe's own
+3600 s per-child limit.</p>
+<ul>
+<li>The probe's children now evaluate havsfunc's pure <code>Lut2</code> functions once per process into a
+<code>lut=</code> list (<code>_LutMemoStd</code> in <code>Scripts/probe-plugin-formats.py</code>). The list is
+bit-identical and goes through the same format checks, so the table cannot change. A push-gate test checks the
+identity and that havsfunc's own <code>LUTDeCrawl</code> still takes the memo. <code>--no-lut-memo</code> runs the
+calls as written.</li>
+<li>Each call prints its time as it finishes, in every CI log, and <code>--budget</code> stops the probe before the
+test's timeout, naming the calls still running. A timeout can now tell a hang from slowness.</li>
+<li>Kept in the push gate (the alternative was moving it to nightly): with the memo, macOS x64 takes
+<strong>232 s</strong> where it took 442–857 s, and the push gate is the only place a deps bump meets the table
+before merge. The 15 minute timeout stays, now with about 4× headroom.</li>
+<li>The same tables cost real previews of 10-bit sources about 8 s each on an M1: filed as task #82 (a havsfunc
+patch, needs a deps release). The nightly full probe also differs from the table on Linux and Windows for reasons
+unrelated to time: task #69 (Flow at 64x48) and task #81 (znedi3 at 720x486 on x86, VFM documentation rows).</li>
+</ul>
+
+<h2>1. Slow, not hung</h2>
+<p>The quick probe's printed time in every job of 23 push-gate runs, 2026-11-17 to 2026-11-19
+(<code>data/ci_quick_probe_times_before.tsv</code>, from <code>scripts/ci_quick_probe_times.sh</code>):</p>
+<table>
+<tr><th>job</th><th>deps</th><th>passing runs (s)</th><th>timeouts</th></tr>
+<tr><td>macOS x64</td><td>1.17.0-rc2</td><td>616, 546, 442, 648, 761, 587</td><td class="n">0</td></tr>
+<tr><td>macOS x64</td><td>1.17.0-rc3</td><td>534, 798, 639, 514, 660, 771, 655, 614, 648, 585, 593</td><td class="n bad">2</td></tr>
+<tr><td>macOS x64</td><td>1.18.0-rc1</td><td>803, 803, 857</td><td class="n">0</td></tr>
+<tr><td>macOS arm64</td><td>all</td><td>239–338</td><td class="n">0</td></tr>
+<tr><td>Windows x64</td><td>all</td><td>155–434</td><td class="n">0</td></tr>
+<tr><td>Linux x64</td><td>all</td><td>109–352 (usually ~115)</td><td class="n">0</td></tr>
+</table>
+<p>The two timeouts (main <code>f3706092</code>, run 44291218371; PR #223, run 44306273218) are the tail of a
+distribution whose passing runs reached 857 s against 900 s. In both, every other test had passed (1804), no crash
+report or <code>crash:</code> line appeared, and the probe was simply the last test still running. The probe never
+runs vspipe, so task #68's teardown race could not reach it, and a crashing child (task #72's SIGILL) is recorded
+and re-run, which shows as a table difference, not a timeout.</p>
+<p>No single change started it. Task #56 raised the timeout to 30 minutes when its padded cells pushed macOS x64 past
+15, then put it back to 15 after a speedup measured on arm64 only (81 s). From then on macOS x64 ran without
+headroom. Bifrost 4.0 (rc3) brought no step; the three 1.18.0-rc1 runs are high but inside rc3's spread, and every
+other platform was flat across the three bundles.</p>
+
+<h2>2. Where the time went</h2>
+<p><code>scripts/time_quick.py</code>, every quick-probe call serially, deps 1.16.0 arm64
+(<code>data/time_quick_serial_deps1.16_arm64.txt</code>): 210 s in all, of which</p>
+<table>
+<tr><th>call</th><th>cells</th><th>serial time</th></tr>
+<tr><td><code>havsfunc.LUTDeCrawl</code></td><td class="n">36</td><td class="n bad">89.8 s</td></tr>
+<tr><td><code>havsfunc.LUTDeRainbow</code></td><td class="n">36</td><td class="n bad">76.8 s</td></tr>
+<tr><td><code>havsfunc.FixChromaBleedingMod</code></td><td class="n">38</td><td class="n">14.2 s</td></tr>
+<tr><td>the other 67 calls</td><td></td><td class="n">about 30 s</td></tr>
+</table>
+<p><code>scripts/time_cells.py</code>, one cell at a time (deps 1.18.0-rc1): a LUTDeCrawl cell takes 0.5 s at 8 bits,
+<strong>7.7 s at 10 bits</strong>, and nothing at 12/16 (havsfunc refuses them up front). All of it is graph
+building. <code>scripts/lut_cost.py</code>: one 10-bit <code>Lut2(function=)</code> takes 1.99 s; the same table
+passed as a list takes 0.31 s, and R78's <code>std.Expr</code> has no <code>bitand</code> to replace it with.
+<code>scripts/lut_order.py</code>: a list indexed <code>x + (y &lt;&lt; bits_a)</code> gives exactly the
+function's picture and format, for an asymmetric function at 10×10 and 8×10 bits.</p>
+<p>The quick grid gives each of the two calls 9 cells at 10 bits (3 subsamplings × 3 field flags), each rebuilding the
+same four tables. The full probe rebuilds them about 70 times per call: every 10-bit cell twice (the plugin and
+<code>run_within()</code>), and every 12/16-bit cell's <code>run_within()</code>, which converts to 10 bits.</p>
+
+<h2>3. With the tables built once per process</h2>
+<p>A cached table still costs about 0.28 s to hand to VapourSynth, so a 10-bit LUTDeCrawl cell goes from
+<strong>7.7 s to 1.1 s</strong> (<code>time_cells.py … memo</code>), not to nothing. Local, deps 1.18.0-rc1 arm64:</p>
+<table>
+<tr><th>run</th><th>without memo</th><th>with memo</th><th>result</th></tr>
+<tr><td>quick probe, <code>--jobs 4</code></td><td class="n">86 s wall, 205 s CPU</td><td class="n">33 s wall, 70 s CPU</td><td>both clean against the table; identical refusals per call</td></tr>
+<tr><td>full probe, LUTDeCrawl + LUTDeRainbow, <code>--jobs 2</code></td><td class="n">654 s</td><td class="n">96 s</td><td>both clean; 112 cells, 55 refused each</td></tr>
+</table>
+<p>Files: <code>data/quick_probe_{memo,nomemo}_arm64_j4.txt</code>,
+<code>data/full_probe_lut_calls_{memo,nomemo}_arm64_j2.txt</code>.</p>
+<p>On CI (push-gate run 44515328673, branch at <code>c6448e16</code>), quick probe:</p>
+<table>
+<tr><th>job</th><th>before (s)</th><th>after (s)</th><th>LUTDeCrawl / LUTDeRainbow after (s)</th></tr>
+<tr><td>macOS x64 (<code>--jobs 2</code>)</td><td class="n">442–857, 2 timeouts</td><td class="n good">232</td><td class="n">72.6 / 100.3</td></tr>
+<tr><td>macOS arm64 (<code>--jobs 1</code>)</td><td class="n">239–338</td><td class="n good">91</td><td class="n">17.3 / 16.6</td></tr>
+<tr><td>Windows x64</td><td class="n">155–434</td><td class="n good">108</td><td class="n">35.5 / 37.4</td></tr>
+<tr><td>Linux x64</td><td class="n">109–352</td><td class="n good">35</td><td class="n">11.4 / 11.8</td></tr>
+</table>
+<p id="ci-more" class="note">Further runs are listed in section 5.</p>
+
+<h2>4. What the change is, and what it is not</h2>
+<ul>
+<li><strong>Only pure functions.</strong> The memo takes a <code>Lut2</code> function only when it has no closure,
+no defaults and names nothing (<code>co_names</code> empty), so its value depends on its two arguments alone; with
+<code>bits</code>, <code>floatout</code>, <code>lut</code> or <code>lutf</code>, or non-integer clips, the call
+passes through. havsfunc's <code>x &amp; y</code> qualifies; the push-gate test checks a closure and a function
+naming <code>max</code> pass through.</li>
+<li><strong>The probe's measurement, not the template's call.</strong> It wraps havsfunc's module-level
+<code>core</code> inside the probe's own children only, around whatever it already is (the akarin shim on arm64,
+<code>vs.core</code> on x64). Real jobs are unchanged and still pay ~8 s per 10-bit preview (task #82).</li>
+<li><strong>Checked so it cannot rot silently.</strong> If havsfunc's lambdas change so the memo no longer applies,
+the push gate fails with "havsfunc.LUTDeCrawl no longer goes through the memo". Breaking the purity test on purpose
+made it fail with "the memo was not used" for every case.</li>
+<li><strong>Stalls are readable.</strong> <code>--budget</code> was exercised locally at 8 s: it listed the two
+running calls with their elapsed time and last cell and the 59 not started, killed the children (none left) and
+exited 3. A child past the 3600 s backstop is now one <code>ERROR</code> line naming the call and its last finished
+cell, where the nightly printed a <code>TimeoutExpired</code> traceback.</li>
+</ul>
+
+<h2>5. CI runs on the branch</h2>
+<table id="ci-runs">
+<tr><th>run</th><th>workflow</th><th>macOS x64</th><th>macOS arm64</th><th>Windows</th><th>Linux</th><th>notes</th></tr>
+<tr><td>44515328673</td><td>push gate</td><td class="n">232 s</td><td class="n">91 s</td><td class="n">108 s</td><td class="n">35 s</td><td>the new memo check hit the default 30 s on macOS x64 and Windows (its reference tables are built the slow way); fixed by dropping the 10×10 case and a 3 min timeout</td></tr>
+</table>
+
+<h2>Limits</h2>
+<ul>
+<li>Every CI time includes whatever else the push gate runs at once (the format sweep takes half the cores), so
+times vary run to run; the "before" column is 25 runs, the "after" column a few.</li>
+<li>The memo makes the probe faster and changes nothing it measures; it says nothing about the cost in the app,
+which is task #82's.</li>
+<li>Local timings are one M-series Mac; Intel per-table cost was not measured directly, only inferred from the CI
+per-call lines.</li>
+</ul>
+</main>
+</body>
+</html>

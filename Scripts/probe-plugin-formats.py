@@ -39,6 +39,14 @@ gate's subset. A contracted call's cells are also
 run through plugin_formats.run_within() (the `within` result, task #57): the
 plugin may refuse a size its contract pads. --quick does that only for a
 contract with a frame-size step.
+
+Each call prints one stderr line as it finishes (cells, refused, seconds).
+--budget N stops the run after N seconds, says which calls were still
+running (and their last finished cell) and which never started, kills the
+children and exits 3: how a hang is told from slowness (task #75). A child
+running past CHILD_TIMEOUT is reported as one ERROR line naming its call.
+havsfunc's pure Lut2 functions are evaluated once per process into lists
+(see _LutMemoStd, task #75); --no-lut-memo runs them as written.
 """
 import argparse
 import concurrent.futures
@@ -49,6 +57,8 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
@@ -336,14 +346,88 @@ def quick_grid(limited, padded=False, key=None):
 
 
 # ---------------------------------------------------------------------------
+# havsfunc's lookup tables, built once per process (task #75)
+#
+# LUTDeCrawl and LUTDeRainbow each call
+# core.std.Lut2(a, b, function=lambda x, y: x & y) four times. At 10 bits
+# VapourSynth calls that lambda 2^20 times per table: 1.95 s each, so 7.9 s of
+# graph building per 10-bit cell on an M1 and several times that on the Intel
+# runners, where the full probe's LUTDeCrawl child passed an hour. The same
+# table as a list is bit-identical (the push gate checks it) and goes through
+# the same format checks, so which formats a call accepts cannot change. Only
+# a function that depends on nothing but its arguments (no closure, no
+# defaults, no global or attribute names) is evaluated this way, and each
+# table once per process; every other Lut2 call passes through untouched.
+# Handing VapourSynth a cached list still costs about 0.28 s per table, so a
+# 10-bit cell goes from 7.7 s to 1.1 s on an M1, not to nothing.
+# --no-lut-memo runs the calls exactly as havsfunc writes them.
+# ---------------------------------------------------------------------------
+
+class _LutMemoStd:
+    def __init__(self, std):
+        self._std = std
+        self.tables = {}
+
+    def __getattr__(self, name):
+        return self._lut2 if name == 'Lut2' else getattr(self._std, name)
+
+    @staticmethod
+    def _pure(f):
+        code = getattr(f, '__code__', None)
+        return (code is not None and not getattr(f, '__closure__', None)
+                and not getattr(f, '__defaults__', None) and not getattr(f, '__kwdefaults__', None)
+                and not code.co_names and code.co_argcount == 2)
+
+    def _lut2(self, *args, **kw):
+        import vapoursynth as vs
+        f = kw.get('function')
+        names = ('clipa', 'clipb')
+        clips = list(args) + [kw.get(n) for n in names[len(args):]]
+        if (f is None or len(args) > 2 or not self._pure(f) or any(k in kw for k in ('bits', 'floatout', 'lut', 'lutf'))
+                or len(clips) != 2 or not all(isinstance(c, vs.VideoNode) for c in clips)
+                or not all(c.format and c.format.sample_type == vs.INTEGER for c in clips)):
+            return self._std.Lut2(*args, **kw)
+        ba, bb = clips[0].format.bits_per_sample, clips[1].format.bits_per_sample
+        tkey = (f.__code__, ba, bb)
+        lut = self.tables.get(tkey)
+        if lut is None:
+            # Lut2's index is x + (y << bits of clipa).
+            lut = self.tables[tkey] = [f(x, y) for y in range(1 << bb) for x in range(1 << ba)]
+        rest = {k: v for k, v in kw.items() if k not in names and k != 'function'}
+        return self._std.Lut2(clips[0], clips[1], lut=lut, **rest)
+
+
+class _LutMemoCore:
+    """Wraps a core (or havsfunc's akarin shim) so std.Lut2 goes through
+    _LutMemoStd; everything else passes through."""
+
+    def __init__(self, core):
+        self._core = core
+        self.std = _LutMemoStd(core.std)
+
+    def __getattr__(self, name):
+        return getattr(self._core, name)
+
+
+def memo_havsfunc_luts():
+    sys.path.insert(0, TEMPLATES)
+    import havsfunc
+    if not isinstance(havsfunc.core, _LutMemoCore):
+        havsfunc.core = _LutMemoCore(havsfunc.core)
+    return havsfunc.core
+
+
+# ---------------------------------------------------------------------------
 # Child: run one call's cells, one JSON line per cell as it finishes
 # ---------------------------------------------------------------------------
 
-def child(key, cells, fixtures, within=True):
+def child(key, cells, fixtures, within=True, lut_memo=True):
     import ctypes
     import vapoursynth as vs
     core = vs.core
     calls = _calls()
+    if lut_memo:
+        memo_havsfunc_luts()
     run = calls[key]['run']
     cache = {}
 
@@ -425,38 +509,150 @@ def exit_status(code):
     return 'exit code %d' % code
 
 
-def run_cells(key, cells, fixtures, within=True):
+CHILD_TIMEOUT = 3600  # a backstop per child process; --budget is the real limit
+
+
+class ChildTimeout(Exception):
+    pass
+
+
+class Progress:
+    """What every call's children are doing, for the timing lines and the
+    --budget report. Also the one place children are started, so the
+    watchdog can kill them all."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.stopped = False
+        self.calls = {}  # key -> {'start', 'done', 'total', 'last', 'proc'}
+
+    def submitted(self, key, total):
+        with self.lock:
+            self.calls[key] = {'start': None, 'end': None, 'done': 0, 'total': total,
+                               'last': None, 'proc': None}
+
+    def spawn(self, key, argv):
+        with self.lock:
+            if self.stopped:
+                raise ChildTimeout('%s: stopped by --budget' % key)
+            st = self.calls.setdefault(key, {'start': None, 'end': None, 'done': 0, 'total': 0,
+                                             'last': None, 'proc': None})
+            if st['start'] is None:
+                st['start'] = time.monotonic()
+            p = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE, text=True)
+            st['proc'] = p
+            return p
+
+    def cell_done(self, key, ck):
+        with self.lock:
+            st = self.calls[key]
+            st['done'] += 1
+            st['last'] = ck
+
+    def finished(self, key):
+        with self.lock:
+            st = self.calls[key]
+            st['end'] = time.monotonic()
+            st['proc'] = None
+            return st['end'] - st['start']
+
+    def stop(self):
+        """Kills every child and returns a report of where each call was."""
+        now = time.monotonic()
+        with self.lock:
+            self.stopped = True
+            running, waiting = [], []
+            for k, st in self.calls.items():
+                if st['start'] is None:
+                    waiting.append(k)
+                elif st['end'] is None:
+                    running.append('  %-40s running %6.0f s, %d/%d cells done, last %s'
+                                   % (k, now - st['start'], st['done'], st['total'], st['last'] or '(none)'))
+                if st['proc'] is not None:
+                    try:
+                        st['proc'].kill()
+                    except OSError:
+                        pass
+        return running, waiting
+
+
+PROGRESS = Progress()
+
+
+def _child_once(key, cells, fixtures, within, lut_memo):
+    """Runs one child over cells; returns (results, returncode, stderr)."""
+    p = PROGRESS.spawn(key, [sys.executable, os.path.abspath(__file__), '--child', key])
+    err = []
+    drain = threading.Thread(target=lambda: err.append(p.stderr.read()), daemon=True)
+    drain.start()
+    timed_out = []
+
+    def expire():
+        timed_out.append(True)
+        p.kill()
+    timer = threading.Timer(CHILD_TIMEOUT, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        p.stdin.write(json.dumps({'cells': cells, 'fixtures': fixtures, 'within': within,
+                                  'lut_memo': lut_memo}))
+        p.stdin.close()
+    except BrokenPipeError:
+        pass
+    results = {}
+    last = None
+    for line in p.stdout:
+        if line.startswith('{'):
+            r = json.loads(line)
+            last = r.pop('key')
+            results[last] = r
+            PROGRESS.cell_done(key, last)
+    code = p.wait()
+    timer.cancel()
+    drain.join(5)
+    if timed_out:
+        raise ChildTimeout('%s: a child ran past %d s; last cell finished: %s (%d of %d)'
+                           % (key, CHILD_TIMEOUT, last or 'none', len(results), len(cells)))
+    if PROGRESS.stopped:
+        raise ChildTimeout('%s: stopped by --budget' % key)
+    return results, code, ''.join(err)
+
+
+def run_cells(key, cells, fixtures, within=True, lut_memo=True):
     """{cell key: {'ok', 'error'?}} for every cell, through as many child
     processes as crashes need. within=False skips the run_within() pass."""
     results = {}
     todo = list(cells)
     while todo:
-        p = subprocess.run(
-            [sys.executable, os.path.abspath(__file__), '--child', key],
-            input=json.dumps({'cells': todo, 'fixtures': fixtures, 'within': within}),
-            capture_output=True, text=True, timeout=3600)
-        for line in p.stdout.splitlines():
-            if line.startswith('{'):
-                r = json.loads(line)
-                results[r.pop('key')] = r
+        got, code, err = _child_once(key, todo, fixtures, within, lut_memo)
+        results.update(got)
         todo = [c for c in todo if cell_key(c) not in results]
-        if todo and p.returncode == 0:
+        if todo and code == 0:
             raise RuntimeError('%s: child exited cleanly without %d cells:\n%s'
-                               % (key, len(todo), p.stderr[-2000:]))
+                               % (key, len(todo), err[-2000:]))
         if todo:
             # The first cell not reported crashed it: re-run that one alone.
             first = todo.pop(0)
-            q = subprocess.run(
-                [sys.executable, os.path.abspath(__file__), '--child', key],
-                input=json.dumps({'cells': [first], 'fixtures': fixtures, 'within': within}),
-                capture_output=True, text=True, timeout=3600)
-            got = [json.loads(l) for l in q.stdout.splitlines() if l.startswith('{')]
+            got, code, _ = _child_once(key, [first], fixtures, within, lut_memo)
             if got:
-                r = got[0]
-                results[r.pop('key')] = r
+                results.update(got)
             else:
-                results[cell_key(first)] = {'ok': False, 'error': 'crash: ' + exit_status(q.returncode)}
+                results[cell_key(first)] = {'ok': False, 'error': 'crash: ' + exit_status(code)}
     return results
+
+
+def _watchdog(budget):
+    """--budget: past it, say where every call is, kill the children, exit 3."""
+    time.sleep(budget)
+    running, waiting = PROGRESS.stop()
+    out = ['--budget: %d s spent; stopping.' % budget]
+    out += ['calls still running:'] + (running or ['  (none)'])
+    out += ['calls not started (%d): %s' % (len(waiting), ', '.join(waiting) or '(none)')]
+    sys.stderr.write('\n'.join(out) + '\n')
+    sys.stderr.flush()
+    sys.stdout.flush()
+    os._exit(3)
 
 
 def make_fixtures(tmp, sizes, ffmpeg):
@@ -523,13 +719,17 @@ def main():
     ap.add_argument('--list', action='store_true', help='print the probe list as JSON and exit')
     ap.add_argument('--jobs', type=int, default=max(1, (os.cpu_count() or 2) // 2))
     ap.add_argument('--ffmpeg', default=os.environ.get('VAPOURBOX_FFMPEG', 'ffmpeg'))
+    ap.add_argument('--budget', type=float,
+                    help='seconds: past this, report where every call is, kill the children, exit 3')
+    ap.add_argument('--no-lut-memo', action='store_true',
+                    help="run havsfunc's Lut2 functions as written, not as one list per process")
     a = ap.parse_args()
     if a.quick and a.out:
         ap.error('--quick measures a subset and writes no summaries; write the table from a full run')
 
     if a.child:
         req = json.loads(sys.stdin.read())
-        child(a.child, req['cells'], req['fixtures'], req.get('within', True))
+        child(a.child, req['cells'], req['fixtures'], req.get('within', True), req.get('lut_memo', True))
         return 0
 
     calls = _calls()
@@ -549,7 +749,11 @@ def main():
             grids[k] = base_grid() + doc_grid() + size_grid()
     sizes = sorted({(c['w'], c['h']) for g in grids.values() for c in g})
 
+    if a.budget:
+        threading.Thread(target=_watchdog, args=(a.budget,), daemon=True).start()
+    t0 = time.monotonic()
     table = {}
+    errors = []
     with tempfile.TemporaryDirectory() as tmp:
         fixtures = make_fixtures(tmp, sizes, a.ffmpeg)
         with concurrent.futures.ThreadPoolExecutor(a.jobs) as ex:
@@ -559,17 +763,40 @@ def main():
             # frames by plugin_format_contracts_test, and running every
             # LUTDeCrawl/LUTDeRainbow cell again at 10-bit doubled their cost
             # (task #56: macOS x64 passed the push gate's 30 minutes).
-            futs = {k: ex.submit(run_cells, k, grids[k], fixtures, not a.quick or k in padded)
-                    for k in keys}
-            for k in keys:
-                res = futs[k].result()
+            # Largest grids first, so a long call doesn't start last.
+            order = sorted(keys, key=lambda k: -len(grids[k]))
+            futs = {}
+            for k in order:
+                PROGRESS.submitted(k, len(grids[k]))
+                futs[ex.submit(run_cells, k, grids[k], fixtures, not a.quick or k in padded,
+                               not a.no_lut_memo)] = k
+            for fut in concurrent.futures.as_completed(futs):
+                k = futs[fut]
+                try:
+                    res = fut.result()
+                except (ChildTimeout, RuntimeError) as e:
+                    errors.append(str(e).splitlines()[0])
+                    sys.stderr.write('%-40s ERROR: %s\n' % (k, errors[-1]))
+                    sys.stderr.flush()
+                    continue
+                secs = PROGRESS.finished(k)
                 cells = grids[k]
                 entry = {'cells': {cell_key(c): res[cell_key(c)] for c in cells}}
                 if not a.quick:
                     entry['summary'] = summarise(cells, res)
                 table[k] = entry
                 bad = sum(1 for r in res.values() if not r['ok'])
-                sys.stderr.write('%-40s %4d cells, %4d refused\n' % (k, len(cells), bad))
+                sys.stderr.write('%-40s %4d cells, %4d refused, %7.1f s\n' % (k, len(cells), bad, secs))
+                sys.stderr.flush()
+    sys.stderr.write('probe: %d calls in %.0f s, --jobs %d, lut memo %s\n'
+                     % (len(keys), time.monotonic() - t0, a.jobs, 'off' if a.no_lut_memo else 'on'))
+    table = {k: table[k] for k in keys if k in table}
+    if errors:
+        for e in errors:
+            print('ERROR %s' % e)
+        if a.out:
+            print('the table was not written: %d call(s) did not finish' % len(errors))
+            return 2
 
     status = 0
     if a.check:
@@ -598,6 +825,8 @@ def main():
         for d in diffs:
             print(d)
         status = 1 if diffs else 0
+    if errors:
+        status = 2
 
     if a.out:
         doc = {

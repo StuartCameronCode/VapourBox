@@ -21,6 +21,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'support/plugin_probe_runner.dart';
 import 'support/worker_harness.dart';
 
 String get _templatesDir => p.join(WorkerHarness.repoRoot, 'worker', 'templates');
@@ -287,6 +288,76 @@ for (w, h, b, o) in ((64, 48, 16, 8), (176, 144, 32, 8)):
 print(json.dumps(problems))
 ''';
 
+// The probe evaluates havsfunc's pure Lut2 functions into one list per
+// process (task #75: 7.7 s -> 1.1 s per 10-bit LUTDeCrawl cell on an M1). The list must
+// give the same picture and format as the function, a function that reads
+// anything but its arguments must pass through, and havsfunc's own calls must
+// still take the memo (else the probe is slow again, silently).
+const _lutMemoCheck = r'''
+import importlib.util, json, sys
+import vapoursynth as vs
+core = vs.core
+spec = importlib.util.spec_from_file_location('probe', sys.argv[1])
+probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(probe)
+sys.path.insert(0, sys.argv[2])
+
+problems = []
+def check(cond, msg):
+    if not cond:
+        problems.append(msg)
+
+def same(a, b):
+    if a.format.id != b.format.id or (a.width, a.height, a.num_frames) != (b.width, b.height, b.num_frames):
+        return False
+    for p in range(a.format.num_planes):
+        st = core.std.PlaneStats(a, b, plane=p)
+        for n in range(a.num_frames):
+            if st.get_frame(n).props['PlaneStatsDiff'] != 0:
+                return False
+    return True
+
+def clip(fmt, seed):
+    c = core.std.BlankClip(width=64, height=48, format=fmt, length=3)
+    return core.grain.Add(c, var=800, uvar=800, constant=False, seed=seed)
+
+memo = probe._LutMemoCore(core)
+asym8 = lambda x, y: (x * 3 + (y >> 1)) & 255
+asym10 = lambda x, y: (x * 3 + (y >> 1)) & 1023
+# Mixed depths pin the index order both ways (x + (y << bits_a)) at a quarter
+# of a 10x10 table's cost: the reference is built the slow way, which takes
+# seconds per 10-bit table on the Intel runners.
+for fa, fb, f in ((vs.GRAY8, vs.GRAY8, asym8), (vs.GRAY8, vs.GRAY10, asym8),
+                  (vs.YUV420P10, vs.YUV420P8, asym10)):
+    a, b = clip(fa, 1), clip(fb, 2)
+    n = len(memo.std.tables)
+    got = memo.std.Lut2(a, b, function=f)
+    check(len(memo.std.tables) == n + 1, '%s x %s: the memo was not used' % (a.format.name, b.format.name))
+    check(same(got, core.std.Lut2(a, b, function=f)),
+          '%s x %s: the list differs from the function' % (a.format.name, b.format.name))
+a, b = clip(vs.YUV420P8, 1), clip(vs.YUV420P8, 2)
+check(same(memo.std.Lut2(clipa=a, clipb=b, function=asym8, planes=[0]), core.std.Lut2(a, b, function=asym8, planes=[0])),
+      'keywords and planes: the list differs')
+
+t = 5
+n = len(memo.std.tables)
+a = clip(vs.GRAY8, 3)
+check(same(memo.std.Lut2(a, a, function=lambda x, y: (x + t) & 255),
+           core.std.Lut2(a, a, function=lambda x, y: (x + t) & 255)), 'a closure changed the picture')
+check(same(memo.std.Lut2(a, a, function=lambda x, y: max(x, y)), core.std.Lut2(a, a, function=lambda x, y: max(x, y))),
+      'a function naming a global changed the picture')
+check(len(memo.std.tables) == n, 'a function that reads more than its arguments was memoised')
+
+import havsfunc as haf
+src = clip(vs.YUV420P8, 4)
+want = haf.LUTDeCrawl(src, ythresh=10, cthresh=10, maxdiff=50)
+shim = probe.memo_havsfunc_luts()
+got = haf.LUTDeCrawl(src, ythresh=10, cthresh=10, maxdiff=50)
+check(len(shim.std.tables) > 0, 'havsfunc.LUTDeCrawl no longer goes through the memo: the probe is slow again')
+check(same(got, want), 'havsfunc.LUTDeCrawl through the memo differs')
+print(json.dumps(problems))
+''';
+
 void main() {
   setUpAll(() async {
     await WorkerHarness.ensureReady();
@@ -404,16 +475,33 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
     expect(problems, isEmpty, reason: problems.join('\n'));
   });
 
+  // macOS x64 is the slowest: 442-857 s before task #75 evaluated havsfunc's
+  // Lut2 tables once per process (LUTDeCrawl/LUTDeRainbow were 80% of it).
+  // The probe stops itself 90 s before this (--budget) and says which calls
+  // were still running.
+  const quickTimeout = Duration(minutes: 15);
   test('the bundle still refuses exactly what the table says (quick probe)', () async {
-    final sw = Stopwatch()..start();
-    final r = await _python([_probe, '--quick', '--check', _tablePath, '--ffmpeg', WorkerHarness.ffmpegPath]);
-    // ignore: avoid_print
-    print('  quick probe: ${sw.elapsed.inSeconds} s');
+    final r = await runPluginProbe(['--quick', '--check', _tablePath], timeout: quickTimeout);
     expect(r.exitCode, 0,
         reason: 'the bundle disagrees with ${p.basename(_tablePath)}. If a deps update changed a '
             'plugin\'s limits, re-run Scripts/probe-plugin-formats.py --out on every platform, '
-            'then update plugin_formats.CONTRACTS and the report:\n${r.stdout}\n${r.stderr}');
-  }, timeout: const Timeout(Duration(minutes: 15)));
+            'then update plugin_formats.CONTRACTS and the report. Exit 3 is --budget: the probe '
+            'ran out of time and says which calls were still running:\n${r.report}');
+  }, timeout: const Timeout(quickTimeout));
+
+  test('the probe\'s Lut2 memo gives exactly what havsfunc\'s functions give (task #75)', () async {
+    final script = File(p.join(Directory.systemTemp.path, 'vb_lutmemo_$pid.py'));
+    await script.writeAsString(_lutMemoCheck);
+    try {
+      final r = await _python([script.path, _probe, _templatesDir]);
+      expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
+      final problems = jsonDecode((r.stdout as String).trim().split('\n').last) as List;
+      expect(problems, isEmpty, reason: problems.join('\n'));
+    } finally {
+      if (script.existsSync()) script.deleteSync();
+    }
+    // About 6 s on an M1; the reference tables are much slower on the Intel runners.
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('MVTools Flow calls avoid the AVX2 upsizer below 8 block columns (task #69)', () async {
     final problems = await _pythonJson(_flowGuardCheck) as List;
