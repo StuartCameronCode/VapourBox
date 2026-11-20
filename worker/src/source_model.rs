@@ -15,10 +15,11 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::ffprobe_run::{self, ProbeFailure};
 use crate::source_continuity::{self, ContinuityScan};
 use crate::source_decode::{self, SeekPlan, SourceGrid};
 use crate::source_timing;
@@ -481,39 +482,91 @@ pub fn frame_count(
 // The probe
 // ---------------------------------------------------------------------------
 
-fn run_json(ffprobe: &Path, env: &HashMap<String, String>, args: &[String], input: &str) -> Option<serde_json::Value> {
-    let out = Command::new(ffprobe)
-        .args(args)
-        .arg(input)
-        .envs(env)
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    serde_json::from_slice(&out.stdout).ok()
+/// ffprobe's JSON answer, retried ([`ffprobe_run::retrying`]).
+fn run_json(
+    ffprobe: &Path,
+    env: &HashMap<String, String>,
+    args: &[String],
+    input: &str,
+    what: &str,
+    log: &(dyn Fn(&str) + Sync),
+) -> Result<serde_json::Value, ProbeFailure> {
+    ffprobe_run::retrying(what, &ffprobe_run::RETRY_DELAYS, log, || ffprobe_run::run_json(ffprobe, env, args, input))
 }
 
-/// The video packets of the last [`TAIL_FRAMES_PROBE_SECONDS`] of the file
-/// ([`TailPictures`]). `None` when ffprobe fails.
-fn probe_tail(ffprobe: &Path, env: &HashMap<String, String>, input: &str, container: f64) -> Option<TailPictures> {
-    let from = container - TAIL_FRAMES_PROBE_SECONDS;
+/// ffprobe's arguments (before the input) for a listing of the video
+/// packets' times and flags ([`tail_pictures_from_csv`]): the last
+/// [`TAIL_FRAMES_PROBE_SECONDS`] of a file `container` seconds long, or,
+/// with no length (or a file shorter than the window), every packet. The
+/// whole listing reads packet headers only, without a seek.
+pub fn tail_probe_args(container: Option<f64>) -> Vec<String> {
     let mut args: Vec<String> = ["-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time,flags"]
         .iter()
         .map(|s| s.to_string())
         .collect();
-    if from > 0.0 {
+    if let Some(from) = container.map(|c| c - TAIL_FRAMES_PROBE_SECONDS).filter(|f| *f > 0.0) {
         args.push("-read_intervals".into());
         args.push(format!("{from:.3}%"));
     }
     args.push("-of".into());
     args.push("csv=p=0".into());
-    let out = Command::new(ffprobe).args(&args).arg(input).envs(env).stderr(Stdio::null()).output().ok()?;
-    if !out.status.success() {
-        return None;
+    args
+}
+
+/// One ffprobe run, as the probes below are given it: stdout for these
+/// arguments (the input is the runner's), or why there is none. Injected
+/// so the retry and fallback chain is testable without a file.
+pub type ProbeRun<'a> = dyn FnMut(&[String]) -> Result<Vec<u8>, ProbeFailure> + 'a;
+
+/// The [`TailPictures`] of a packet listing (`args`, from
+/// [`tail_probe_args`]), retried on any failure.
+pub fn tail_listing(
+    run: &mut ProbeRun,
+    args: &[String],
+    what: &str,
+    delays: &[Duration],
+    log: &(dyn Fn(&str) + Sync),
+) -> Result<TailPictures, ProbeFailure> {
+    ffprobe_run::retrying(what, delays, log, || {
+        run(args).map(|out| tail_pictures_from_csv(&String::from_utf8_lossy(&out)))
+    })
+}
+
+/// The last picture an MP4/MOV whose demuxer discards packets outputs
+/// (task #54), from the windowed tail listing's result. When that failed
+/// (after its retries) or kept no picture (only discards in its window, or
+/// output cut short), every video packet is listed instead (task #83). `Err`
+/// only when that fails too: the caller must not fall back to `nb_frames`,
+/// which counts the discarded pictures.
+pub fn mov_last_kept(
+    windowed: Result<TailPictures, ProbeFailure>,
+    run: &mut ProbeRun,
+    delays: &[Duration],
+    log: &(dyn Fn(&str) + Sync),
+) -> Result<f64, ProbeFailure> {
+    match windowed {
+        Ok(TailPictures { last_kept: Some(t), .. }) => return Ok(t),
+        Ok(_) => log(&format!(
+            "the tail probe found no kept picture in the last {TAIL_FRAMES_PROBE_SECONDS} s; listing every video packet"
+        )),
+        Err(e) => log(&format!("the tail probe gave no answer ({e}); listing every video packet")),
     }
-    Some(tail_pictures_from_csv(&String::from_utf8_lossy(&out.stdout)))
+    let whole = tail_listing(run, &tail_probe_args(None), "the whole-stream packet listing", delays, log)?;
+    whole.last_kept.ok_or_else(|| ProbeFailure::Empty {
+        stderr: "every video packet listed is marked discard".into(),
+    })
+}
+
+/// The video-start probe's answer ([`source_decode::VIDEO_START_PROBE_ARGS`]),
+/// which must list packets: a source with a video stream has some, so an
+/// answer without them is a run cut short, not a fact.
+fn video_start_answer(stdout: Vec<u8>) -> Result<serde_json::Value, ProbeFailure> {
+    let json = ffprobe_run::parse_json(stdout)?;
+    let has_packets = json.get("packets").and_then(|p| p.as_array()).is_some_and(|p| !p.is_empty());
+    if !has_packets {
+        return Err(ProbeFailure::Empty { stderr: "no video packets listed".into() });
+    }
+    Ok(json)
 }
 
 fn num_str(v: Option<&serde_json::Value>) -> Option<f64> {
@@ -553,8 +606,9 @@ pub fn probe_source_with(
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let json = run_json(ffprobe, env, &main_args, input)
-        .ok_or_else(|| anyhow::anyhow!("ffprobe could not read {input}"))?;
+    let log: &(dyn Fn(&str) + Sync) = &log;
+    let json = run_json(ffprobe, env, &main_args, input, "the stream probe", log)
+        .map_err(|e| anyhow::anyhow!("ffprobe could not read {input}: {e}"))?;
     let streams: Vec<&serde_json::Value> =
         json.get("streams").and_then(|s| s.as_array()).into_iter().flatten().collect();
     let video = *streams
@@ -590,7 +644,12 @@ pub fn probe_source_with(
     // The independent probes run at once: analysis waits for the slowest,
     // not their sum.
     let (start_json, seek_plan, continuity, times, mov_tail) = std::thread::scope(|s| {
-        let a = s.spawn(|| source_decode::probe_json(ffprobe, env, &source_decode::VIDEO_START_PROBE_ARGS, input));
+        let a = s.spawn(|| {
+            ffprobe_run::retrying("the video-start probe", &ffprobe_run::RETRY_DELAYS, log, || {
+                ffprobe_run::run(ffprobe, env, &source_decode::VIDEO_START_PROBE_ARGS, input)
+                    .and_then(video_start_answer)
+            })
+        });
         let b = s.spawn(|| source_decode::probe_seek_plan(ffprobe, env, input));
         let c = s.spawn(|| {
             if continuity_deferred {
@@ -606,16 +665,19 @@ pub fn probe_source_with(
                 r,
                 a,
                 container_start,
-                &log,
+                log,
             ),
             _ => None,
         });
-        let e = s.spawn(|| match duration {
-            Some(c) if reads_tail => probe_tail(ffprobe, env, input, c),
-            _ => None,
+        let e = s.spawn(|| {
+            if !reads_tail {
+                return None;
+            }
+            let mut run = |args: &[String]| ffprobe_run::run(ffprobe, env, args, input);
+            Some(tail_listing(&mut run, &tail_probe_args(duration), "the tail probe", &ffprobe_run::RETRY_DELAYS, log))
         });
         (
-            a.join().ok().flatten(),
+            a.join().unwrap_or_else(|_| Err(ProbeFailure::Spawn("the probe thread panicked".into()))),
             b.join().ok().flatten(),
             c.join().ok().flatten(),
             d.join().ok().flatten(),
@@ -623,6 +685,16 @@ pub fn probe_source_with(
         )
     });
 
+    // An MP4/MOV's count rests on the video-start probe: it is what sees an
+    // edit list's discarded pre-roll. Without it the stored count would
+    // stand, and that counts pictures no decode delivers (task #83).
+    let start_json = match start_json {
+        Ok(j) => Some(j),
+        Err(e) if reads_tail => {
+            anyhow::bail!("could not count the frames of {input}: ffprobe's video-start probe failed ({e})")
+        }
+        Err(_) => None,
+    };
     let start = start_json.as_ref().map(video_start).unwrap_or_default();
     let decoder_delay_frames = match &start_json {
         Some(j) if source_decode::stores_decode_order(j) => {
@@ -634,13 +706,27 @@ pub fn probe_source_with(
     let source_grid = start_json.as_ref().and_then(|j| source_decode::grid_from_probe(j, fps));
     let timeline = times
         .as_ref()
-        .and_then(|(t, st)| source_timing::timeline_from_times(t, *st, fps, &log));
+        .and_then(|(t, st)| source_timing::timeline_from_times(t, *st, fps, log));
     let (frame_times, frame_times_start) = match (&timeline, times) {
         (Some(_), Some((t, st))) => (Some(t), Some(st)),
         _ => (None, None),
     };
     let discards = start_json.as_ref().is_some_and(source_decode::discards_from_probe)
-        || mov_tail.is_some_and(|t| t.discards);
+        || matches!(mov_tail, Some(Ok(t)) if t.discards);
+    // The last picture an MP4/MOV with discards outputs: never left to the
+    // stored count when it can't be found (task #83).
+    let mov_last = match mov_tail {
+        Some(windowed) if discards => {
+            let mut run = |args: &[String]| ffprobe_run::run(ffprobe, env, args, input);
+            Some(mov_last_kept(windowed, &mut run, &ffprobe_run::RETRY_DELAYS, log).map_err(|e| {
+                anyhow::anyhow!(
+                    "could not count the frames of {input}: its edit list discards pictures, \
+                     and ffprobe's packet listing failed ({e})"
+                )
+            })?)
+        }
+        _ => None,
+    };
     let frame_count = frame_count(
         &CountInputs {
             stored_frames,
@@ -658,12 +744,18 @@ pub fn probe_source_with(
         },
         |stream_start, stream_duration| {
             let from = stream_start + stream_duration - TAIL_FRAMES_PROBE_SECONDS;
-            run_json(ffprobe, env, &tail_frames_probe_args(from), input)
+            run_json(ffprobe, env, &tail_frames_probe_args(from), input, "the untimed-tail probe", log)
+                .ok()
                 .and_then(|j| untimed_last_picture(&j, fps))
         },
-        |container| match mov_tail {
-            Some(t) => t.last_kept,
-            None => probe_tail(ffprobe, env, input, container).and_then(|t| t.last_kept),
+        |container| {
+            mov_last.or_else(|| {
+                let mut run = |args: &[String]| ffprobe_run::run(ffprobe, env, args, input);
+                let args = tail_probe_args(Some(container));
+                tail_listing(&mut run, &args, "the tail probe", &ffprobe_run::RETRY_DELAYS, log)
+                    .ok()
+                    .and_then(|t| t.last_kept)
+            })
         },
     );
 
@@ -940,7 +1032,9 @@ mod tests {
             ..i
         };
         assert_eq!(frame_count(&i, |_, _| panic!(), |_| Some(4.237567)), 128);
-        // No last picture, or no grid: the stored count, as before.
+        // No last picture, or no grid: the stored count. `probe_source_with`
+        // never lets an MP4/MOV with discards get here without its last
+        // picture (task #83: it lists every packet, else fails the probe).
         assert_eq!(frame_count(&i, |_, _| panic!(), |_| None), 146);
         let no_grid = CountInputs { grid: None, ..i };
         assert_eq!(frame_count(&no_grid, |_, _| panic!(), |_| panic!()), 146);
@@ -960,6 +1054,97 @@ mod tests {
         let t = tail_pictures_from_csv("1.0,K__\r\n2.0,___\r\n");
         assert_eq!(t, TailPictures { last_kept: Some(2.0), discards: false });
         assert_eq!(tail_pictures_from_csv(""), TailPictures::default());
+    }
+
+    /// A scripted ffprobe for the tail chain (task #83): each call takes the
+    /// next answer, and records whether it listed a window or every packet.
+    struct Script {
+        answers: Vec<Result<&'static str, ProbeFailure>>,
+        calls: Vec<bool>,
+    }
+
+    impl Script {
+        fn new(answers: Vec<Result<&'static str, ProbeFailure>>) -> Self {
+            Script { answers, calls: Vec::new() }
+        }
+        fn run(&mut self, args: &[String]) -> Result<Vec<u8>, ProbeFailure> {
+            self.calls.push(args.iter().any(|a| a == "-read_intervals"));
+            self.answers.remove(0).map(|s| s.as_bytes().to_vec())
+        }
+    }
+
+    fn crashed() -> ProbeFailure {
+        ProbeFailure::Exit { status: "exit code -1073741502 (0xC0000142, STATUS_DLL_INIT_FAILED)".into(), stderr: String::new() }
+    }
+
+    /// The scoped windowed probe, then [`mov_last_kept`], as
+    /// `probe_source_with` runs them for `small_clip.mp4`.
+    fn last_kept_of(script: &mut Script, lines: &std::sync::Mutex<Vec<String>>) -> Result<f64, ProbeFailure> {
+        let log = |m: &str| lines.lock().unwrap().push(m.to_string());
+        let mut run = |a: &[String]| script.run(a);
+        let windowed = tail_listing(&mut run, &tail_probe_args(Some(105.119119)), "the tail probe", &[], &log);
+        mov_last_kept(windowed, &mut run, &[], &log)
+    }
+
+    const SMALL_CLIP_TAIL: &str = "105.038372,___\n105.105105,___\n105.071738,___\n";
+
+    #[test]
+    fn a_failed_tail_probe_is_retried_and_said() {
+        let mut s = Script::new(vec![Err(crashed()), Ok(SMALL_CLIP_TAIL)]);
+        let lines = std::sync::Mutex::new(Vec::new());
+        assert_eq!(last_kept_of(&mut s, &lines), Ok(105.105105));
+        assert_eq!(s.calls, [true, true], "both windowed");
+        let lines = lines.into_inner().unwrap();
+        assert!(lines[0].contains("the tail probe failed (attempt 1 of 3)") && lines[0].contains("0xC0000142"), "{lines:?}");
+    }
+
+    #[test]
+    fn an_empty_or_discard_only_window_lists_every_packet() {
+        // Exit 0 with nothing on stdout is an `Empty` failure from the
+        // runner: retried, then the whole stream is listed.
+        let empty = || Err(ProbeFailure::Empty { stderr: String::new() });
+        let mut s = Script::new(vec![empty(), empty(), empty(), Ok("0.0,K__\n105.105105,___\n")]);
+        let lines = std::sync::Mutex::new(Vec::new());
+        assert_eq!(last_kept_of(&mut s, &lines), Ok(105.105105));
+        assert_eq!(s.calls, [true, true, true, false]);
+        assert!(lines.into_inner().unwrap().iter().any(|l| l.contains("listing every video packet")));
+        // A window whose packets are all discards keeps no picture: not an
+        // answer, so the whole stream is listed (no retry of the window).
+        let mut s = Script::new(vec![Ok("4.30,_D_\n4.33,_D_\n"), Ok("4.237567,___\n4.30,_D_\n")]);
+        let lines = std::sync::Mutex::new(Vec::new());
+        assert_eq!(last_kept_of(&mut s, &lines), Ok(4.237567));
+        assert_eq!(s.calls, [true, false]);
+    }
+
+    #[test]
+    fn a_tail_that_cannot_be_listed_is_an_error_never_the_stored_count() {
+        let mut s = Script::new((0..6).map(|_| Err(crashed())).collect());
+        let lines = std::sync::Mutex::new(Vec::new());
+        assert_eq!(last_kept_of(&mut s, &lines), Err(crashed()));
+        assert_eq!(s.calls, [true, true, true, false, false, false]);
+        let lines = lines.into_inner().unwrap();
+        assert_eq!(lines.iter().filter(|l| l.contains("failed (attempt")).count(), 6, "{lines:?}");
+        // Every packet a discard: no picture to count from.
+        let mut s = Script::new(vec![Ok("1.0,_D_\n"), Ok("1.0,_D_\n")]);
+        let lines = std::sync::Mutex::new(Vec::new());
+        assert!(matches!(last_kept_of(&mut s, &lines), Err(ProbeFailure::Empty { .. })));
+    }
+
+    #[test]
+    fn the_tail_window_and_the_whole_listing() {
+        let w = tail_probe_args(Some(105.119119));
+        assert_eq!(w[w.iter().position(|a| a == "-read_intervals").unwrap() + 1], "102.119%");
+        for short in [None, Some(2.5)] {
+            assert!(!tail_probe_args(short).iter().any(|a| a == "-read_intervals"), "{short:?}");
+        }
+    }
+
+    #[test]
+    fn a_video_start_answer_must_list_packets() {
+        assert!(video_start_answer(br#"{"packets":[{"pts_time":"0","flags":"K__"}]}"#.to_vec()).is_ok());
+        for bad in [&br#"{"packets":[]}"#[..], br#"{"streams":[]}"#, b"{\"packets\": ["] {
+            assert!(video_start_answer(bad.to_vec()).is_err(), "{}", String::from_utf8_lossy(bad));
+        }
     }
 
     #[test]

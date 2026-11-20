@@ -1,0 +1,103 @@
+name: Repro probe-source frame count (task 83)
+
+# Temporary: loops `--probe-source` on small_clip.mp4 (serially and 8 at
+# once), the raw ffprobe tail probe, and the push gate's Rust tests that
+# probe it, on Windows with Linux and macOS as controls. Tallies are uploaded
+# as an artifact. Scripts: docs/reports/task-83-mp4-tail-probe-flake/scripts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Probes per loop'
+        required: false
+        default: '300'
+  push:
+    branches: [stuart/83-windows-ci-small-clip-mp4-frame-count-fl]
+    paths: ['.github/workflows/repro-probe-source.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  repro:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x64
+            exe: .exe
+          - os: ubuntu-24.04
+            platform: linux-x64
+            exe: ''
+          - os: macos-15
+            platform: macos-arm64
+            exe: ''
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUNS: ${{ inputs.runs || '300' }}
+      S: docs/reports/task-83-mp4-tail-probe-flake/scripts
+      CLIP: Tests/TestResources/small_clip.mp4
+      OUT: repro-out
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve deps tag
+        id: deps
+        run: |
+          PY=$(command -v python || command -v python3)
+          TAG=$("$PY" -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Download dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/install-deps-bundle.sh ${{ matrix.platform }} \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/${{ matrix.platform }}
+          if [ "${{ runner.os }}" = macOS ]; then xattr -cr deps/${{ matrix.platform }} || true; fi
+          if [ "${{ runner.os }}" = Linux ]; then
+            mkdir -p "$HOME/.local/share/VapourBox"
+            ln -sfn "$GITHUB_WORKSPACE/deps" "$HOME/.local/share/VapourBox/deps"
+          fi
+
+      - name: Build worker and tests
+        run: cd worker && cargo build && cargo test --no-run --test continuity_integration_test --test source_model_integration_test
+
+      - name: probe-source, serial
+        run: bash $S/probe_loop.sh worker/target/debug/vapourbox-worker${{ matrix.exe }} $CLIP $RUNS 1 $OUT/serial | tee -a $OUT-summary.txt
+
+      - name: probe-source, 8 at once
+        run: bash $S/probe_loop.sh worker/target/debug/vapourbox-worker${{ matrix.exe }} $CLIP $RUNS 8 $OUT/parallel8 | tee -a $OUT-summary.txt
+
+      - name: probe-source, 16 at once
+        run: bash $S/probe_loop.sh worker/target/debug/vapourbox-worker${{ matrix.exe }} $CLIP $RUNS 16 $OUT/parallel16 | tee -a $OUT-summary.txt
+
+      - name: raw ffprobe tail probe, 8 at once
+        run: bash $S/ffprobe_tail_loop.sh deps/${{ matrix.platform }}/ffmpeg/ffprobe${{ matrix.exe }} $CLIP $RUNS 8 $OUT/ffprobe8 | tee -a $OUT-summary.txt
+
+      - name: raw ffprobe tail probe, 32 at once
+        run: bash $S/ffprobe_tail_loop.sh deps/${{ matrix.platform }}/ffmpeg/ffprobe${{ matrix.exe }} $CLIP $RUNS 32 $OUT/ffprobe32 | tee -a $OUT-summary.txt
+
+      - name: cargo test x30
+        run: cd worker && bash ../$S/cargo_test_loop.sh 30 ../$OUT/cargo | tee -a ../$OUT-summary.txt
+
+      - name: Upload tallies
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: repro-${{ matrix.platform }}
+          path: |
+            repro-out-summary.txt
+            repro-out/**/counts.txt
+            repro-out/**/failures.txt
+            repro-out/**/summary.txt
+            repro-out/cargo/*.log

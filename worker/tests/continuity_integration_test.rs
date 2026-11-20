@@ -95,15 +95,22 @@ fn a_source_without_a_reset_is_not_copied() {
     assert!(!out.exists());
 }
 
-fn probe(path: &std::path::Path, defer: bool) -> String {
+/// `--probe-source`'s model line and its stderr, where every probe that
+/// failed says why (task #83).
+fn probe_with_log(path: &std::path::Path, defer: bool) -> (String, String) {
     let mut c = worker();
     c.arg("--probe-source").arg(path);
     if defer {
         c.arg("--defer-scan");
     }
     let out = c.output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stdout));
-    String::from_utf8(out.stdout).unwrap().trim().to_string()
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(out.status.success(), "{}\nstderr:\n{stderr}", String::from_utf8_lossy(&out.stdout));
+    (String::from_utf8(out.stdout).unwrap().trim().to_string(), stderr)
+}
+
+fn probe(path: &std::path::Path, defer: bool) -> String {
+    probe_with_log(path, defer).0
 }
 
 /// Task #55: `--defer-scan` leaves a TS/PS's whole-file scan out of the
@@ -116,12 +123,15 @@ fn a_deferred_scan_completes_to_the_same_model() {
     std::fs::create_dir_all(&dir).unwrap();
     for name in ["seek_reset_dvd_pal.mpg", "seek_reset_h264.ts", "seek_dvd_pal.mpg", "small_clip.mp4"] {
         let src = resource(name);
-        let full = probe(&src, false);
-        let deferred = probe(&src, true);
+        let (full, full_log) = probe_with_log(&src, false);
+        let (deferred, deferred_log) = probe_with_log(&src, true);
         let ts_ps = !name.ends_with(".mp4");
         let d: serde_json::Value = serde_json::from_str(&deferred).unwrap();
         if !ts_ps {
-            assert_eq!(deferred, full, "{name}: nothing to defer");
+            assert_eq!(
+                deferred, full,
+                "{name}: nothing to defer\n--defer-scan stderr:\n{deferred_log}\n--probe-source stderr:\n{full_log}"
+            );
             continue;
         }
         assert_eq!(d["continuityDeferred"], true, "{name}: {deferred}");
