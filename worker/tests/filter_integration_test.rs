@@ -6927,8 +6927,7 @@ fn test_183_deblock_per_field_when_still_interlaced() {
                     .unwrap_or_else(|| panic!("{method:?} {detected:?} {name}: no weave"));
                 assert!(split < filter && filter < weave, "{method:?} {name}: wrong order");
                 // A 4:2:0 height 2 mod 4 can't be split into fields: the pass
-                // runs on a frame padded to whole field chroma rows, through its contract
-    // (tasks #57, #81).
+                // runs on a frame padded to whole field chroma rows (task #57).
                 assert!(script.contains(
                     "clip = _pf.pad_around(clip, _deblock_pass, height_step=_pf.CHROMA, field_based_only=True, label='Deblock')"
                 ));
