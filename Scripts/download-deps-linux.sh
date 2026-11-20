@@ -2195,6 +2195,37 @@ if _akarin_expr is not None:
 ''')
     patches.append('akarin Expr routing')
 
+# Patch 8: havsfunc's mask ANDs as one Expr (task #82).
+# LUTDeCrawl and LUTDeRainbow AND two masks with
+# core.std.Lut2(a, b, function=lambda x, y: x & y): eight calls, the only Lut2
+# calls in havsfunc. At 10 bits VapourSynth calls that lambda 2^20 times per
+# table, so each filter spent 7.9 s building tables on an M1 (several times that
+# on Intel Macs) at every script evaluation: every preview of a 10/12/16-bit
+# source paid it. In every call one operand is a strict 0/peak mask (Binarize,
+# or an Expr giving `{peak} 0 ?`), and then x & y == min(x, y) exactly, so
+# Expr 'x y min' gives the same picture in no measurable time. R78's std.Expr
+# has no bitand, and akarin's would leave macOS x64 out. Like patch 7 it goes
+# through the module's `core`, so akarin's Expr where present. The counts are
+# checked, so a havsfunc that changes these calls fails the build rather than
+# keeping a table we have not checked (docs/reports/task-82-havsfunc-mask-and).
+if '_mask_and' not in content:
+    old_call = 'core.std.Lut2('
+    old_fn = ', function=lambda x, y: x & y)'
+    old_fn_ml = ',\n                          function=lambda x, y: x & y)'
+    counts = (content.count(old_call), content.count(old_fn), content.count(old_fn_ml))
+    if counts != (8, 7, 1):
+        print(f"  ERROR: havsfunc's Lut2 calls changed (calls, one-line, multi-line = {counts}, "
+              "expected (8, 7, 1)): patch 8 no longer applies")
+        sys.exit(1)
+    content = content.replace(old_fn_ml, ')').replace(old_fn, ')').replace(old_call, '_mask_and(')
+    content = content.replace('import math\n', 'import math\n' + '''
+
+# AND of two masks, one always 0 or peak, so min is exact (see download-deps-*).
+def _mask_and(clipa, clipb):
+    return core.std.Expr([clipa, clipb], ['x y min'])
+''')
+    patches.append('mask AND as Expr (8 sites)')
+
 if patches:
     with open(havsfunc_path, 'w') as f:
         f.write(content)
