@@ -5619,3 +5619,30 @@ detectors' converting decodes and an encode whose encoder converts fail on
 such a source. Same-format decodes work, so the processed preview does.
 Filed as task #76 (extend the decode neutraliser with this mapping). Report:
 [docs/reports/task-73-swscale-matrix-tags](reports/task-73-swscale-matrix-tags/index.html).
+
+### The pull-request gate in ten minutes (task #84, 2026-11-20)
+
+`ci-test.yml` took 21–31 min, set by macOS x64 (28.9 in the measured run). Two
+Dart tests made the long tail: the format sweep's PR rows (588 previews,
+170–703 s) and the quick plugin probe (36–244 s, plus the Lut2 memo check).
+Nightly already ran a superset of both. The whisper subtitle test took 42–167
+s of the Rust step. The repository's Actions cache held 11.4 GB against 10 GB:
+each platform's Flutter SDK cache was ~2 GB and saved by every PR ref, so
+main's entries were evicted, PRs missed, and each job spent up to 1.6 min
+saving a new one. A hit saved under 30 s anyway. package:test runs half the
+cores, which is one file at a time on the 3-core arm64 runner.
+
+Now: the sweep runs one smoke row per variant on Linux only (`sweep-smoke`);
+the quick probe and memo check are `heavy`, and run on PRs only when
+`.github/scripts/deps-sensitive.sh` sees the bundle, the table or the probe
+change (or a `deps_run_id`); the whisper test is `#[ignore]`d and nightly runs
+it. Each platform runs a `rust` and a `flutter` job side by side, the worker
+building in the background during Flutter setup. There is no Flutter SDK
+cache; Cargo and pub caches (~0.9 GB in all) are saved from main only, and
+`--concurrency` is explicit. The script-generation helper polls every 50 ms
+(114 s -> 46 s locally for its two files). Result: 9.7 min warm, 11.0 cold;
+macOS x64's flutter job is now mostly setup (2.6 min Flutter, 1.8 code
+generation). This reverses task #75's "kept in the push gate". The trade-off:
+a platform-specific runtime fault in one pass is found by nightly, not before
+merging. Report:
+[docs/reports/task-84-pr-ci-time](reports/task-84-pr-ci-time/index.html).
