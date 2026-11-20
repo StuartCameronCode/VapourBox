@@ -5620,6 +5620,38 @@ such a source. Same-format decodes work, so the processed preview does.
 Filed as task #76 (extend the decode neutraliser with this mapping). Report:
 [docs/reports/task-73-swscale-matrix-tags](reports/task-73-swscale-matrix-tags/index.html).
 
+### Frames tagged with a matrix FFmpeg 9 can't convert (task #76, 2026-11-21)
+
+FFmpeg 9's scaler converts a frame from only seven matrices (`unknown gbr
+bt709 fcc bt470bg smpte170m smpte240m bt2020nc`, from its negotiation
+message). A source tagged `ycgco`, `bt2020c`, `smpte2085`,
+`chroma-derived-*` or `ictcp` (valid tags `from_raw` keeps) failed every
+decode that converts its pixel format: the before frame, thumbnails, Detect
+borders, a converting encode decoder (4:4:0, 9-bit). It also failed every
+encode whose encoder converts (HuffYUV's yuv422p, AMF's nv12, a Custom
+`-pix_fmt`). The decode neutraliser now replaces such a matrix with
+`ColorMetadata::scaler_stand_in`, #73's preview reading as a `-colorspace`
+value. Every YUV-to-YUV conversion gave the same md5 whichever matrix stood
+in, and so does each conversion the app and worker make. Only RGB or gray
+reads the matrix. So "never clear a valid tag" became "never touch a matrix
+the scaler converts".
+
+The encoder could not simply declare the stand-in. The output tag is a
+negotiation target the scaler can't produce, or, left off, the file loses its
+tag. Instead the one `-vf` ends with `setparams=colorspace=<stand-in>,scale,
+setparams=colorspace=<tag>` (`encoder_matrix_bridge`). It applies only for
+the six, and it is byte-identical when nothing converts. Its explicit
+`scale` negotiates with the encoder as the inserted one would, so the samples
+equal an untagged encode's (x264 nv12, 4:2:2→4:2:0, HuffYUV).
+
+Found on the way: zimg refuses constant luminance with a PQ or HLG transfer,
+so HDR `bt2020c` had no preview, before frame or thumbnails either. The tone
+map now reads it as `bt2020nc`. #73's plan said that path was unaffected.
+Filed separately: #88 (the script's zimg YUV↔RGB needs transfer and primaries
+for 2020cl/chromancl/chromacl/ictcp), #86 (HDR thumbnails at an odd height).
+Report:
+[docs/reports/task-76-unconvertible-matrix-tags](reports/task-76-unconvertible-matrix-tags/index.html).
+
 ### The pull-request gate in ten minutes (task #84, 2026-11-20)
 
 `ci-test.yml` took 21–31 min, set by macOS x64 (28.9 in the measured run). Two

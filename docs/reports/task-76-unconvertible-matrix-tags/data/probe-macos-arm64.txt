@@ -1,0 +1,50 @@
+ffmpeg version 9.0.2-https://www.martin-riedl.de Copyright (c) 2000-2026 the FFmpeg developers
+
+## 1. Decodes of a yuv420p FFV1 tagged <m>
+outputs: jpg rgb24 gray16le yuv422p yuv420p(same) thumb(scale=160:-1 jpg) png yuv420p10le null
+unknown: ok ok ok ok ok ok ok ok ok
+bt709: ok ok ok ok ok ok ok ok ok
+bt2020nc: ok ok ok ok ok ok ok ok ok
+ycgco: FAIL FAIL FAIL FAIL ok FAIL FAIL FAIL ok
+bt2020c: FAIL FAIL FAIL FAIL ok FAIL FAIL FAIL ok
+smpte2085: FAIL FAIL FAIL FAIL ok FAIL FAIL FAIL ok
+chroma-derived-nc: FAIL FAIL FAIL FAIL ok FAIL FAIL FAIL ok
+chroma-derived-c: FAIL FAIL FAIL FAIL ok FAIL FAIL FAIL ok
+ictcp: FAIL FAIL FAIL FAIL ok FAIL FAIL FAIL ok
+negotiation message:
+  Color spaces:
+    src: ycgco
+    dst: unknown gbr bt709 fcc bt470bg smpte170m smpte240m bt2020nc
+Link 'auto_scale_0.default' -> 'format.default':
+
+## 2. setparams=colorspace=X first: md5 of the decoded frame (6 hex)
+jpg: ycgco->unknown=ac20d2 ycgco->bt709=ac20d2 ycgco->bt470bg=ac20d2 ycgco->bt2020nc=ac20d2 bt2020c->unknown=ac20d2 bt2020c->bt709=ac20d2 bt2020c->bt470bg=ac20d2 bt2020c->bt2020nc=ac20d2 | untagged=ac20d2 bt709=ac20d2
+rgb24: ycgco->unknown=95f8fb ycgco->bt709=e564c2 ycgco->bt470bg=95f8fb ycgco->bt2020nc=b83296 bt2020c->unknown=95f8fb bt2020c->bt709=e564c2 bt2020c->bt470bg=95f8fb bt2020c->bt2020nc=b83296 | untagged=95f8fb bt709=e564c2
+gray16le: ycgco->unknown=008a30 ycgco->bt709=bf9002 ycgco->bt470bg=008a30 ycgco->bt2020nc=ed129a bt2020c->unknown=008a30 bt2020c->bt709=bf9002 bt2020c->bt470bg=008a30 bt2020c->bt2020nc=ed129a | untagged=008a30 bt709=bf9002
+yuv422p: ycgco->unknown=1242b4 ycgco->bt709=1242b4 ycgco->bt470bg=1242b4 ycgco->bt2020nc=1242b4 bt2020c->unknown=1242b4 bt2020c->bt709=1242b4 bt2020c->bt470bg=1242b4 bt2020c->bt2020nc=1242b4 | untagged=1242b4 bt709=1242b4
+yuv444p: ycgco->unknown=26bccd ycgco->bt709=26bccd ycgco->bt470bg=26bccd ycgco->bt2020nc=26bccd bt2020c->unknown=26bccd bt2020c->bt709=26bccd bt2020c->bt470bg=26bccd bt2020c->bt2020nc=26bccd | untagged=26bccd bt709=26bccd
+yuv420p10le: ycgco->unknown=6dee10 ycgco->bt709=6dee10 ycgco->bt470bg=6dee10 ycgco->bt2020nc=6dee10 bt2020c->unknown=6dee10 bt2020c->bt709=6dee10 bt2020c->bt470bg=6dee10 bt2020c->bt2020nc=6dee10 | untagged=6dee10 bt709=6dee10
+nv12: ycgco->unknown=3523ac ycgco->bt709=3523ac ycgco->bt470bg=3523ac ycgco->bt2020nc=3523ac bt2020c->unknown=3523ac bt2020c->bt709=3523ac bt2020c->bt470bg=3523ac bt2020c->bt2020nc=3523ac | untagged=3523ac bt709=3523ac
+
+## 3. Encoder: Y4M input declared with the tag (md5 of the stored samples, 6 hex)
+x264 nv12, untagged: ok [yuv420p,unknown] 570073
+x264 nv12, ycgco both sides: FAIL Impossible to convert between the formats supported by the filter 'Parsed_null_0' and the filter 'auto_scale_0
+x264 nv12, input unknown, output ycgco: FAIL Impossible to convert between the formats supported by the filter 'Parsed_null_0' and the filter 'auto_scale_0
+x264 nv12, ycgco, bridge: ok [yuv420p,ycgco] 570073
+x264 10-bit no conversion, untagged: ok [yuv420p10le,unknown] 8ba2ac
+x264 10-bit no conversion, ycgco: ok [yuv420p10le,ycgco] 8ba2ac
+x264 10-bit no conversion, ycgco, bridge: ok [yuv420p10le,ycgco] 8ba2ac
+x264 422p10 to 420, untagged: ok [yuv420p,unknown] a6c69a
+x264 422p10 to 420, ycgco: FAIL Impossible to convert between the formats supported by the filter 'Parsed_null_0' and the filter 'auto_scale_0
+x264 422p10 to 420, ycgco, bridge: ok [yuv420p,ycgco] a6c69a
+huffyuv (implicit 420->422), untagged: ok [yuv422p,unknown] 01fb18
+huffyuv (implicit 420->422), ycgco: FAIL Impossible to convert between the formats supported by the filter 'Parsed_null_0' and the filter 'auto_scale_0
+huffyuv (implicit 420->422), ycgco, bridge: ok [yuv422p,ycgco] 01fb18
+subtitles burn-in, untagged: ok [yuv420p10le,unknown] 66df9a
+subtitles burn-in, ycgco: ok [yuv420p10le,ycgco] 66df9a
+
+## 4. HDR display tone map on an untagged 10-bit Y4M (the worker's preview)
+smpte2084 bt2020c: FAIL [Parsed_zscale_1 @ 0x6000007780b0] code 3074: invalid colorspace definition
+smpte2084 bt2020nc: ok
+arib-std-b67 bt2020c: FAIL [Parsed_zscale_1 @ 0x600002f180b0] code 3074: invalid colorspace definition
+arib-std-b67 bt2020nc: ok

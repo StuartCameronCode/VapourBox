@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unconvertible matrix tags</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #76: frames tagged with a matrix FFmpeg 9 can't convert</h1>
+<p class="sub">2026-11-21 · macOS arm64 (M1 Pro) · deps 1.18.0-rc2 (FFmpeg 9.0.2, martin-riedl build) · branch <code>stuart/76-sources-tagged-ycgco-bt2020c-smpte2085-c</code></p>
+
+<h2>Summary</h2>
+<p>FFmpeg accepts all thirteen H.273 matrices as tags, but its scaler can convert a frame from only seven of them. A source <em>tagged</em> <code>ycgco</code>, <code>bt2020c</code>, <code>smpte2085</code>, <code>chroma-derived-nc</code>, <code>chroma-derived-c</code> or <code>ictcp</code> therefore failed every decode that converts its pixel format. That covered the app's before frame and thumbnails, Detect borders, an encode whose decoder or encoder converts (a 4:4:0 or 9-bit source; HuffYUV's yuv422p, AMF's nv12), and, for <code>bt2020c</code> with a PQ or HLG transfer, the HDR display tone map. Task #73 had fixed only the processed preview, whose pipe carries no tags.</p>
+<p><span class="good">Fixed</span>, in two places:</p>
+<ul>
+<li><strong>The decode neutraliser</strong> (<code>decode_tag_neutraliser</code> and its app twin <code>ColorTags.decodeNeutraliser</code>) now replaces such a matrix with the one the preview reads it as (<code>ColorMetadata::scaler_stand_in</code>, derived from #73's <code>swscale_matrix</code>).</li>
+<li><strong>The encoder</strong> ends its <code>-vf</code> with <code>setparams=colorspace=&lt;stand-in&gt;,scale,setparams=colorspace=&lt;tag&gt;</code>. The output keeps the source's tag and stores the same samples an untagged source would.</li>
+</ul>
+<p>The HDR tone map reads <code>bt2020c</code> as <code>bt2020nc</code>. Task #73's plan said HDR <code>bt2020c</code> was unaffected; it was not (§4).</p>
+<p>Every number below comes from <a href="scripts/probe-unconvertible-matrices.sh">scripts/probe-unconvertible-matrices.sh</a>. Raw output: <a href="data/probe-macos-arm64.txt">data/probe-macos-arm64.txt</a>.</p>
+
+<h2>1. Which decodes fail</h2>
+<p>The fixture is a yuv420p FFV1 testsrc2, retagged with <code>setparams</code> (no sample converted). Each column is one ffmpeg decode of its first frame.</p>
+<table>
+<tr><th>Tag</th><th>JPEG</th><th>rgb24</th><th>gray16le</th><th>yuv422p</th><th>yuv420p (same)</th><th>thumbnail</th><th>PNG</th><th>yuv420p10le</th><th>null</th></tr>
+<tr><td>unknown, bt709, bt2020nc</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td><td class="good">ok</td></tr>
+<tr><td>ycgco, bt2020c, smpte2085, chroma-derived-nc, chroma-derived-c, ictcp</td><td class="bad">FAIL</td><td class="bad">FAIL</td><td class="bad">FAIL</td><td class="bad">FAIL</td><td class="good">ok</td><td class="bad">FAIL</td><td class="bad">FAIL</td><td class="bad">FAIL</td><td class="good">ok</td></tr>
+</table>
+<p>Every failure is "Impossible to convert between the formats…". The negotiation names the matrices the scaler converts from: <code>unknown gbr bt709 fcc bt470bg smpte170m smpte240m bt2020nc</code>. That is the worker's <code>SCALER_MATRICES</code> (with <code>rgb</code> for <code>gbr</code>).</p>
+
+<h2>2. What replacing the tag changes</h2>
+<p>The ycgco and bt2020c files were decoded with <code>setparams=colorspace=X</code> in front. The table gives the md5 of the frame (first 6 hex digits).</p>
+<table>
+<tr><th>Output</th><th>X = unknown</th><th>bt709</th><th>bt470bg</th><th>bt2020nc</th><th>untagged file</th><th>bt709 file</th></tr>
+<tr><td>JPEG, yuv422p, yuv444p, yuv420p10le, nv12</td><td colspan="6">the same md5 in every column (one per output)</td></tr>
+<tr><td>rgb24</td><td>95f8fb</td><td>e564c2</td><td>95f8fb</td><td>b83296</td><td>95f8fb</td><td>e564c2</td></tr>
+<tr><td>gray16le</td><td>008a30</td><td>bf9002</td><td>008a30</td><td>ed129a</td><td>008a30</td><td>bf9002</td></tr>
+</table>
+<p><strong>Every YUV-to-YUV conversion is independent of the replacement</strong>: a JPEG, another subsampling, depth or packing. Those are every conversion of the source the app and the worker make: the before frame, the thumbnails, the pipe-format decoders, Detect borders' yuv444p, Noise/Halo. Descale reads the Y plane itself (task #17), and HDR goes through zscale. So the neutraliser changes no pixel of any of them. Only RGB or gray output reads the matrix, so the replacement is the preview's reading (§5). An RGB decode then matches the preview, which matters to the test harness's <code>_frameRgb24</code>.</p>
+
+<h2>3. The encoder</h2>
+<p>The Y4M input is declared with the tag on both sides, as every encode is. The md5 is of the stored samples.</p>
+<table>
+<tr><th>Case</th><th>untagged</th><th>tagged ycgco</th><th>ycgco + bridge</th></tr>
+<tr><td>x264, <code>-pix_fmt nv12</code> (a forced conversion, as AMF's pin)</td><td>570073</td><td class="bad">FAIL</td><td class="good">570073, tag kept</td></tr>
+<tr><td>x264, 10-bit 4:2:2 → <code>-pix_fmt yuv420p</code></td><td>a6c69a</td><td class="bad">FAIL</td><td class="good">a6c69a, tag kept</td></tr>
+<tr><td>HuffYUV on 4:2:0 (the encoder refuses it; ffmpeg picks yuv422p)</td><td>01fb18</td><td class="bad">FAIL</td><td class="good">01fb18, tag kept</td></tr>
+<tr><td>x264, 10-bit 4:2:0, no conversion</td><td>8ba2ac</td><td>8ba2ac</td><td class="good">8ba2ac, tag kept</td></tr>
+<tr><td>subtitle burn-in, no conversion</td><td>66df9a</td><td>66df9a</td><td>—</td></tr>
+</table>
+<p>Two alternatives fail. Declaring the input <code>unknown</code> while the output says <code>ycgco</code> fails the same way, because the output tag is a negotiation target the scaler can't produce. Declaring neither works, but the file loses its tag. A ycgco file that says nothing plays as BT.601.</p>
+<p>The bridge swaps the tag for its stand-in around an explicit <code>scale</code>, which negotiates its output format with the encoder exactly as the inserted one would, and then puts the tag back. It doesn't need to know the target format, so it also covers conversions ffmpeg chooses on its own. When nothing converts, its <code>scale</code> passes the frames through unchanged. So the worker adds it for every encode whose output matrix is one of the six, and never otherwise. A Custom FFmpeg <code>-vf</code> replaces the chain and the bridge with it, and the job log says so.</p>
+
+<h2>4. HDR: zimg refuses constant luminance with PQ and HLG</h2>
+<table>
+<tr><th>Transfer</th><th>Tone map reading bt2020c</th><th>reading bt2020nc</th></tr>
+<tr><td>smpte2084 (PQ)</td><td class="bad">code 3074: invalid colorspace definition</td><td class="good">ok</td></tr>
+<tr><td>arib-std-b67 (HLG)</td><td class="bad">code 3074: invalid colorspace definition</td><td class="good">ok</td></tr>
+</table>
+<p class="note">Correction to task #73's plan, which said the HDR path "already reads bt2020c through zscale, so it is unaffected". It doesn't: an HDR source tagged bt2020c had no preview, before frame or thumbnails. <code>display_tonemap_filter</code> and <code>HdrDisplay.toneMapFilter</code> now read it as NCL, which has the same Kr/Kb and is the reading the SDR preview already uses.</p>
+
+<h2>5. Decision, per tag</h2>
+<table>
+<tr><th>Tag</th><th>Converted as</th><th>Why (task #73's reading)</th></tr>
+<tr><td>rgb (gbr), bt709, fcc, bt470bg, smpte170m, smpte240m, bt2020nc</td><td>never touched</td><td>The scaler converts them. Changing a valid matrix the scaler converts moves YUV → gray by up to 28 levels (reserved-tags report).</td></tr>
+<tr><td>bt2020c</td><td>bt2020nc</td><td>The same Kr/Kb.</td></tr>
+<tr><td>chroma-derived-nc / -c</td><td>bt709 or bt2020nc by the primaries, else unknown</td><td>H.273 derives exactly those coefficients from those primaries.</td></tr>
+<tr><td>ictcp</td><td>bt2020nc</td><td>It exists only with BT.2100's primaries.</td></tr>
+<tr><td>ycgco, smpte2085</td><td>unknown</td><td>No YCbCr matrix comes close.</td></tr>
+</table>
+<p>The rule "never clear a valid tag" was about a pixel change. It becomes "never touch a matrix the scaler converts". For the six it can't convert, the alternative is no picture.</p>
+
+<h2>6. Verification</h2>
+<ul>
+<li><code>decode_neutraliser_cases.json</code> holds the neutraliser for 33 tag combinations, and both the Rust and Dart tests check every row. Rust also checks that every <code>MATRICES</code> entry, with every primaries value, is either converted as it is or stands in as a matrix the scaler converts.</li>
+<li><code>colour_tag_ffmpeg_test.dart</code> (push gate, on each platform's bundled ffmpeg) covers three cases. With the neutraliser, every matrix decodes to JPEG, rgb24, yuv444p and yuv420p10le. The bridge, on lossless x264 (nv12) and HuffYUV, keeps the tag and every sample for each of the six. The HDR tone map gives a picture for bt2020c with PQ and HLG.</li>
+<li><code>integration_unconvertible_matrix_test.dart</code> (heavy, 37 tests) runs against twins of the same picture tagged with the stand-in, for each of ycgco, bt2020c, smpte2085, ictcp and chroma-derived-nc:
+  <ul>
+  <li>The before frame and thumbnail fail without the fix and match the twin's with it.</li>
+  <li>The reports of <code>--detect-crop</code>, <code>--detect-noise-halo</code> and <code>--detect-native</code> equal the twin's.</li>
+  <li>A HuffYUV encode keeps the tag and the twin's samples.</li>
+  <li>A ycgco 4:4:0 encode, whose decoder converts, equals the twin's.</li>
+  <li>An HDR bt2020c preview and before frame equal a bt2020nc twin's.</li>
+  </ul>
+  The encode, 4:4:0 and HDR cases fail with the worker built from the code before this change.</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>Synthetic testsrc2 and one real clip (small_clip.mp4). The probes ran on one FFmpeg build (macOS arm64); the push-gate test runs the fixes on each platform's bundle.</li>
+<li>The bridge's sample identity is measured on x264, HuffYUV, FFV1 and rawvideo. NVENC, QSV and AMF can't be run here; their conversion is the same scaler negotiation.</li>
+<li>Out of scope, filed separately. Task #88: the script's own YUV↔RGB conversions (Borders, RIFE, AI upscale, Face Restoration, Colourisation) go through zimg, which refuses 2020cl, chromancl, chromacl and ictcp without the transfer and primaries. Task #86: HDR thumbnails fail when the 160-wide thumbnail has an odd height, whatever the tag.</li>
+</ul>
+</main>
+</body>
+</html>
