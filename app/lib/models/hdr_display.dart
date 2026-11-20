@@ -94,7 +94,9 @@ class HdrDisplay {
     String? range,
   }) {
     if (!isHdrTransfer(transfer)) return null;
-    const matrices = {'bt709', 'bt2020nc', 'bt2020c'};
+    // bt2020c reads as NCL: zimg refuses constant luminance with PQ/HLG
+    // (task #76), as in the worker.
+    const matrices = {'bt709', 'bt2020nc'};
     const primarySet = {'bt709', 'bt2020', 'smpte432'};
     final m = matrices.contains(matrix) ? matrix! : 'bt2020nc';
     final p = primarySet.contains(primaries) ? primaries! : 'bt2020';

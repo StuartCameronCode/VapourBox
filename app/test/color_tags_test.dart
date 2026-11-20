@@ -2,6 +2,7 @@
 // the app's own decodes convert a frame; see ColorTags.decodeNeutraliser and
 // its twin, decode_tag_neutraliser in worker/src/models/color_metadata.rs.
 
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -34,6 +35,7 @@ void main() {
     final rust = _repoFile('worker/src/models/color_metadata.rs');
     test('are the worker\'s, value for value', () {
       expect(ColorTags.matrices, _rustList(rust, 'MATRICES'));
+      expect(ColorTags.scalerMatrices, _rustList(rust, 'SCALER_MATRICES'));
       expect(ColorTags.primaries, _rustList(rust, 'PRIMARIES'));
       expect(ColorTags.transfers, _rustList(rust, 'TRANSFERS'));
     });
@@ -43,33 +45,48 @@ void main() {
     String? n(String? m, String? pr, String? t) =>
         ColorTags.decodeNeutraliser(matrix: m, primaries: pr, transfer: t);
 
-    // The same table as the Rust test `decode_tag_neutraliser_cases`.
-    test('matches the worker\'s case table', () {
-      expect(n(null, null, null), isNull);
-      expect(n('bt709', 'bt709', 'bt709'), isNull);
-      expect(n('unknown', 'unknown', 'unknown'), isNull);
-      expect(n('N/A', '', '  '), isNull);
-      expect(n('unknown', 'reserved', 'reserved'),
-          'setparams=color_primaries=unknown:color_trc=unknown');
-      expect(n('bt709', 'reserved', null), 'setparams=color_primaries=unknown');
-      expect(n(null, 'smpte170m', 'Reserved '), 'setparams=color_trc=unknown');
-      for (final m in ['reserved', 'ipt-c2', 'ycgco-re']) {
-        expect(n(m, null, null), 'setparams=colorspace=unknown', reason: m);
+    // The shared table: the Rust test `decode_tag_neutraliser_matches_the_
+    // shared_table` checks the same rows against the worker.
+    test('matches the shared case table', () {
+      final table = jsonDecode(_repoFile(
+              'Tests/TestResources/decode_neutraliser_cases.json'))
+          as Map<String, dynamic>;
+      final cases = (table['cases'] as List).cast<Map<String, dynamic>>();
+      expect(cases.length, greaterThan(25));
+      for (final c in cases) {
+        expect(
+          n(c['matrix'] as String?, c['primaries'] as String?,
+              c['transfer'] as String?),
+          c['filter'] as String?,
+          reason: '$c',
+        );
       }
-      expect(n('gbr', null, null), isNull);
-      expect(n('reserved', 'reserved', 'reserved'),
-          'setparams=color_primaries=unknown:color_trc=unknown:colorspace=unknown');
     });
 
-    test('never clears a value FFmpeg accepts', () {
-      for (final m in ColorTags.matrices) {
-        expect(n(m, null, null), isNull, reason: m);
-      }
-      for (final pr in ColorTags.primaries) {
-        expect(n(null, pr, null), isNull, reason: pr);
+    test('never touches a tag the scaler converts', () {
+      for (final m in [...ColorTags.scalerMatrices, 'gbr']) {
+        for (final pr in [...ColorTags.primaries, null]) {
+          expect(n(m, pr, null), isNull, reason: '$m/$pr');
+        }
       }
       for (final t in ColorTags.transfers) {
         expect(n(null, null, t), isNull, reason: t);
+      }
+    });
+
+    // Task #76: every other valid matrix stands in as the preview reads it.
+    test('replaces a matrix the scaler cannot convert by its stand-in', () {
+      for (final m in ColorTags.matrices) {
+        for (final pr in [...ColorTags.primaries, null]) {
+          final s = ColorTags.scalerStandIn(m, pr);
+          if (ColorTags.scalerMatrices.contains(m)) {
+            expect(s, isNull, reason: m);
+            continue;
+          }
+          expect(s == 'unknown' || ColorTags.scalerMatrices.contains(s), isTrue,
+              reason: '$m/$pr: $s');
+          expect(n(m, pr, null), 'setparams=colorspace=$s', reason: '$m/$pr');
+        }
       }
     });
   });

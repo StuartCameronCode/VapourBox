@@ -190,7 +190,7 @@ VapourBox/
 | `app/lib/models/ai_runtime_status.dart` | The worker's `--probe-ai-runtime` result |
 | `app/lib/models/face_restore_parameters.dart` | Face Restoration's parameters and the add-ons each model needs (`faceRestoreAddonIds`) |
 | `app/lib/models/colorize_parameters.dart` | Colourisation's parameters and the add-on each model needs (`colorizeAddonSelectedBy`) |
-| `app/lib/models/color_tags.dart` | FFmpeg's accepted colour-tag lists (twin of `color_metadata.rs`) and `decodeNeutraliser`, the filter that clears invalid tags before the app's decodes |
+| `app/lib/models/color_tags.dart` | FFmpeg's accepted colour-tag lists and the matrices its scaler converts (twin of `color_metadata.rs`), `scaleMatrix` / `scalerStandIn`, and `decodeNeutraliser`, the filter that fixes tags the scaler can't convert before the app's decodes |
 | `app/lib/models/hdr_display.dart` | The display tone-map for the app's own source decodes (twin of `ColorMetadata::display_tonemap_filter`) and Dolby Vision detection |
 | `app/lib/models/gpu_plugin_status.dart` | The worker's GPU-plugin probe results, and the panels' notice decision |
 | `app/assets/filters/core/*.json` | Built-in filter schema definitions |
@@ -1001,19 +1001,26 @@ preview), so those are mapped (`bt2020c`/`ictcp` → bt2020, `chroma-derived-*`
 by primaries) or left to auto (`ycgco`, `smpte2085`). The rows are
 `Tests/TestResources/preview_scale_cases.json`, checked by the Rust, by the
 test twin `WorkerHarness.previewScaleFilter` and through each platform's
-bundled ffmpeg (`preview_scale_ffmpeg_test.dart`, push gate). A frame
-**tagged** with one of those six can't be converted at all either (before
-frame, thumbnails, detectors): task #76 (docs/reports/task-73-swscale-matrix-tags).
+bundled ffmpeg (`preview_scale_ffmpeg_test.dart`, push gate)
+(docs/reports/task-73-swscale-matrix-tags). A frame **tagged** with one of
+those six can't be converted by FFmpeg's scaler at all (task #76, next rule).
 
-**A tag FFmpeg rejects (ProRes's `reserved`) is cleared before any decode
-converts, and only that tag.** FFmpeg 9's scaler fails a frame tagged
-`reserved` outright, so every decode of the source that may convert its pixel
-format puts `ColorMetadata::decode_tag_neutraliser` (worker, via
-`source_decode::decoder_filter`: encode, preview and every detector) or its
-byte-identical twin `ColorTags.decodeNeutraliser` (app: before frame and
-thumbnails, via `PreviewGenerator.beforeFrameArgs`/`thumbnailArgs`) **first**
-in its one `-vf`. Never clear a valid tag (a valid matrix moves yuv → gray16le
-by up to 28 levels), which is why the job carries ffprobe's **raw** tags
+**A tag FFmpeg's scaler can't convert is fixed before any decode converts,
+and only that tag.** FFmpeg 9's scaler fails a frame tagged `reserved`
+(ProRes), and one tagged with a valid matrix off `SCALER_MATRICES` (`ycgco`,
+`bt2020c`, `smpte2085`, `chroma-derived-*`, `ictcp`; task #76). So every
+decode of the source that may convert its pixel format puts
+`color_metadata::decode_tag_neutraliser` **first** in its one `-vf`. In the
+worker that is via `source_decode::decoder_filter`: encode, preview and
+every detector. In the app it is the byte-identical twin
+`ColorTags.decodeNeutraliser`: the before frame and thumbnails, via
+`PreviewGenerator.beforeFrameArgs`/`thumbnailArgs`. Both are checked against
+`Tests/TestResources/decode_neutraliser_cases.json`. An invalid tag is
+cleared to `unknown`. An unconvertible matrix is replaced by
+`ColorMetadata::scaler_stand_in`, the preview's reading (`swscale_matrix`);
+every YUV→YUV conversion is identical whichever matrix stands in. **Never
+touch a matrix the scaler converts**: a valid matrix moves yuv → gray16le
+by up to 28 levels. That is why the job carries ffprobe's **raw** tags
 (`source_model::color_tag` keeps `reserved`) and `from_raw` drops them only for the
 encoder's flags. A new decode of the source must use the same helper.
 **Every detector job carries the source's raw tags**
@@ -1021,6 +1028,21 @@ encoder's flags. A new decode of the source must use the same helper.
 the job tells it about.
 `integration_reserved_colour_tags_test.dart` (heavy) checks each one against
 an untagged twin; see docs/reports/2026-11-reserved-colour-tags.
+**The encoder bridges a conversion of an unconvertible matrix (task #76).**
+Both sides of the encoder still declare the true tag. When the output's
+matrix is one of the six, the one `-vf` ends with
+`ColorMetadata::encoder_matrix_bridge`
+(`setparams=colorspace=<stand-in>,scale,setparams=colorspace=<tag>`), so a
+pixel-format conversion by the encoder works (AMF's nv12, HuffYUV, an
+implicit one), keeps the tag, and gives an untagged encode's samples. It is
+byte-identical when nothing converts. Never declare the stand-in instead:
+the output tag is then a target the scaler can't produce, or is lost. A
+Custom `-vf` drops the bridge, and the job log says so.
+`colour_tag_ffmpeg_test.dart` (push gate) runs the neutraliser and the
+bridge through each platform's ffmpeg. `integration_unconvertible_matrix_test.dart`
+(heavy) checks the before frame, thumbnail, detectors and converting
+encodes against stand-in-tagged twins
+(docs/reports/task-76-unconvertible-matrix-tags).
 
 **BT.601 → BT.709 on SD → HD (app 1.7.0) is the one place the script
 converts colour.** Crop & Resize's `convertToBt709` (`Bt709Conversion`:
@@ -1069,6 +1091,8 @@ tone-mapped.
   compares. Keep its two odd stages: `setparams` first (zscale finds no path
   from an untagged Y4M), and `format=rgb24,setparams=colorspace=gbr` last (else
   the JPEG encode converts with BT.2020's matrix — a 21-level hue shift).
+  `bt2020c` is read as `bt2020nc`: zimg refuses constant luminance with a PQ
+  or HLG transfer, so it had no picture at all (task #76).
 - **The preview job carries the source's colour tags** (`PreviewGenerator`
   sends `inputColor*`). Without them the worker can't tell the source is HDR,
   and the SDR matrix fix in `swscale_input_opts` doesn't apply either.

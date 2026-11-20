@@ -45,6 +45,18 @@ const MATRICES: &[&str] = &[
     "ictcp",
 ];
 
+/// The `MATRICES` FFmpeg 9's scaler can convert a frame from: its format
+/// negotiation lists `unknown gbr bt709 fcc bt470bg smpte170m smpte240m
+/// bt2020nc` (FFmpeg 9.0.2, task #76; `gbr` is `-colorspace`'s `rgb`). A frame
+/// tagged with any other matrix fails every decode that converts its pixel
+/// format ("Impossible to convert between the formats…"), so
+/// [`ColorMetadata::scaler_stand_in`] names what such a frame is converted as.
+/// `colour_tag_ffmpeg_test.dart` checks the list against each platform's
+/// bundled ffmpeg (docs/reports/task-76-unconvertible-matrix-tags).
+const SCALER_MATRICES: &[&str] = &[
+    "rgb", "bt709", "fcc", "bt470bg", "smpte170m", "smpte240m", "bt2020nc",
+];
+
 /// `-color_primaries` values, matching ffprobe's `color_primaries`.
 const PRIMARIES: &[&str] = &[
     "bt709", "bt470m", "bt470bg", "smpte170m", "smpte240m", "film", "bt2020",
@@ -86,30 +98,42 @@ fn is_invalid(value: Option<&str>, allowed: &[&str], also_valid: &[&str]) -> boo
     !allowed.contains(&v.as_str()) && !also_valid.contains(&v.as_str())
 }
 
-/// The `setparams` that clears a source's INVALID colour tags before anything
-/// converts its pixel format, or `None` when every tag is usable.
+/// The `setparams` that goes first in every decode of the source that may
+/// convert its pixel format, or `None` when FFmpeg's scaler can convert a frame
+/// with the source's tags as they are.
 ///
-/// FFmpeg 9's scaler refuses to convert a frame tagged with a value it has no
-/// meaning for — `[swscaler] Unsupported input … prim:reserved trc:reserved` —
-/// and fails the whole decode. ProRes is where this happens: Apple's ProRes
-/// spec writes code 0 for "unknown", which FFmpeg reads as ISO 23091's
-/// `reserved` (so FFmpeg's own `prores_metadata=color_primaries=unknown`
-/// produces such a file). Every decode of the source that may convert its
-/// pixel format puts this first in its one `-vf`: the app's "before" frame and
-/// thumbnails (`ColorTags.decodeNeutraliser`, byte-identical), the detectors,
-/// and the encode/preview decoders (a ProRes 4444 with alpha, `yuva444p12le`,
-/// is converted to the pipe format there).
+/// FFmpeg 9's scaler fails the whole decode on two kinds of tag:
 ///
-/// **Only an invalid tag is touched, each on its own.** Clearing a VALID matrix
+/// - **An invalid one** — `[swscaler] Unsupported input … prim:reserved
+///   trc:reserved`. ProRes is where this happens: Apple's ProRes spec writes
+///   code 0 for "unknown", which FFmpeg reads as ISO 23091's `reserved` (so
+///   FFmpeg's own `prores_metadata=color_primaries=unknown` produces such a
+///   file). Each is cleared to `unknown`, on its own: clearing only the
+///   primaries when the transfer is also reserved still fails
+///   (docs/reports/2026-11-reserved-colour-tags). `ipt-c2` (Dolby Vision
+///   profile 5) is cleared too: a DV5 picture is warned about, never blocked.
+/// - **A valid matrix the scaler has no conversion for** (task #76): `ycgco`,
+///   `bt2020c`, `smpte2085`, `chroma-derived-nc`/`-c`, `ictcp` (anything off
+///   `SCALER_MATRICES`). It is replaced by [`ColorMetadata::scaler_stand_in`],
+///   the matrix the preview reads it as (`swscale_matrix`, task #73), so a
+///   converted picture matches the preview. Every conversion the app and the
+///   worker make (YUV to JPEG, another subsampling, depth or packing) gives
+///   the same bytes whichever matrix stands in; only YUV to RGB or gray reads
+///   it (docs/reports/task-76-unconvertible-matrix-tags).
+///
+/// **A matrix the scaler converts is never touched.** Clearing a valid one
 /// changes pixels: `yuv → gray16le` on a bt709-tagged picture differs by up to
-/// ~28 8-bit levels from the same picture with `colorspace=unknown`. Clearing
-/// only the primaries when the transfer is also reserved still fails. The
-/// measurements are in docs/reports/2026-11-reserved-colour-tags.
+/// ~28 8-bit levels from the same picture with `colorspace=unknown`.
+///
+/// Every decode puts this first in its one `-vf`: the app's "before" frame and
+/// thumbnails (`ColorTags.decodeNeutraliser`, byte-identical; the case table
+/// is `Tests/TestResources/decode_neutraliser_cases.json`), the detectors, and
+/// the encode/preview decoders (a ProRes 4444 with alpha, `yuva444p12le`, or a
+/// 9-bit source is converted to the pipe format there).
 ///
 /// `gbr` is ffprobe's name for the RGB identity matrix (`-colorspace` spells it
-/// `rgb`, hence `MATRICES`); swscale handles it, so it is left alone.
-/// `ipt-c2` (Dolby Vision profile 5) is cleared: swscale cannot convert it, and
-/// a DV5 picture is warned about, never blocked.
+/// `rgb`, hence `MATRICES`); swscale handles it, so it is left alone. The
+/// primaries are the RAW ones: a `chroma-derived` matrix stands in by them.
 pub fn decode_tag_neutraliser(
     matrix: Option<&str>,
     primaries: Option<&str>,
@@ -117,13 +141,15 @@ pub fn decode_tag_neutraliser(
 ) -> Option<String> {
     let mut params = Vec::new();
     if is_invalid(primaries, PRIMARIES, &[]) {
-        params.push("color_primaries=unknown");
+        params.push("color_primaries=unknown".to_string());
     }
     if is_invalid(transfer, TRANSFERS, &[]) {
-        params.push("color_trc=unknown");
+        params.push("color_trc=unknown".to_string());
     }
     if is_invalid(matrix, MATRICES, &["gbr"]) {
-        params.push("colorspace=unknown");
+        params.push("colorspace=unknown".to_string());
+    } else if let Some(s) = ColorMetadata::from_raw(matrix, primaries, None, None).scaler_stand_in() {
+        params.push(format!("colorspace={s}"));
     }
     (!params.is_empty()).then(|| format!("setparams={}", params.join(":")))
 }
@@ -318,9 +344,12 @@ impl ColorMetadata {
             return None;
         }
         // Values zscale can linearise from. Anything else is far more likely a
-        // mislabelled BT.2020 file than a real alternative.
+        // mislabelled BT.2020 file than a real alternative. `bt2020c` is read
+        // as NCL (the same Kr/Kb): zimg refuses constant luminance with a PQ or
+        // HLG transfer ("invalid colorspace definition"), so it had no
+        // picture at all (task #76).
         let matrix = match self.matrix.as_deref() {
-            Some(m @ ("bt709" | "bt2020nc" | "bt2020c")) => m,
+            Some(m @ ("bt709" | "bt2020nc")) => m,
             _ => "bt2020nc",
         };
         let primaries = match self.primaries.as_deref() {
@@ -361,7 +390,8 @@ impl ColorMetadata {
     ///   and the tag.
     ///
     /// The six that need this also fail any decode that converts a frame
-    /// TAGGED with them: task #76.
+    /// TAGGED with them, which [`scaler_stand_in`](Self::scaler_stand_in)
+    /// handles from this same table (task #76).
     pub fn swscale_matrix(&self) -> Option<&'static str> {
         let derived = || match self.primaries.as_deref() {
             Some("bt709") => Some("bt709"),
@@ -384,6 +414,49 @@ impl ColorMetadata {
             "rgb" => None,
             _ => None,
         }
+    }
+
+    /// The matrix FFmpeg converts a frame tagged with this matrix as, when its
+    /// scaler can't convert that matrix itself (it is off `SCALER_MATRICES`),
+    /// spelled as a `-colorspace` / `setparams` value; `None` when the scaler
+    /// converts the tag as it is, or there is none (task #76).
+    ///
+    /// It is the preview's reading ([`swscale_matrix`](Self::swscale_matrix),
+    /// task #73), so a converted picture matches the preview: `bt2020c` and
+    /// `ictcp` stand in as `bt2020nc`, `chroma-derived-*` as `bt709` or
+    /// `bt2020nc` by the primaries, `ycgco` and `smpte2085` as `unknown`.
+    pub fn scaler_stand_in(&self) -> Option<&'static str> {
+        let m = self.matrix.as_deref()?;
+        if SCALER_MATRICES.contains(&m) {
+            return None;
+        }
+        Some(match self.swscale_matrix() {
+            Some("bt2020") => "bt2020nc",
+            Some(m) => m,
+            None => "unknown",
+        })
+    }
+
+    /// The filters that end the encoder's one `-vf` when the output's matrix
+    /// is one FFmpeg's scaler can't convert, or `None` (task #76).
+    ///
+    /// The Y4M input and the output are both declared with the true tag, as
+    /// always. When the encoder then needs another pixel format (AMF's `nv12`
+    /// pin, NVENC's p010, an encoder that refuses the pipe's format, a Custom
+    /// `-pix_fmt`), ffmpeg inserts a scaler, which fails on the tag. Declaring
+    /// the stand-in instead fails too (the output tag is a negotiation target
+    /// the scaler can't produce) or loses the tag. So the tag is swapped for
+    /// its stand-in around an explicit `scale`, which negotiates its output
+    /// format with the encoder exactly as the inserted scaler would, and is put
+    /// back after it. Measured: samples identical to an untagged encode
+    /// through the same conversion, and to the encode without the bridge when
+    /// nothing converts (docs/reports/task-76-unconvertible-matrix-tags).
+    pub fn encoder_matrix_bridge(&self) -> Option<String> {
+        let stand_in = self.scaler_stand_in()?;
+        let tag = self.matrix.as_deref()?;
+        Some(format!(
+            "setparams=colorspace={stand_in},scale,setparams=colorspace={tag}"
+        ))
     }
 
     /// swscale input options for the preview's YUV→RGB conversion.
@@ -439,56 +512,102 @@ mod tests {
         assert!(ColorMetadata::from_raw(None, None, None, None).is_empty());
     }
 
-    /// The case table `color_tags_test.dart` repeats for `ColorTags.
-    /// decodeNeutraliser` — change both together.
+    /// The shared case table (`Tests/TestResources/decode_neutraliser_cases.json`):
+    /// `color_tags_test.dart` checks `ColorTags.decodeNeutraliser` against the
+    /// same rows, so the two stay byte-identical.
     #[test]
-    fn decode_tag_neutraliser_cases() {
-        let n = decode_tag_neutraliser;
-        assert_eq!(n(None, None, None), None);
-        assert_eq!(n(Some("bt709"), Some("bt709"), Some("bt709")), None);
-        assert_eq!(n(Some("unknown"), Some("unknown"), Some("unknown")), None);
-        assert_eq!(n(Some("N/A"), Some(""), Some("  ")), None);
-        // The reported ProRes capture's tags.
-        assert_eq!(
-            n(Some("unknown"), Some("reserved"), Some("reserved")).as_deref(),
-            Some("setparams=color_primaries=unknown:color_trc=unknown")
-        );
-        // Each tag on its own; a valid matrix is kept.
-        assert_eq!(
-            n(Some("bt709"), Some("reserved"), None).as_deref(),
-            Some("setparams=color_primaries=unknown")
-        );
-        assert_eq!(
-            n(None, Some("smpte170m"), Some("Reserved ")).as_deref(),
-            Some("setparams=color_trc=unknown")
-        );
-        for m in ["reserved", "ipt-c2", "ycgco-re"] {
+    fn decode_tag_neutraliser_matches_the_shared_table() {
+        let table: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../Tests/TestResources/decode_neutraliser_cases.json"
+        ))
+        .unwrap();
+        let cases = table["cases"].as_array().unwrap();
+        assert!(cases.len() > 25);
+        for c in cases {
             assert_eq!(
-                n(Some(m), None, None).as_deref(),
-                Some("setparams=colorspace=unknown"),
-                "{m}"
+                decode_tag_neutraliser(
+                    c["matrix"].as_str(),
+                    c["primaries"].as_str(),
+                    c["transfer"].as_str()
+                )
+                .as_deref(),
+                c["filter"].as_str(),
+                "{c}"
             );
         }
-        assert_eq!(n(Some("gbr"), None, None), None);
-        assert_eq!(
-            n(Some("reserved"), Some("reserved"), Some("reserved")).as_deref(),
-            Some("setparams=color_primaries=unknown:color_trc=unknown:colorspace=unknown")
-        );
     }
 
-    /// A tag `from_raw` keeps must never be cleared: a valid matrix changes
-    /// pixels when it is (see `decode_tag_neutraliser`).
+    /// A tag the scaler converts must never be cleared or changed: a valid
+    /// matrix changes pixels when it is (see `decode_tag_neutraliser`).
     #[test]
-    fn decode_tag_neutraliser_never_touches_an_accepted_value() {
-        for m in MATRICES {
-            assert_eq!(decode_tag_neutraliser(Some(m), None, None), None, "{m}");
-        }
-        for p in PRIMARIES {
-            assert_eq!(decode_tag_neutraliser(None, Some(p), None), None, "{p}");
+    fn decode_tag_neutraliser_never_touches_a_tag_the_scaler_converts() {
+        let prims: Vec<Option<&str>> =
+            PRIMARIES.iter().map(|p| Some(*p)).chain([None]).collect();
+        for m in SCALER_MATRICES.iter().chain(&["gbr"]) {
+            for p in &prims {
+                assert_eq!(decode_tag_neutraliser(Some(m), *p, None), None, "{m}/{p:?}");
+            }
         }
         for t in TRANSFERS {
             assert_eq!(decode_tag_neutraliser(None, None, Some(t)), None, "{t}");
         }
+    }
+
+    /// Every matrix is either converted by the scaler as it is, or stands in
+    /// as one it converts (`unknown` included), whatever the primaries. A tag
+    /// added to `MATRICES` fails here until it is decided.
+    #[test]
+    fn every_matrix_is_converted_or_stands_in_as_one_that_is() {
+        let prims: Vec<Option<&str>> =
+            PRIMARIES.iter().map(|p| Some(*p)).chain([None]).collect();
+        for m in MATRICES {
+            for p in &prims {
+                let c = ColorMetadata::from_raw(Some(m), *p, None, None);
+                match c.scaler_stand_in() {
+                    None => assert!(SCALER_MATRICES.contains(m), "{m} has no stand-in"),
+                    Some(s) => {
+                        assert!(!SCALER_MATRICES.contains(m), "{m} needs none");
+                        assert!(s == "unknown" || SCALER_MATRICES.contains(&s), "{m}/{p:?}: {s}");
+                        assert_eq!(
+                            decode_tag_neutraliser(Some(m), *p, None),
+                            Some(format!("setparams=colorspace={s}")),
+                            "{m}/{p:?}"
+                        );
+                    }
+                }
+            }
+        }
+        // The six the negotiation list leaves out (FFmpeg 9.0.2).
+        let off: Vec<&str> =
+            MATRICES.iter().copied().filter(|m| !SCALER_MATRICES.contains(m)).collect();
+        assert_eq!(
+            off,
+            ["ycgco", "bt2020c", "smpte2085", "chroma-derived-nc", "chroma-derived-c", "ictcp"]
+        );
+    }
+
+    #[test]
+    fn encoder_bridge_only_for_a_matrix_the_scaler_cannot_convert() {
+        for m in SCALER_MATRICES {
+            let c = ColorMetadata::from_raw(Some(m), Some("bt709"), None, None);
+            assert_eq!(c.encoder_matrix_bridge(), None, "{m}");
+        }
+        assert_eq!(ColorMetadata::default().encoder_matrix_bridge(), None);
+        let c = ColorMetadata::from_raw(Some("ycgco"), None, None, None);
+        assert_eq!(
+            c.encoder_matrix_bridge().as_deref(),
+            Some("setparams=colorspace=unknown,scale,setparams=colorspace=ycgco")
+        );
+        let c = ColorMetadata::from_raw(Some("bt2020c"), Some("bt2020"), Some("smpte2084"), None);
+        assert_eq!(
+            c.encoder_matrix_bridge().as_deref(),
+            Some("setparams=colorspace=bt2020nc,scale,setparams=colorspace=bt2020c")
+        );
+        let c = ColorMetadata::from_raw(Some("chroma-derived-nc"), Some("bt709"), None, None);
+        assert_eq!(
+            c.encoder_matrix_bridge().as_deref(),
+            Some("setparams=colorspace=bt709,scale,setparams=colorspace=chroma-derived-nc")
+        );
     }
 
     #[test]
@@ -597,6 +716,13 @@ mod tests {
         assert!(f.starts_with(
             "setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=arib-std-b67:range=pc,"
         ), "{f}");
+        // zimg refuses constant luminance with PQ/HLG: bt2020c reads as NCL.
+        for t in ["smpte2084", "arib-std-b67"] {
+            let cl = ColorMetadata::from_raw(Some("bt2020c"), Some("bt2020"), Some(t), None);
+            assert!(cl.display_tonemap_filter().unwrap().starts_with(
+                &format!("setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc={t}:")
+            ));
+        }
         let bare = ColorMetadata::from_raw(Some("smpte2085"), None, Some("smpte2084"), None);
         assert!(bare.display_tonemap_filter().unwrap().starts_with(
             "setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=smpte2084:range=tv,"
