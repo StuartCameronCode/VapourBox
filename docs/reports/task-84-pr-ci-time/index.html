@@ -98,7 +98,8 @@ after another.</li>
 <div class="scroll"><table>
 <tr><th>Change</th><th>Where it runs now</th></tr>
 <tr><td>Format sweep PR rows: 5–6 rotating rows per variant become one smoke row per variant
-(<code>smokeRows</code>, runs + depth only, tag <code>sweep-smoke</code>)</td><td>Linux job only.
+(<code>smokeRows</code>, runs + depth only, tag <code>sweep-smoke</code>)</td><td>Every platform's flutter job
+(Linux only in the measured runs below; see section 4).
 Every smoke row is also a nightly row, and nightly's full sweep holds every former PR row, with
 parity.</td></tr>
 <tr><td>Quick plugin format probe and Lut2 memo check tagged <code>heavy</code></td><td>Nightly's heavy
@@ -135,10 +136,11 @@ a shell-out job (plan §2E, E1).</p>
 
 <h2>4. Decisions and what wasn't tested</h2>
 <ul>
-<li><strong>The smoke rows run on Linux only.</strong> A broken template block (a Python error, a wrong
-argument) fails on every platform. Platform-specific runtime faults (#72's SIGILL, #66's SIGSEGV) were
-deps-bundle faults that nightly's full sweep reaches. Trade-off: such a fault is now found the morning
-after a merge, not before it.</li>
+<li><strong>The smoke rows run on every platform.</strong> The measured runs above had them on Linux
+only. At review they were put on every platform, so that a platform-specific runtime fault in one pass
+(#72's SIGILL, #66's SIGSEGV) still fails the PR rather than the next nightly. Estimated cost: 1–2 min
+on macOS x64's flutter job, which puts it at or just over 10 min. Not yet measured: a PR run will show
+it.</li>
 <li><strong>This reverses task #75's "kept in the push gate".</strong> Its reason, the cost, went away
 with #75's memo. A deps change still runs the probe before merging.</li>
 <li><strong>Nightly is red on every leg</strong> (run 44562921675, 2026-11-19). A check that moves there

@@ -8,9 +8,8 @@ name: CI Tests
 #   * flutter — `flutter test --exclude-tags heavy,gpu`: unit, widget and
 #               script tests and the short shell-outs. The worker binary the
 #               shell-outs run is built in the background while Flutter is set
-#               up. Linux also runs the format sweep's smoke rows
-#               (`sweep-smoke`, one tiny preview per variant); macOS and Windows
-#               exclude that tag. When the run touches the deps bundle, the
+#               up. That includes the format sweep's smoke rows
+#               (`sweep-smoke`, one tiny preview per variant). When the run touches the deps bundle, the
 #               plugin format table or the probe (.github/scripts/deps-sensitive.sh),
 #               it also runs the quick plugin format probe, which is otherwise
 #               nightly only.
@@ -139,11 +138,10 @@ jobs:
           # `jobs`: flutter test --concurrency. package:test's default is half
           # the cores, which is one file at a time on the 3-core arm64 runner,
           # and most of these files wait on a worker or vspipe, not the CPU.
-          - {platform: macos-arm64, runner: macos-15, jobs: 3, exclude: 'heavy,gpu,sweep-smoke'}
-          - {platform: macos-x64, runner: macos-15-intel, jobs: 4, exclude: 'heavy,gpu,sweep-smoke'}
-          - {platform: windows-x64, runner: windows-latest, jobs: 4, exclude: 'heavy,gpu,sweep-smoke'}
-          # Linux runs the format sweep's smoke rows: the fastest runner.
-          - {platform: linux-x64, runner: ubuntu-24.04, jobs: 4, exclude: 'heavy,gpu'}
+          - {platform: macos-arm64, runner: macos-15, jobs: 3}
+          - {platform: macos-x64, runner: macos-15-intel, jobs: 4}
+          - {platform: windows-x64, runner: windows-latest, jobs: 4}
+          - {platform: linux-x64, runner: ubuntu-24.04, jobs: 4}
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -237,7 +235,7 @@ jobs:
       - name: Flutter tests
         # Excludes @Tags(['heavy']) (nightly.yml) and @Tags(['gpu']) (no
         # Vulkan device on these runners; dart_test.yaml).
-        run: cd app && flutter test --concurrency=${{ matrix.jobs }} --exclude-tags ${{ matrix.exclude }}
+        run: cd app && flutter test --concurrency=${{ matrix.jobs }} --exclude-tags heavy,gpu
 
       - name: Does this run touch the deps bundle or the probe table?
         id: sensitive

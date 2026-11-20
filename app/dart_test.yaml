@@ -27,5 +27,5 @@ tags:
     # job (`--tags sweep --exclude-tags gpu`) and the heavy job excludes it.
   sweep-smoke:
     # The format sweep's pull-request rows (task #84): one tiny preview per
-    # variant, runs and depth only. Not heavy; ci-test.yml runs them on its
-    # Linux job and the macOS and Windows jobs exclude the tag.
+    # variant, runs and depth only. Not heavy: ci-test.yml runs them on every
+    # platform. The tag is for running them alone (`--tags sweep-smoke`).

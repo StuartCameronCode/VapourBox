@@ -28,7 +28,7 @@
 /// Groups and tags:
 ///  * `format sweep (smoke)` — tag `sweep-smoke` (task #84): one rotating
 ///    tiny row per CPU variant; checks 1 and 2. Pull requests run it on
-///    Linux only; every smoke row is also a nightly row.
+///    every platform; every smoke row is also a nightly row.
 ///  * `format sweep (nightly)` — tags `sweep`, `heavy`: the full tiny
 ///    product, 9/14-bit, every extra native format and three SD rows; all
 ///    four checks. Plus the add-on variants and the delta-only encodes,
@@ -538,7 +538,7 @@ void main() {
   final cpu = sweepVariants.where((v) => v.runsAnywhere).toList();
 
   // Pull requests (task #84): one row per variant, runs and depth only, on
-  // the Linux job of ci-test.yml (macOS and Windows exclude the tag). The
+  // every platform's flutter job of ci-test.yml. The
   // nightly group holds every one of these rows with all four checks.
   group('format sweep (smoke)', () {
     for (var k = 0; k < cpu.length; k++) {

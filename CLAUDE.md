@@ -1648,7 +1648,7 @@ source's **depth** (PNG bit depth), the variant **acts** on some row, and
 (nightly) 8-bit vs deeper **parity** above the passthrough's own difference.
 Pull requests run only the **smoke** group (tag `sweep-smoke`, task #84): one
 tiny row per variant (`smokeRows`, every one also a nightly row), runs and
-depth only, on ci-test's Linux job; the rest is nightly's `sweep` leg
+depth only, on every platform's flutter job; the rest is nightly's `sweep` leg
 (swscale converts 8-bit 4:2:0 to RGB without chroma interpolation: ~4.5
 levels at passthrough). Passes declared in `deltaOnly` also get an FFV1
 encode whose untouched samples must be bit-exact. A failing row is either
@@ -3134,7 +3134,7 @@ cd worker && cargo test --test subtitle_integration_test -- --ignored --nocaptur
 ### 2. Flutter `test/` suite — `app/test/`, run by `flutter test`  ← the CI gate
 
 ```bash
-cd app && flutter test --exclude-tags heavy,gpu   # what the push gate runs (+ sweep-smoke excluded off Linux)
+cd app && flutter test --exclude-tags heavy,gpu   # what the push gate runs
 cd app && flutter test                          # everything, incl. heavy (local)
 ```
 
@@ -3167,7 +3167,7 @@ Headless Dart-VM tests. Three groups:
   end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy ones
   are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy,gpu`
   (script-only: `integration_filter_parameters_test`,
-  `integration_qtgmc_parameters_test`, and on Linux only the format sweep's
+  `integration_qtgmc_parameters_test`, and the format sweep's
   smoke rows, tag `sweep-smoke`, one tiny preview per variant); **nightly.yml** runs two legs per
   bundle: `--tags heavy --exclude-tags gpu,sweep` and the format sweep's full
   product, `--tags sweep --exclude-tags gpu` (every `sweep` test is also
@@ -3252,8 +3252,8 @@ side**, both against the published deps bundle: `rust (<platform>)` runs
 `flutter (<platform>)` builds the worker in the background while Flutter is set
 up, then runs **suite #2 (`flutter test --exclude-tags heavy,gpu`)** with an
 explicit `--concurrency` (package:test's default, half the cores, is one file
-at a time on the 3-core arm64 runner). Only the Linux job runs the format
-sweep's `sweep-smoke` rows. When `.github/scripts/deps-sensitive.sh` finds the
+at a time on the 3-core arm64 runner), the format sweep's `sweep-smoke`
+rows included. When `.github/scripts/deps-sensitive.sh` finds the
 run touches the deps bundle, the probe table or the probe (or is a
 `deps_run_id` dispatch), the flutter job also runs the quick plugin format
 probe (`--tags heavy test/plugin_format_contracts_test.dart`). **Caches:**

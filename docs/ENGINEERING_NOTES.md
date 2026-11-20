@@ -5632,7 +5632,8 @@ main's entries were evicted, PRs missed, and each job spent up to 1.6 min
 saving a new one. A hit saved under 30 s anyway. package:test runs half the
 cores, which is one file at a time on the 3-core arm64 runner.
 
-Now: the sweep runs one smoke row per variant on Linux only (`sweep-smoke`);
+Now: the sweep runs one smoke row per variant (`sweep-smoke`), on every
+platform;
 the quick probe and memo check are `heavy`, and run on PRs only when
 `.github/scripts/deps-sensitive.sh` sees the bundle, the table or the probe
 change (or a `deps_run_id`); the whisper test is `#[ignore]`d and nightly runs
@@ -5642,7 +5643,8 @@ cache; Cargo and pub caches (~0.9 GB in all) are saved from main only, and
 `--concurrency` is explicit. The script-generation helper polls every 50 ms
 (114 s -> 46 s locally for its two files). Result: 9.7 min warm, 11.0 cold;
 macOS x64's flutter job is now mostly setup (2.6 min Flutter, 1.8 code
-generation). This reverses task #75's "kept in the push gate". The trade-off:
-a platform-specific runtime fault in one pass is found by nightly, not before
-merging. Report:
+generation). This reverses task #75's "kept in the push gate". The smoke rows
+were measured on Linux only and then put on every platform at review, so a
+platform-specific runtime fault in one pass still fails the PR; that adds an
+estimated 1–2 min to macOS x64's flutter job, not yet measured. Report:
 [docs/reports/task-84-pr-ci-time](reports/task-84-pr-ci-time/index.html).
