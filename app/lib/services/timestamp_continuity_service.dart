@@ -111,6 +111,77 @@ class ContinuityProxy {
   }
 }
 
+/// What the worker's `--probe-source` answered (task #85): the [model], or
+/// the [error] it gave instead, with the lines it logged on stderr (the
+/// probes it retried, and why). The reason is shown on the item and written
+/// to its log, never dropped.
+class SourceProbe {
+  /// The source's model; null when the probe failed.
+  final SourceModel? model;
+
+  /// Why there is no model: the worker's `{"error": …}`, or why the worker
+  /// could not be run. Null with a model, and for [none].
+  final String? error;
+
+  /// The worker's stderr lines, trimmed, the last [maxLogLines] of them.
+  final List<String> log;
+
+  const SourceProbe({this.model, this.error, this.log = const []});
+
+  /// No model and no reason: what a test's stand-in answers when the probe
+  /// isn't what it is about.
+  static const none = SourceProbe();
+
+  bool get ok => model != null;
+
+  /// How many stderr lines are kept.
+  static const maxLogLines = 20;
+
+  /// Reads the worker's answer. A model is accepted only on exit 0; else the
+  /// last `{"error": …}` line on stdout is the reason, and with none a
+  /// fallback says the worker gave no reason. Accepts CRLF and LF.
+  factory SourceProbe.fromWorkerOutput(
+      int exitCode, String stdout, String stderr) {
+    SourceModel? model;
+    String? error;
+    for (final line in const LineSplitter().convert(stdout)) {
+      final t = line.trim();
+      if (!t.startsWith('{')) continue;
+      try {
+        final j = jsonDecode(t);
+        if (j is! Map<String, dynamic>) continue;
+        final m = SourceModel.fromJson(j);
+        if (m != null) {
+          model = m;
+        } else if (j['error'] is String) {
+          error = j['error'] as String;
+        }
+      } catch (_) {}
+    }
+    final log = logLines(stderr);
+    if (exitCode == 0 && model != null) {
+      return SourceProbe(model: model, log: log);
+    }
+    return SourceProbe(
+        error: (error != null && error.trim().isNotEmpty)
+            ? error.trim()
+            : 'the worker exited with $exitCode and gave no reason',
+        log: log);
+  }
+
+  /// The non-empty lines of a worker's stderr, trimmed, the last
+  /// [maxLogLines].
+  static List<String> logLines(String stderr) {
+    final lines = [
+      for (final l in const LineSplitter().convert(stderr))
+        if (l.trim().isNotEmpty) l.trim(),
+    ];
+    return lines.length > maxLogLines
+        ? lines.sublist(lines.length - maxLogLines)
+        : lines;
+  }
+}
+
 /// Runs the worker's `--scan-timestamps` and `--make-continuous` (see
 /// `worker/src/source_continuity.rs`). A TS/PS whose clock resets mid-file is
 /// decoded from a same-container copy with continuous timestamps, so frame N
@@ -128,37 +199,43 @@ class TimestampContinuityService {
       environment ?? ToolLocator.instance.workerEnvironment;
 
   /// The worker's [SourceModel] of [path] (`--probe-source`, task #50):
-  /// every fact about the source, the reset scan included. Null when the
-  /// worker could not answer.
+  /// every fact about the source, the reset scan included, or the reason
+  /// there is none ([SourceProbe.error]) with the worker's stderr.
   ///
   /// With [deferScan], an MPEG-PS/TS's reset scan (a read of every byte,
   /// minutes on a network share) is left out and the model says so
   /// ([SourceModel.continuityDeferred]); [completeSource] runs it (task #55).
-  Future<SourceModel?> probeSource(String path, {bool deferScan = false}) async {
+  Future<SourceProbe> probeSource(String path, {bool deferScan = false}) async {
     final worker = _worker;
-    if (worker == null) return null;
+    if (worker == null) {
+      return const SourceProbe(error: 'The VapourBox worker could not be found');
+    }
     try {
       final r = await Process.run(
           worker, ['--probe-source', path, if (deferScan) '--defer-scan'],
           environment: _env, workingDirectory: File(worker).parent.path);
-      if (r.exitCode != 0) return null;
-      return SourceModel.parse(r.stdout.toString());
-    } catch (_) {
-      return null;
+      return SourceProbe.fromWorkerOutput(
+          r.exitCode, r.stdout.toString(), r.stderr.toString());
+    } catch (e) {
+      return SourceProbe(error: 'the worker could not be run: $e');
     }
   }
 
   /// Runs a deferred [model]'s reset scan (`--complete-source`, task #55):
   /// [onProgress] gets the fraction of the file read, and the result is the
-  /// completed model (null when the worker could not answer). The scan can
-  /// be stopped with [ContinuityScanTask.cancel], which completes it with
-  /// null.
+  /// completed model (null when the worker could not answer, with
+  /// [ContinuityScanTask.error] and [ContinuityScanTask.log] saying why).
+  /// The scan can be stopped with [ContinuityScanTask.cancel], which
+  /// completes it with null.
   ContinuityScanTask completeSource(SourceModel model,
       {void Function(double)? onProgress}) {
     final task = ContinuityScanTask._();
     task._run(() async {
       final worker = _worker;
-      if (worker == null) return null;
+      if (worker == null) {
+        task.error = 'The VapourBox worker could not be found';
+        return null;
+      }
       final file = File(await TempDirectoryService.instance.filePath(
           'source_model_${DateTime.now().microsecondsSinceEpoch}.json'));
       try {
@@ -169,8 +246,13 @@ class TimestampContinuityService {
             environment: _env, workingDirectory: File(worker).parent.path);
         task._process = process;
         if (task.isCancelled) process.kill();
-        final err = process.stderr.drain<void>();
+        final stderr = StringBuffer();
+        final err = process.stderr
+            .transform(utf8.decoder)
+            .listen(stderr.write)
+            .asFuture<void>();
         SourceModel? result;
+        String? error;
         await for (final line in process.stdout
             .transform(utf8.decoder)
             .transform(const LineSplitter())) {
@@ -183,15 +265,28 @@ class TimestampContinuityService {
               final frame = (j['frame'] as num?)?.toDouble() ?? 0;
               if (total > 0) onProgress?.call((frame / total).clamp(0.0, 1.0));
             } else {
-              result = SourceModel.fromJson(j) ?? result;
+              final m = SourceModel.fromJson(j);
+              if (m != null) {
+                result = m;
+              } else if (j['error'] is String) {
+                error = j['error'] as String;
+              }
             }
           } catch (_) {}
         }
         final code = await process.exitCode;
         await err;
-        if (task.isCancelled || code != 0) return null;
+        if (task.isCancelled) return null;
+        if (code != 0 || result == null) {
+          task.error = (error != null && error.trim().isNotEmpty)
+              ? error.trim()
+              : 'the worker exited with $code and gave no reason';
+          task.log = SourceProbe.logLines(stderr.toString());
+          return null;
+        }
         return result;
-      } catch (_) {
+      } catch (e) {
+        task.error ??= 'the worker could not be run: $e';
         return null;
       } finally {
         try {
@@ -332,9 +427,17 @@ class ContinuityScanTask {
 
   /// Lets a test stand in for the worker: [result] is what the scan answers.
   @visibleForTesting
-  ContinuityScanTask.of(Future<SourceModel?> result) {
+  ContinuityScanTask.of(Future<SourceModel?> result,
+      {this.error, this.log = const []}) {
     _run(() => result);
   }
+
+  /// Why the scan gave no model (the worker's `{"error": …}`); null on
+  /// success and on cancel.
+  String? error;
+
+  /// The worker's stderr lines when it failed.
+  List<String> log = const [];
 
   final _done = Completer<SourceModel?>();
   Process? _process;

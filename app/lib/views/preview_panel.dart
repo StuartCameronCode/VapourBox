@@ -71,6 +71,33 @@ class _PreviewPanelState extends State<PreviewPanel> {
             ),
           ),
 
+          // The selected video could not be read (task #85): say so, with
+          // the worker's reason, rather than an empty frame.
+          if (viewModel.selectedItem case final item? when item.analysisFailed)
+            Positioned.fill(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.error_outline,
+                          size: 40, color: Theme.of(context).colorScheme.error),
+                      const SizedBox(height: 12),
+                      Text('This video could not be read',
+                          style: Theme.of(context).textTheme.titleMedium),
+                      const SizedBox(height: 8),
+                      SelectableText(
+                        item.sourceError!,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
           // A source frame with several output frames (a frame rate
           // conversion, double-rate deinterlacing): step through them, so the
           // frames a conversion generates can be seen (issue #129). Bottom

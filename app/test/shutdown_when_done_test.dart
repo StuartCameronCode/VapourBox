@@ -17,6 +17,7 @@ import 'package:vapourbox/services/worker_manager.dart';
 import 'package:vapourbox/viewmodels/main_viewmodel.dart';
 
 import 'fakes/fake_job_runner.dart';
+import 'fakes/no_source_model_continuity.dart';
 import 'fakes/fake_system_shutdown.dart';
 
 void main() {
@@ -42,7 +43,10 @@ void main() {
       dir = await Directory.systemTemp.createTemp('vapourbox_shutdown_test');
       runner = FakeJobRunner();
       shutdown = FakeSystemShutdown();
-      vm = MainViewModel(runner: runner, systemShutdown: shutdown);
+      vm = MainViewModel(
+          runner: runner,
+          systemShutdown: shutdown,
+          continuityService: const NoSourceModelContinuity());
     });
 
     tearDown(() async {

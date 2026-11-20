@@ -56,8 +56,21 @@ class QueueItem {
   /// The worker's model of [decodePath] (`--probe-source`, task #50): every
   /// fact about the source that a decode depends on. Set at analysis and
   /// sent in every job; null until then, or when the worker could not read
-  /// the file.
+  /// the file ([sourceError] then says why).
   SourceModel? sourceModel;
+
+  /// Why the worker could not read the source (`--probe-source`'s
+  /// `{"error": …}`, task #85). Set only when a probe answered with an
+  /// error; the item is then failed, and Retry analyses it again.
+  String? sourceError;
+
+  /// The lines the worker logged on stderr with [sourceError] (the probes it
+  /// retried, and why), for the Info dialog and the item's log.
+  List<String> sourceErrorLog = const [];
+
+  /// Whether the source could not be read: the item has no model, so no
+  /// size, rate, count or preview, and no job may run for it.
+  bool get analysisFailed => sourceError != null;
 
   /// How noisy the source is and how strongly its edges ring, measured in the
   /// background after [videoInfo] (app 1.7.0); null until it comes back.
@@ -255,9 +268,11 @@ class QueueItem {
       status != QueueItemStatus.processing &&
       status != QueueItemStatus.extracting;
 
-  /// Returns true if the item is ready to be processed.
+  /// Returns true if the item is ready to be processed. An item whose source
+  /// could not be read ([analysisFailed]) never is: Retry analyses it again.
   bool get canProcess =>
-      status == QueueItemStatus.ready || status == QueueItemStatus.failed;
+      (status == QueueItemStatus.ready || status == QueueItemStatus.failed) &&
+      !analysisFailed;
 
   /// Returns true if the item can be reprocessed (already finished).
   bool get canReprocess =>
