@@ -1,0 +1,57 @@
+==5475== 
+==5475== Invalid write of size 4
+==5475==    at 0xF0DEB9D: simpleResize_uint8_t_avx2(SimpleResize const*, unsigned char*, long, unsigned char const*, long, int) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0xEE28ED2: mvmaskGetFrame(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0x833C122: VSNode::getFrameInternal(int, int, VSFrameContext*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x83520E4: VSThreadPool::runTasks(bool&) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x4960DB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+==5475==    by 0x4BBEB63: start_thread (pthread_create.c:447)
+==5475==    by 0x4C4BC83: clone (clone.S:100)
+==5475==  Address 0x4eb95df is 1 bytes before a block of size 5 alloc'd
+==5475==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==5475==    by 0xF0DEAA8: simpleResize_uint8_t_avx2(SimpleResize const*, unsigned char*, long, unsigned char const*, long, int) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0xEE28ED2: mvmaskGetFrame(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0x833C122: VSNode::getFrameInternal(int, int, VSFrameContext*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x83520E4: VSThreadPool::runTasks(bool&) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x4960DB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+==5475==    by 0x4BBEB63: start_thread (pthread_create.c:447)
+==5475==    by 0x4C4BC83: clone (clone.S:100)
+==5475== 
+==5475== Invalid read of size 4
+==5475==    at 0xF0DEB79: simpleResize_uint8_t_avx2(SimpleResize const*, unsigned char*, long, unsigned char const*, long, int) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0xEE290DE: mvmaskGetFrame(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0x833C122: VSNode::getFrameInternal(int, int, VSFrameContext*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x83520E4: VSThreadPool::runTasks(bool&) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x4960DB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+==5475==    by 0x4BBEB63: start_thread (pthread_create.c:447)
+==5475==    by 0x4C4BC83: clone (clone.S:100)
+==5475==  Address 0x4fd092f is 1 bytes before a block of size 15 alloc'd
+--
+==5475== 
+==5475== Invalid write of size 4
+==5475==    at 0xF0DEB9D: simpleResize_uint8_t_avx2(SimpleResize const*, unsigned char*, long, unsigned char const*, long, int) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0xEE290DE: mvmaskGetFrame(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0x833C122: VSNode::getFrameInternal(int, int, VSFrameContext*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x83520E4: VSThreadPool::runTasks(bool&) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x4960DB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+==5475==    by 0x4BBEB63: start_thread (pthread_create.c:447)
+==5475==    by 0x4C4BC83: clone (clone.S:100)
+==5475==  Address 0x4ebe2cf is 1 bytes before a block of size 5 alloc'd
+==5475==    at 0x4846828: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+==5475==    by 0xF0DEAA8: simpleResize_uint8_t_avx2(SimpleResize const*, unsigned char*, long, unsigned char const*, long, int) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0xEE290DE: mvmaskGetFrame(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*) (in deps/linux-x64/vapoursynth/plugins/libmvtools.so)
+==5475==    by 0x833C122: VSNode::getFrameInternal(int, int, VSFrameContext*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x83520E4: VSThreadPool::runTasks(bool&) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+==5475==    by 0x4960DB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+==5475==    by 0x4BBEB63: start_thread (pthread_create.c:447)
+==5475==    by 0x4C4BC83: clone (clone.S:100)
+==5475== 
+mask.vpy: qtgmc 64x96 YUV420P8 InputType=2 32/16 Slow guard=False
+Output 5 frames in 9.42 seconds (0.53 fps)
+==5475== 
+==5475== HEAP SUMMARY:
+==5475==     in use at exit: 8,424,273 bytes in 65,744 blocks
+==5475==   total heap usage: 772,683 allocs, 706,939 frees, 167,225,270 bytes allocated
+==5475== 
+==5475== LEAK SUMMARY:
+==5475==    definitely lost: 0 bytes in 0 blocks

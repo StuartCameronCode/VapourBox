@@ -965,7 +965,10 @@ impl ScriptGenerator {
                     );
                     script = script.replace(
                         "{{QTGMC_MASK_COLS}}",
-                        if params.runs_prog_sad_mask() { "min_cols=_pf.MVTOOLS_MASK_MIN_COLS, " } else { "" },
+                        &params
+                            .prog_sad_mask_blocks()
+                            .map(|(b, o)| format!("min_cols=_pf.mvtools_mask_cols(clip.width, clip.height, {b}, {o}), "))
+                            .unwrap_or_default(),
                     );
 
                     // Noise processing

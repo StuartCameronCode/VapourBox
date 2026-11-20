@@ -304,13 +304,15 @@ print(json.dumps(problems))
 ''';
 
 // Task #79: havsfunc's QTGMC runs mv.Mask(kind=1) on InputType 2 and 3
-// (ProgSADMask, Placebo..Medium) with no opt, and the AVX2 8-bit upsizer
-// writes before its buffer below 4 of Analyse's block columns. The template
-// pads to MVTOOLS_MASK_MIN_COLS through mvtools_blocks(min_cols=): check the
-// padding, the constant against MVTools' arithmetic, and that QTGMC runs
-// through it at the sizes valgrind flagged (an unguarded call corrupts the
-// heap on x86 without crashing reliably: valgrind is the evidence, see
-// docs/reports/task-79-qtgmc-mask-avx2).
+// (ProgSADMask, Placebo..Medium) with no opt. Mask writes before its buffer on
+// x86 under 4 block columns (AVX2 8-bit upsizer), and fills the rows under its
+// block grid with one overlapping memcpy when a row is as wide as its stride,
+// so those rows are wrong on every CPU. The template pads QTGMC's input to
+// mvtools_mask_cols() through mvtools_blocks(min_cols=). Checked here: the
+// helper against MVTools' arithmetic, the mask's bottom rows through the pad,
+// and QTGMC through it at the sizes valgrind flagged (an unguarded call
+// corrupts the heap on x86 without crashing reliably: valgrind is the
+// evidence, docs/reports/task-79-qtgmc-mask-avx2).
 const _maskGuardCheck = r'''
 import json, sys
 import vapoursynth as vs
@@ -324,30 +326,48 @@ def check(cond, msg):
     if not cond:
         problems.append(msg)
 
-check(pf.MVTOOLS_MASK_MIN_COLS == 128, 'MVTOOLS_MASK_MIN_COLS is %d' % pf.MVTOOLS_MASK_MIN_COLS)
 for b in (4, 8, 16, 32):
     for o in range(0, min(16, b // 2) + 1, 2):
-        cols = (pf.MVTOOLS_MASK_MIN_COLS - o) // (b - o)
-        check(cols >= 4, '%d/%d: %d block columns at MVTOOLS_MASK_MIN_COLS' % (b, o, cols))
+        step = b - o
+        for w in range(16, 400, 2):
+            for h in (48, 66, 96, 100, 120, 486):
+                got = pf.mvtools_mask_cols(w, h, b, o)
+                pw = max(got, pf.MVTOOLS_MIN_COLS, w)   # what mvtools_blocks pads to
+                ph = max(h, pf.MVTOOLS_MIN_ROWS)
+                if (pw - o) // step < 4:
+                    problems.append('mvtools_mask_cols(%d, %d, %d, %d) = %d: %d block columns'
+                                    % (w, h, b, o, got, (pw - o) // step))
+                if (ph - o) % step and pw % 32 == 0:
+                    problems.append('mvtools_mask_cols(%d, %d, %d, %d) = %d: a row fills a 32-byte stride above a short grid'
+                                    % (w, h, b, o, got))
+                needs = (max(w, 64) - o) // step < 4 or ((ph - o) % step and max(w, 64) % 32 == 0)
+                if not needs and got != w:
+                    problems.append('mvtools_mask_cols(%d, %d, %d, %d) = %d: padded a picture that needs nothing'
+                                    % (w, h, b, o, got))
 
-seen = []
-def size(x):
-    seen.append((x.width, x.height))
-    return x
-c = core.std.BlankClip(width=64, height=96, format=vs.YUV420P8, length=4)
-out = pf.mvtools_blocks(c, size, min_cols=pf.MVTOOLS_MASK_MIN_COLS)
-check(seen == [(128, 96)], 'mvtools_blocks(min_cols=128) handed fn %s' % seen)
-check((out.width, out.height) == (64, 96), 'mvtools_blocks(min_cols=128) returned %dx%d' % (out.width, out.height))
-seen.clear()
-pf.mvtools_blocks(c, size)
-check(seen == [(64, 96)], 'mvtools_blocks() without min_cols handed fn %s' % seen)
-wide = core.std.BlankClip(width=128, height=96, format=vs.YUV420P8, length=4)
-check(pf.mvtools_blocks(wide, lambda x: x, min_cols=pf.MVTOOLS_MASK_MIN_COLS) is wide,
-      'mvtools_blocks(min_cols=128): a 128-wide clip got a node')
-
-base = core.std.BlankClip(width=240, height=180, format=vs.YUV444P16, length=12,
+base = core.std.BlankClip(width=320, height=240, format=vs.YUV444P16, length=8,
                           color=[30000, 32768, 32768])
 base = core.grain.Add(base, var=400, uvar=400, constant=False, seed=1)
+
+# The mask's rows under the block grid must repeat the grid's last row.
+for (w, h, b, o) in ((128, 96, 32, 8), (256, 196, 32, 8), (64, 96, 32, 16), (120, 100, 32, 0)):
+    src = core.resize.Bicubic(base, w, h, format=vs.YUV420P8)
+    masks = []
+    def mask(x, b=b, o=o):
+        sup = core.mv.Super(x, pel=2)
+        bv = core.mv.Analyse(sup, isb=True, blksize=b, overlap=o)
+        masks.append(core.mv.Mask(x, bv, kind=1, ml=10, thscd1=16320))
+        return x
+    pf.mvtools_blocks(src, mask, min_cols=pf.mvtools_mask_cols(w, h, b, o))
+    m = masks[0]
+    hb = (m.height - o) // (b - o) * (b - o) + o
+    for n in range(1, 6):
+        y = bytes(m.get_frame(n)[0])
+        row = lambda r: y[r * m.width:(r + 1) * m.width]
+        bad = sum(1 for r in range(hb, m.height) if row(r) != row(hb - 1))
+        check(bad == 0, '%dx%d at %d/%d (padded %d wide): %d mask rows under the grid wrong, frame %d'
+              % (w, h, b, o, m.width, bad, n))
+
 for fmt in (vs.YUV420P8, vs.YUV444P8):
     src = core.resize.Bicubic(base, 64, 96, format=fmt)
     for input_type in (2, 3):
@@ -355,7 +375,7 @@ for fmt in (vs.YUV420P8, vs.YUV444P8):
             out = pf.mvtools_blocks(
                 src,
                 lambda x: haf.QTGMC(x, Preset='Slow', InputType=input_type, BlockSize=32, Overlap=o, TFF=True),
-                min_cols=pf.MVTOOLS_MASK_MIN_COLS)
+                min_cols=pf.mvtools_mask_cols(src.width, src.height, 32, o))
             check((out.width, out.height) == (64, 96), 'QTGMC through the pad: %dx%d' % (out.width, out.height))
             for n in range(out.num_frames):
                 out.get_frame(n)
@@ -605,7 +625,7 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
     expect(problems, isEmpty, reason: problems.join('\n'));
   });
 
-  test('QTGMC InputType 2/3 pads past MVTools Mask\'s AVX2 upsizer limit (task #79)', () async {
+  test('QTGMC InputType 2/3 pads past MVTools Mask\'s faults (task #79)', () async {
     final problems = await _pythonJson(_maskGuardCheck) as List;
     expect(problems, isEmpty, reason: problems.join('\n'));
   });

@@ -1,0 +1,20 @@
+qtgmc:64x96:YUV420P8:blksize=16,overlap=8: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=32,overlap=16: exit 99, ERROR SUMMARY: 1870 errors from 4 contexts (suppressed: 0 from 0) [Invalid read of size 4] at 0xF0DEB79: simpleResize_uint8_t_avx2(SimpleResize by 0xEE28ED2: mvmaskGetFrame(int,
+qtgmc:80x96:YUV420P8:blksize=32,overlap=16: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:96x96:YUV420P8:blksize=32,overlap=8: exit 99, ERROR SUMMARY: 8532 errors from 8 contexts (suppressed: 0 from 0) [Invalid read of size 4] at 0xF0DEB79: simpleResize_uint8_t_avx2(SimpleResize by 0xEE28ED2: mvmaskGetFrame(int,
+qtgmc:104x96:YUV420P8:blksize=32,overlap=8: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:120x96:YUV420P8:blksize=32,overlap=0: exit 99, ERROR SUMMARY: 2160 errors from 4 contexts (suppressed: 0 from 0) [Invalid read of size 4] at 0xF0DEB79: simpleResize_uint8_t_avx2(SimpleResize by 0xEE28ED2: mvmaskGetFrame(int,
+qtgmc:128x96:YUV420P8:blksize=32,overlap=0: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=32,overlap=16,input_type=3: exit 99, ERROR SUMMARY: 1870 errors from 4 contexts (suppressed: 0 from 0) [Invalid read of size 4] at 0xF0DEB79: simpleResize_uint8_t_avx2(SimpleResize by 0xEE28ED2: mvmaskGetFrame(int,
+qtgmc:64x96:YUV444P8:blksize=32,overlap=0: exit 99, ERROR SUMMARY: 2880 errors from 4 contexts (suppressed: 0 from 0) [Invalid read of size 4] at 0xF0DEB79: simpleResize_uint8_t_avx2(SimpleResize by 0xEE28ED2: mvmaskGetFrame(int,
+mask:64x96:YUV420P8:blksize=32,overlap=16: exit 99, ERROR SUMMARY: 935 errors from 4 contexts (suppressed: 0 from 0) [Invalid read of size 4] at 0xF0DEB79: simpleResize_uint8_t_avx2(SimpleResize by 0xEE28ED2: mvmaskGetFrame(int,
+mask:80x96:YUV420P8:blksize=32,overlap=16: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=32,overlap=16,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=32,overlap=8,guard=1: exit 99, ERROR SUMMARY: 1585 errors from 3 contexts (suppressed: 0 from 0)  by 0x83157FA: newVideoFrame(
+qtgmc:64x96:YUV420P8:blksize=32,overlap=0,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:96x96:YUV420P8:blksize=32,overlap=8,guard=1: exit 99, ERROR SUMMARY: 6732 errors from 4 contexts (suppressed: 0 from 0)  by 0x83157FA: newVideoFrame(
+qtgmc:120x96:YUV420P8:blksize=32,overlap=0,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=32,overlap=16,input_type=3,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV422P8:blksize=32,overlap=0,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV444P8:blksize=32,overlap=0,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+mask:64x96:YUV420P8:blksize=32,overlap=16,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  

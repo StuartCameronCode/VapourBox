@@ -6,8 +6,9 @@
 #                 2/3 at Placebo..Medium (ProgSADMask 10) with no opt
 #          mask   that Mask call on its own, vectors from a plain Analyse
 #   guard: 1 runs the call through plugin_formats.mvtools_blocks(...,
-#          min_cols=MVTOOLS_MASK_MIN_COLS), exactly as the template does for
-#          InputType 2/3; 0 (default) calls it as havsfunc does
+#          min_cols=mvtools_mask_cols(W, H, blksize, overlap)), exactly as the
+#          template does for InputType 2/3 at Placebo..Medium; 0 (default)
+#          calls it as havsfunc does
 # The clip is task #69's flow.vpy's: a moving pattern with texture, so the
 # vectors are not all zero.
 import math
@@ -75,7 +76,8 @@ if guard:
             sys.path.insert(0, d)
             break
     import plugin_formats as pf
-    out = pf.mvtools_blocks(c, run, min_cols=pf.MVTOOLS_MASK_MIN_COLS, label='mask.vpy')
+    out = pf.mvtools_blocks(c, run, min_cols=pf.mvtools_mask_cols(w, h, blksize, overlap),
+                            label='mask.vpy')
 else:
     out = run(c)
 print('mask.vpy: %s %dx%d %s InputType=%d %d/%d %s guard=%s' % (

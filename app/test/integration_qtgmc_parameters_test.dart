@@ -707,9 +707,9 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 2)));
 
     test('InputType 2/3 pads the width for MVTools Mask (task #79)', () async {
-      // havsfunc's QTGMC runs mv.Mask with no opt on InputType 2 and 3, and
-      // its AVX2 upsizer writes before its buffer under 4 block columns, so
-      // the Deinterlace pass pads to MVTOOLS_MASK_MIN_COLS for those only.
+      // havsfunc's QTGMC runs mv.Mask with no opt on InputType 2 and 3 at
+      // Placebo..Medium, and Mask has two small-picture / stride faults, so
+      // the Deinterlace pass pads with mvtools_mask_cols() for those only.
       Future<String> scriptFor(int inputType) {
         final params = QTGMCParameters(
           enabled: true,
@@ -737,7 +737,7 @@ void main() {
       }
 
       const pad = '_pf.mvtools_blocks(clip, _deinterlace_qtgmc, '
-          'min_cols=_pf.MVTOOLS_MASK_MIN_COLS, label=';
+          'min_cols=_pf.mvtools_mask_cols(clip.width, clip.height, 32, 16), label=';
       for (final inputType in [2, 3]) {
         final script = await scriptFor(inputType);
         expect(script, contains('InputType=$inputType,'));
@@ -746,7 +746,7 @@ void main() {
       }
       for (final inputType in [0, 1]) {
         final script = await scriptFor(inputType);
-        expect(script, isNot(contains('min_cols=_pf.MVTOOLS_MASK_MIN_COLS')),
+        expect(script, isNot(contains('min_cols=')),
             reason: 'InputType $inputType runs no Mask: script unchanged');
         expect(script, contains("_pf.mvtools_blocks(clip, _deinterlace_qtgmc, label='Deinterlace')"));
       }

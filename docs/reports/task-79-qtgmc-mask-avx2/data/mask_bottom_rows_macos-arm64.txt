@@ -1,0 +1,6 @@
+128 96 32 8 nHeightB/stride/rows wrong: (80, 128, 60)
+136 96 32 8 nHeightB/stride/rows wrong: (80, 160, 0)
+104 96 32 8 nHeightB/stride/rows wrong: (80, 128, 0)
+1920 1080 32 16 nHeightB/stride/rows wrong: (1072, 1920, 28)
+1280 720 32 8 nHeightB/stride/rows wrong: (704, 1280, 60)
+1920 1080 16 8 nHeightB/stride/rows wrong: (1080, 1920, 0)
