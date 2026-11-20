@@ -1,0 +1,643 @@
+{
+ "run": 44702256230,
+ "jobs": [
+  {
+   "job": "linux",
+   "id": 136173201361,
+   "conclusion": "failure",
+   "minutes": 8.75,
+   "queued": 0.05,
+   "wall": 8.8,
+   "steps": {
+    "Set up job": 0.07,
+    "Run actions/checkout@v5": 0.12,
+    "Install system dependencies": 0.78,
+    "Keep core dumps (for the crash report)": 0.07,
+    "Resolve deps tag": 0.0,
+    "Setup Flutter": 0.88,
+    "Setup Rust": 0.08,
+    "Download dependencies (linux-x64)": 0.17,
+    "Cache whisper model": 0.12,
+    "Provision whisper add-on": 0.02,
+    "Stage deps/addons at XDG path for the Rust locator": 0.0,
+    "Rust tests": 1.57,
+    "Generate Dart serialization": 0.68,
+    "Flutter tests": 4.12,
+    "Crash reports (on failure)": 0.0,
+    "Post Cache whisper model": 0.0,
+    "Post Setup Flutter": 0.0,
+    "Post Run actions/checkout@v5": 0.0,
+    "Complete job": 0.0
+   },
+   "files": [
+    {
+     "file": "integration_format_sweep_test.dart",
+     "tests": 100,
+     "first": 19,
+     "last": 189,
+     "span": 170
+    },
+    {
+     "file": "integration_filter_parameters_test.dart",
+     "tests": 69,
+     "first": 76,
+     "last": 178,
+     "span": 103
+    },
+    {
+     "file": "plugin_format_contracts_test.dart",
+     "tests": 7,
+     "first": 207,
+     "last": 246,
+     "span": 40
+    },
+    {
+     "file": "integration_qtgmc_parameters_test.dart",
+     "tests": 12,
+     "first": 43,
+     "last": 51,
+     "span": 8
+    },
+    {
+     "file": "vapoursynth_integration_test.dart",
+     "tests": 21,
+     "first": 58,
+     "last": 64,
+     "span": 6
+    },
+    {
+     "file": "timestamp_continuity_deferred_test.dart",
+     "tests": 8,
+     "first": 202,
+     "last": 208,
+     "span": 6
+    },
+    {
+     "file": "output_capabilities_test.dart",
+     "tests": 48,
+     "first": 66,
+     "last": 71,
+     "span": 5
+    },
+    {
+     "file": "qtgmc_stride_padding_test.dart",
+     "tests": 5,
+     "first": 27,
+     "last": 31,
+     "span": 4
+    },
+    {
+     "file": "crop_detect_widget_test.dart",
+     "tests": 8,
+     "first": 12,
+     "last": 14,
+     "span": 2
+    },
+    {
+     "file": "integration_audio_plan_test.dart",
+     "tests": 9,
+     "first": 72,
+     "last": 74,
+     "span": 2
+    },
+    {
+     "file": "before_after_comparison_test.dart",
+     "tests": 22,
+     "first": 197,
+     "last": 199,
+     "span": 2
+    },
+    {
+     "file": "filter_implementation_readout_test.dart",
+     "tests": 8,
+     "first": 16,
+     "last": 17,
+     "span": 1
+    }
+   ],
+   "rust": {
+    "compile": 34,
+    "step": 94,
+    "binaries": [
+     {
+      "binary": "unittests src/lib.rs",
+      "seconds": 6.5
+     },
+     {
+      "binary": "unittests src/main.rs",
+      "seconds": 7.0
+     },
+     {
+      "binary": "tests/audio_container_refusal_test.rs (target/debug/build/vapourbox-worker/af730abf6029e27c/out/audio_container_refusal_test-af730abf6029e27c)",
+      "seconds": 0.0
+     },
+     {
+      "binary": "tests/continuity_integration_test.rs (target/debug/build/vapourbox-worker/2acdc9d7ec4fd977/out/continuity_integration_test-2acdc9d7ec4fd977)",
+      "seconds": 0.5
+     },
+     {
+      "binary": "tests/dvd_extract_integration_test.rs (target/debug/build/vapourbox-worker/b1bc1b9f6a150c2f/out/dvd_extract_integration_test-b1bc1b9f6a150c2f)",
+      "seconds": 0.3
+     },
+     {
+      "binary": "tests/filter_integration_test.rs (target/debug/build/vapourbox-worker/42cf6c4313db90d0/out/filter_integration_test-42cf6c4313db90d0)",
+      "seconds": 2.5
+     },
+     {
+      "binary": "tests/preview_integration_test.rs (target/debug/build/vapourbox-worker/e5395f2e85058386/out/preview_integration_test-e5395f2e85058386)",
+      "seconds": 0.6
+     },
+     {
+      "binary": "tests/subtitle_integration_test.rs (target/debug/build/vapourbox-worker/b1a2c9015ba60d54/out/subtitle_integration_test-b1a2c9015ba60d54)",
+      "seconds": 41.5
+     },
+     {
+      "binary": "tests/vspipe_environment_test.rs (target/debug/build/vapourbox-worker/856c32cc24126838/out/vspipe_environment_test-856c32cc24126838)",
+      "seconds": 0.1
+     },
+     {
+      "binary": "vapourbox_worker",
+      "seconds": 1.2
+     }
+    ]
+   }
+  },
+  {
+   "job": "macos (arm64, macos-15)",
+   "id": 136173201980,
+   "conclusion": "success",
+   "minutes": 23.18,
+   "queued": 0.07,
+   "wall": 23.25,
+   "steps": {
+    "Set up job": 0.05,
+    "Run actions/checkout@v5": 0.07,
+    "Resolve deps tag": 0.0,
+    "Setup Flutter": 1.45,
+    "Setup Rust": 0.03,
+    "Download dependencies (arm64)": 0.12,
+    "Cache whisper model": 0.18,
+    "Provision whisper add-on": 0.37,
+    "Rust tests": 4.3,
+    "Generate Dart serialization": 1.1,
+    "Flutter tests": 14.32,
+    "Crash reports (on failure)": 0.0,
+    "Keep the raw crash reports (on failure)": 0.0,
+    "Upload the raw crash reports (on failure)": 0.0,
+    "Post Cache whisper model": 0.03,
+    "Post Setup Flutter": 1.03,
+    "Post Run actions/checkout@v5": 0.03,
+    "Complete job": 0.05
+   },
+   "files": [
+    {
+     "file": "integration_format_sweep_test.dart",
+     "tests": 100,
+     "first": 470,
+     "last": 855,
+     "span": 384
+    },
+    {
+     "file": "plugin_format_contracts_test.dart",
+     "tests": 7,
+     "first": 337,
+     "last": 463,
+     "span": 126
+    },
+    {
+     "file": "integration_filter_parameters_test.dart",
+     "tests": 69,
+     "first": 210,
+     "last": 307,
+     "span": 97
+    },
+    {
+     "file": "output_capabilities_test.dart",
+     "tests": 48,
+     "first": 34,
+     "last": 41,
+     "span": 8
+    },
+    {
+     "file": "timestamp_continuity_deferred_test.dart",
+     "tests": 8,
+     "first": 118,
+     "last": 125,
+     "span": 7
+    },
+    {
+     "file": "integration_qtgmc_parameters_test.dart",
+     "tests": 12,
+     "first": 128,
+     "last": 136,
+     "span": 7
+    },
+    {
+     "file": "vapoursynth_integration_test.dart",
+     "tests": 22,
+     "first": 159,
+     "last": 166,
+     "span": 7
+    },
+    {
+     "file": "qtgmc_stride_padding_test.dart",
+     "tests": 5,
+     "first": 76,
+     "last": 81,
+     "span": 5
+    },
+    {
+     "file": "integration_audio_plan_test.dart",
+     "tests": 9,
+     "first": 190,
+     "last": 193,
+     "span": 4
+    },
+    {
+     "file": "before_after_comparison_test.dart",
+     "tests": 22,
+     "first": 323,
+     "last": 327,
+     "span": 4
+    },
+    {
+     "file": "integration_gpu_plugins_test.dart",
+     "tests": 7,
+     "first": 107,
+     "last": 110,
+     "span": 3
+    },
+    {
+     "file": "crop_detect_widget_test.dart",
+     "tests": 8,
+     "first": 177,
+     "last": 180,
+     "span": 3
+    }
+   ],
+   "rust": {
+    "compile": 61,
+    "step": 259,
+    "binaries": [
+     {
+      "binary": "unittests src/lib.rs",
+      "seconds": 10.2
+     },
+     {
+      "binary": "unittests src/main.rs",
+      "seconds": 8.3
+     },
+     {
+      "binary": "tests/audio_container_refusal_test.rs (target/debug/build/vapourbox-worker/cc9a0eeb75f04e72/out/audio_container_refusal_test-cc9a0eeb75f04e72)",
+      "seconds": 0.1
+     },
+     {
+      "binary": "tests/continuity_integration_test.rs (target/debug/build/vapourbox-worker/137aa23588665d2f/out/continuity_integration_test-137aa23588665d2f)",
+      "seconds": 1.6
+     },
+     {
+      "binary": "tests/dvd_extract_integration_test.rs (target/debug/build/vapourbox-worker/2619b7e29f05ba7e/out/dvd_extract_integration_test-2619b7e29f05ba7e)",
+      "seconds": 0.9
+     },
+     {
+      "binary": "tests/filter_integration_test.rs (target/debug/build/vapourbox-worker/6175127933935c32/out/filter_integration_test-6175127933935c32)",
+      "seconds": 4.3
+     },
+     {
+      "binary": "tests/preview_integration_test.rs (target/debug/build/vapourbox-worker/a6012f914720cb81/out/preview_integration_test-a6012f914720cb81)",
+      "seconds": 2.0
+     },
+     {
+      "binary": "tests/subtitle_integration_test.rs (target/debug/build/vapourbox-worker/4b732ecde0b56757/out/subtitle_integration_test-4b732ecde0b56757)",
+      "seconds": 167.5
+     },
+     {
+      "binary": "tests/vspipe_environment_test.rs (target/debug/build/vapourbox-worker/5505953153a954d8/out/vspipe_environment_test-5505953153a954d8)",
+      "seconds": 0.6
+     },
+     {
+      "binary": "vapourbox_worker",
+      "seconds": 2.2
+     }
+    ]
+   }
+  },
+  {
+   "job": "macos (x64, macos-15-intel)",
+   "id": 136173201683,
+   "conclusion": "success",
+   "minutes": 28.87,
+   "queued": 0.1,
+   "wall": 28.97,
+   "steps": {
+    "Set up job": 0.07,
+    "Run actions/checkout@v5": 0.2,
+    "Resolve deps tag": 0.0,
+    "Setup Flutter": 2.82,
+    "Setup Rust": 0.37,
+    "Download dependencies (x64)": 0.12,
+    "Cache whisper model": 0.25,
+    "Provision whisper add-on": 0.43,
+    "Rust tests": 5.83,
+    "Generate Dart serialization": 2.53,
+    "Flutter tests": 14.52,
+    "Crash reports (on failure)": 0.0,
+    "Keep the raw crash reports (on failure)": 0.0,
+    "Upload the raw crash reports (on failure)": 0.0,
+    "Post Cache whisper model": 0.03,
+    "Post Setup Flutter": 1.62,
+    "Post Run actions/checkout@v5": 0.02,
+    "Complete job": 0.0
+   },
+   "files": [
+    {
+     "file": "integration_format_sweep_test.dart",
+     "tests": 100,
+     "first": 375,
+     "last": 870,
+     "span": 495
+    },
+    {
+     "file": "plugin_format_contracts_test.dart",
+     "tests": 7,
+     "first": 301,
+     "last": 570,
+     "span": 269
+    },
+    {
+     "file": "integration_filter_parameters_test.dart",
+     "tests": 69,
+     "first": 240,
+     "last": 359,
+     "span": 119
+    },
+    {
+     "file": "output_capabilities_test.dart",
+     "tests": 48,
+     "first": 55,
+     "last": 75,
+     "span": 20
+    },
+    {
+     "file": "qtgmc_stride_padding_test.dart",
+     "tests": 5,
+     "first": 113,
+     "last": 129,
+     "span": 16
+    },
+    {
+     "file": "vapoursynth_integration_test.dart",
+     "tests": 22,
+     "first": 193,
+     "last": 205,
+     "span": 12
+    },
+    {
+     "file": "before_after_comparison_test.dart",
+     "tests": 22,
+     "first": 279,
+     "last": 289,
+     "span": 10
+    },
+    {
+     "file": "integration_qtgmc_parameters_test.dart",
+     "tests": 12,
+     "first": 161,
+     "last": 170,
+     "span": 9
+    },
+    {
+     "file": "crop_detect_widget_test.dart",
+     "tests": 8,
+     "first": 201,
+     "last": 211,
+     "span": 9
+    },
+    {
+     "file": "timestamp_continuity_deferred_test.dart",
+     "tests": 8,
+     "first": 159,
+     "last": 166,
+     "span": 7
+    },
+    {
+     "file": "integration_audio_plan_test.dart",
+     "tests": 9,
+     "first": 217,
+     "last": 223,
+     "span": 7
+    },
+    {
+     "file": "settings_chroma_help_test.dart",
+     "tests": 11,
+     "first": 82,
+     "last": 88,
+     "span": 6
+    }
+   ],
+   "rust": {
+    "compile": 181,
+    "step": 350,
+    "binaries": [
+     {
+      "binary": "unittests src/lib.rs",
+      "seconds": 25.0
+     },
+     {
+      "binary": "unittests src/main.rs",
+      "seconds": 26.4
+     },
+     {
+      "binary": "tests/audio_container_refusal_test.rs (target/debug/build/vapourbox-worker/b1c2ddccea5b8410/out/audio_container_refusal_test-b1c2ddccea5b8410)",
+      "seconds": 0.2
+     },
+     {
+      "binary": "tests/continuity_integration_test.rs (target/debug/build/vapourbox-worker/a549600c0b1f1334/out/continuity_integration_test-a549600c0b1f1334)",
+      "seconds": 3.6
+     },
+     {
+      "binary": "tests/dvd_extract_integration_test.rs (target/debug/build/vapourbox-worker/182ce3d9f3c49cf1/out/dvd_extract_integration_test-182ce3d9f3c49cf1)",
+      "seconds": 2.2
+     },
+     {
+      "binary": "tests/filter_integration_test.rs (target/debug/build/vapourbox-worker/f8296aca585836cf/out/filter_integration_test-f8296aca585836cf)",
+      "seconds": 7.5
+     },
+     {
+      "binary": "tests/preview_integration_test.rs (target/debug/build/vapourbox-worker/fb891be06fdbe03d/out/preview_integration_test-fb891be06fdbe03d)",
+      "seconds": 7.9
+     },
+     {
+      "binary": "tests/subtitle_integration_test.rs (target/debug/build/vapourbox-worker/d98e50cb980faeb0/out/subtitle_integration_test-d98e50cb980faeb0)",
+      "seconds": 93.2
+     },
+     {
+      "binary": "tests/vspipe_environment_test.rs (target/debug/build/vapourbox-worker/2e06751e33c56b4c/out/vspipe_environment_test-2e06751e33c56b4c)",
+      "seconds": 0.5
+     },
+     {
+      "binary": "vapourbox_worker",
+      "seconds": 2.9
+     }
+    ]
+   }
+  },
+  {
+   "job": "windows",
+   "id": 136173201883,
+   "conclusion": "success",
+   "minutes": 20.13,
+   "queued": 0.05,
+   "wall": 20.18,
+   "steps": {
+    "Set up job": 0.03,
+    "Run actions/checkout@v5": 0.13,
+    "Resolve deps tag": 0.02,
+    "Setup Flutter": 1.7,
+    "Setup Rust": 0.47,
+    "Download dependencies (windows-x64)": 0.17,
+    "Cache whisper model": 0.08,
+    "Provision whisper add-on": 0.03,
+    "Rust tests": 2.57,
+    "Generate Dart serialization": 1.42,
+    "Flutter tests": 12.87,
+    "Post Cache whisper model": 0.0,
+    "Post Setup Flutter": 0.57,
+    "Post Run actions/checkout@v5": 0.03,
+    "Complete job": 0.0
+   },
+   "files": [
+    {
+     "file": "integration_format_sweep_test.dart",
+     "tests": 100,
+     "first": 69,
+     "last": 772,
+     "span": 703
+    },
+    {
+     "file": "integration_filter_parameters_test.dart",
+     "tests": 69,
+     "first": 65,
+     "last": 244,
+     "span": 179
+    },
+    {
+     "file": "plugin_format_contracts_test.dart",
+     "tests": 7,
+     "first": 332,
+     "last": 456,
+     "span": 123
+    },
+    {
+     "file": "output_capabilities_test.dart",
+     "tests": 48,
+     "first": 291,
+     "last": 309,
+     "span": 18
+    },
+    {
+     "file": "integration_qtgmc_parameters_test.dart",
+     "tests": 12,
+     "first": 255,
+     "last": 270,
+     "span": 15
+    },
+    {
+     "file": "qtgmc_stride_padding_test.dart",
+     "tests": 5,
+     "first": 476,
+     "last": 488,
+     "span": 12
+    },
+    {
+     "file": "vapoursynth_integration_test.dart",
+     "tests": 22,
+     "first": 545,
+     "last": 557,
+     "span": 12
+    },
+    {
+     "file": "integration_gpu_plugins_test.dart",
+     "tests": 7,
+     "first": 246,
+     "last": 253,
+     "span": 7
+    },
+    {
+     "file": "timestamp_continuity_deferred_test.dart",
+     "tests": 8,
+     "first": 529,
+     "last": 535,
+     "span": 7
+    },
+    {
+     "file": "before_after_comparison_test.dart",
+     "tests": 22,
+     "first": 27,
+     "last": 31,
+     "span": 4
+    },
+    {
+     "file": "integration_audio_plan_test.dart",
+     "tests": 9,
+     "first": 63,
+     "last": 67,
+     "span": 4
+    },
+    {
+     "file": "crop_detect_widget_test.dart",
+     "tests": 8,
+     "first": 36,
+     "last": 39,
+     "span": 3
+    }
+   ],
+   "rust": {
+    "compile": 70,
+    "step": 154,
+    "binaries": [
+     {
+      "binary": "unittests src\\lib.rs",
+      "seconds": 10.0
+     },
+     {
+      "binary": "unittests src\\main.rs",
+      "seconds": 10.2
+     },
+     {
+      "binary": "tests\\audio_container_refusal_test.rs (target\\debug\\build\\vapourbox-worker/9244d3ad24797cc0\\out\\audio_container_refusal_test-9244d3ad24797cc0.exe)",
+      "seconds": 0.1
+     },
+     {
+      "binary": "tests\\continuity_integration_test.rs (target\\debug\\build\\vapourbox-worker/6094649779b9176c\\out\\continuity_integration_test-6094649779b9176c.exe)",
+      "seconds": 2.2
+     },
+     {
+      "binary": "tests\\dvd_extract_integration_test.rs (target\\debug\\build\\vapourbox-worker/7f1468ec5509f2d5\\out\\dvd_extract_integration_test-7f1468ec5509f2d5.exe)",
+      "seconds": 1.0
+     },
+     {
+      "binary": "tests\\filter_integration_test.rs (target\\debug\\build\\vapourbox-worker/daffb25f1482064e\\out\\filter_integration_test-daffb25f1482064e.exe)",
+      "seconds": 4.8
+     },
+     {
+      "binary": "tests\\preview_integration_test.rs (target\\debug\\build\\vapourbox-worker/ebb6679da3a522d2\\out\\preview_integration_test-ebb6679da3a522d2.exe)",
+      "seconds": 4.3
+     },
+     {
+      "binary": "tests\\subtitle_integration_test.rs (target\\debug\\build\\vapourbox-worker/5ba677de8aade54e\\out\\subtitle_integration_test-5ba677de8aade54e.exe)",
+      "seconds": 49.8
+     },
+     {
+      "binary": "tests\\vspipe_environment_test.rs (target\\debug\\build\\vapourbox-worker/51c68596697e1fcf\\out\\vspipe_environment_test-51c68596697e1fcf.exe)",
+      "seconds": 0.2
+     },
+     {
+      "binary": "vapourbox_worker",
+      "seconds": 1.2
+     }
+    ]
+   }
+  }
+ ]
+}

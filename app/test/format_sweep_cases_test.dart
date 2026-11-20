@@ -393,9 +393,25 @@ void main() {
       }
     });
 
+    test('the smoke rows are nightly rows, and together meet every value (task #84)', () {
+      final all = <SweepRow>[];
+      for (final v in sweepVariants) {
+        final rows = smokeRows(v.index);
+        expect(rows, hasLength(1), reason: v.id);
+        expect(nightlyRows(v.index), containsAll(rows), reason: v.id);
+        all.addAll(rows);
+      }
+      expect(all.map((r) => r.format.subsampling).toSet(), sweepSubsamplings.toSet());
+      expect(all.map((r) => r.format.depth).toSet(), {8, 10, 12, 16});
+      expect(all.map((r) => r.field).toSet(), SweepField.values.toSet());
+      expect(all.map((r) => r.size).toSet(), tinySizes.toSet());
+      // Every subsampling meets every depth, so no depth is only ever seen at 4:4:4.
+      expect(all.map((r) => (r.format.subsampling, r.format.depth)).toSet(), hasLength(12));
+    });
+
     test('no row pairs a format with a width its chroma grid can\'t hold', () {
       for (final v in sweepVariants) {
-        for (final r in [...gateRows(v.index), ...nightlyRows(v.index)]) {
+        for (final r in [...smokeRows(v.index), ...gateRows(v.index), ...nightlyRows(v.index)]) {
           expect(r.size.width % r.format.chromaShift.$1, 0, reason: '${v.id} ${r.key}');
         }
       }

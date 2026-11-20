@@ -4832,7 +4832,8 @@ Task #42's plan, R2b. Report: [docs/reports/task-48-plugin-format-contracts](rep
   {progressive, BFF, TFF} plus a size axis to 1080 lines, into
   `Tests/TestResources/plugin_format_table.json`. The push gate re-runs a
   quick subset (about 3.5 minutes on an M1 Pro under load), and nightly runs
-  the whole probe.
+  the whole probe. (Since task #84 the quick subset runs nightly too, and in
+  the push gate only for runs that touch the bundle, the table or the probe.)
 - **What it found beyond the five contracts**: 720x486 4:2:0 is refused by 11
   calls when field-flagged and by QTGMC, Bifrost and MCTemporalDenoise even
   when progressive (243 chroma rows); MCTemporalDenoise refuses a width of
@@ -5519,7 +5520,9 @@ same format checks; a cached list still costs ~0.28 s to hand over, so a cell
 is 1.1 s). Quick probe on CI: macOS x64 232 s, arm64 91 s, Windows 108 s,
 Linux 35 s; locally the full probe's two LUT calls went 654 s -> 96 s with the
 same cells. Kept in the push gate rather than moved to nightly (nightly runs a
-superset and was failing on the same cost). Every run now prints each call's
+superset and was failing on the same cost). *Reversed by task #84 (2026-11-20):
+with that cost gone, the quick probe is `heavy`, and the push gate runs it only
+when a run touches the bundle, the table or the probe.* Every run now prints each call's
 time, and `--budget` stops it before the test's timeout naming the calls still
 running. Real 10-bit previews still pay ~8 s for the same tables (task #82);
 nightly's other probe differences are tasks #69 and #81. Report:
@@ -5616,3 +5619,32 @@ detectors' converting decodes and an encode whose encoder converts fail on
 such a source. Same-format decodes work, so the processed preview does.
 Filed as task #76 (extend the decode neutraliser with this mapping). Report:
 [docs/reports/task-73-swscale-matrix-tags](reports/task-73-swscale-matrix-tags/index.html).
+
+### The pull-request gate in ten minutes (task #84, 2026-11-20)
+
+`ci-test.yml` took 21–31 min, set by macOS x64 (28.9 in the measured run). Two
+Dart tests made the long tail: the format sweep's PR rows (588 previews,
+170–703 s) and the quick plugin probe (36–244 s, plus the Lut2 memo check).
+Nightly already ran a superset of both. The whisper subtitle test took 42–167
+s of the Rust step. The repository's Actions cache held 11.4 GB against 10 GB:
+each platform's Flutter SDK cache was ~2 GB and saved by every PR ref, so
+main's entries were evicted, PRs missed, and each job spent up to 1.6 min
+saving a new one. A hit saved under 30 s anyway. package:test runs half the
+cores, which is one file at a time on the 3-core arm64 runner.
+
+Now: the sweep runs one smoke row per variant (`sweep-smoke`), on every
+platform;
+the quick probe and memo check are `heavy`, and run on PRs only when
+`.github/scripts/deps-sensitive.sh` sees the bundle, the table or the probe
+change (or a `deps_run_id`); the whisper test is `#[ignore]`d and nightly runs
+it. Each platform runs a `rust` and a `flutter` job side by side, the worker
+building in the background during Flutter setup. There is no Flutter SDK
+cache; Cargo and pub caches (~0.9 GB in all) are saved from main only, and
+`--concurrency` is explicit. The script-generation helper polls every 50 ms
+(114 s -> 46 s locally for its two files). Result: 9.7 min warm, 11.0 cold;
+macOS x64's flutter job is now mostly setup (2.6 min Flutter, 1.8 code
+generation). This reverses task #75's "kept in the push gate". The smoke rows
+were measured on Linux only and then put on every platform at review, so a
+platform-specific runtime fault in one pass still fails the PR; that adds an
+estimated 1–2 min to macOS x64's flutter job, not yet measured. Report:
+[docs/reports/task-84-pr-ci-time](reports/task-84-pr-ci-time/index.html).

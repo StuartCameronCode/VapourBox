@@ -1,9 +1,14 @@
 # Test tag declarations for `flutter test`.
 #
-# The `heavy` tag marks full-encode integration tests (test/integration_*_test.dart
-# that run the worker end-to-end through vspipe | ffmpeg). They are slow, so the
-# per-push CI gate runs `flutter test --exclude-tags heavy` and the nightly
-# workflow runs `flutter test --tags heavy`. Run them locally with either filter.
+# The `heavy` tag marks tests too slow for the pull-request gate, which run
+# nightly instead: the full-encode integration tests (test/integration_*_test.dart
+# that run the worker end-to-end through vspipe | ffmpeg) and, since task #84,
+# the quick and full plugin format probes, which check the deps bundle against
+# Tests/TestResources/plugin_format_table.json. The per-push CI gate
+# (ci-test.yml) runs `flutter test --exclude-tags heavy,gpu`, plus the quick
+# probe when .github/scripts/deps-sensitive.sh says the run touches the bundle,
+# the table or the probe; nightly.yml runs `flutter test --tags heavy`. Run them
+# locally with either filter.
 #
 # The `gpu` tag marks tests that run RIFE or AI upscaling (ncnn on Vulkan), so
 # need a Vulkan device. The hosted CI runners have no GPU, so both workflows
@@ -13,11 +18,14 @@
 # them alone with `flutter test --tags gpu`.
 tags:
   heavy:
-    # Full-encode integration tests — run nightly, excluded from the push gate.
+    # Too slow for the push gate (full encodes, the plugin format probes) — nightly.
   gpu:
     # Needs a Vulkan device (RIFE, AI upscaling) — excluded on the GPU-less CI runners.
   sweep:
     # The generated format sweep's full product (integration_format_sweep_test.dart,
     # task #47). Every sweep test is also `heavy`; nightly runs it as its own
     # job (`--tags sweep --exclude-tags gpu`) and the heavy job excludes it.
-    # Its push-gate rows are untagged.
+  sweep-smoke:
+    # The format sweep's pull-request rows (task #84): one tiny preview per
+    # variant, runs and depth only. Not heavy: ci-test.yml runs them on every
+    # platform. The tag is for running them alone (`--tags sweep-smoke`).

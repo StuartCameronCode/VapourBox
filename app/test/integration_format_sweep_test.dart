@@ -26,11 +26,13 @@
 /// untouched samples must be bit-exact.
 ///
 /// Groups and tags:
-///  * `format sweep (push gate)` — untagged: four rotating tiny rows per CPU
-///    variant plus one extra native format; checks 1, 2 and 4.
+///  * `format sweep (smoke)` — tag `sweep-smoke` (task #84): one rotating
+///    tiny row per CPU variant; checks 1 and 2. Pull requests run it on
+///    every platform; every smoke row is also a nightly row.
 ///  * `format sweep (nightly)` — tags `sweep`, `heavy`: the full tiny
 ///    product, 9/14-bit, every extra native format and three SD rows; all
-///    four checks. Plus the add-on variants and the delta-only encodes.
+///    four checks. Plus the add-on variants and the delta-only encodes,
+///    on the rotating rows of `gateRows`.
 ///  * GPU variants — tags `gpu`, `sweep`, `heavy`.
 /// Run the nightly part alone with `flutter test --tags sweep --exclude-tags gpu
 /// test/integration_format_sweep_test.dart`. Rows run in parallel:
@@ -189,7 +191,7 @@ final _results = <Map<String, Object?>>[];
 
 /// Run the checks on one variant's rows; returns the failures as lines.
 Future<List<String>> _check(SweepVariant v, Map<SweepRow, Future<_Outcome>> scheduled,
-    {required bool parity, required String suite}) async {
+    {required bool parity, required String suite, bool acts = true}) async {
   final failures = <String>[];
   final outcomes = <SweepRow, _Outcome>{};
   for (final MapEntry(key: row, value: f) in scheduled.entries) {
@@ -240,9 +242,9 @@ Future<List<String>> _check(SweepVariant v, Map<SweepRow, Future<_Outcome>> sche
             'Color Format "original" must keep the source\'s depth'));
   }
 
-  // 4. acts
-  var acts = false;
-  for (final o in outcomes.values.where((o) => o.ok)) {
+  // 4. acts (not in the smoke group: one row may legitimately be inert)
+  var changed = false;
+  for (final o in outcomes.values.where((o) => acts && o.ok)) {
     final ref = await _passthrough(o.row);
     if (!ref.ok) {
       failures.add('${o.row.key}: the passthrough itself failed: ${ref.error}');
@@ -251,15 +253,15 @@ Future<List<String>> _check(SweepVariant v, Map<SweepRow, Future<_Outcome>> sche
     final a = await o.rgb(), b = await ref.rgb();
     final d = a.length == b.length ? WorkerHarness.meanAbsDiff(a, b) : double.infinity;
     rowDiffs[o.row]!['vsPassthrough'] = d.isFinite ? d : 'size ${o.width}x${o.height}';
-    if (d > 0.05) acts = true;
+    if (d > 0.05) changed = true;
   }
   final inert = inertOnFixture[v.id];
-  if (outcomes.values.any((o) => o.ok)) {
-    if (!acts && inert == null) {
+  if (acts && outcomes.values.any((o) => o.ok)) {
+    if (!changed && inert == null) {
       failures.add('the variant changed nothing on any row, so its other checks prove '
           'nothing: give it an actuation override, or degrade the master so it '
           'finds work');
-    } else if (acts && inert != null) {
+    } else if (changed && inert != null) {
       // Not a failure: some are borderline (Descale's detail protection
       // keeps nearly every pixel, not all). Said, so the entry can go.
       print('  ${v.id} acts on this fixture although allowlisted as inert ($inert)');
@@ -535,16 +537,19 @@ void main() {
 
   final cpu = sweepVariants.where((v) => v.runsAnywhere).toList();
 
-  group('format sweep (push gate)', () {
+  // Pull requests (task #84): one row per variant, runs and depth only, on
+  // every platform's flutter job of ci-test.yml. The
+  // nightly group holds every one of these rows with all four checks.
+  group('format sweep (smoke)', () {
     for (var k = 0; k < cpu.length; k++) {
       final v = cpu[k];
       test(v.id, () async {
         if (await _skipWithoutKnlm(v)) return;
-        final rows = gateRows(v.index);
-        final failures = await _check(v, _scheduleAhead(cpu, k, gateRows),
-            parity: false, suite: 'gate');
+        final rows = smokeRows(v.index);
+        final failures = await _check(v, _scheduleAhead(cpu, k, smokeRows),
+            parity: false, suite: 'smoke', acts: false);
         _report(v, failures, rows.length);
-      }, timeout: const Timeout(Duration(minutes: 30)));
+      }, tags: ['sweep-smoke'], timeout: const Timeout(Duration(minutes: 30)));
     }
   });
 

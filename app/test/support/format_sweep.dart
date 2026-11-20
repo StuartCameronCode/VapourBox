@@ -553,7 +553,24 @@ class SweepRow {
   String toString() => key;
 }
 
-/// The push gate's rows for variant [i]: four depths, each meeting a
+/// The PR smoke row for variant [i] (task #84): one tiny row, its
+/// subsampling, depth, field and size rotating between variants so that
+/// together they meet every value of each. It proves the pass still runs
+/// and keeps the depth; every smoke row is also a nightly row, where the
+/// rest of the checks run.
+List<SweepRow> smokeRows(int i) {
+  const depths = [8, 10, 12, 16];
+  return [
+    SweepRow(
+      SweepFormat.of(sweepSubsamplings[i % 3], depths[(i ~/ 3) % 4]),
+      SweepField.values[i % 2],
+      tinySizes[(i ~/ 2) % 2],
+    ),
+  ];
+}
+
+/// The rows for variant [i] the add-on, GPU and delta-only groups run (they
+/// were the push gate's before task #84): four depths, each meeting a
 /// different subsampling, field and tiny size, rotating between variants so
 /// that every variant meets every subsampling, both fields, both sizes, and
 /// every field × size pair; one 4:2:0 row at a height 2 mod 4 (task #57),

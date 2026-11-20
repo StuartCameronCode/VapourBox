@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PR CI in ten minutes</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .meta { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 14px; }
+  th, td { border-bottom: 1px solid var(--border); padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .good { color: var(--good); font-weight: 600; }
+  .warn { color: var(--warn); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+<h1>PR CI in ten minutes</h1>
+<p class="meta">Task #84 · 2026-11-20 · <code>.github/workflows/ci-test.yml</code></p>
+
+<div class="card">
+<p><strong>Result.</strong> The pull-request gate went from <strong>28.9 min</strong> wall time (its
+slowest job, macOS x64; 21–31 min over the ten runs before) to <span class="good">9.7 min</span> with warm
+caches and 11.0 min cold. Every other job now finishes in under 7 min. Nothing that checks code a PR
+changes left the gate. What moved runs nightly, where a superset of each already ran.</p>
+<p><strong>Limits.</strong> These are single runs: one before, one cold after, one warm after. Hosted
+runners vary by about a minute from run to run (the cold Windows flutter job took 7.9 min, the warm one
+5.0). Queue time is not counted. macOS jobs share the account's five concurrent macOS runners with any
+other workflow; in the warm run, a rust job queued 5 min behind other runs, though it was not on the
+critical path.</p>
+</div>
+
+<h2>1. Where the time went</h2>
+<p>Run 44702256230 (PR for task #75, head <code>f9ee3bf5</code>), parsed with
+<code>scripts/ci_times.py</code> (<code>data/before-44702256230.json</code>). Minutes.</p>
+<div class="scroll"><table>
+<tr><th>Step</th><th class="num">macOS x64</th><th class="num">macOS arm64</th><th class="num">Windows</th><th class="num">Linux</th></tr>
+<tr><td>Setup Flutter (SDK cache missed)</td><td class="num">2.8</td><td class="num">1.5</td><td class="num">1.7</td><td class="num">0.9</td></tr>
+<tr><td>Rust tests</td><td class="num">5.8</td><td class="num">4.3</td><td class="num">2.6</td><td class="num">1.6</td></tr>
+<tr><td>&nbsp;&nbsp;of which the whisper subtitle test</td><td class="num">1.5</td><td class="num">2.8</td><td class="num">0.8</td><td class="num">0.7</td></tr>
+<tr><td>Generate Dart serialization (pub cache missed)</td><td class="num">2.5</td><td class="num">1.1</td><td class="num">1.4</td><td class="num">0.7</td></tr>
+<tr><td>Flutter tests</td><td class="num">14.5</td><td class="num">14.3</td><td class="num">12.9</td><td class="num">4.1</td></tr>
+<tr><td>Post Setup Flutter (saving a 2 GB SDK cache)</td><td class="num">1.6</td><td class="num">1.0</td><td class="num">0.6</td><td class="num">–</td></tr>
+<tr><th>Job</th><th class="num">28.9</th><th class="num">23.2</th><th class="num">20.1</th><th class="num">8.8</th></tr>
+</table></div>
+
+<p>Inside the Flutter step, the longest test files, measured as the span between a file's first and last
+result. Files run concurrently, so spans overlap.</p>
+<div class="scroll"><table>
+<tr><th>File</th><th class="num">macOS x64</th><th class="num">macOS arm64</th><th class="num">Windows</th><th class="num">Linux</th></tr>
+<tr><td><code>integration_format_sweep_test</code>, PR rows (588 previews)</td><td class="num">495 s</td><td class="num">384 s</td><td class="num">703 s</td><td class="num">170 s</td></tr>
+<tr><td><code>plugin_format_contracts_test</code> (quick probe + Lut2 memo)</td><td class="num">269 s</td><td class="num">126 s</td><td class="num">123 s</td><td class="num">40 s</td></tr>
+<tr><td><code>integration_filter_parameters_test</code></td><td class="num">119 s</td><td class="num">97 s</td><td class="num">179 s</td><td class="num">103 s</td></tr>
+<tr><td>every other file</td><td colspan="4">20 s or less each</td></tr>
+</table></div>
+
+<p>Other findings:</p>
+<ul>
+<li><strong>The Actions cache was over its limit.</strong> It held 11.4 GB against 10 GB, and each
+platform's Flutter SDK cache was ~2 GB, saved by every PR ref too. Main's entries were evicted, PRs
+missed, and each PR job then spent up to 1.6 min saving a new copy. A hit saved little: Setup Flutter
+took 2.3 min with a hit and 2.2–3.3 without on macOS x64, 0.8 against 1.2–1.4 on arm64, 1.6 against
+1.4–2.1 on Windows, and 0.4 against 0.9 on Linux (main runs 44622077736 and 44613900935).</li>
+<li><strong>One test file at a time on macOS arm64.</strong> package:test runs half the cores
+concurrently, and that runner has 3. The sweep's own log line, "1 rows at once", confirms it. Most
+gate files wait on a worker, vspipe or ffmpeg, not the CPU.</li>
+<li><strong>The script-generation helper polled every 500 ms</strong>, for each of ~80 tests run one
+after another.</li>
+</ul>
+
+<h2>2. What changed</h2>
+<div class="scroll"><table>
+<tr><th>Change</th><th>Where it runs now</th></tr>
+<tr><td>Format sweep PR rows: 5–6 rotating rows per variant become one smoke row per variant
+(<code>smokeRows</code>, runs + depth only, tag <code>sweep-smoke</code>)</td><td>Every platform's flutter job
+(Linux only in the measured runs below; see section 4).
+Every smoke row is also a nightly row, and nightly's full sweep holds every former PR row, with
+parity.</td></tr>
+<tr><td>Quick plugin format probe and Lut2 memo check tagged <code>heavy</code></td><td>Nightly's heavy
+leg, plus PR runs that touch the deps bundle, the probe table or the probe
+(<code>.github/scripts/deps-sensitive.sh</code>; 6 of the last 20 merges would have qualified), plus
+any <code>deps_run_id</code> dispatch.</td></tr>
+<tr><td>Whisper subtitle test (Rust) <code>#[ignore]</code>d; whisper no longer provisioned on PRs</td><td>Nightly's heavy legs, run with <code>--ignored</code>.</td></tr>
+<tr><td>One job per platform split into <code>rust</code> and <code>flutter</code>, running side by side; the
+flutter job builds the worker in the background during Flutter setup</td><td>The background build
+finished before the wait step on every platform (macOS x64: 2 min 22 s, fully hidden).</td></tr>
+<tr><td>Flutter SDK cache off. Cargo (<code>Swatinem/rust-cache</code>) and pub caches saved from main
+only</td><td>New caches: about 0.9 GB for all eight jobs, against ~8 GB of SDK caches.</td></tr>
+<tr><td>Explicit <code>flutter test --concurrency</code>: 3 on arm64, 4 elsewhere</td><td>All flutter jobs.</td></tr>
+<tr><td>One shared <code>generateScriptViaWorker</code>, polling every 50 ms and stopping when the worker
+exits</td><td>The two parameter files took 114 s locally before and 46 s after (M1 Pro).</td></tr>
+</table></div>
+
+<h2>3. After</h2>
+<p>Cold: dispatch run 44718928873, with empty caches. Warm: dispatch run 44735415608, with the caches that
+44718928873 saved (<code>save_caches</code>). Minutes, per job.</p>
+<div class="scroll"><table>
+<tr><th>Job</th><th class="num">macOS x64</th><th class="num">macOS arm64</th><th class="num">Windows</th><th class="num">Linux</th></tr>
+<tr><td>before: one job</td><td class="num">28.9</td><td class="num">23.2</td><td class="num">20.1</td><td class="num">8.8</td></tr>
+<tr><td>flutter, cold</td><td class="num">11.0</td><td class="num">6.2</td><td class="num">7.9</td><td class="num">3.9</td></tr>
+<tr><td>flutter, warm</td><td class="num"><span class="good">9.7</span></td><td class="num">5.6</td><td class="num">5.0</td><td class="num">5.0</td></tr>
+<tr><td>&nbsp;&nbsp;of which Flutter tests (warm)</td><td class="num">4.3</td><td class="num">2.8</td><td class="num">2.4</td><td class="num">2.2</td></tr>
+<tr><td>rust, warm</td><td class="num">3.5</td><td class="num">1.8</td><td class="num">2.3</td><td class="num">1.6</td></tr>
+</table></div>
+<p>The Cargo cache helps less than expected: it holds dependencies only (~70 MB a job), and the worker
+crate and its test binaries still compile every run (105 s on macOS x64). macOS x64's flutter job is now
+mostly setup: 2.6 min for Setup Flutter and 1.8 for code generation, with the Intel runner slow at
+both. The next lever, if it creeps over 10 min, is to split that job's tests into a pure-Dart job and
+a shell-out job (plan §2E, E1).</p>
+
+<h2>4. Decisions and what wasn't tested</h2>
+<ul>
+<li><strong>The smoke rows run on every platform.</strong> The measured runs above had them on Linux
+only. At review they were put on every platform, so that a platform-specific runtime fault in one pass
+(#72's SIGILL, #66's SIGSEGV) still fails the PR rather than the next nightly. Estimated cost: 1–2 min
+on macOS x64's flutter job, which puts it at or just over 10 min. Not yet measured: a PR run will show
+it.</li>
+<li><strong>This reverses task #75's "kept in the push gate".</strong> Its reason, the cost, went away
+with #75's memo. A deps change still runs the probe before merging.</li>
+<li><strong>Nightly is red on every leg</strong> (run 44562921675, 2026-11-19). A check that moves there
+only helps if someone reads it.</li>
+<li><strong>Not yet seen on CI:</strong> the conditional probe step's true path (a PR's own run, whose
+merge diff contains <code>deps-sensitive.sh</code>, will take it), and nightly's new whisper step.
+Locally, <code>deps-sensitive.sh</code> gives the expected answer for the last 20 merges, a
+missing base and a <code>deps_run_id</code>.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre>scripts/ci_times.py steps 44702256230   # per job and step
+scripts/ci_times.py files 44702256230   # slowest Dart test files per job
+scripts/ci_times.py rust  44702256230   # cargo compile and each test binary
+scripts/ci_times.py json  44735415608 &gt; data/after-warm-44735415608.json</pre>
+<p>It needs an authenticated <code>gh</code>. Job logs are cached in <code>$CI_TIMES_CACHE</code>. GitHub keeps
+run logs for 90 days, so the <code>data/</code> files are the record after that.</p>
+</main>
+</body>
+</html>
