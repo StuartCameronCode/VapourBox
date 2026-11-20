@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>znedi3 odd plane rows</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>znedi3 refuses a plane with an odd number of rows on x86</h1>
+<p class="meta">Task #81, 2026-11-21. Measured on an Apple Silicon Mac (M1 Pro) with deps 1.18.0-rc2: the macos-arm64 bundle natively, and the macos-x64 bundle with an <code>x86_64-apple-darwin</code> build of the worker under Rosetta 2 (x86 plugins, x86 znedi3). Linux x64 and Windows x64 numbers are the nightly runs that found it (44342418084 on main <code>48bca80e</code>, 44737084373 on <code>1a04bfcf</code>), not re-run after the fix. Base commit for "before": <code>0618c709</code>.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>Cause:</b> znedi3's constructor (<code>vsznedi3/vsznedi3.cpp</code>) throws <i>"clip must have even number of scanlines"</i> when <code>dh</code> is false and either the frame height or the subsampled plane height is odd. It runs when the script is built, so the job fails at evaluation, whatever <code>_FieldBased</code> says. A 4:2:0 frame 486 lines high (NTSC D1) has 243 chroma rows. dubhater's nnedi3, which arm64 uses (havsfunc patch 6, the template's <code>_nnedi3()</code>), takes it, and the probe table is written on arm64, so it said ok.</li>
+<li><b>Who was hit:</b> on x86 (Windows, Linux, Intel Macs), every 720x486 4:2:0 job with Deinterlace → Bwdif and "High-quality interpolation" (NNEDI3), 8 and 16-bit, with or without a field order. daa and mpeg2stinx were already padded by task #57; the probe flagged them because it calls the plugins raw.</li>
+<li><b>Fix:</b> <code>_nnedi3()</code> runs every call without <code>dh</code> through <code>run_within()</code> under a new contract, <code>'nnedi3.nnedi3'</code> (<code>height_step=CHROMA</code>): the frame padded to 488 lines (one more chroma row, each field's own last row repeated), the call, then cropped back. daa (havsfunc's own nnedi3) moved from a bare <code>pad_around</code> to a contract, <code>'havsfunc.daa'</code>, so the probe measures both padded paths. A frame that already fits gets no node.</li>
+<li><b>The hole it fell through:</b> <code>plugin_format_contracts_test</code> read only the base table's summaries, which are one platform's. A refusal only an x86 bundle shows can only be a <code>platforms</code> override, and nothing required one to be handled. It now must be padded by a contract or listed in HANDLED / KNOWN, like a base-table refusal. Removing the new contract makes the test name each x86 cell.</li>
+<li><b>Cost on arm64:</b> the frame is padded on every platform, so both run one graph (task #57's daa precedent). There, Bwdif + NNEDI3 at 720x486 4:2:0 changes in the last 3 rows of each plane only (below).</li>
+</ul>
+
+<h2>Every NNEDI3 path, as a real job</h2>
+<p>The worker run end to end (decode, script, vspipe, FFV1 encode) on <code>interlaced_test.avi</code> scaled to 720x486, 12 frames, by <code>scripts/x86_paths.py</code>. "Before" runs the templates of <code>0618c709</code>. Output is FFV1 because x264 refuses an interlaced 720x486 picture by itself (task #92, below).</p>
+<table>
+<tr><th>Path</th><th>Source</th><th>Field order</th><th>x86 before</th><th>x86 after</th><th>arm64 after</th></tr>
+<tr><td>Deinterlace → Bwdif + NNEDI3</td><td>yuv420p</td><td>none</td><td><span class="no">znedi3: clip must have even number of scanlines</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deinterlace → Bwdif + NNEDI3</td><td>yuv420p</td><td>tff</td><td><span class="no">znedi3: clip must have even number of scanlines</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deinterlace → Bwdif</td><td>yuv420p</td><td>none</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deinterlace → Bwdif</td><td>yuv420p</td><td>tff</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Anti-aliasing → daa</td><td>yuv420p</td><td>none</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Anti-aliasing → daa</td><td>yuv420p</td><td>tff</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deblock → mpeg2stinx</td><td>yuv420p</td><td>none</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deblock → mpeg2stinx</td><td>yuv420p</td><td>tff</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deinterlace → Bwdif + NNEDI3</td><td>yuv420p16le</td><td>none</td><td><span class="no">znedi3: clip must have even number of scanlines</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deinterlace → Bwdif + NNEDI3</td><td>yuv420p16le</td><td>tff</td><td><span class="no">znedi3: clip must have even number of scanlines</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deinterlace → Bwdif</td><td>yuv420p16le</td><td>none</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deinterlace → Bwdif</td><td>yuv420p16le</td><td>tff</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Anti-aliasing → daa</td><td>yuv420p16le</td><td>none</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Anti-aliasing → daa</td><td>yuv420p16le</td><td>tff</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deblock → mpeg2stinx</td><td>yuv420p16le</td><td>none</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr><tr><td>Deblock → mpeg2stinx</td><td>yuv420p16le</td><td>tff</td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td><td><span class="ok">ok</span></td></tr>
+</table>
+
+<h2>The probe</h2>
+<p>The nightly full probe on Linux x64 (both tiers) and Windows x64 (both tiers) reported the same 16 cells: <code>bwdif.Bwdif</code>, <code>nnedi3.nnedi3</code>, <code>havsfunc.daa</code> and <code>mpeg2stinx</code> at <code>420p8</code> / <code>420p16</code>, f0 / f2, 720x486, <i>table says ok, the bundle says refused</i>. The macOS x64 full probe never finished in nightly (task #75), so its cells were measured here under Rosetta and match.</p>
+<ul>
+<li>The probe's Bwdif and mpeg2stinx calls now take NNEDI3 from a copy of the template's helper, padding included, so they measure what jobs run: ok on x86.</li>
+<li><code>nnedi3.nnedi3</code> stays the raw plugin; its <code>within</code> pass measures the contract. Same for <code>havsfunc.daa</code>. On x86 their 720x486 4:2:0 cells are refused raw and ok through <code>run_within()</code>: overrides for linux-x64, windows-x64 and macos-x64.</li>
+<li>VFM's 9- and 14-bit documentation rows (outside the reachable set) accept on Linux x64 and, measured here, macOS x64: overrides too. Windows refuses them, as the table says.</li>
+</ul>
+<p><code>data/x64_probe_check_before_overrides.txt</code> is the x64 check with the new probe and contracts before the overrides were written; <code>data/x64_probe_check.txt</code> after (no differences).</p>
+
+<h2>What padding changes on arm64</h2>
+<p>Bwdif + NNEDI3 (<code>field=3</code>, TFF) as the template calls it, padded, against the unpadded call nnedi3 accepted before, on 10 frames (20 out) of the same source at 720x486. "vs plain Bwdif" is the mean absolute difference of the last 3 rows from Bwdif's own interpolator on the same frames, a reference for which edge handling is closer, not ground truth (<code>scripts/arm64_pad_change.py</code>).</p>
+<table>
+<tr><th>Format</th><th>Plane</th><th>Rows</th><th>Rows that differ</th><th>Samples that differ</th><th>Max difference (8-bit levels)</th><th>Last 3 rows vs plain Bwdif, padded</th><th>…unpadded</th></tr>
+<tr><td>420p8</td><td>Y</td><td class=num>486</td><td>483, 484, 485</td><td class=num>0.0654%</td><td class=num>22.0</td><td class=num>0.06</td><td class=num>0.173</td></tr><tr><td>420p8</td><td>U</td><td class=num>243</td><td>240, 241, 242</td><td class=num>0.3036%</td><td class=num>254.0</td><td class=num>12.386</td><td class=num>10.648</td></tr><tr><td>420p8</td><td>V</td><td class=num>243</td><td>240, 241, 242</td><td class=num>0.1972%</td><td class=num>220.0</td><td class=num>13.03</td><td class=num>13.802</td></tr><tr><td>420p16</td><td>Y</td><td class=num>486</td><td>483, 484, 485</td><td class=num>0.0924%</td><td class=num>21.7</td><td class=num>0.058</td><td class=num>0.207</td></tr><tr><td>420p16</td><td>U</td><td class=num>243</td><td>240, 241, 242</td><td class=num>0.6082%</td><td class=num>251.4</td><td class=num>4.932</td><td class=num>10.359</td></tr><tr><td>420p16</td><td>V</td><td class=num>243</td><td>240, 241, 242</td><td class=num>0.5725%</td><td class=num>185.5</td><td class=num>7.916</td><td class=num>7.662</td></tr>
+</table>
+<p>Only the bottom 3 rows of each plane move. The large maxima are in the fixture's bottom rows, which hold a VHS head-switching band, where any two edge treatments disagree. Against plain Bwdif, the padded luma is closer (0.06 vs 0.17–0.21 levels); in chroma neither is consistently closer. A frame that fits is the plugin's own output: 420p8 720x480: identical, 422p8 720x486: identical.</p>
+
+<h2>Found on the way, filed</h2>
+<ul>
+<li><b>Task #92:</b> a still-interlaced 720x486 4:2:0 picture fails at libx264 (<i>"height not divisible by 4"</i>), on every platform. The worker codes it as interlaced (MBAFF) H.264, which needs a height mod 4. FFV1 and x265 encode it. That is why daa with a field order first failed in this table's runs, before and after alike.</li>
+<li><b>Task #87:</b> the nightly sweep's 96x66 rows fail on every platform in other passes (Deband, Colourisation, Face Restoration, parity, bit-exact).</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>x86 here is Rosetta 2 on Apple Silicon with the macOS x64 bundle. The refusal is a constructor check, the same in every build, and the Linux and Windows nightlies show the same cells, but the fix has not run on native Linux, Windows or Intel Mac hardware. The next nightly is that check: the full probe, and the new sweep variant <code>deinterlace/bwdif+bwdifEdeint=true</code> on the 96x66 rows.</li>
+<li>One source clip (a VHS capture), 10–12 frames, 8 and 16-bit. 10 and 12-bit run the same graph.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<p><code>scripts/reproduce.sh</code> (needs both bundles unzipped into <code>deps/</code> and the worker built for both architectures; it says how). Scripts: <code>x86_paths.py</code> (the job table), <code>arm64_pad_change.py</code> (the row comparison); the probe is <code>Scripts/probe-plugin-formats.py</code>.</p>
+</body>
+</html>

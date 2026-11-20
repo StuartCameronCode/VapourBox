@@ -2148,6 +2148,23 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // --- Bwdif + NNEDI3 (task #81) ---
+    // znedi3 (x86) refuses a 4:2:0 frame 2 mod 4 high without dh; the edeint
+    // goes through _nnedi3(), which pads it through the 'nnedi3.nnedi3'
+    // contract.
+    test('bwdif: high-quality interpolation goes through the padded _nnedi3()', () async {
+      final job = buildJob(
+        testName: 'bwdif_edeint',
+        deinterlace: const QTGMCParameters(
+          enabled: true, method: DeinterlaceMethod.bwdif, bwdifEdeint: true, tff: true,
+        ),
+      );
+      final script = await generateScriptViaWorker(job);
+      expect(script, contains('_bwdif_edi = _nnedi3(clip, field=3, dh=False)'));
+      expect(script, contains('core.bwdif.Bwdif(clip, field=3, edeint=_bwdif_edi)'));
+      expect(script, contains("_pf.run_within(clip, 'nnedi3.nnedi3', _nnedi3_plugin"));
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     // --- Soft Telecine (issue #108) ---
     // The method left Bwdif's block in the script with `{{BWDIF_FIELD}}` raw,
     // which vspipe reports as a Python SyntaxError on every source.

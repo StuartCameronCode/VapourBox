@@ -78,6 +78,16 @@ CONTRACTS = {
     'havsfunc.Deblock_QED': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
     'havsfunc.FixChromaBleedingMod': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
     'havsfunc.LSFmod': Contract(depths=ALL_DEPTHS, height_step=CHROMA, field_based_only=True),
+    # znedi3 (x86) refuses a plane with an odd number of rows unless it doubles
+    # the height (dh=True), when the graph is built, whatever _FieldBased says:
+    # a 4:2:0 frame 2 mod 4 high (720x486) has 243 chroma rows (task #81).
+    # dubhater's nnedi3 (arm64) takes it, but the frame is padded on every
+    # platform so both run one graph. The template's _nnedi3() runs every call
+    # without dh through this contract; havsfunc's daa calls its own nnedi3,
+    # so it has a contract of its own. Not field_based_only: an unflagged frame
+    # is refused the same.
+    'nnedi3.nnedi3': Contract(depths=ALL_DEPTHS, height_step=CHROMA),
+    'havsfunc.daa': Contract(depths=ALL_DEPTHS, height_step=CHROMA),
     'havsfunc.MCTemporalDenoise': Contract(depths=ALL_DEPTHS, width_step=CHROMA, height_step=CHROMA),
     'havsfunc.QTGMC': Contract(depths=ALL_DEPTHS, height_step=CHROMA),
     'havsfunc.QTGMC[SrchClipPP=1]': Contract(depths=ALL_DEPTHS, width_step=CHROMA, height_step=CHROMA),

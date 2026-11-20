@@ -141,6 +141,26 @@ const enumAxes = <EnumAxis>[
           'factor file'),
 ];
 
+/// A variant the schema's structure can't name: a sub-option of one method
+/// of a filter with several (the generator takes one set per method then),
+/// which runs code of its own. Appended to the filter's sets.
+class OptionVariant {
+  const OptionVariant(this.filterId, this.values, {required this.reason});
+
+  final String filterId;
+
+  /// Schema parameter values, `method` included.
+  final Map<String, dynamic> values;
+  final String reason;
+}
+
+const optionVariants = <OptionVariant>[
+  OptionVariant('deinterlace', {'method': 'bwdif', 'bwdifEdeint': true},
+      reason: 'NNEDI3 as Bwdif\'s interpolator: znedi3 (x86) refuses a 4:2:0 '
+          'frame 2 mod 4 high, which _nnedi3() pads (task #81); the '
+          'heightTwoMod4 rows keep it fixed'),
+];
+
 /// A frame size's own numbers, for overrides that must scale with it.
 typedef SizeValues = Map<String, dynamic> Function(int width, int height);
 
@@ -373,6 +393,10 @@ List<SweepVariant> _generateVariants() {
             set,
       ];
     }
+    sets = [
+      ...sets,
+      for (final v in optionVariants.where((v) => v.filterId == filterId)) v.values,
+    ];
     for (final set in sets) {
       final id = set.isEmpty ? filterId : '$filterId/${_variantKey(set)}';
       final pipeline = buildPipeline(filterId, id, set, 96, 64);

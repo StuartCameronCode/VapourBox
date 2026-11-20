@@ -99,6 +99,15 @@ bool _padsCell(Map<String, dynamic> contract, String cell) {
   return w % step(contract['width_step'], sw) != 0 || h % step(contract['height_step'], sh) != 0;
 }
 
+/// Whether [cell] is in the reachable set ({420,422,444} x {8,10,12,16}): not
+/// a 4:1:1 or 9/14-bit documentation row.
+bool _reachable(String cell) {
+  final m = RegExp(r'^(\d{3})p(\d+)/').firstMatch(cell);
+  return m != null &&
+      const ['420', '422', '444'].contains(m.group(1)) &&
+      const ['8', '10', '12', '16'].contains(m.group(2));
+}
+
 /// Whether a call's summary in the table refuses anything a pass can see.
 bool _limited(Map<String, dynamic> s) =>
     s.containsKey('broken') ||
@@ -458,6 +467,29 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
         problems.add('$key: refuses part of the reachable set ($s) that no contract expresses; '
             'handle it in its pass and say how in plugin_formats.HANDLED, or file a task and '
             'list it in plugin_formats.KNOWN');
+      }
+    }
+    // Task #81: the summaries are one platform's (the table is written on
+    // macOS arm64). A refusal only another bundle shows is a `platforms`
+    // override, and must be met the same way: padded by a contract (and fine
+    // through run_within() where measured), or handled / known. znedi3's odd
+    // plane on x86 was recorded nowhere a check read.
+    final platforms = ((table['platforms'] as Map?) ?? const {}).cast<String, dynamic>();
+    for (final MapEntry(key: plat, value: byCall) in platforms.entries) {
+      for (final MapEntry(key: key, value: cells) in (byCall as Map).cast<String, dynamic>().entries) {
+        for (final MapEntry(key: cell, value: res) in (cells as Map).cast<String, dynamic>().entries) {
+          final r = (res as Map).cast<String, dynamic>();
+          if (r['ok'] == true || !_reachable(cell)) continue;
+          if (handled.containsKey(key) || known.containsKey(key)) continue;
+          final contract = contracts[key] as Map<String, dynamic>?;
+          if (contract == null || !_padsCell(contract, cell)) {
+            problems.add('$key $cell: refused on $plat (${r['error']}) and no contract pads it; '
+                'pad it with a contract, or handle it in its pass and list it in '
+                'plugin_formats.HANDLED, or file a task and list it in KNOWN');
+          } else if (r.containsKey('within') && r['within'] != 'ok') {
+            problems.add('$key $cell: refused on $plat through run_within() too (${r['within']})');
+          }
+        }
       }
     }
     for (final key in handled.keys) {

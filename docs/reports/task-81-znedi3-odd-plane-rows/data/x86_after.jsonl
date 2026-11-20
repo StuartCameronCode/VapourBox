@@ -1,0 +1,16 @@
+{"case": "bwdif_nnedi3", "format": "yuv420p", "field_order": "none", "templates": "worktree", "result": "ok"}
+{"case": "bwdif_nnedi3", "format": "yuv420p", "field_order": "tff", "templates": "worktree", "result": "ok"}
+{"case": "bwdif_plain", "format": "yuv420p", "field_order": "none", "templates": "worktree", "result": "ok"}
+{"case": "bwdif_plain", "format": "yuv420p", "field_order": "tff", "templates": "worktree", "result": "ok"}
+{"case": "daa", "format": "yuv420p", "field_order": "none", "templates": "worktree", "result": "ok"}
+{"case": "daa", "format": "yuv420p", "field_order": "tff", "templates": "worktree", "result": "ok"}
+{"case": "mpeg2stinx", "format": "yuv420p", "field_order": "none", "templates": "worktree", "result": "ok"}
+{"case": "mpeg2stinx", "format": "yuv420p", "field_order": "tff", "templates": "worktree", "result": "ok"}
+{"case": "bwdif_nnedi3", "format": "yuv420p16le", "field_order": "none", "templates": "worktree", "result": "ok"}
+{"case": "bwdif_nnedi3", "format": "yuv420p16le", "field_order": "tff", "templates": "worktree", "result": "ok"}
+{"case": "bwdif_plain", "format": "yuv420p16le", "field_order": "none", "templates": "worktree", "result": "ok"}
+{"case": "bwdif_plain", "format": "yuv420p16le", "field_order": "tff", "templates": "worktree", "result": "ok"}
+{"case": "daa", "format": "yuv420p16le", "field_order": "none", "templates": "worktree", "result": "ok"}
+{"case": "daa", "format": "yuv420p16le", "field_order": "tff", "templates": "worktree", "result": "ok"}
+{"case": "mpeg2stinx", "format": "yuv420p16le", "field_order": "none", "templates": "worktree", "result": "ok"}
+{"case": "mpeg2stinx", "format": "yuv420p16le", "field_order": "tff", "templates": "worktree", "result": "ok"}
