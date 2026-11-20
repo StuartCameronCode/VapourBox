@@ -597,7 +597,8 @@ omits it defaults to `custom` and files itself under the source presets, so
      (or `integration_qtgmc_parameters_test.dart` for QTGMC): enable the pass with
      explicit non-default values and assert its VapourSynth call + those params
      appear in the generated `.vpy` (see the `descratch`/`spotless` tests for the
-     pattern). These are script-only (no encode) and run in the **per-push gate**.
+     pattern). These are script-only (no encode) and run in the **per-push gate**
+     (through `test/support/script_generation.dart`'s `generateScriptViaWorker`).
    - Add a full-encode smoke test in `integration_new_passes_test.dart` (or another
      `@Tags(['heavy'])` file): run the worker end-to-end and assert a valid output
      (e.g. via `WorkerHarness.firstStream`). `heavy` tests run in **nightly.yml**,
@@ -1564,7 +1565,9 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    not remembered: `Scripts/probe-plugin-formats.py` runs every plugin call
    the template makes at every format and size and keeps the result in
    `Tests/TestResources/plugin_format_table.json`, re-checked against the
-   installed bundle by the push gate (quick) and nightly (full). VFM takes
+   installed bundle nightly (quick and full; both `heavy`), and by the push
+   gate only when a run touches the bundle, the table or the probe
+   (`.github/scripts/deps-sensitive.sh`, task #84). VFM takes
    metrics from an 8-bit copy (`clip2`); every other limited plugin has a
    `Contract` in `worker/templates/plugin_formats.py` and is called through
    `_pf.run_within(clip, key, fn, label=…)` (task #48), which **applies only
@@ -1642,7 +1645,10 @@ one degraded 8-bit master per size, the deeper depths derived from it by a
 chain with real sub-8-bit content (`chainSample`). Per row
 `integration_format_sweep_test.dart` checks the preview **runs**, keeps the
 source's **depth** (PNG bit depth), the variant **acts** on some row, and
-(nightly) 8-bit vs deeper **parity** above the passthrough's own difference
+(nightly) 8-bit vs deeper **parity** above the passthrough's own difference.
+Pull requests run only the **smoke** group (tag `sweep-smoke`, task #84): one
+tiny row per variant (`smokeRows`, every one also a nightly row), runs and
+depth only, on ci-test's Linux job; the rest is nightly's `sweep` leg
 (swscale converts 8-bit 4:2:0 to RGB without chroma interpolation: ~4.5
 levels at passthrough). Passes declared in `deltaOnly` also get an FFV1
 encode whose untouched samples must be bit-exact. A failing row is either
@@ -3109,7 +3115,7 @@ or changing tests — they live in different places and run differently.
 
 ```bash
 cd worker && cargo test
-cd worker && cargo test --test subtitle_integration_test -- --nocapture
+cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 ```
 
 - `filter_integration_test.rs` — **every filter/parameter change must add a
@@ -3119,6 +3125,8 @@ cd worker && cargo test --test subtitle_integration_test -- --nocapture
   bugs need the Dart shell-out/integration tests.
 - `subtitle_integration_test.rs` — runs `whisper-cli` on
   `Tests/TestResources/small_clip.mp4`; needs the whisper add-on + ffmpeg.
+  `#[ignore]`d (40–170 s of CPU): nightly runs it with `--ignored`, the push
+  gate leaves it out (task #84).
 - In **debug** builds `DependencyLocator` finds repo-root `deps/`/`addons/` by
   searching upward — **except Linux**, which only reads
   `~/.local/share/VapourBox/` (no upward search), so CI symlinks those there.
@@ -3126,7 +3134,7 @@ cd worker && cargo test --test subtitle_integration_test -- --nocapture
 ### 2. Flutter `test/` suite — `app/test/`, run by `flutter test`  ← the CI gate
 
 ```bash
-cd app && flutter test --exclude-tags heavy,gpu   # what the push gate runs
+cd app && flutter test --exclude-tags heavy,gpu   # what the push gate runs (+ sweep-smoke excluded off Linux)
 cd app && flutter test                          # everything, incl. heavy (local)
 ```
 
@@ -3141,23 +3149,26 @@ Headless Dart-VM tests. Three groups:
   `pass_relevance`, `pass_advice`, `processing_preset`.
 - **Shell-out tests** — `vapoursynth_integration_test`,
   `schema_converter_integration_test`, `template_call_arguments_test`,
-  `plugin_format_contracts_test` (the quick plugin format probe against its
-  table, the contracts, and `run_within()` on real low bits; the full probe
-  is the heavy `plugin_format_probe_test`. Both print each call's time as it
+  `plugin_format_contracts_test` (the contracts against the table, every
+  template call probed, and `run_within()` on real low bits, in the push
+  gate; its quick plugin format probe against the table and the Lut2 memo
+  check are `heavy` since task #84, run nightly and, in the push gate, only
+  when `.github/scripts/deps-sensitive.sh` says the run touches the deps
+  bundle, the table or the probe; the full probe is the heavy
+  `plugin_format_probe_test`. Both probes print each call's time as it
   finishes and stop themselves with `--budget` before their timeout, naming
   the calls still running. The probe evaluates havsfunc's pure `Lut2`
-  functions once per process into lists, bit-identical and checked in the
-  push gate (task #75: LUTDeCrawl's 10-bit tables were 80% of the quick
+  functions once per process into lists, bit-identical and checked by the
+  memo test (task #75: LUTDeCrawl's 10-bit tables were 80% of the quick
   probe, and the full probe never finished on macOS x64);
   `--no-lut-memo` runs them as written), `removedirt_determinism_test`
-  (task #57); need the per-arch `deps/` and
-  (for whisper) `addons/`.
+  (task #57); need the per-arch `deps/`.
 - **Integration tests** — `integration_*_test.dart`. They spawn the worker
   end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy ones
   are `@Tags(['heavy'])`: the **push gate** runs `--exclude-tags heavy,gpu`
   (script-only: `integration_filter_parameters_test`,
-  `integration_qtgmc_parameters_test`, and the format sweep's untagged
-  rotating rows, ~500 tiny previews); **nightly.yml** runs two legs per
+  `integration_qtgmc_parameters_test`, and on Linux only the format sweep's
+  smoke rows, tag `sweep-smoke`, one tiny preview per variant); **nightly.yml** runs two legs per
   bundle: `--tags heavy --exclude-tags gpu,sweep` and the format sweep's full
   product, `--tags sweep --exclude-tags gpu` (every `sweep` test is also
   `heavy`; its per-row results are uploaded as an artifact). Tests that need
@@ -3232,10 +3243,24 @@ cd worker && cargo run --release -- --config test_job.json
 ### CI test gate (`.github/workflows/ci-test.yml`)
 
 Runs on push to `main` + PRs (skipped for doc-only changes via `paths-ignore`).
-Each job pulls the published deps bundle + the whisper add-on, then runs
-**suite #1 (`cargo test`) and suite #2 (`flutter test --exclude-tags heavy,gpu`)** —
-including the subtitle integration test, excluding the heavy full-encode
-integration tests. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
+**Aimed at about 10 minutes** (task #84; it was 21–31): a test belongs in it
+only if it is fast and checks code a PR changes. Anything slow that checks
+the deps bundle, or that nightly already runs in full, is `heavy` (or
+`#[ignore]`d in Rust) and nightly. Each platform runs **two jobs side by
+side**, both against the published deps bundle: `rust (<platform>)` runs
+**suite #1 (`cargo test`)**, without the `#[ignore]`d whisper subtitle test;
+`flutter (<platform>)` builds the worker in the background while Flutter is set
+up, then runs **suite #2 (`flutter test --exclude-tags heavy,gpu`)** with an
+explicit `--concurrency` (package:test's default, half the cores, is one file
+at a time on the 3-core arm64 runner). Only the Linux job runs the format
+sweep's `sweep-smoke` rows. When `.github/scripts/deps-sensitive.sh` finds the
+run touches the deps bundle, the probe table or the probe (or is a
+`deps_run_id` dispatch), the flutter job also runs the quick plugin format
+probe (`--tags heavy test/plugin_format_contracts_test.dart`). **Caches:**
+Cargo (`Swatinem/rust-cache`) and pub, saved from `main` only (or a dispatch
+with `save_caches`); **never the Flutter SDK**: ~2 GB a platform pushed the
+repository past its 10 GB, every cache was evicted in turn, and a hit saved
+under 30 s (docs/reports/task-84-pr-ci-time). Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 (`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). The heavy
 full-encode integration tests run separately in `.github/workflows/nightly.yml`
 (cron + `workflow_dispatch`) via `flutter test --tags heavy --exclude-tags gpu,sweep` on the same
@@ -3399,6 +3424,12 @@ extracts one over the other). The bundle version is deliberately not
 cross-checked against `deps-version.json` — it logs a `::warning::` instead, so
 a green run against an unreleased bundle can't be mistaken for one against the
 released bundle.
+
+A `deps_run_id` dispatch of `ci-test.yml` also runs the quick plugin format
+probe (task #84: it is `heavy`, and `deps-sensitive.sh` answers true for any
+`deps_run_id`), and so does a PR that changes `deps-version.json`. The full
+probe, the heavy encodes and the format sweep need `nightly.yml` with the same
+`deps_run_id`; dispatch both for any deps change.
 
 **2. Release-candidate prereleases** — needed only when the thing under test is
 the download path itself (an installed app has no token and can't read

@@ -4832,7 +4832,8 @@ Task #42's plan, R2b. Report: [docs/reports/task-48-plugin-format-contracts](rep
   {progressive, BFF, TFF} plus a size axis to 1080 lines, into
   `Tests/TestResources/plugin_format_table.json`. The push gate re-runs a
   quick subset (about 3.5 minutes on an M1 Pro under load), and nightly runs
-  the whole probe.
+  the whole probe. (Since task #84 the quick subset runs nightly too, and in
+  the push gate only for runs that touch the bundle, the table or the probe.)
 - **What it found beyond the five contracts**: 720x486 4:2:0 is refused by 11
   calls when field-flagged and by QTGMC, Bifrost and MCTemporalDenoise even
   when progressive (243 chroma rows); MCTemporalDenoise refuses a width of
@@ -5519,7 +5520,9 @@ same format checks; a cached list still costs ~0.28 s to hand over, so a cell
 is 1.1 s). Quick probe on CI: macOS x64 232 s, arm64 91 s, Windows 108 s,
 Linux 35 s; locally the full probe's two LUT calls went 654 s -> 96 s with the
 same cells. Kept in the push gate rather than moved to nightly (nightly runs a
-superset and was failing on the same cost). Every run now prints each call's
+superset and was failing on the same cost). *Reversed by task #84 (2026-11-20):
+with that cost gone, the quick probe is `heavy`, and the push gate runs it only
+when a run touches the bundle, the table or the probe.* Every run now prints each call's
 time, and `--budget` stops it before the test's timeout naming the calls still
 running. Real 10-bit previews still pay ~8 s for the same tables (task #82);
 nightly's other probe differences are tasks #69 and #81. Report:
