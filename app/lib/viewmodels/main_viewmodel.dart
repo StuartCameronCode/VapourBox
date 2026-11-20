@@ -2330,9 +2330,9 @@ class MainViewModel extends ChangeNotifier {
     if (item == null) {
       _appendItemLog(message);
     } else {
-      final log = _itemLogs.putIfAbsent(item.id, () => []);
-      _appendItemLog(message, log: log);
-      if (!identical(log, _currentItemLog)) _appendItemLog(message);
+      // Only [item]'s own log: never the video being encoded meanwhile,
+      // whose failure log must hold only its own lines.
+      _appendItemLog(message, log: _itemLogs.putIfAbsent(item.id, () => []));
     }
   }
 

@@ -239,6 +239,25 @@ void main() {
         contains(_reason));
   });
 
+  test('a video added during a run fails into its own log, not the running one\'s',
+      () async {
+    continuity.failures['/v/bad.mp4'] = 1;
+    final v = vm();
+    await v.addToQueue('/v/good.mp4');
+    await v.startQueueProcessing();
+    await settle();
+    expect(runner.started.map((j) => j.inputPath), ['/v/good.mp4']);
+    await v.addToQueue('/v/bad.mp4');
+    final good = v.queue.firstWhere((q) => q.inputPath == '/v/good.mp4');
+    final bad = v.queue.firstWhere((q) => q.inputPath == '/v/bad.mp4');
+    expect(bad.analysisFailed, isTrue);
+    expect(v.debugItemLog(bad.id).map((m) => m.message).join('\n'),
+        contains(_reason));
+    expect(v.debugItemLog(good.id).map((m) => m.message).join('\n'),
+        isNot(contains('bad.mp4')),
+        reason: 'the running video\'s failure log holds only its own lines');
+  });
+
   test('Retry analyses it again; once it reads, a job carries the model', () async {
     continuity.failures['/v/bad.mp4'] = 1;
     final v = vm();
