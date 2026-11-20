@@ -5677,3 +5677,32 @@ Found by task #75 (the quick plugin probe timing out on macOS x64).
 - **Not measured on an Intel Mac** (none available locally); task #75 saw
   several times the M1's cost for the old tables there, and the Expr's cost
   is independent of the CPU's Python speed.
+
+### An MP4's tail probe comes back empty on Windows: the edit-list count fell back to nb_frames (task #83, 2026-11-21)
+
+Report: [docs/reports/task-83-mp4-tail-probe-flake](reports/task-83-mp4-tail-probe-flake/index.html).
+Found when a Windows push-gate run probed `small_clip.mp4` twice and got
+3151 and 3154.
+
+- **The fault.** Task #54's tail probe (`-read_intervals <len − 3 s>%`,
+  packet times and flags) sometimes exits 0 with **empty stdout and empty
+  stderr**: in 50/1,800 raw runs on Windows, 5/1,800 on macOS and 0/1,800 on
+  Linux (hosted runners, deps 1.18.0). The worker read that as "no last kept
+  picture" and counted `nb_frames`, which counts the edit list's discarded
+  pre-roll, with no retry and no log. In 41/1,800 Windows `--probe-source`
+  runs the old code would have counted 3154.
+- **Inside ffprobe.** At `-v debug` an empty run matches a good one line for
+  line, the read-interval seek included, until its last line: 137,094 bytes
+  read instead of 333,702. Serial runs failed as often as parallel ones, and
+  no run exited non-zero, so it is neither a process-start burst nor a file
+  lock. Listing every packet (no seek) was never empty in 900 runs. The cause
+  in FFmpeg was not chased; 1,500 local runs of Homebrew's 9.0.2 were all
+  clean.
+- **The fix.** `ffprobe_run` runs every count-deciding probe. It keeps
+  stderr, names the exit status, treats empty stdout as a failure, makes 3
+  attempts and logs each failed one. An MP4/MOV's tail falls back to listing
+  every packet (`mov_last_kept`), and its head probe (which sees the
+  discards) must list packets. When either still fails, `--probe-source`
+  errors rather than counting `nb_frames`. With the fix, 2,700/2,700 runs
+  per platform counted 3151.
+- **Not done:** the app drops a `--probe-source` error silently (task #85).

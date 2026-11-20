@@ -1,0 +1,37 @@
+== small_clip.mp4: 300 runs, 1 at once
+    300 3151
+probe failure lines: 9
+run 5: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 88: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 88: the tail probe failed (attempt 2 of 3): ffprobe exited 0 with no usable output
+run 120: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 186: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 200: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 238: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 270: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 299: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+== small_clip.mp4: 300 runs, 8 at once
+    300 3151
+probe failure lines: 11
+run 40: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 50: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 76: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 85: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 96: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 132: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 145: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 194: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 237: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 240: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+run 257: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+== small_clip.mp4: 300 runs, 16 at once
+    300 3151
+probe failure lines: 1
+run 65: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+== raw tail probe: 300 runs, 8 at once
+      2 status=0 lines=0 stderr_bytes=0
+    298 status=0 lines=94 stderr_bytes=0
+== raw tail probe: 300 runs, 32 at once
+      1 status=0 lines=0 stderr_bytes=0
+    299 status=0 lines=94 stderr_bytes=0
+== cargo test x30: 30 passed, 0 failed
