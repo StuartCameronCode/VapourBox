@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QTGMC Mask faults</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>QTGMC InputType 2/3: two faults in MVTools' Mask, padded around in the template</h1>
+<p class="meta">Task #79, 2026-11-21. Valgrind 3.22 memcheck on GitHub's <code>ubuntu-24.04</code> runners, deps 1.18.0-rc2 linux-x64 (MVTools <code>master</code> built from source, havsfunc r31), through <code>.github/workflows/repro-native-crash.yml</code> (inputs <code>bisect</code>, <code>bisect_script</code>), runs 44764012129 and 44768793791. Row checks and the depth table on an M1 Pro, deps 1.16.0 macos-arm64 (same MVTools source and havsfunc). Source read from <code>dubhater/vapoursynth-mvtools</code> master and VapourSynth R78's <code>VSHelper4.h</code>. Follows <a href="../task-69-mvtools-flow-avx2/index.html">task #69</a>.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>The call.</b> havsfunc's QTGMC runs <code>core.mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask)</code> when <code>InputType</code> is 2 or 3 and <code>ProgSADMask &gt; 0</code>, which is its default at <b>Placebo, Very Slow, Slower, Slow and Medium</b> (task #79's description said "from Slow"). It passes no <code>opt</code>, and the template can't give it one. ProgSADMask and ShutterBlur (the other route to Mask and FlowBlur) aren't exposed, so InputType and the preset decide.</li>
+<li><b>Fault 1, heap write (x86 with AVX2).</b> Below 4 of Analyse's block columns, the 8-bit AVX2 upsizer stores its row tail before its buffer, as task #69 found. Valgrind: 1,870–8,532 errors per cell, "Invalid write of size 4 … 1 bytes before a block of size 5". The boundary is exactly <code>W = 4b − 3o</code>.</li>
+<li><b>Fault 2, wrong bottom rows (every CPU).</b> Found while checking the first fix. Mask fills the rows under its block grid with one <code>vsh::bitblt</code> from the row above, inside the same frame. When a row is as wide as its stride, <code>bitblt</code> turns that into one <code>memcpy</code> over overlapping memory, and every row after the first gets whatever the rows below held. That's uninitialised memory on Linux (valgrind: the output written from it), and 12 of every 16 rows wrong on macOS arm64. It needs a width that is a multiple of the stride alignment and a height the grid doesn't reach, which real sizes can hit: <b>1920x1080 at BlockSize 32 / Overlap 16, 1280x720 at 32/8</b>. havsfunc's defaults at these presets (16/8) put the grid on any height divisible by 8, so a job only reaches it with an explicit BlockSize.</li>
+<li><b>Fix (template only, no deps release).</b> The Deinterlace pass pads QTGMC's input through <code>mvtools_blocks(min_cols=plugin_formats.mvtools_mask_cols(w, h, b, o))</code>, with <code>b</code>/<code>o</code> the BlockSize and Overlap havsfunc will use (<code>QTGMCParameters::prog_sad_mask_blocks</code>), and only for InputType 2/3 at Placebo–Medium. The helper pads to 4 block columns, then adds 8 columns when the width is a multiple of 32 and the grid stops short of the bottom. Every other job's script is unchanged (test_263). Valgrind: all 14 guarded cells clean.</li>
+<li><b>Found here, filed as task #89:</b> Mask also refuses every format above 8 bits, so QTGMC with InputType 2/3 at Placebo–Medium <b>fails on every 10-bit or deeper source</b>, and on any source with High Precision on. That needs a havsfunc patch, out of scope here.</li>
+</ul>
+
+<h2>Fault 1: the AVX2 tail (x86)</h2>
+<p>Mask builds its mask at Analyse's own <code>nBlkX = (W − o) / (b − o)</code> (not grown to the edge, unlike Flow*'s <code>nBlkXP</code>) and upsizes it with <code>simpleResize_uint8_t(…, smallMask, nBlkX, …)</code>. The AVX2 version's vertical pass steps 4 samples at a time and does the tail at <code>src_width − 4</code>: with nBlkX = 3 that is −1, a read before <code>smallMask</code> and a write before <code>workp</code> (<code>malloc(src_width + 2)</code>). The chroma upsizer takes the same <code>nBlkX</code>.</p>
+<table>
+<tr><th>BlockSize / Overlap</th><th>Widths that write before the buffer (<code>W &lt; 4b − 3o</code>)</th><th>After <code>mvtools_blocks()</code>' 64-column pad</th></tr>
+<tr><td>32 / 0</td><td>&lt; 128</td><td>64–127</td></tr>
+<tr><td>32 / 8</td><td>&lt; 104</td><td>64–103</td></tr>
+<tr><td>32 / 16</td><td>&lt; 80</td><td>64–79</td></tr>
+<tr><td>16 / any, 8, 4</td><td>&le; 64</td><td>never</td></tr>
+</table>
+
+<h2>Fault 2: the bottom rows</h2>
+<pre>// MVMask.cpp (master), luma; chroma does the same with nHeightBUV
+upsizer-&gt;simpleResize_uint8_t(upsizer, pDst[0], nDstPitches[0], smallMask, nBlkX, 0);   // rows 0 .. nHeightB-1
+if (nHeight &gt; nHeightB)
+    vsh::bitblt(pDst[0] + nHeightB * pitch, pitch, pDst[0] + (nHeightB - 1) * pitch, pitch, nWidth, nHeight - nHeightB);
+
+// VSHelper4.h (R78)
+if (src_stride == dst_stride &amp;&amp; src_stride == (ptrdiff_t)row_size)
+    memcpy(dstp, srcp, row_size * height);          // one copy; source and destination overlap
+else
+    for (...) memcpy(dstp8, srcp8, row_size);       // row by row: each row copies the one just written</pre>
+<p><code>nHeightB = nBlkY·(b − o) + o</code>. The intent is to repeat the last grid row downwards. Row by row that works, but as one <code>memcpy</code> the source is rows <code>nHeightB − 1 … nHeight − 2</code> as they were <i>before</i> the copy, so only the first filled row is right. In QTGMC the mask feeds <code>MaskedMerge(innerClip, edi1, mask, planes=[0])</code>, so the luma at the bottom of the picture is blended by garbage.</p>
+<p><b>Rows wrong under the grid, mask alone</b> (<code>scripts/mask_bottom_rows.py</code>, 5 frames, macOS arm64; <code>data/mask_bottom_rows_macos-arm64.txt</code>):</p>
+<table>
+<tr><th>Size, b/o</th><th>nHeightB</th><th>Luma stride</th><th>Rows wrong (of rows under the grid × 5)</th></tr>
+<tr><td>128x96, 32/8</td><td class="num">80</td><td class="num">128</td><td class="no">60 of 80</td></tr>
+<tr><td>136x96, 32/8</td><td class="num">80</td><td class="num">160</td><td class="ok">0</td></tr>
+<tr><td>104x96, 32/8</td><td class="num">80</td><td class="num">128</td><td class="ok">0</td></tr>
+<tr><td>1920x1080, 32/16</td><td class="num">1072</td><td class="num">1920</td><td class="no">28 of 40</td></tr>
+<tr><td>1280x720, 32/8</td><td class="num">704</td><td class="num">1280</td><td class="no">60 of 80</td></tr>
+<tr><td>1920x1080, 16/8 (havsfunc's default here)</td><td class="num">1080</td><td class="num">1920</td><td class="ok">0 (no rows under the grid)</td></tr>
+</table>
+<p>On Linux the same rows are uninitialised: valgrind's <code>mask:128x96 … 32/8</code> cell reports <code>write(buf) points to uninitialised byte(s)</code>, 10,432 bytes into the 12,352-byte frame <code>mvmaskGetFrame</code> allocated. That is row 81, the second row under the grid (<code>data/mask.128x96.blksize_32_overlap_8.run_44768793791.excerpt.txt</code>). The macOS count says which rows; it doesn't say what lands in them, which depends on the C library's <code>memcpy</code> and isn't defined.</p>
+<p class="box"><b>How it was found, kept visible.</b> The first fix padded every InputType 2/3 picture to a fixed 128 columns, the 32/0 worst case, and needed no block size. Run 44764012129 cleared fault 1 in every guarded cell, but two guarded cells, 64x96 and 96x96 at 32/8, padded to 128, showed a new finding: uninitialised values from <code>mvmaskGetFrame</code>'s frame reaching <code>mv.Super</code> and the output (<code>data/logs_44764012129/</code>). The fixed pad had made fault 2 reachable for small pictures. That's why the pad now depends on the real block size and overlap.</p>
+
+<h2>The fix</h2>
+<pre>def mvtools_mask_cols(width, height, blksize, overlap):
+    step = blksize - overlap
+    w = max(width, MVTOOLS_MIN_COLS, MVTOOLS_MASK_MIN_BLOCKS * step + overlap)   # 4 block columns
+    h = max(height, MVTOOLS_MIN_ROWS)                                           # mvtools_blocks' own rows
+    if (h - overlap) % step and w % MVTOOLS_MASK_STRIDE_STEP == 0:              # grid short of the bottom,
+        w += 8                                                                  # and a row could fill its stride
+    return w if w &gt; max(width, MVTOOLS_MIN_COLS) else width</pre>
+<ul>
+<li><b>Why 32.</b> VapourSynth aligns strides to 32 or 64 bytes depending on the build (the macOS arm64 core gave 160 for 136 columns: 32). A width that isn't a multiple of 32 is never equal to its stride under either, so <code>bitblt</code> copies row by row. Only luma matters: QTGMC merges luma only. The chroma bottom rows can still be wrong, but nothing reads them.</li>
+<li><b>Which b/o.</b> The template passes BlockSize and Overlap only when the user sets them, so the worker computes havsfunc's: BlockSize 16 at Placebo–Medium (Tuning is never passed), Overlap half the BlockSize in effect. A mirror of havsfunc's table, like <code>effective_srch_clip_pp</code>.</li>
+<li><b>Who gets a node.</b> Pictures narrower than 4 block columns (never a real source), and real sizes in fault 2's case, e.g. 1920x1080 or 1280x720 with an explicit BlockSize 32. Those were wrong at the bottom before; their output changes by the 8 columns added at the right edge. Everything else, including every InputType 0/1 job and every Fast-and-below job, generates the same script as before.</li>
+<li><b>Rejected:</b> a havsfunc patch passing <code>opt=</code> (needs a deps release, fixes only fault 1); padding the height to the grid instead (moves every row's search window more than a few columns at the right do).</li>
+</ul>
+
+<h2>Valgrind</h2>
+<p><code>scripts/mask.vpy</code>: <code>call=qtgmc</code> runs <code>haf.QTGMC(Preset='Slow', InputType=2|3, BlockSize, Overlap, TFF=True)</code>, and <code>call=mask</code> runs that Mask alone, on task #69's moving textured clip, 5 frames. <code>guard=1</code> wraps it exactly as the template does. Full summaries: <code>data/valgrind_run_44764012129.txt</code> and <code>data/valgrind_run_44768793791.txt</code>. YUV420P8 unless stated.</p>
+<table>
+<tr><th>Cell</th><th>As havsfunc calls it</th><th>Through the guard</th></tr>
+<tr><td>qtgmc 64x96, 16/8 (control)</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>qtgmc 64x96, 32/16 (nBlkX 3)</td><td class="no">1,870, invalid write 1 byte before 5</td><td class="ok">0</td></tr>
+<tr><td>qtgmc 64x96, 32/16, InputType 3</td><td class="no">1,870</td><td class="ok">0</td></tr>
+<tr><td>qtgmc 80x96, 32/16 (nBlkX 4)</td><td class="ok">0</td><td></td></tr>
+<tr><td>qtgmc 96x96, 32/8 (nBlkX 3)</td><td class="no">8,532</td><td class="ok">0 (run 2; run 1's fixed 128 gave 6,732, fault 2)</td></tr>
+<tr><td>qtgmc 104x96, 32/8 (nBlkX 4)</td><td class="ok">0</td><td></td></tr>
+<tr><td>qtgmc 120x96, 32/0 (nBlkX 3)</td><td class="no">2,160</td><td class="ok">0</td></tr>
+<tr><td>qtgmc 128x96, 32/0 (nBlkX 4)</td><td class="ok">0</td><td></td></tr>
+<tr><td>qtgmc 128x96, 32/8 (nBlkX 5, grid stops at 80)</td><td class="no">6,734, uninitialised from Mask's frame (fault 2)</td><td class="ok">0</td></tr>
+<tr><td>qtgmc 64x96, 32/8</td><td></td><td class="ok">0 (run 2; run 1's fixed 128 gave 1,585, fault 2)</td></tr>
+<tr><td>qtgmc 64x96, 32/0</td><td></td><td class="ok">0</td></tr>
+<tr><td>qtgmc 64x96 YUV422P8, 32/0 and 32/8</td><td></td><td class="ok">0, 0</td></tr>
+<tr><td>qtgmc 64x96 YUV444P8, 32/0</td><td class="no">2,880</td><td class="ok">0</td></tr>
+<tr><td>mask 64x96, 32/16</td><td class="no">935</td><td class="ok">0</td></tr>
+<tr><td>mask 80x96, 32/16</td><td class="ok">0</td><td></td></tr>
+<tr><td>mask 128x96, 32/8</td><td class="no">15, uninitialised (fault 2)</td><td class="ok">0</td></tr>
+<tr><td>mask 256x196, 32/8</td><td class="no">22, uninitialised (fault 2)</td><td class="ok">0</td></tr>
+<tr><td>mask 136x96, 32/8 (not a multiple of 32)</td><td class="ok">0</td><td></td></tr>
+</table>
+
+<h2>The &gt;8-bit refusal (task #89)</h2>
+<p><code>MVMask.cpp</code> refuses any clip above 8 bits ("Mask: input clip must be GRAY8, YUV420P8, …"), and havsfunc hands it <code>srchClip</code> at the clip's own depth. <code>scripts/mask_depths.py</code> (macOS arm64, 128x96, <code>data/mask_depths_macos-arm64.txt</code>):</p>
+<table>
+<tr><th>Format</th><th>InputType 2/3 at Slow, Medium</th><th>at Fast</th></tr>
+<tr><td>YUV420P8</td><td class="ok">runs</td><td class="ok">runs</td></tr>
+<tr><td>YUV420P10, YUV422P10, YUV420P16</td><td class="no">Mask refuses it</td><td class="ok">runs</td></tr>
+</table>
+<p>Mask's <code>kind=1</code> never reads the clip's pixels, but it shifts the vectors' SAD by the <i>clip's</i> <code>bitsPerSample − 8</code> (<code>MaskFun.cpp</code>), so an 8-bit stand-in clip would need <code>ml</code> scaled to match. That belongs in a havsfunc patch and a deps release, which task #89 covers. The format sweep never caught this because InputType isn't one of its axes.</p>
+
+<h2>Tests</h2>
+<ul>
+<li><b>test_263</b> (Rust): the pad argument for InputType 2/3 at Placebo–Medium only, with havsfunc's effective b/o (defaults 16 and half; set values passed through); InputType 0/1 scripts and Fast-and-below scripts unchanged; the schema's largest BlockSize still 32 and smallest Overlap still 0 (a wider range means re-checking these cells).</li>
+<li><b><code>plugin_format_contracts_test.dart</code></b> (push gate, needs deps): <code>mvtools_mask_cols</code> against both conditions for every b ∈ {4, 8, 16, 32}, overlap 0–16 and widths 16–398 at six heights, including padding nothing a picture doesn't need. The mask's rows under the grid repeat the grid's last row through the pad (128x96 and 256x196 at 32/8, plus two others). QTGMC Slow with InputType 2/3 runs through the pad at 64x96, 32/0, 32/8 and 32/16, in 4:2:0 and 4:4:4.</li>
+<li><b><code>integration_qtgmc_parameters_test.dart</code></b> (push gate): the generated script's pad call for InputType 2/3, none for 0/1.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li><b>Windows and macOS x64</b> (MVTools v24 prebuilt): same <code>MVMask.cpp</code> and upsizer source, not run under a checker. Fault 2 depends on the C library's <code>memcpy</code> with overlapping arguments: MSVC's <code>memcpy</code> may behave like <code>memmove</code> there and give the right rows, which is why the contracts test checks the guarded path rather than asserting that the unguarded one is wrong.</li>
+<li><b>QTGMC's picture</b> at 1920x1080 with BlockSize 32: the mask's rows were measured, not the QTGMC output's change (bounded by the rows under the grid, up to <code>b − o − 1</code>).</li>
+<li>Valgrind sees only the paths a run takes: one synthetic clip, 5 frames, the formats listed.</li>
+</ul>
+
+<h2>Upstream issue (draft, not filed)</h2>
+<pre>Mask: bottom-row fill copies overlapping memory when a row fills its stride; AVX2 tail below 4 blocks
+
+1. mvmaskGetFrame fills rows nHeightB..nHeight-1 with
+   vsh::bitblt(dst + nHeightB*pitch, pitch, dst + (nHeightB-1)*pitch, pitch, nWidth, nHeight-nHeightB).
+   When pitch == nWidth, bitblt does one memcpy of the whole range, whose source and destination
+   overlap, so rows after the first get the old contents of the rows below (uninitialised on glibc).
+   Reproduce: Mask(kind=1) on 128x96 YUV420P8 with Analyse(blksize=32, overlap=8); rows 81..95
+   differ from row 79. Fix: copy row nHeightB-1 into each row in a loop.
+2. With nBlkX &lt; 4, simpleResize_uint8_t_avx2's tail step starts at nBlkX - 4 &lt; 0 and reads before
+   smallMask and writes before workp (same as the int16 version below 8, reported for Flow*).</pre>
+
+<h2>Scripts and data</h2>
+<ul>
+<li><code>scripts/mask.vpy</code>: <code>vspipe -a call=qtgmc|mask -a size=WxH -a fmt=YUV420P8 [-a input_type=2 -a blksize=32 -a overlap=16 -a preset=Slow -a guard=0|1] mask.vpy -</code>. In the repro workflow: <code>bisect_script=docs/reports/task-79-qtgmc-mask-avx2/scripts/mask.vpy</code>, <code>bisect="qtgmc:64x96:YUV420P8:blksize=32,overlap=16,guard=1 …"</code>, <code>modes=none</code>.</li>
+<li><code>scripts/mask_bottom_rows.py</code> and <code>scripts/mask_depths.py</code>: run with the bundle's Python, havsfunc importable.</li>
+<li><code>data/</code>: both runs' summaries, log excerpts (paths shortened to the repo), and the two macOS outputs.</li>
+</ul>
+</body>
+</html>

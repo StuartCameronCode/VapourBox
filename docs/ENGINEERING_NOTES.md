@@ -5771,3 +5771,32 @@ nnedi3 (patch 6), which takes it. A 4:2:0 frame 486 high has 243 chroma rows.
   passes (task #87).
 
 Report: [docs/reports/task-81-znedi3-odd-plane-rows](reports/task-81-znedi3-odd-plane-rows/index.html).
+
+### QTGMC InputType 2/3: two faults in MVTools' Mask (task #79, 2026-11-21)
+
+Report: [docs/reports/task-79-qtgmc-mask-avx2](reports/task-79-qtgmc-mask-avx2/index.html).
+havsfunc's QTGMC runs `mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask)` on
+InputType 2/3 at Placebo–Medium (ProgSADMask's default), with no `opt` the
+template can reach.
+
+- **Heap write below 4 block columns (x86, AVX2).** The 8-bit twin of task
+  #69's upsizer fault: Mask upsizes Analyse's unpadded `nBlkX`, so
+  `W < 4b − 3o` (128 at 32/0) writes before its buffer. Valgrind: 1,870+
+  errors, the boundary exact.
+- **Wrong bottom rows (every CPU).** Mask repeats the last block-grid row
+  downwards with one `vsh::bitblt` inside the frame; when a row is as wide
+  as its stride that is one overlapping `memcpy`, so every row after the
+  first is stale (12 of 16 at 128x96 32/8 on macOS arm64, uninitialised on
+  Linux). Real sizes reach it with an explicit BlockSize 32: 1920x1080 at
+  32/16, 1280x720 at 32/8. havsfunc's 16/8 default lands on any height
+  divisible by 8.
+- **The fix is a pad.** `plugin_formats.mvtools_mask_cols(w, h, b, o)` pads
+  to 4 block columns and, when the grid stops short of the bottom, off a
+  multiple of 32 columns (no stride alignment divides it, so `bitblt` goes
+  row by row); `QTGMCParameters::prog_sad_mask_blocks` gives havsfunc's
+  effective b/o and limits it to the jobs that run the Mask (test_263).
+  A first version padded to a fixed 128 and made the second fault reachable
+  for small pictures at 32/8; valgrind's guarded cells caught it.
+- **Not fixed: Mask is 8-bit only**, so these jobs fail outright on any
+  source above 8 bits (or with High Precision on). Task #89 (a havsfunc
+  patch, needs a deps release).

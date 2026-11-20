@@ -1004,8 +1004,7 @@ fn test_32_verify_deband_in_script() {
     ]).unwrap();
 }
 
-// =====================================================================}
-
+// ============================================================================
 // Audio Passthrough Tests
 // ============================================================================
 // These tests verify that processed video outputs unprocessed raw audio
@@ -10144,9 +10143,10 @@ fn test_262_nnedi3_without_dh_is_padded_to_whole_plane_rows() {
         assert!(script.contains("core.bwdif.Bwdif(clip, field=3, edeint=_bwdif_edi)"));
     }
     assert!(template.contains("clip = _pf.run_within(clip, 'havsfunc.daa', _aa_daa, label='Anti-aliasing')"));
-=======
+}
+
 #[test]
-fn test_262_qtgmc_input_type_2_3_pads_for_mvtools_mask() {
+fn test_263_qtgmc_input_type_2_3_pads_for_mvtools_mask() {
     // Task #79: havsfunc's QTGMC runs mv.Mask(kind=1) on InputType 2 and 3 at
     // Placebo..Medium (ProgSADMask) with no opt. Mask writes before its buffer
     // on x86 under 4 block columns, and garbles its bottom rows when a row is
@@ -10156,7 +10156,7 @@ fn test_262_qtgmc_input_type_2_3_pads_for_mvtools_mask() {
     // job's script is what it was.
     create_output_dir();
     let scripts = |preset: QTGMCPreset, input_type: Option<i32>, block: Option<i32>, overlap: Option<i32>| {
-        let mut job = create_base_job("test_262_qtgmc_mask_cols");
+        let mut job = create_base_job("test_263_qtgmc_mask_cols");
         job.qtgmc_parameters = QTGMCParameters {
             enabled: true,
             preset,

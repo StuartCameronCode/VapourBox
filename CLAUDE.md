@@ -454,7 +454,7 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   CPU), so `_deinterlace_qtgmc_rows` pads with
   `mvtools_blocks(min_cols=_pf.mvtools_mask_cols(w, h, b, o))`, b/o from
   `QTGMCParameters::prog_sad_mask_blocks` (havsfunc's effective values),
-  for those jobs only (task #79, test_262). Check on a fixture with real low
+  for those jobs only (task #79, test_263). Check on a fixture with real low
   bits that the plugin leaves the samples it doesn't change exact — see
   "High Bit Depth Sources"
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**
