@@ -1349,17 +1349,29 @@ impl PipelineExecutor {
             }
         }
 
+        // Last: a matrix FFmpeg's scaler can't convert (ycgco, bt2020c, …)
+        // is swapped for its stand-in around an explicit scale, so a pixel
+        // format conversion by the encoder works and the tag is kept (task #76).
+        let bridge = job.output_color_metadata().encoder_matrix_bridge();
+        vf.extend(bridge.clone());
+
         if !vf.is_empty() {
             args.extend(["-vf".to_string(), vf.join(",")]);
         }
         args.extend(video_delay_encoder_args(job));
-        if job.output_video_delay() > 0.0
-            && settings.custom_ffmpeg_args.split_whitespace().any(|a| a == "-vf" || a.starts_with("-vf:") || a == "-filter:v")
-        {
+        let custom_vf = settings.custom_ffmpeg_args.split_whitespace().any(|a| a == "-vf" || a.starts_with("-vf:") || a == "-filter:v");
+        if job.output_video_delay() > 0.0 && custom_vf {
             self.reporter.send_log(
                 LogLevel::Warning,
                 "A Custom FFmpeg Argument replaces the video filter chain, which also drops the delay that keeps \
                  this source's picture in sync with its sound (its video starts after its audio).",
+            );
+        }
+        if bridge.is_some() && custom_vf {
+            self.reporter.send_log(
+                LogLevel::Warning,
+                "A Custom FFmpeg Argument replaces the video filter chain. This source's colour matrix is one \
+                 FFmpeg cannot convert, so if the encoder needs another pixel format the encode will fail.",
             );
         }
 
@@ -3072,9 +3084,10 @@ mod tests {
         // Progress output to temp file
         args.extend(["-progress".to_string(), "/tmp/test_progress.txt".to_string()]);
 
-        // A late video's delay (mirrors build_ffmpeg_args; the rest of its -vf
-        // chain is not mirrored here).
-        let delay = video_delay_filters(job);
+        // A late video's delay and the matrix bridge (mirrors
+        // build_ffmpeg_args; the rest of its -vf chain is not mirrored here).
+        let mut delay = video_delay_filters(job);
+        delay.extend(job.output_color_metadata().encoder_matrix_bridge());
         if !delay.is_empty() {
             args.extend(["-vf".to_string(), delay.join(",")]);
         }
@@ -3343,6 +3356,50 @@ mod tests {
             !body.contains("job.color_metadata().to_ffmpeg"),
             "the encoder must be told the output's colour, not the source's"
         );
+    }
+
+    /// A matrix FFmpeg's scaler can't convert gets the bridge as the last
+    /// filter of the one `-vf`, with the true tag still declared identically
+    /// on both sides; every other matrix's arguments are unchanged (task #76).
+    #[test]
+    fn test_unconvertible_matrix_bridges_the_encoder_conversion() {
+        let mut job = create_test_job("out.mkv");
+        job.encoding_settings.codec = VideoCodec::H264Amf; // the nv12 pin
+        job.input_color_matrix = Some("ycgco".to_string());
+        let args = build_ffmpeg_args_for_test(&job);
+        let vf_at: Vec<usize> = args.iter().enumerate().filter(|(_, a)| *a == "-vf").map(|(i, _)| i).collect();
+        assert_eq!(vf_at.len(), 1, "one -vf: {args:?}");
+        assert!(
+            args[vf_at[0] + 1].ends_with("setparams=colorspace=unknown,scale,setparams=colorspace=ycgco"),
+            "{args:?}"
+        );
+        let tags: Vec<usize> = args.iter().enumerate().filter(|(_, a)| *a == "-colorspace").map(|(i, _)| i).collect();
+        assert_eq!(tags.len(), 2);
+        assert!(tags.iter().all(|&i| args[i + 1] == "ycgco"));
+
+        for m in ["bt709", "fcc", "bt470bg", "smpte170m", "smpte240m", "bt2020nc", "rgb"] {
+            for codec in [VideoCodec::H264Amf, VideoCodec::FFV1, VideoCodec::Huffyuv] {
+                let mut job = create_test_job("out.mkv");
+                job.encoding_settings.codec = codec;
+                job.input_color_matrix = Some(m.to_string());
+                let args = build_ffmpeg_args_for_test(&job);
+                assert!(!args.iter().any(|a| a.contains("setparams")), "{m} {codec:?}: {args:?}");
+            }
+        }
+    }
+
+    /// The real builder takes the bridge, last in its chain (it mirrors the
+    /// test builder, which the test above checks).
+    #[test]
+    fn test_real_ffmpeg_builder_ends_the_chain_with_the_matrix_bridge() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let body = &body[..body.find("\n    }\n").expect("end of builder")];
+        let bridge = body.find("encoder_matrix_bridge()").expect("the bridge");
+        let subtitles = body.find("subtitles='{}'").expect("burn-in");
+        let joined = body.find(r#"args.extend(["-vf".to_string(), vf.join(",")]);"#).expect("the -vf");
+        assert!(subtitles < bridge && bridge < joined, "the bridge must be the chain's last filter");
     }
 
     /// An untagged source must stay untagged rather than being guessed at.

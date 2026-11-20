@@ -1,0 +1,203 @@
+{
+ "_comment": "The decode tag neutraliser for a source's RAW ffprobe tags (tasks #5, #76): worker color_metadata::decode_tag_neutraliser(matrix, primaries, transfer) and app ColorTags.decodeNeutraliser must both give 'filter' (null = no filter). colour_tag_ffmpeg_test.dart runs the six unconvertible matrices through the bundled ffmpeg.",
+ "cases": [
+  {
+   "matrix": null,
+   "primaries": null,
+   "transfer": null,
+   "filter": null
+  },
+  {
+   "matrix": "bt709",
+   "primaries": "bt709",
+   "transfer": "bt709",
+   "filter": null
+  },
+  {
+   "matrix": "unknown",
+   "primaries": "unknown",
+   "transfer": "unknown",
+   "filter": null
+  },
+  {
+   "matrix": "N/A",
+   "primaries": "",
+   "transfer": "  ",
+   "filter": null
+  },
+  {
+   "matrix": "unknown",
+   "primaries": "reserved",
+   "transfer": "reserved",
+   "filter": "setparams=color_primaries=unknown:color_trc=unknown"
+  },
+  {
+   "matrix": "bt709",
+   "primaries": "reserved",
+   "transfer": null,
+   "filter": "setparams=color_primaries=unknown"
+  },
+  {
+   "matrix": null,
+   "primaries": "smpte170m",
+   "transfer": "Reserved ",
+   "filter": "setparams=color_trc=unknown"
+  },
+  {
+   "matrix": "reserved",
+   "primaries": null,
+   "transfer": null,
+   "filter": "setparams=colorspace=unknown"
+  },
+  {
+   "matrix": "ipt-c2",
+   "primaries": null,
+   "transfer": null,
+   "filter": "setparams=colorspace=unknown"
+  },
+  {
+   "matrix": "ycgco-re",
+   "primaries": null,
+   "transfer": null,
+   "filter": "setparams=colorspace=unknown"
+  },
+  {
+   "matrix": "gbr",
+   "primaries": null,
+   "transfer": null,
+   "filter": null
+  },
+  {
+   "matrix": "rgb",
+   "primaries": null,
+   "transfer": null,
+   "filter": null
+  },
+  {
+   "matrix": "reserved",
+   "primaries": "reserved",
+   "transfer": "reserved",
+   "filter": "setparams=color_primaries=unknown:color_trc=unknown:colorspace=unknown"
+  },
+  {
+   "matrix": "fcc",
+   "primaries": null,
+   "transfer": null,
+   "filter": null
+  },
+  {
+   "matrix": "bt470bg",
+   "primaries": null,
+   "transfer": null,
+   "filter": null
+  },
+  {
+   "matrix": "smpte170m",
+   "primaries": null,
+   "transfer": null,
+   "filter": null
+  },
+  {
+   "matrix": "smpte240m",
+   "primaries": null,
+   "transfer": null,
+   "filter": null
+  },
+  {
+   "matrix": "bt2020nc",
+   "primaries": "bt2020",
+   "transfer": "smpte2084",
+   "filter": null
+  },
+  {
+   "matrix": "ycgco",
+   "primaries": null,
+   "transfer": null,
+   "filter": "setparams=colorspace=unknown"
+  },
+  {
+   "matrix": "YCgCo",
+   "primaries": "bt709",
+   "transfer": "bt709",
+   "filter": "setparams=colorspace=unknown"
+  },
+  {
+   "matrix": "smpte2085",
+   "primaries": null,
+   "transfer": null,
+   "filter": "setparams=colorspace=unknown"
+  },
+  {
+   "matrix": "bt2020c",
+   "primaries": null,
+   "transfer": null,
+   "filter": "setparams=colorspace=bt2020nc"
+  },
+  {
+   "matrix": "bt2020c",
+   "primaries": "bt2020",
+   "transfer": "smpte2084",
+   "filter": "setparams=colorspace=bt2020nc"
+  },
+  {
+   "matrix": "ictcp",
+   "primaries": null,
+   "transfer": null,
+   "filter": "setparams=colorspace=bt2020nc"
+  },
+  {
+   "matrix": "ictcp",
+   "primaries": "bt2020",
+   "transfer": "arib-std-b67",
+   "filter": "setparams=colorspace=bt2020nc"
+  },
+  {
+   "matrix": "chroma-derived-nc",
+   "primaries": "bt709",
+   "transfer": null,
+   "filter": "setparams=colorspace=bt709"
+  },
+  {
+   "matrix": "chroma-derived-nc",
+   "primaries": "bt2020",
+   "transfer": null,
+   "filter": "setparams=colorspace=bt2020nc"
+  },
+  {
+   "matrix": "chroma-derived-nc",
+   "primaries": "bt470bg",
+   "transfer": null,
+   "filter": "setparams=colorspace=unknown"
+  },
+  {
+   "matrix": "chroma-derived-nc",
+   "primaries": null,
+   "transfer": null,
+   "filter": "setparams=colorspace=unknown"
+  },
+  {
+   "matrix": "chroma-derived-c",
+   "primaries": "bt709",
+   "transfer": null,
+   "filter": "setparams=colorspace=bt709"
+  },
+  {
+   "matrix": "chroma-derived-c",
+   "primaries": "bt2020",
+   "transfer": null,
+   "filter": "setparams=colorspace=bt2020nc"
+  },
+  {
+   "matrix": "chroma-derived-c",
+   "primaries": "reserved",
+   "transfer": null,
+   "filter": "setparams=color_primaries=unknown:colorspace=unknown"
+  },
+  {
+   "matrix": "bt2020c",
+   "primaries": "reserved",
+   "transfer": "reserved",
+   "filter": "setparams=color_primaries=unknown:color_trc=unknown:colorspace=bt2020nc"
+  }
+ ]
+}

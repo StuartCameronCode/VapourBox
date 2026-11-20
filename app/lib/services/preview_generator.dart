@@ -119,8 +119,9 @@ class PreviewGenerator {
         range: _colorRange,
       );
 
-  /// Clears a colour tag FFmpeg's scaler refuses (`reserved`), or null when
-  /// every tag is usable. See [ColorTags.decodeNeutraliser].
+  /// Fixes a colour tag FFmpeg's scaler can't convert (`reserved`, or a
+  /// matrix such as `ycgco`, task #76), or null when every tag is usable. See
+  /// [ColorTags.decodeNeutraliser].
   String? get _tagFix => ColorTags.decodeNeutraliser(
         matrix: _colorMatrix,
         primaries: _colorPrimaries,
@@ -349,7 +350,8 @@ class PreviewGenerator {
   /// the encode and the preview decode it. It replaces the plain seek.
   ///
   /// [tagFix] goes first in the one `-vf`: the JPEG/PNG encode converts the
-  /// pixel format, which fails on a `reserved` tag. The trim follows it,
+  /// pixel format, which fails on a tag the scaler can't convert (`reserved`,
+  /// or a matrix such as `ycgco` or `bt2020c`). The trim follows it,
   /// ahead of the tone map, so dropped frames are never tone-mapped.
   ///
   /// `integration_seek_alignment_test.dart` and

@@ -99,6 +99,17 @@ void main() {
       }
     });
 
+    // zimg refuses constant luminance with PQ/HLG (task #76), so bt2020c is
+    // read as NCL, as the worker's display_tonemap_filter does.
+    test('bt2020c reads as bt2020nc', () {
+      for (final t in ['smpte2084', 'arib-std-b67']) {
+        expect(
+          HdrDisplay.toneMapFilter(matrix: 'bt2020c', primaries: 'bt2020', transfer: t),
+          startsWith('setparams=colorspace=bt2020nc:color_primaries=bt2020:color_trc=$t:'),
+        );
+      }
+    });
+
     test('untagged or unusable matrix and primaries read as BT.2020', () {
       expect(
         HdrDisplay.toneMapFilter(matrix: 'smpte2085', transfer: 'smpte2084', range: 'jpeg'),

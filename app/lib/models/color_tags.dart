@@ -1,10 +1,12 @@
-/// Which colour tags FFmpeg accepts, and the filter that clears the ones it
-/// doesn't before the app's own decodes convert a frame.
+/// Which colour tags FFmpeg accepts and can convert, and the filter that
+/// fixes the ones it can't before the app's own decodes convert a frame.
 ///
 /// The twin of `decode_tag_neutraliser` in
 /// worker/src/models/color_metadata.rs: the lists are that file's `MATRICES`,
-/// `PRIMARIES` and `TRANSFERS`, and the filter must be byte-identical for the
-/// same tags. `color_tags_test.dart` reads the Rust source and checks both.
+/// `SCALER_MATRICES`, `PRIMARIES` and `TRANSFERS`, and the filter must be
+/// byte-identical for the same tags
+/// (`Tests/TestResources/decode_neutraliser_cases.json`). `color_tags_test.dart`
+/// reads the Rust source and checks both.
 library;
 
 class ColorTags {
@@ -15,6 +17,13 @@ class ColorTags {
     'rgb', 'bt709', 'fcc', 'bt470bg', 'smpte170m', 'smpte240m', 'ycgco',
     'bt2020nc', 'bt2020c', 'smpte2085', 'chroma-derived-nc',
     'chroma-derived-c', 'ictcp',
+  ];
+
+  /// The [matrices] FFmpeg 9's scaler can convert a frame from (worker
+  /// `SCALER_MATRICES`, task #76). A frame tagged with any other fails every
+  /// decode that converts its pixel format.
+  static const scalerMatrices = [
+    'rgb', 'bt709', 'fcc', 'bt470bg', 'smpte170m', 'smpte240m', 'bt2020nc',
   ];
 
   /// `-color_primaries` values (worker `PRIMARIES`).
@@ -37,25 +46,72 @@ class ColorTags {
     return !allowed.contains(v) && !alsoValid.contains(v);
   }
 
+  /// The matrix the preview's `scale=in_color_matrix=` names for raw tags
+  /// [matrix] / [primaries], or null to leave it out (swscale then reads
+  /// BT.601). The twin of `ColorMetadata::swscale_matrix` (task #73): FFmpeg
+  /// 9's `scale` has no conversion for `ycgco`, `bt2020c`, `smpte2085`,
+  /// `chroma-derived-*` or `ictcp`, so those are mapped to the nearest matrix
+  /// it has, or left out.
+  static String? scaleMatrix(String? matrix, String? primaries) {
+    final m = matrix?.trim().toLowerCase();
+    if (m == null || !matrices.contains(m)) return null;
+    final prim = primaries?.trim().toLowerCase();
+    final derived = prim == 'bt709' || prim == 'bt2020' ? prim : null;
+    return switch (m) {
+      'bt709' || 'fcc' || 'bt470bg' || 'smpte170m' || 'smpte240m' ||
+      'bt2020nc' =>
+        m,
+      'bt2020c' || 'ictcp' => 'bt2020',
+      'chroma-derived-nc' || 'chroma-derived-c' => derived,
+      _ => null, // rgb, ycgco, smpte2085
+    };
+  }
+
+  /// What a frame tagged [matrix] (raw) is converted as when FFmpeg's scaler
+  /// can't convert that matrix itself, or null when it can (or there is
+  /// none). The preview's reading ([scaleMatrix]) as a `setparams` value:
+  /// `bt2020c`/`ictcp` → `bt2020nc`, `chroma-derived-*` by [primaries],
+  /// `ycgco`/`smpte2085` → `unknown`. Twin of `ColorMetadata::scaler_stand_in`.
+  static String? scalerStandIn(String? matrix, String? primaries) {
+    final m = matrix?.trim().toLowerCase();
+    if (m == null || !matrices.contains(m) || scalerMatrices.contains(m)) {
+      return null;
+    }
+    final prim = primaries?.trim().toLowerCase();
+    final known = ColorTags.primaries.contains(prim) ? prim : null;
+    return switch (scaleMatrix(m, known)) {
+      'bt2020' => 'bt2020nc',
+      final String s => s,
+      null => 'unknown',
+    };
+  }
+
   /// The `setparams` that goes FIRST in the `-vf` of every app decode of the
   /// source that converts its pixel format (the "before" frame, timeline
-  /// thumbnails), or null when every tag is usable. Takes ffprobe's RAW
-  /// values — `colorTag` forwards `reserved` for exactly this.
+  /// thumbnails), or null when FFmpeg's scaler can convert the frame with its
+  /// tags as they are. Takes ffprobe's RAW values — `colorTag` forwards
+  /// `reserved` for exactly this.
   ///
-  /// FFmpeg 9's scaler refuses a frame tagged `reserved` (ProRes writes code
-  /// 0 for "unknown", which FFmpeg reads as reserved), so without this the
-  /// decode fails and the Original side shows "No preview". Only an invalid
-  /// tag is cleared, each on its own: clearing a valid matrix changes pixels.
-  /// `gbr` (ffprobe's name for the RGB identity matrix) is left alone.
+  /// FFmpeg 9's scaler fails the decode on an invalid tag (ProRes writes code
+  /// 0 for "unknown", which FFmpeg reads as `reserved`), cleared to unknown
+  /// each on its own, and on a valid matrix it has no conversion for (task
+  /// #76), replaced by [scalerStandIn]. Without this the Original side shows
+  /// "No preview". A tag the scaler converts is never touched: clearing a
+  /// valid matrix changes pixels. `gbr` (ffprobe's name for the RGB identity
+  /// matrix) is left alone.
   static String? decodeNeutraliser({
     String? matrix,
     String? primaries,
     String? transfer,
   }) {
+    final standIn = scalerStandIn(matrix, primaries);
     final params = [
       if (_isInvalid(primaries, ColorTags.primaries)) 'color_primaries=unknown',
       if (_isInvalid(transfer, transfers)) 'color_trc=unknown',
-      if (_isInvalid(matrix, matrices, const ['gbr'])) 'colorspace=unknown',
+      if (_isInvalid(matrix, matrices, const ['gbr']))
+        'colorspace=unknown'
+      else if (standIn != null)
+        'colorspace=$standIn',
     ];
     return params.isEmpty ? null : 'setparams=${params.join(':')}';
   }
