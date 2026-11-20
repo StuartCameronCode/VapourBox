@@ -303,6 +303,65 @@ for (w, h, b, o) in ((64, 48, 16, 8), (176, 144, 32, 8)):
 print(json.dumps(problems))
 ''';
 
+// Task #79: havsfunc's QTGMC runs mv.Mask(kind=1) on InputType 2 and 3
+// (ProgSADMask, Placebo..Medium) with no opt, and the AVX2 8-bit upsizer
+// writes before its buffer below 4 of Analyse's block columns. The template
+// pads to MVTOOLS_MASK_MIN_COLS through mvtools_blocks(min_cols=): check the
+// padding, the constant against MVTools' arithmetic, and that QTGMC runs
+// through it at the sizes valgrind flagged (an unguarded call corrupts the
+// heap on x86 without crashing reliably: valgrind is the evidence, see
+// docs/reports/task-79-qtgmc-mask-avx2).
+const _maskGuardCheck = r'''
+import json, sys
+import vapoursynth as vs
+core = vs.core
+sys.path.insert(0, sys.argv[1])
+import plugin_formats as pf
+import havsfunc as haf
+
+problems = []
+def check(cond, msg):
+    if not cond:
+        problems.append(msg)
+
+check(pf.MVTOOLS_MASK_MIN_COLS == 128, 'MVTOOLS_MASK_MIN_COLS is %d' % pf.MVTOOLS_MASK_MIN_COLS)
+for b in (4, 8, 16, 32):
+    for o in range(0, min(16, b // 2) + 1, 2):
+        cols = (pf.MVTOOLS_MASK_MIN_COLS - o) // (b - o)
+        check(cols >= 4, '%d/%d: %d block columns at MVTOOLS_MASK_MIN_COLS' % (b, o, cols))
+
+seen = []
+def size(x):
+    seen.append((x.width, x.height))
+    return x
+c = core.std.BlankClip(width=64, height=96, format=vs.YUV420P8, length=4)
+out = pf.mvtools_blocks(c, size, min_cols=pf.MVTOOLS_MASK_MIN_COLS)
+check(seen == [(128, 96)], 'mvtools_blocks(min_cols=128) handed fn %s' % seen)
+check((out.width, out.height) == (64, 96), 'mvtools_blocks(min_cols=128) returned %dx%d' % (out.width, out.height))
+seen.clear()
+pf.mvtools_blocks(c, size)
+check(seen == [(64, 96)], 'mvtools_blocks() without min_cols handed fn %s' % seen)
+wide = core.std.BlankClip(width=128, height=96, format=vs.YUV420P8, length=4)
+check(pf.mvtools_blocks(wide, lambda x: x, min_cols=pf.MVTOOLS_MASK_MIN_COLS) is wide,
+      'mvtools_blocks(min_cols=128): a 128-wide clip got a node')
+
+base = core.std.BlankClip(width=240, height=180, format=vs.YUV444P16, length=12,
+                          color=[30000, 32768, 32768])
+base = core.grain.Add(base, var=400, uvar=400, constant=False, seed=1)
+for fmt in (vs.YUV420P8, vs.YUV444P8):
+    src = core.resize.Bicubic(base, 64, 96, format=fmt)
+    for input_type in (2, 3):
+        for o in (0, 8, 16):
+            out = pf.mvtools_blocks(
+                src,
+                lambda x: haf.QTGMC(x, Preset='Slow', InputType=input_type, BlockSize=32, Overlap=o, TFF=True),
+                min_cols=pf.MVTOOLS_MASK_MIN_COLS)
+            check((out.width, out.height) == (64, 96), 'QTGMC through the pad: %dx%d' % (out.width, out.height))
+            for n in range(out.num_frames):
+                out.get_frame(n)
+print(json.dumps(problems))
+''';
+
 // The probe evaluates havsfunc's pure Lut2 functions into one list per
 // process (task #75: 7.7 s -> 1.1 s per 10-bit LUTDeCrawl cell on an M1). The list must
 // give the same picture and format as the function, a function that reads
@@ -543,6 +602,11 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
 
   test('MVTools Flow calls avoid the AVX2 upsizer below 8 block columns (task #69)', () async {
     final problems = await _pythonJson(_flowGuardCheck) as List;
+    expect(problems, isEmpty, reason: problems.join('\n'));
+  });
+
+  test('QTGMC InputType 2/3 pads past MVTools Mask\'s AVX2 upsizer limit (task #79)', () async {
+    final problems = await _pythonJson(_maskGuardCheck) as List;
     expect(problems, isEmpty, reason: problems.join('\n'));
   });
 

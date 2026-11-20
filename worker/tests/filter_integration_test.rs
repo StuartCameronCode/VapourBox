@@ -1004,7 +1004,8 @@ fn test_32_verify_deband_in_script() {
     ]).unwrap();
 }
 
-// ============================================================================
+// =====================================================================}
+
 // Audio Passthrough Tests
 // ============================================================================
 // These tests verify that processed video outputs unprocessed raw audio
@@ -9663,7 +9664,7 @@ fn test_256_mvtools_overlap_callers_pad_short_pictures() {
     // field chroma samples.
     assert!(formats.contains("MVTOOLS_MIN_ROWS = 96"), "rows: 3 x 32 - 2 x 1 = 94, rounded up");
     assert!(formats.contains("MVTOOLS_MIN_COLS = 64"), "columns: 2 x 32 - 2 = 62, rounded up");
-    assert!(formats.contains("def mvtools_blocks(clip, fn, *, label=None):"));
+    assert!(formats.contains("def mvtools_blocks(clip, fn, *, min_cols=0, label=None):"));
 
     fn enclosing_def(lines: &[&str], at: usize) -> Option<String> {
         let indent = |l: &str| l.len() - l.trim_start().len();
@@ -10143,4 +10144,78 @@ fn test_262_nnedi3_without_dh_is_padded_to_whole_plane_rows() {
         assert!(script.contains("core.bwdif.Bwdif(clip, field=3, edeint=_bwdif_edi)"));
     }
     assert!(template.contains("clip = _pf.run_within(clip, 'havsfunc.daa', _aa_daa, label='Anti-aliasing')"));
+=======
+#[test]
+fn test_262_qtgmc_input_type_2_3_pads_for_mvtools_mask() {
+    // Task #79: havsfunc's QTGMC runs mv.Mask(kind=1) on InputType 2 and 3
+    // (ProgSADMask, Placebo..Medium) with no opt, and MVTools' AVX2 8-bit
+    // upsizer writes before its buffer below 4 block columns. The Deinterlace
+    // pass pads the width to MVTOOLS_MASK_MIN_COLS for those input types only;
+    // every other job's script is what it was.
+    create_output_dir();
+    const PAD: &str = "min_cols=_pf.MVTOOLS_MASK_MIN_COLS, ";
+    let scripts = |input_type: Option<i32>| {
+        let mut job = create_base_job("test_262_qtgmc_mask_cols");
+        job.qtgmc_parameters = QTGMCParameters {
+            enabled: true,
+            preset: QTGMCPreset::Slow,
+            tff: Some(true),
+            input_type,
+            block_size: Some(32),
+            overlap: Some(16),
+            ..QTGMCParameters::default()
+        };
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            ..ProcessingPipeline::default()
+        });
+        generate_both_scripts(&job)
+    };
+    let without_input_type = |s: &str| -> String {
+        s.lines().filter(|l| !l.contains("InputType=") && !l.trim().is_empty()).collect::<Vec<_>>().join("\n")
+    };
+    let call = "_pf.mvtools_blocks(clip, _deinterlace_qtgmc, ";
+
+    let (base_encode, base_preview) = scripts(None);
+    for s in [&base_encode, &base_preview] {
+        assert!(s.contains(&format!("{call}label='Deinterlace')")), "no plain Deinterlace pad call");
+        assert!(!s.contains("QTGMC_MASK_COLS"), "placeholder left in the script");
+        assert!(!s.contains(PAD));
+    }
+    for input_type in [Some(0), Some(1)] {
+        let (encode, preview) = scripts(input_type);
+        assert_eq!(without_input_type(&encode), without_input_type(&base_encode), "InputType {input_type:?} encode changed");
+        assert_eq!(without_input_type(&preview), without_input_type(&base_preview), "InputType {input_type:?} preview changed");
+    }
+    for input_type in [2, 3] {
+        let (encode, preview) = scripts(Some(input_type));
+        for s in [&encode, &preview] {
+            assert!(s.contains(&format!("InputType={input_type},")));
+            assert!(s.contains(&format!("{call}{PAD}label='Deinterlace')")), "InputType {input_type}: no Mask pad");
+        }
+        // Only that argument differs.
+        let strip = |s: &str| without_input_type(s).replace(PAD, "");
+        assert_eq!(strip(&encode), without_input_type(&base_encode));
+        assert_eq!(strip(&preview), without_input_type(&base_preview));
+    }
+
+    // The constant is the worst case the Deinterlace panel offers: Mask needs
+    // nBlkX = (W - o) // (b - o) >= 4, i.e. W >= 4b - 3o, largest at the
+    // biggest block and the smallest overlap.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let formats = std::fs::read_to_string(root.join("templates/plugin_formats.py")).unwrap();
+    assert!(formats.contains("MVTOOLS_MASK_MIN_COLS = 128"));
+    assert!(formats.contains("min_cols=max(MVTOOLS_MIN_COLS, min_cols)"));
+    let schema: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("../app/assets/filters/core/deinterlace.json")).unwrap(),
+    )
+    .unwrap();
+    let b = schema["parameters"]["blockSize"]["max"].as_i64().unwrap();
+    let o = schema["parameters"]["overlap"]["min"].as_i64().unwrap();
+    assert_eq!(4 * b - 3 * o, 128, "BlockSize max {b} / Overlap min {o}: update MVTOOLS_MASK_MIN_COLS");
+    for b in [4i64, 8, 16, 32] {
+        for o in (0..=b / 2).filter(|o| *o <= 16 && o % 2 == 0) {
+            assert!((128 - o) / (b - o) >= 4, "{b}/{o}: under 4 block columns at 128");
+        }
+    }
 }

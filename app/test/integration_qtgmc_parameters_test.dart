@@ -705,5 +705,51 @@ void main() {
 
       print('  PASS: ChromaEdi="Blend" dropped');
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('InputType 2/3 pads the width for MVTools Mask (task #79)', () async {
+      // havsfunc's QTGMC runs mv.Mask with no opt on InputType 2 and 3, and
+      // its AVX2 upsizer writes before its buffer under 4 block columns, so
+      // the Deinterlace pass pads to MVTOOLS_MASK_MIN_COLS for those only.
+      Future<String> scriptFor(int inputType) {
+        final params = QTGMCParameters(
+          enabled: true,
+          method: DeinterlaceMethod.qtgmc,
+          preset: QTGMCPreset.slow,
+          tff: true,
+          inputType: inputType,
+          blockSize: 32,
+          overlap: 16,
+        );
+        return generateScriptViaWorker(VideoJob(
+          id: const Uuid().v4(),
+          inputPath: TestConfig.inputFile,
+          outputPath: '${TestConfig.outputDir}/deint_mask_cols_$inputType.mkv',
+          qtgmcParameters: params,
+          processingPipeline: ProcessingPipeline(deinterlace: params),
+          encodingSettings: const EncodingSettings(
+            codec: VideoCodec.h264,
+            container: ContainerFormat.mkv,
+            audioMode: AudioMode.none,
+          ),
+          startFrame: 10,
+          endFrame: 30,
+        ));
+      }
+
+      const pad = '_pf.mvtools_blocks(clip, _deinterlace_qtgmc, '
+          'min_cols=_pf.MVTOOLS_MASK_MIN_COLS, label=';
+      for (final inputType in [2, 3]) {
+        final script = await scriptFor(inputType);
+        expect(script, contains('InputType=$inputType,'));
+        expect(script, contains('BlockSize=32,'));
+        expect(script, contains(pad), reason: 'InputType $inputType must pad for Mask');
+      }
+      for (final inputType in [0, 1]) {
+        final script = await scriptFor(inputType);
+        expect(script, isNot(contains('min_cols=_pf.MVTOOLS_MASK_MIN_COLS')),
+            reason: 'InputType $inputType runs no Mask: script unchanged');
+        expect(script, contains("_pf.mvtools_blocks(clip, _deinterlace_qtgmc, label='Deinterlace')"));
+      }
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 }

@@ -443,6 +443,17 @@ impl QTGMCParameters {
         })
     }
 
+    /// Whether havsfunc's QTGMC can run MVTools' `Mask` (kind 1, ProgSADMask):
+    /// InputType 2 or 3. It does so only at Placebo..Medium, where ProgSADMask
+    /// defaults to 10, but the preset is left out on purpose: padding a
+    /// picture under 128 columns at a faster preset costs nothing, and the
+    /// guard stays right if havsfunc's defaults change. Mask writes before its
+    /// buffer on x86 under 4 block columns and takes no `opt` from QTGMC, so
+    /// the template pads the width (`MVTOOLS_MASK_MIN_COLS`, task #79).
+    pub fn runs_prog_sad_mask(&self) -> bool {
+        matches!(self.input_type, Some(2) | Some(3))
+    }
+
     /// The fade fix's mode as the template spells it. Anything but `match`
     /// is `average`, upstream's first and gentler mode: it keeps a fade's
     /// overall level, where `match` darkens every frame to its darker field.

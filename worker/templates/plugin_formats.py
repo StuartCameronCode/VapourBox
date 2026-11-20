@@ -143,6 +143,21 @@ MVTOOLS_MIN_COLS = 64
 # any size. Every Flow* call passes opt=mvtools_flow_opt(...) (test_260).
 MVTOOLS_RESIZE_MIN_BLOCKS = 8
 
+# havsfunc's QTGMC makes one call through that upsizer itself, which no opt=
+# can reach: mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask) when InputType
+# is 2 or 3 and ProgSADMask > 0 (its default at Placebo..Medium; neither it nor
+# ShutterBlur, whose FlowBlur and kind=0 Mask go the same way, is exposed).
+# Mask builds its mask at Analyse's own nBlkX = (W - o) // (b - o), not grown
+# to the edge, and upsizes it with the 8-bit tail (4 samples), so it needs
+# nBlkX >= 4: W >= 4b - 3o, at most 4 x 32 - 3 x 0 = 128 for the blocks the
+# Deinterlace panel offers (BlockSize up to 32, Overlap from 0; test_262 reads
+# them from the schema). Below that it writes before its row buffer on every
+# x86 CPU with AVX2 (64x96 at 32/16: nBlkX 3, 1 byte before a 5-byte block;
+# task #79, docs/reports/task-79-qtgmc-mask-avx2). So the Deinterlace pass
+# pads a picture narrower than this through mvtools_blocks(min_cols=...) for
+# InputType 2 and 3 only, and every other job's script is unchanged.
+MVTOOLS_MASK_MIN_COLS = 128
+
 _SS = {'420': (1, 1), '422': (1, 0), '444': (0, 0)}
 
 _akarin_expr = getattr(getattr(core, 'akarin', None), 'Expr', None)
@@ -423,7 +438,7 @@ def mvtools_flow_opt(width, blksize, overlap):
     return cols >= MVTOOLS_RESIZE_MIN_BLOCKS
 
 
-def mvtools_blocks(clip, fn, *, label=None):
+def mvtools_blocks(clip, fn, *, min_cols=0, label=None):
     """fn(clip), where fn runs MVTools Compensate / Degrain / BlockFPS with an
     overlap (directly or inside havsfunc), on a copy padded right and bottom to
     at least MVTOOLS_MIN_COLS x MVTOOLS_MIN_ROWS when it is smaller, cropped
@@ -431,6 +446,7 @@ def mvtools_blocks(clip, fn, *, label=None):
     block column wide, is blended with the wrong overlap windows, and two rows
     divide by zero). The rows repeat with period 2, so a field-flagged clip
     keeps its fields; a clip at least that big gets no node. fn may retime
-    but must keep the frame size."""
-    return pad_around(clip, fn, min_rows=MVTOOLS_MIN_ROWS, min_cols=MVTOOLS_MIN_COLS,
+    but must keep the frame size. min_cols raises the width minimum
+    (MVTOOLS_MASK_MIN_COLS for QTGMC's internal Mask, task #79)."""
+    return pad_around(clip, fn, min_rows=MVTOOLS_MIN_ROWS, min_cols=max(MVTOOLS_MIN_COLS, min_cols),
                       label=label or 'mvtools_blocks')
