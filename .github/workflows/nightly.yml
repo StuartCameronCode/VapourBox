@@ -4,7 +4,11 @@ name: Nightly Integration Tests
 # excluded from the per-push CI gate (ci-test.yml). These run the worker
 # end-to-end through `vspipe | ffmpeg` for every pipeline pass and verify real
 # output properties (codecs, field order, audio streams, pixel format, trimming,
-# subtitles). Same 4-platform matrix and deps/whisper provisioning as ci-test.yml.
+# subtitles). Same 4-platform matrix as ci-test.yml; only nightly provisions the
+# whisper add-on, and each heavy leg also runs the Rust whisper subtitle test,
+# which the pull-request gate leaves out. The heavy leg carries the quick and
+# full plugin format probes too: since task #84 a pull request runs the quick
+# one only when it touches the deps bundle, the probe table or the probe.
 # Every bundle runs two legs: `heavy` (minus `sweep`) and the generated format
 # sweep (`sweep`, integration_format_sweep_test.dart, task #47), whose
 # per-row results are uploaded as an artifact.
@@ -76,10 +80,21 @@ jobs:
           echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Flutter
+        # Not cached (task #84): ~2 GB a platform overflowed the repository's
+        # 10 GB of caches and saved under 30 s on a hit.
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
+          cache: false
+          pub-cache-path: ${{ runner.temp }}/pub-cache
+
+      - name: Restore pub cache
+        # Saved by ci-test.yml on main.
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}/pub-cache
+          key: pub-macos-${{ matrix.arch }}-${{ hashFiles('app/pubspec.yaml') }}
+          restore-keys: pub-macos-${{ matrix.arch }}-
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -119,6 +134,12 @@ jobs:
 
       - name: Build worker (debug)
         run: cd worker && cargo build
+
+      - name: Whisper subtitle test (Rust)
+        # #[ignore]d in the pull-request gate (task #84): it runs whisper-small
+        # on the CPU, 40-170 s.
+        if: ${{ matrix.suite == 'heavy' }}
+        run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 
       - name: Generate Dart serialization
         run: |
@@ -202,10 +223,21 @@ jobs:
           echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Flutter
+        # Not cached (task #84): ~2 GB a platform overflowed the repository's
+        # 10 GB of caches and saved under 30 s on a hit.
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
+          cache: false
+          pub-cache-path: ${{ runner.temp }}/pub-cache
+
+      - name: Restore pub cache
+        # Saved by ci-test.yml on main.
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}/pub-cache
+          key: pub-windows-x64-${{ hashFiles('app/pubspec.yaml') }}
+          restore-keys: pub-windows-x64-
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -242,6 +274,12 @@ jobs:
 
       - name: Build worker (debug)
         run: cd worker && cargo build
+
+      - name: Whisper subtitle test (Rust)
+        # #[ignore]d in the pull-request gate (task #84): it runs whisper-small
+        # on the CPU, 40-170 s.
+        if: ${{ matrix.suite == 'heavy' }}
+        run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 
       - name: Generate Dart serialization
         run: |
@@ -304,10 +342,21 @@ jobs:
           echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Flutter
+        # Not cached (task #84): ~2 GB a platform overflowed the repository's
+        # 10 GB of caches and saved under 30 s on a hit.
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
+          cache: false
+          pub-cache-path: ${{ runner.temp }}/pub-cache
+
+      - name: Restore pub cache
+        # Saved by ci-test.yml on main.
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}/pub-cache
+          key: pub-linux-x64-${{ hashFiles('app/pubspec.yaml') }}
+          restore-keys: pub-linux-x64-
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -346,6 +395,12 @@ jobs:
 
       - name: Build worker (debug)
         run: cd worker && cargo build
+
+      - name: Whisper subtitle test (Rust)
+        # #[ignore]d in the pull-request gate (task #84): it runs whisper-small
+        # on the CPU, 40-170 s.
+        if: ${{ matrix.suite == 'heavy' }}
+        run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
 
       - name: Generate Dart serialization
         run: |

@@ -1,11 +1,30 @@
 name: CI Tests
 
-# Pulls the published dependency bundle + the whisper add-on (binary + small
-# model) and runs the Rust test suite plus the Flutter tests, EXCLUDING the
-# heavy full-encode integration tests (those run in nightly.yml via
-# `--tags heavy`) and the `gpu` tests, which need a Vulkan device these
-# runners lack (app/dart_test.yaml). macOS is tested natively on both arm64 (macos-15) and x64
-# (macos-15-intel); Windows on x64; Linux on x64 (ubuntu-24.04).
+# The pull-request gate, aimed at about 10 minutes (task #84). Each platform
+# runs two jobs side by side, both against the published deps bundle:
+#
+#   * rust    — `cargo test` (the whisper subtitle test is #[ignore]d: it
+#               needs the whisper add-on and minutes of CPU, nightly runs it).
+#   * flutter — `flutter test --exclude-tags heavy,gpu`: unit, widget and
+#               script tests and the short shell-outs. The worker binary the
+#               shell-outs run is built in the background while Flutter is set
+#               up. Linux also runs the format sweep's smoke rows
+#               (`sweep-smoke`, one tiny preview per variant); macOS and Windows
+#               exclude that tag. When the run touches the deps bundle, the
+#               plugin format table or the probe (.github/scripts/deps-sensitive.sh),
+#               it also runs the quick plugin format probe, which is otherwise
+#               nightly only.
+#
+# The heavy full-encode tests, the full format sweep and both plugin probes run
+# in nightly.yml; `gpu` tests run on no hosted runner (app/dart_test.yaml).
+#
+# Caches (the repository's 10 GB is shared with nightly): Cargo dependencies
+# (Swatinem/rust-cache) and the pub cache, saved from main only and restored
+# everywhere. The Flutter SDK is not cached: at ~2 GB a platform it pushed the
+# total over 10 GB, so caches were evicted, and a hit saved under 30 s.
+#
+# macOS is tested natively on arm64 (macos-15) and x64 (macos-15-intel);
+# Windows on x64; Linux on x64 (ubuntu-24.04).
 
 on:
   push:
@@ -19,6 +38,11 @@ on:
         description: 'Optional build-deps-* run IDs (comma-separated) to take the deps bundles from, instead of the release named in deps-version.json'
         required: false
         type: string
+      save_caches:
+        description: 'Save the Cargo and pub caches from this ref too (main always does). For measuring a warm run on a branch.'
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: ci-test-${{ github.ref }}
@@ -34,81 +58,169 @@ permissions:
   actions: read
 
 env:
-  WHISPER_MODEL_URL: https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin
+  SAVE_CACHES: ${{ github.ref == 'refs/heads/main' || inputs.save_caches == true }}
 
 jobs:
-  macos:
+  rust:
+    name: rust (${{ matrix.platform }})
     strategy:
       fail-fast: false
       matrix:
         include:
-          - arch: arm64
-            runner: macos-15
-          - arch: x64
-            runner: macos-15-intel  # last native Intel image, available until ~Aug 2027
+          - {platform: macos-arm64, runner: macos-15}
+          - {platform: macos-x64, runner: macos-15-intel}  # last native Intel image, until ~Aug 2027
+          - {platform: windows-x64, runner: windows-latest}
+          - {platform: linux-x64, runner: ubuntu-24.04}    # must match the deps-build runner (glibc)
     runs-on: ${{ matrix.runner }}
-    env:
-      # Point the Flutter ToolLocator/DependencyManager at the repo-root deps
-      # (Platform.resolvedExecutable is the test runner under `flutter test`).
-      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-${{ matrix.arch }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v5
+
+      - name: Keep core dumps (for the crash report)
+        # A vspipe crash otherwise leaves only "signal 11" (task #66).
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/enable-core-dumps.sh
 
       - name: Resolve deps tag
         id: deps
         run: |
-          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])" 2>/dev/null \
+             || python -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2.9.3
+        with:
+          workspaces: worker -> target
+          key: ${{ matrix.platform }}-test
+          save-if: ${{ env.SAVE_CACHES == 'true' }}
+
+      - name: Download dependencies (${{ matrix.platform }})
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
+        run: |
+          bash .github/scripts/install-deps-bundle.sh "${{ matrix.platform }}" \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" "deps/${{ matrix.platform }}"
+          if [ "$RUNNER_OS" = macOS ]; then xattr -cr "deps/${{ matrix.platform }}" 2>/dev/null || true; fi
+
+      - name: Stage deps at the XDG path for the Rust locator
+        # The Rust DependencyLocator on Linux only looks under
+        # ~/.local/share/VapourBox (no debug upward search).
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p "$HOME/.local/share/VapourBox" addons
+          ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
+          ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
+
+      - name: Rust tests
+        # Debug build: DependencyLocator's upward search then finds the repo-root
+        # deps/ (release mode looks under ~/Library).
+        run: cd worker && cargo test -- --nocapture
+
+      - name: Crash reports (on failure)
+        # macOS: the .ips reports name the library and function; Linux: gdb
+        # over the cores kept above.
+        if: failure() && runner.os != 'Windows'
+        run: python3 .github/scripts/print-crash-reports.py
+
+  flutter:
+    name: flutter (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # `jobs`: flutter test --concurrency. package:test's default is half
+          # the cores, which is one file at a time on the 3-core arm64 runner,
+          # and most of these files wait on a worker or vspipe, not the CPU.
+          - {platform: macos-arm64, runner: macos-15, jobs: 3, exclude: 'heavy,gpu,sweep-smoke'}
+          - {platform: macos-x64, runner: macos-15-intel, jobs: 4, exclude: 'heavy,gpu,sweep-smoke'}
+          - {platform: windows-x64, runner: windows-latest, jobs: 4, exclude: 'heavy,gpu,sweep-smoke'}
+          # Linux runs the format sweep's smoke rows: the fastest runner.
+          - {platform: linux-x64, runner: ubuntu-24.04, jobs: 4, exclude: 'heavy,gpu'}
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Point the Flutter ToolLocator/DependencyManager at the repo-root deps
+      # (Platform.resolvedExecutable is the test runner under `flutter test`).
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # deps-sensitive.sh diffs HEAD^1..HEAD (on a PR, the base branch
+          # against GitHub's merge commit).
+          fetch-depth: 2
+
+      - name: Keep core dumps (for the crash report)
+        if: runner.os == 'Linux'
+        run: bash .github/scripts/enable-core-dumps.sh
+
+      - name: Resolve deps tag
+        id: deps
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])" 2>/dev/null \
+             || python -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2.9.3
+        with:
+          workspaces: worker -> target
+          key: ${{ matrix.platform }}-build
+          save-if: ${{ env.SAVE_CACHES == 'true' }}
+
+      - name: Build the worker (in the background)
+        # Overlaps Flutter's setup and code generation. "Wait for the worker
+        # build" below runs `cargo build` again in the foreground: it waits on
+        # Cargo's lock while this one finishes, or builds it itself if this
+        # process did not survive the step.
+        run: |
+          mkdir -p "$RUNNER_TEMP"
+          (cd worker && nohup cargo build > "$RUNNER_TEMP/worker-build.log" 2>&1 &)
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
+          cache: false
+          pub-cache-path: ${{ runner.temp }}/pub-cache
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Restore pub cache
+        id: pub-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}/pub-cache
+          key: pub-${{ matrix.platform }}-${{ hashFiles('app/pubspec.yaml') }}
+          restore-keys: pub-${{ matrix.platform }}-
 
-      - name: Download dependencies (${{ matrix.arch }})
+      - name: Download dependencies (${{ matrix.platform }})
         env:
           GH_TOKEN: ${{ github.token }}
           DEPS_RUN_ID: ${{ inputs.deps_run_id }}
         run: |
-          PLATFORM="macos-${{ matrix.arch }}"
-          bash .github/scripts/install-deps-bundle.sh "$PLATFORM" \
-            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" "deps/$PLATFORM"
-          xattr -cr "deps/$PLATFORM" 2>/dev/null || true
+          bash .github/scripts/install-deps-bundle.sh "${{ matrix.platform }}" \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" "deps/${{ matrix.platform }}"
+          if [ "$RUNNER_OS" = macOS ]; then xattr -cr "deps/${{ matrix.platform }}" 2>/dev/null || true; fi
 
-      # The whisper small model (~466 MB) is architecture-independent; cache it.
-      - name: Cache whisper model
-        uses: actions/cache@v5
-        with:
-          path: .whisper-cache
-          key: whisper-ggml-small-v1
-
-      - name: Provision whisper add-on
+      - name: Stage deps at the XDG path for the Rust locator
+        # The worker the tests run reads deps from here on Linux.
+        if: runner.os == 'Linux'
         run: |
-          mkdir -p .whisper-cache addons/whisper/models
-          if [ ! -f .whisper-cache/ggml-small.bin ]; then
-            echo "Downloading whisper small model..."
-            curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
-          fi
-          cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
-          # whisper-cli comes from the same Homebrew bottle the app downloads.
-          brew install whisper-cpp
-          # Ask for the formula's own prefix: Homebrew renamed it whisper.cpp in
-          # 1.9.5, so `$(brew --prefix)/opt/whisper-cpp` no longer exists, while
-          # `brew --prefix whisper-cpp` follows the rename.
-          WP="$(brew --prefix whisper-cpp)"
-          ln -sfn "$WP/bin" addons/whisper/bin
-          ln -sfn "$WP/lib" addons/whisper/lib
-          test -x addons/whisper/bin/whisper-cli || { echo "::error::whisper-cli not found under $WP/bin"; exit 1; }
-
-      - name: Rust tests
-        # Debug build: DependencyLocator's upward search then finds the repo-root
-        # deps/ and addons/ (release mode looks under ~/Library).
-        run: cd worker && cargo test -- --nocapture
+          mkdir -p "$HOME/.local/share/VapourBox" addons
+          ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
+          ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
 
       - name: Generate Dart serialization
         run: |
@@ -116,24 +228,49 @@ jobs:
           flutter pub get
           dart run build_runner build --delete-conflicting-outputs
 
+      - name: Wait for the worker build
+        run: |
+          cd worker && cargo build
+          echo "--- background build log (tail) ---"
+          tail -n 5 "$RUNNER_TEMP/worker-build.log" 2>/dev/null || echo "(none)"
+
       - name: Flutter tests
-        # Excludes @Tags(['heavy']) — the full-encode integration tests, which
-        # run in nightly.yml. The script-only integration tests + unit tests run here.
-        # Also excludes @Tags(['gpu']): the hosted runners have no GPU, and the
-        # tests that run RIFE / AI upscaling need a Vulkan device (dart_test.yaml).
-        run: cd app && flutter test --exclude-tags heavy,gpu
+        # Excludes @Tags(['heavy']) (nightly.yml) and @Tags(['gpu']) (no
+        # Vulkan device on these runners; dart_test.yaml).
+        run: cd app && flutter test --concurrency=${{ matrix.jobs }} --exclude-tags ${{ matrix.exclude }}
+
+      - name: Does this run touch the deps bundle or the probe table?
+        id: sensitive
+        if: success()
+        env:
+          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
+        run: echo "run=$(bash .github/scripts/deps-sensitive.sh)" >> "$GITHUB_OUTPUT"
+
+      - name: Quick plugin format probe (deps bundle / table / probe changed)
+        # Nightly only otherwise (task #84): it checks the bundle against
+        # Tests/TestResources/plugin_format_table.json, which a pull request
+        # only changes by changing one of them.
+        if: success() && steps.sensitive.outputs.run == 'true'
+        run: cd app && flutter test --tags heavy test/plugin_format_contracts_test.dart
+
+      - name: Save pub cache
+        if: always() && env.SAVE_CACHES == 'true' && steps.pub-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ runner.temp }}/pub-cache
+          key: pub-${{ matrix.platform }}-${{ hashFiles('app/pubspec.yaml') }}
 
       - name: Crash reports (on failure)
         # A plugin that segfaults in vspipe shows only "signal 11" in the test
         # output; macOS's crash report names the library and function (Linux:
-        # gdb over the kept cores, below).
-        if: failure()
+        # gdb over the kept cores).
+        if: failure() && runner.os != 'Windows'
         run: python3 .github/scripts/print-crash-reports.py
 
       - name: Keep the raw crash reports (on failure)
         # The .ips files themselves, for symbolication or a second look: the
         # step above prints only their top frames (task #72).
-        if: failure()
+        if: failure() && runner.os == 'macOS'
         run: |
           mkdir -p crash-reports
           for f in ~/Library/Logs/DiagnosticReports/{vspipe-bin,python3,vapourbox-worker}*.ips; do
@@ -142,182 +279,10 @@ jobs:
           ls crash-reports
 
       - name: Upload the raw crash reports (on failure)
-        if: failure()
+        if: failure() && runner.os == 'macOS'
         uses: actions/upload-artifact@v5
         with:
-          name: crash-reports-macos-${{ matrix.arch }}
+          name: crash-reports-${{ matrix.platform }}
           path: crash-reports/*.ips
           if-no-files-found: ignore
           retention-days: 14
-
-  windows:
-    runs-on: windows-latest
-    env:
-      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/windows-x64
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Resolve deps tag
-        id: deps
-        shell: bash
-        run: |
-          TAG=$(python -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Download dependencies (windows-x64)
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
-        run: |
-          bash .github/scripts/install-deps-bundle.sh windows-x64 \
-            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/windows-x64
-
-      - name: Cache whisper model
-        uses: actions/cache@v5
-        with:
-          path: .whisper-cache
-          key: whisper-ggml-small-v1
-
-      - name: Provision whisper add-on
-        shell: bash
-        run: |
-          mkdir -p .whisper-cache addons/whisper/models
-          if [ ! -f .whisper-cache/ggml-small.bin ]; then
-            curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
-          fi
-          cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
-          curl -L -o /tmp/whisper-win.zip \
-            "https://github.com/ggml-org/whisper.cpp/releases/download/v1.8.3/whisper-bin-x64.zip"
-          7z x /tmp/whisper-win.zip -o/tmp/whisper-win -y >/dev/null
-          # Flatten: DependencyLocator expects addons/whisper/whisper-cli.exe
-          CLI=$(find /tmp/whisper-win -name "whisper-cli.exe" | head -1)
-          cp "$(dirname "$CLI")"/*.exe addons/whisper/ 2>/dev/null || true
-          cp "$(dirname "$CLI")"/*.dll addons/whisper/ 2>/dev/null || true
-          ls addons/whisper/
-
-      - name: Rust tests
-        run: cd worker && cargo test -- --nocapture
-
-      - name: Generate Dart serialization
-        run: |
-          cd app
-          flutter pub get
-          dart run build_runner build --delete-conflicting-outputs
-
-      - name: Flutter tests
-        # Excludes @Tags(['heavy']) — the full-encode integration tests, which
-        # run in nightly.yml. The script-only integration tests + unit tests run here.
-        # Also excludes @Tags(['gpu']): the hosted runners have no GPU, and the
-        # tests that run RIFE / AI upscaling need a Vulkan device (dart_test.yaml).
-        run: cd app && flutter test --exclude-tags heavy,gpu
-
-  linux:
-    runs-on: ubuntu-24.04  # must match the deps-build runner: those binaries
-                       # need its glibc, so an older runner cannot run them
-    env:
-      # Dart ToolLocator/DependencyManager honour this; the Rust locator does
-      # not (it uses the XDG path), so we also symlink it below.
-      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/linux-x64
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config \
-            libgtk-3-dev liblzma-dev unzip
-
-      - name: Keep core dumps (for the crash report)
-        # A vspipe crash otherwise leaves only "signal 11" (task #66).
-        run: bash .github/scripts/enable-core-dumps.sh
-
-      - name: Resolve deps tag
-        id: deps
-        run: |
-          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Download dependencies (linux-x64)
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DEPS_RUN_ID: ${{ inputs.deps_run_id }}
-        run: |
-          bash .github/scripts/install-deps-bundle.sh linux-x64 \
-            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/linux-x64
-
-      - name: Cache whisper model
-        uses: actions/cache@v5
-        with:
-          path: .whisper-cache
-          key: whisper-ggml-small-v1
-
-      - name: Provision whisper add-on
-        run: |
-          mkdir -p .whisper-cache addons/whisper/models addons/whisper/bin
-          if [ ! -f .whisper-cache/ggml-small.bin ]; then
-            echo "Downloading whisper small model..."
-            curl -L -o .whisper-cache/ggml-small.bin "$WHISPER_MODEL_URL"
-          fi
-          cp .whisper-cache/ggml-small.bin addons/whisper/models/ggml-small.bin
-          # Download the same published whisper-cli the app fetches at runtime
-          # (the linux-x64 source in whisper-addon.json), so the test exercises
-          # the real add-on artifact + tar layout instead of building from
-          # source. Mirrors the Windows job, which curls its release zip.
-          WHISPER_URL=$(python3 -c "import json;print(json.load(open('app/assets/whisper-addon.json'))['binary']['platforms']['linux-x64']['url'])")
-          echo "whisper-cli: $WHISPER_URL"
-          curl -L -o /tmp/whisper-cli.tar.gz "$WHISPER_URL"
-          tar xzf /tmp/whisper-cli.tar.gz -C addons/whisper  # => addons/whisper/bin/whisper-cli
-          chmod +x addons/whisper/bin/whisper-cli
-          ls -la addons/whisper/bin addons/whisper/models
-
-      - name: Stage deps/addons at XDG path for the Rust locator
-        # The Rust DependencyLocator on Linux only looks under
-        # ~/.local/share/VapourBox (no debug upward-search); the Dart tests use
-        # the repo-root copy. Symlink so a single checkout satisfies both.
-        run: |
-          mkdir -p "$HOME/.local/share/VapourBox"
-          ln -sfn "${{ github.workspace }}/deps" "$HOME/.local/share/VapourBox/deps"
-          ln -sfn "${{ github.workspace }}/addons" "$HOME/.local/share/VapourBox/addons"
-
-      - name: Rust tests
-        run: cd worker && cargo test -- --nocapture
-
-      - name: Generate Dart serialization
-        run: |
-          cd app
-          flutter pub get
-          dart run build_runner build --delete-conflicting-outputs
-
-      - name: Flutter tests
-        # Excludes @Tags(['heavy']) — the full-encode integration tests, which
-        # run in nightly.yml. The script-only integration tests + unit tests run here.
-        # Also excludes @Tags(['gpu']): the hosted runners have no GPU, and the
-        # tests that run RIFE / AI upscaling need a Vulkan device (dart_test.yaml).
-        run: cd app && flutter test --exclude-tags heavy,gpu
-
-      - name: Crash reports (on failure)
-        # gdb over the cores the step above kept: the faulting plugin and
-        # function of a vspipe crash (macOS reads its .ips reports instead).
-        if: failure()
-        run: python3 .github/scripts/print-crash-reports.py
