@@ -5,7 +5,10 @@
 //! - whisper small model at addons/whisper/models/ggml-small.bin
 //! - ffmpeg/ffprobe in deps/ (standard VapourBox deps)
 //!
-//! Run with: cargo test --test subtitle_integration_test -- --nocapture
+//! Ignored by default (task #84): whisper-small on a CPU takes 40-170 s, so
+//! the pull-request gate (ci-test.yml) leaves it out and nightly.yml runs it.
+//!
+//! Run with: cargo test --test subtitle_integration_test -- --ignored --nocapture
 
 use std::path::PathBuf;
 
@@ -35,6 +38,7 @@ fn get_output_dir() -> PathBuf {
 
 /// Test subtitle generation with the small model.
 #[test]
+#[ignore = "needs the whisper add-on; nightly.yml runs it with --ignored (task #84)"]
 fn test_subtitle_generation_srt_file() {
     let video_path = get_test_video();
     assert!(

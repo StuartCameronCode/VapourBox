@@ -27,6 +27,7 @@ import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
+import 'support/script_generation.dart';
 import 'support/worker_harness.dart';
 
 // =============================================================================
@@ -90,59 +91,7 @@ Future<DetectedScanType> detectScanType(String videoPath) async {
 
 /// Run the worker to generate the .vpy script, then kill it and return the
 /// script contents. We only need the script, not the encode.
-Future<String> generateScriptViaWorker(VideoJob job) async {
-  final configFile =
-      File('${Directory.systemTemp.path}/vapourbox_job_${job.id}.json');
-  await configFile.writeAsString(jsonEncode(job.toJson()));
-
-  final env = WorkerHarness.workerEnv;
-
-  final process = await Process.start(
-    TestConfig.workerPath,
-    ['--config', configFile.path],
-    environment: env,
-    workingDirectory: File(TestConfig.workerPath).parent.path,
-  );
-
-  final scriptPath = '${Directory.systemTemp.path}/${job.id}.vpy';
-
-  // Drain stdout/stderr to avoid blocking
-  final logLines = <String>[];
-  process.stdout.transform(utf8.decoder).listen((data) {
-    for (final line in data.split('\n').where((l) => l.trim().isNotEmpty)) {
-      logLines.add(line);
-    }
-  });
-  process.stderr.transform(utf8.decoder).listen((_) {});
-
-  // Poll for the script file (worker writes it early, before vspipe runs)
-  String? scriptContent;
-  for (var i = 0; i < 60; i++) {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final f = File(scriptPath);
-    if (await f.exists()) {
-      scriptContent = await f.readAsString();
-      break;
-    }
-  }
-
-  // Kill the worker — we only needed the script
-  process.kill();
-  await process.exitCode.timeout(const Duration(seconds: 5),
-      onTimeout: () { Process.killPid(process.pid, ProcessSignal.sigkill); return -1; });
-
-  // Clean up temp files
-  await configFile.delete().catchError((_) => configFile);
-  final sf = File(scriptPath);
-  if (await sf.exists()) await sf.delete().catchError((_) => sf);
-
-  if (scriptContent == null) {
-    throw StateError(
-        'Script was not generated at $scriptPath\n'
-        'Worker output:\n${logLines.join('\n')}');
-  }
-  return scriptContent;
-}
+// generateScriptViaWorker: support/script_generation.dart (task #84).
 
 // =============================================================================
 // SCRIPT VALUE PARSER

@@ -1,8 +1,9 @@
 // The full plugin format probe against the committed table (task #48):
 // every plugin call the template makes, at every reachable format, the
 // documentation rows (4:1:1, 9 and 14-bit), and the frame-size axis up to
-// 1080 lines. The push gate runs the quick subset
-// (plugin_format_contracts_test.dart); this is the rest, nightly. Both print
+// 1080 lines. The quick subset (plugin_format_contracts_test.dart, also
+// heavy since task #84) runs nightly beside it, and on pull requests that
+// touch the bundle, the table or the probe. Both print
 // each call's time as it finishes (support/plugin_probe_runner.dart).
 @Tags(['heavy'])
 library;

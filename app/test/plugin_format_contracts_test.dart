@@ -15,6 +15,12 @@
 // low bits. The full probe, with the frame-size axis, is the heavy test in
 // plugin_format_probe_test.dart. worker/tests/filter_integration_test.rs
 // (test_252) keeps contracted plugins inside run_within().
+//
+// The quick probe and the probe's Lut2 memo check are tagged `heavy` (task
+// #84): they check the deps bundle and the probe's own tooling, not code a
+// pull request usually changes, so nightly runs them, and ci-test.yml runs
+// them only when .github/scripts/deps-sensitive.sh says the run touches the
+// bundle, the table or the probe. The other tests here run on every PR.
 import 'dart:convert';
 import 'dart:io';
 
@@ -487,7 +493,7 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
             'plugin\'s limits, re-run Scripts/probe-plugin-formats.py --out on every platform, '
             'then update plugin_formats.CONTRACTS and the report. Exit 3 is --budget: the probe '
             'ran out of time and says which calls were still running:\n${r.report}');
-  }, timeout: const Timeout(quickTimeout));
+  }, tags: ['heavy'], timeout: const Timeout(quickTimeout));
 
   test('the probe\'s Lut2 memo gives exactly what havsfunc\'s functions give (task #75)', () async {
     final script = File(p.join(Directory.systemTemp.path, 'vb_lutmemo_$pid.py'));
@@ -501,7 +507,7 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
       if (script.existsSync()) script.deleteSync();
     }
     // About 6 s on an M1; the reference tables are much slower on the Intel runners.
-  }, timeout: const Timeout(Duration(minutes: 3)));
+  }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 3)));
 
   test('MVTools Flow calls avoid the AVX2 upsizer below 8 block columns (task #69)', () async {
     final problems = await _pythonJson(_flowGuardCheck) as List;
