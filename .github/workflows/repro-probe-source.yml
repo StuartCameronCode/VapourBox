@@ -14,7 +14,7 @@ on:
         default: '300'
   push:
     branches: [stuart/83-windows-ci-small-clip-mp4-frame-count-fl]
-    paths: ['.github/workflows/repro-probe-source.yml']
+    paths: ['.github/workflows/repro-probe-source.yml', 'docs/reports/task-83-mp4-tail-probe-flake/scripts/**']
 
 permissions:
   contents: read
@@ -87,6 +87,12 @@ jobs:
       - name: raw ffprobe tail probe, 32 at once
         run: bash $S/ffprobe_tail_loop.sh deps/${{ matrix.platform }}/ffmpeg/ffprobe${{ matrix.exe }} $CLIP $RUNS 32 $OUT/ffprobe32 | tee -a $OUT-summary.txt
 
+      - name: raw ffprobe tail probe at -v debug, 8 at once (empty runs' logs kept)
+        run: LOGLEVEL=debug bash $S/ffprobe_tail_loop.sh deps/${{ matrix.platform }}/ffmpeg/ffprobe${{ matrix.exe }} $CLIP 600 8 $OUT/ffprobe8debug | tee -a $OUT-summary.txt
+
+      - name: raw ffprobe whole-stream listing (no seek), 8 at once
+        run: bash $S/ffprobe_tail_loop.sh deps/${{ matrix.platform }}/ffmpeg/ffprobe${{ matrix.exe }} $CLIP $RUNS 8 $OUT/ffprobe8whole none | tee -a $OUT-summary.txt
+
       - name: cargo test x30
         run: cd worker && bash ../$S/cargo_test_loop.sh 30 ../$OUT/cargo | tee -a ../$OUT-summary.txt
 
@@ -100,4 +106,6 @@ jobs:
             repro-out/**/counts.txt
             repro-out/**/failures.txt
             repro-out/**/summary.txt
+            repro-out/**/empty_*.err
+            repro-out/**/normal_1.err
             repro-out/cargo/*.log

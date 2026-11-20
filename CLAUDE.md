@@ -141,6 +141,7 @@ VapourBox/
 | `worker/src/source_decode.rs` | Decoder ffmpeg args for encode + preview: full stored frame, size-guarded, PTS reset after a seek, invalid colour tags cleared; the video start offset, an AVI's decoder delay, and the one seek decision, `source_seek` / `seek_arg`, the source grid every constant-rate decoder starts on (`decode_start`; see "Source Frame Size", "Colour metadata") |
 | `worker/src/dvd_reader.rs` | DVD import: IFO parsing for the title picker, `title_cells` (a title's cells for a chapter range and angle), the copy plan, the NAV walk for interleaved cells, and the libdvdread copy (see "DVD Import") |
 | `worker/src/source_model.rs` | `SourceModel` and `--probe-source`: every fact about a source a decoder needs, probed once (the frame-count rules included, an MP4 edit list's discards too); `VideoJob::apply_source_model` fills a job from it, its frame count included |
+| `worker/src/ffprobe_run.rs` | One ffprobe run whose answer decides a source fact: why it failed (status, stderr) and `retrying` (task #83) |
 | `worker/src/source_continuity.rs` | Timestamp resets in an MPEG-PS/TS: the rule (`ResetScanner`, one packet line at a time), `--scan-timestamps` (streamed, with progress), and the continuous same-container copy decoded instead (see "Source Frame Size") |
 | `worker/src/vspipe_failure.rs` | A failed encode's blame (encoder first, unless it only saw vspipe's empty pipe) and vspipe's stderr turned into the job error (see Debugging Tips #11) |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
@@ -1239,6 +1240,13 @@ the **single** builder of both decoders' arguments (encode + preview):
     (`edit_list_bframes.mp4`: 146 stored, 125 kept, 128 slots). A file
     whose discards are only mid-file (a multi-entry edit list) still counts
     `nb_frames` (docs/reports/task-54-edit-list-count).
+    **Never `nb_frames` because a probe dropped out (task #83).** Both
+    probes go through `ffprobe_run` (stderr kept, the exit status named,
+    3 attempts, each failure logged on `--probe-source`'s stderr); a tail
+    window that fails or keeps no picture falls back to listing every video
+    packet (`mov_last_kept`); when an MP4/MOV's head probe or the listing
+    still fails, `--probe-source` returns an error, not a 3-frames-over count
+    (docs/reports/task-83-mp4-tail-probe-flake).
   - **A job without a count takes the model's** (`apply_source_model`, over
     its trim), as the app's always has. Only `VideoJob::counts_by_decoding`
     (no model, or a raw MPEG-PS/TS whose timestamps reset in a job without
