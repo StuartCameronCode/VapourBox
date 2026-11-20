@@ -1,6 +1,6 @@
 """One process, one measure value: a hash per call x depth x picture.
 argv: measure (0 | 1 | default). Run it in many fresh processes and count
-distinct hashes per key (probe.sh / probe.ps1): FFTW plans once per process,
+distinct hashes per key (probe.py): FFTW plans once per process,
 so a second process is the only way to see a different plan."""
 import os
 import sys

@@ -768,7 +768,10 @@ flat.set_output()'''
               reason: 'FFT3DFilter\'s default is not measure=0 (task #80)');
         }
       }
-    });
+      // Two processes, each six graphs per class at two depths, QTGMC among
+      // them from 1.18.0-rc2: over the 30 s default on a 4-core Linux runner
+      // running other tests alongside.
+    }, timeout: const Timeout(Duration(minutes: 5)));
 
     // Task #80: the patch is what makes measure=0 the default for havsfunc's
     // calls; no runtime property shows the default, so read the patch.

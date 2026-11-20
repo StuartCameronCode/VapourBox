@@ -1,0 +1,515 @@
+{
+ "cpu_count": 3,
+ "machine": "macOS-15.8.2-arm64-arm-64bit",
+ "move": {
+  "bt1 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "bt1 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "nr_bt3 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "nr_bt3 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "nr_bt5 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "nr_bt5 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "qtgmc 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "qtgmc 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "td2_post 16": {
+   "max_abs": 1,
+   "max_abs_8bit": 0.004,
+   "mean_abs_8bit": 0.00016,
+   "pct_differ": 4.0276,
+   "psnr_db": 110.28
+  },
+  "td2_post 8": {
+   "max_abs": 1,
+   "max_abs_8bit": 1,
+   "mean_abs_8bit": 0.00029,
+   "pct_differ": 0.0295,
+   "psnr_db": 83.44
+  },
+  "td2_spat 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "td2_spat 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  }
+ },
+ "note": "CI run 44621393009, deps 1.18.0-rc1; speed without td2_full (added in run 3)",
+ "processes": 20,
+ "processor": "arm",
+ "speed": {
+  "0": {
+   "bt1 1920x1080": {
+    "create_s": 0.0419,
+    "first_frame_s": 0.0598,
+    "fps": 52.49
+   },
+   "bt1 720x480": {
+    "create_s": 0.0086,
+    "first_frame_s": 0.0094,
+    "fps": 305.37
+   },
+   "nr_bt3 1920x1080": {
+    "create_s": 0.0606,
+    "first_frame_s": 0.0569,
+    "fps": 30.37
+   },
+   "nr_bt3 720x480": {
+    "create_s": 0.0066,
+    "first_frame_s": 0.0073,
+    "fps": 256.31
+   },
+   "nr_bt5 1920x1080": {
+    "create_s": 0.0404,
+    "first_frame_s": 0.0623,
+    "fps": 31.79
+   },
+   "nr_bt5 720x480": {
+    "create_s": 0.0028,
+    "first_frame_s": 0.0105,
+    "fps": 228.58
+   },
+   "qtgmc 1920x1080": {
+    "create_s": 0.3273,
+    "first_frame_s": 0.0603,
+    "fps": 6.75
+   },
+   "qtgmc 720x480": {
+    "create_s": 0.3454,
+    "first_frame_s": 0.0135,
+    "fps": 59.76
+   },
+   "td2_post 1920x1080": {
+    "create_s": 0.1072,
+    "first_frame_s": 0.1837,
+    "fps": 24.12
+   },
+   "td2_post 720x480": {
+    "create_s": 0.014,
+    "first_frame_s": 0.0203,
+    "fps": 130.11
+   },
+   "td2_spat 1920x1080": {
+    "create_s": 0.0623,
+    "first_frame_s": 0.0993,
+    "fps": 44.56
+   },
+   "td2_spat 720x480": {
+    "create_s": 0.0122,
+    "first_frame_s": 0.0253,
+    "fps": 223.83
+   }
+  },
+  "1": {
+   "bt1 1920x1080": {
+    "create_s": 0.0418,
+    "first_frame_s": 0.0457,
+    "fps": 45.71
+   },
+   "bt1 720x480": {
+    "create_s": 0.005,
+    "first_frame_s": 0.0092,
+    "fps": 291.04
+   },
+   "nr_bt3 1920x1080": {
+    "create_s": 0.0566,
+    "first_frame_s": 0.0869,
+    "fps": 44.77
+   },
+   "nr_bt3 720x480": {
+    "create_s": 0.0032,
+    "first_frame_s": 0.0064,
+    "fps": 165.52
+   },
+   "nr_bt5 1920x1080": {
+    "create_s": 0.0459,
+    "first_frame_s": 0.0513,
+    "fps": 32.09
+   },
+   "nr_bt5 720x480": {
+    "create_s": 0.0029,
+    "first_frame_s": 0.0079,
+    "fps": 153.51
+   },
+   "qtgmc 1920x1080": {
+    "create_s": 0.3467,
+    "first_frame_s": 0.0659,
+    "fps": 6.86
+   },
+   "qtgmc 720x480": {
+    "create_s": 0.2598,
+    "first_frame_s": 0.0229,
+    "fps": 74.87
+   },
+   "td2_post 1920x1080": {
+    "create_s": 0.0853,
+    "first_frame_s": 0.1269,
+    "fps": 24.2
+   },
+   "td2_post 720x480": {
+    "create_s": 0.0321,
+    "first_frame_s": 0.0248,
+    "fps": 123.85
+   },
+   "td2_spat 1920x1080": {
+    "create_s": 0.0788,
+    "first_frame_s": 0.1011,
+    "fps": 40.46
+   },
+   "td2_spat 720x480": {
+    "create_s": 0.0247,
+    "first_frame_s": 0.0242,
+    "fps": 235.08
+   }
+  }
+ },
+ "wisdom": {
+  "differs_from_fresh_0": [
+   "td2_post fix720 16",
+   "td2_post fix720 8",
+   "td2_post syn352 16",
+   "td2_post syn352 8"
+  ],
+  "keys": 22
+ },
+ "xproc": {
+  "0": {
+   "distinct": {
+    "bt1 fix720 16": 1,
+    "bt1 fix720 8": 1,
+    "bt1 syn352 16": 1,
+    "bt1 syn352 8": 1,
+    "nr_bt3 fix720 16": 1,
+    "nr_bt3 fix720 8": 1,
+    "nr_bt3 syn352 16": 1,
+    "nr_bt3 syn352 8": 1,
+    "nr_bt5 fix720 16": 1,
+    "nr_bt5 fix720 8": 1,
+    "nr_bt5 syn352 16": 1,
+    "nr_bt5 syn352 8": 1,
+    "qtgmc fix720 16": 1,
+    "qtgmc fix720 8": 1,
+    "td2_post fix720 16": 1,
+    "td2_post fix720 8": 1,
+    "td2_post syn352 16": 1,
+    "td2_post syn352 8": 1,
+    "td2_spat fix720 16": 1,
+    "td2_spat fix720 8": 1,
+    "td2_spat syn352 16": 1,
+    "td2_spat syn352 8": 1
+   },
+   "hashes": {
+    "bt1 fix720 16": {
+     "a07d65c7e05700d8cba1ef98ca0fca72": 20
+    },
+    "bt1 fix720 8": {
+     "9f41fd5a7579bdecc38a86d32c73ead2": 20
+    },
+    "bt1 syn352 16": {
+     "c1e40398dfe32a42c4d9efe46e23216a": 20
+    },
+    "bt1 syn352 8": {
+     "0503762bbe21e2ffceee25604a103634": 20
+    },
+    "nr_bt3 fix720 16": {
+     "7c8b5babd444902572dfcf6bde48b1a5": 20
+    },
+    "nr_bt3 fix720 8": {
+     "af45750e5fe73713183a2192e37c6af9": 20
+    },
+    "nr_bt3 syn352 16": {
+     "901baea9a61c8a0239c51ec25fed61de": 20
+    },
+    "nr_bt3 syn352 8": {
+     "a5fecc6cb73c179190d27d544e8422f0": 20
+    },
+    "nr_bt5 fix720 16": {
+     "be0490ed87c68862d18d841fa7b8c300": 20
+    },
+    "nr_bt5 fix720 8": {
+     "a97bea928fd36b2a0147607b91772f78": 20
+    },
+    "nr_bt5 syn352 16": {
+     "ad273d9173784a835400217d09194036": 20
+    },
+    "nr_bt5 syn352 8": {
+     "1cf82f7e770f39f7416f12a7786da03a": 20
+    },
+    "qtgmc fix720 16": {
+     "afe74787d93190319b50f4ad54570535": 20
+    },
+    "qtgmc fix720 8": {
+     "b2b122aa744adb1ec98c3fd9302b5025": 20
+    },
+    "td2_post fix720 16": {
+     "7073015b4c2f246311178c3e94772762": 20
+    },
+    "td2_post fix720 8": {
+     "18dde204bf8968e5973c566e70cb0465": 20
+    },
+    "td2_post syn352 16": {
+     "3bdd1867087e678dda5f594e2299f585": 20
+    },
+    "td2_post syn352 8": {
+     "7ec37f6d38850a774ad9c3d6a900f233": 20
+    },
+    "td2_spat fix720 16": {
+     "a44686b41f199795786f4456884fb4d4": 20
+    },
+    "td2_spat fix720 8": {
+     "1f449e64558ececdde0a312ec56e8ed0": 20
+    },
+    "td2_spat syn352 16": {
+     "a2e42e03d68b983a623dc3c9b86dc2ab": 20
+    },
+    "td2_spat syn352 8": {
+     "38cfe1a2e86dc7ffd72da0585a67881b": 20
+    }
+   },
+   "keys_with_more_than_one": []
+  },
+  "1": {
+   "distinct": {
+    "bt1 fix720 16": 1,
+    "bt1 fix720 8": 1,
+    "bt1 syn352 16": 1,
+    "bt1 syn352 8": 1,
+    "nr_bt3 fix720 16": 1,
+    "nr_bt3 fix720 8": 1,
+    "nr_bt3 syn352 16": 1,
+    "nr_bt3 syn352 8": 1,
+    "nr_bt5 fix720 16": 1,
+    "nr_bt5 fix720 8": 1,
+    "nr_bt5 syn352 16": 1,
+    "nr_bt5 syn352 8": 1,
+    "qtgmc fix720 16": 1,
+    "qtgmc fix720 8": 1,
+    "td2_post fix720 16": 1,
+    "td2_post fix720 8": 1,
+    "td2_post syn352 16": 1,
+    "td2_post syn352 8": 1,
+    "td2_spat fix720 16": 1,
+    "td2_spat fix720 8": 1,
+    "td2_spat syn352 16": 1,
+    "td2_spat syn352 8": 1
+   },
+   "hashes": {
+    "bt1 fix720 16": {
+     "a07d65c7e05700d8cba1ef98ca0fca72": 20
+    },
+    "bt1 fix720 8": {
+     "9f41fd5a7579bdecc38a86d32c73ead2": 20
+    },
+    "bt1 syn352 16": {
+     "c1e40398dfe32a42c4d9efe46e23216a": 20
+    },
+    "bt1 syn352 8": {
+     "0503762bbe21e2ffceee25604a103634": 20
+    },
+    "nr_bt3 fix720 16": {
+     "7c8b5babd444902572dfcf6bde48b1a5": 20
+    },
+    "nr_bt3 fix720 8": {
+     "af45750e5fe73713183a2192e37c6af9": 20
+    },
+    "nr_bt3 syn352 16": {
+     "901baea9a61c8a0239c51ec25fed61de": 20
+    },
+    "nr_bt3 syn352 8": {
+     "a5fecc6cb73c179190d27d544e8422f0": 20
+    },
+    "nr_bt5 fix720 16": {
+     "be0490ed87c68862d18d841fa7b8c300": 20
+    },
+    "nr_bt5 fix720 8": {
+     "a97bea928fd36b2a0147607b91772f78": 20
+    },
+    "nr_bt5 syn352 16": {
+     "ad273d9173784a835400217d09194036": 20
+    },
+    "nr_bt5 syn352 8": {
+     "1cf82f7e770f39f7416f12a7786da03a": 20
+    },
+    "qtgmc fix720 16": {
+     "afe74787d93190319b50f4ad54570535": 20
+    },
+    "qtgmc fix720 8": {
+     "b2b122aa744adb1ec98c3fd9302b5025": 20
+    },
+    "td2_post fix720 16": {
+     "9ec5866cf17c0de1d421eb492a2aff21": 20
+    },
+    "td2_post fix720 8": {
+     "f949996eb956db55b7e8e4086cf84824": 20
+    },
+    "td2_post syn352 16": {
+     "de3c93568ec2d01db6ceeb8e57ea71f7": 20
+    },
+    "td2_post syn352 8": {
+     "d1fded3e2bb5086048092957a51d3697": 20
+    },
+    "td2_spat fix720 16": {
+     "a44686b41f199795786f4456884fb4d4": 20
+    },
+    "td2_spat fix720 8": {
+     "1f449e64558ececdde0a312ec56e8ed0": 20
+    },
+    "td2_spat syn352 16": {
+     "a2e42e03d68b983a623dc3c9b86dc2ab": 20
+    },
+    "td2_spat syn352 8": {
+     "38cfe1a2e86dc7ffd72da0585a67881b": 20
+    }
+   },
+   "keys_with_more_than_one": []
+  },
+  "default": {
+   "distinct": {
+    "bt1 fix720 16": 1,
+    "bt1 fix720 8": 1,
+    "bt1 syn352 16": 1,
+    "bt1 syn352 8": 1,
+    "nr_bt3 fix720 16": 1,
+    "nr_bt3 fix720 8": 1,
+    "nr_bt3 syn352 16": 1,
+    "nr_bt3 syn352 8": 1,
+    "nr_bt5 fix720 16": 1,
+    "nr_bt5 fix720 8": 1,
+    "nr_bt5 syn352 16": 1,
+    "nr_bt5 syn352 8": 1,
+    "qtgmc fix720 16": 1,
+    "qtgmc fix720 8": 1,
+    "td2_post fix720 16": 1,
+    "td2_post fix720 8": 1,
+    "td2_post syn352 16": 1,
+    "td2_post syn352 8": 1,
+    "td2_spat fix720 16": 1,
+    "td2_spat fix720 8": 1,
+    "td2_spat syn352 16": 1,
+    "td2_spat syn352 8": 1
+   },
+   "hashes": {
+    "bt1 fix720 16": {
+     "a07d65c7e05700d8cba1ef98ca0fca72": 20
+    },
+    "bt1 fix720 8": {
+     "9f41fd5a7579bdecc38a86d32c73ead2": 20
+    },
+    "bt1 syn352 16": {
+     "c1e40398dfe32a42c4d9efe46e23216a": 20
+    },
+    "bt1 syn352 8": {
+     "0503762bbe21e2ffceee25604a103634": 20
+    },
+    "nr_bt3 fix720 16": {
+     "7c8b5babd444902572dfcf6bde48b1a5": 20
+    },
+    "nr_bt3 fix720 8": {
+     "af45750e5fe73713183a2192e37c6af9": 20
+    },
+    "nr_bt3 syn352 16": {
+     "901baea9a61c8a0239c51ec25fed61de": 20
+    },
+    "nr_bt3 syn352 8": {
+     "a5fecc6cb73c179190d27d544e8422f0": 20
+    },
+    "nr_bt5 fix720 16": {
+     "be0490ed87c68862d18d841fa7b8c300": 20
+    },
+    "nr_bt5 fix720 8": {
+     "a97bea928fd36b2a0147607b91772f78": 20
+    },
+    "nr_bt5 syn352 16": {
+     "ad273d9173784a835400217d09194036": 20
+    },
+    "nr_bt5 syn352 8": {
+     "1cf82f7e770f39f7416f12a7786da03a": 20
+    },
+    "qtgmc fix720 16": {
+     "afe74787d93190319b50f4ad54570535": 20
+    },
+    "qtgmc fix720 8": {
+     "b2b122aa744adb1ec98c3fd9302b5025": 20
+    },
+    "td2_post fix720 16": {
+     "9ec5866cf17c0de1d421eb492a2aff21": 20
+    },
+    "td2_post fix720 8": {
+     "f949996eb956db55b7e8e4086cf84824": 20
+    },
+    "td2_post syn352 16": {
+     "de3c93568ec2d01db6ceeb8e57ea71f7": 20
+    },
+    "td2_post syn352 8": {
+     "d1fded3e2bb5086048092957a51d3697": 20
+    },
+    "td2_spat fix720 16": {
+     "a44686b41f199795786f4456884fb4d4": 20
+    },
+    "td2_spat fix720 8": {
+     "1f449e64558ececdde0a312ec56e8ed0": 20
+    },
+    "td2_spat syn352 16": {
+     "a2e42e03d68b983a623dc3c9b86dc2ab": 20
+    },
+    "td2_spat syn352 8": {
+     "38cfe1a2e86dc7ffd72da0585a67881b": 20
+    }
+   },
+   "keys_with_more_than_one": []
+  }
+ }
+}

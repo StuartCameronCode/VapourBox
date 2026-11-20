@@ -1,0 +1,421 @@
+{
+ "cpu_count": 4,
+ "machine": "macOS-15.7.9-x86_64-i386-64bit",
+ "note": "CI run 44620262726, deps 1.18.0-rc1; xproc and wisdom only (speed/move superseded by run 2)",
+ "processes": 20,
+ "processor": "i386",
+ "wisdom": {
+  "differs_from_fresh_0": [
+   "td2_post fix720 16",
+   "td2_post fix720 8",
+   "td2_post syn352 16",
+   "td2_post syn352 8"
+  ],
+  "keys": 22
+ },
+ "xproc": {
+  "0": {
+   "distinct": {
+    "bt1 fix720 16": 1,
+    "bt1 fix720 8": 1,
+    "bt1 syn352 16": 1,
+    "bt1 syn352 8": 1,
+    "nr_bt3 fix720 16": 1,
+    "nr_bt3 fix720 8": 1,
+    "nr_bt3 syn352 16": 1,
+    "nr_bt3 syn352 8": 1,
+    "nr_bt5 fix720 16": 1,
+    "nr_bt5 fix720 8": 1,
+    "nr_bt5 syn352 16": 1,
+    "nr_bt5 syn352 8": 1,
+    "qtgmc fix720 16": 1,
+    "qtgmc fix720 8": 1,
+    "td2_post fix720 16": 1,
+    "td2_post fix720 8": 1,
+    "td2_post syn352 16": 1,
+    "td2_post syn352 8": 1,
+    "td2_spat fix720 16": 1,
+    "td2_spat fix720 8": 1,
+    "td2_spat syn352 16": 1,
+    "td2_spat syn352 8": 1
+   },
+   "hashes": {
+    "bt1 fix720 16": {
+     "4b5168730678e57fd93a3deac723c5f3": 20
+    },
+    "bt1 fix720 8": {
+     "1ffbec23528f329e9753f1aef2f02f71": 20
+    },
+    "bt1 syn352 16": {
+     "59675f6fdd7a6c119260084e8386d265": 20
+    },
+    "bt1 syn352 8": {
+     "a52fc183112ad4f0627b37f1e17d7c60": 20
+    },
+    "nr_bt3 fix720 16": {
+     "62e626e07029f158f9a10238f25384c3": 20
+    },
+    "nr_bt3 fix720 8": {
+     "ef68151ea979afa096450855d8ab039f": 20
+    },
+    "nr_bt3 syn352 16": {
+     "108bb9212e9a6a6b90661cd2dca3fda3": 20
+    },
+    "nr_bt3 syn352 8": {
+     "f41f0bdb8c01a48c1f83959ccb2eb146": 20
+    },
+    "nr_bt5 fix720 16": {
+     "34a0fe7f9fb3075bfe2fbd45afc9556d": 20
+    },
+    "nr_bt5 fix720 8": {
+     "a3485d9b3ee61b3b3543e6031b2570c8": 20
+    },
+    "nr_bt5 syn352 16": {
+     "efa163384e2f67d0d03762ccad14df35": 20
+    },
+    "nr_bt5 syn352 8": {
+     "2ded2293c9e7f20594b9bdf9ec6e766e": 20
+    },
+    "qtgmc fix720 16": {
+     "5da14b370041041f2bbd5e2242cf83cf": 20
+    },
+    "qtgmc fix720 8": {
+     "f2210dd55c3481aaf50ddbd269227a5b": 20
+    },
+    "td2_post fix720 16": {
+     "3fa3dc12763b2e2e42390ef09761e0c8": 20
+    },
+    "td2_post fix720 8": {
+     "03af330431dafbc8c09d50e82eb167a3": 20
+    },
+    "td2_post syn352 16": {
+     "2eaeb9da3897849ddc5ff6deb85a8e04": 20
+    },
+    "td2_post syn352 8": {
+     "70e8054337c39bbecf2b0400efae476e": 20
+    },
+    "td2_spat fix720 16": {
+     "3b6850a82b88228271970d519ca9d864": 20
+    },
+    "td2_spat fix720 8": {
+     "65b30d9624536da5e282a254e9b0baf4": 20
+    },
+    "td2_spat syn352 16": {
+     "221b806c0e2a481104b280413c535617": 20
+    },
+    "td2_spat syn352 8": {
+     "986628f478f2fe87a3d480d3cb376e81": 20
+    }
+   },
+   "keys_with_more_than_one": []
+  },
+  "1": {
+   "distinct": {
+    "bt1 fix720 16": 2,
+    "bt1 fix720 8": 2,
+    "bt1 syn352 16": 2,
+    "bt1 syn352 8": 2,
+    "nr_bt3 fix720 16": 2,
+    "nr_bt3 fix720 8": 2,
+    "nr_bt3 syn352 16": 2,
+    "nr_bt3 syn352 8": 2,
+    "nr_bt5 fix720 16": 2,
+    "nr_bt5 fix720 8": 2,
+    "nr_bt5 syn352 16": 2,
+    "nr_bt5 syn352 8": 2,
+    "qtgmc fix720 16": 2,
+    "qtgmc fix720 8": 2,
+    "td2_post fix720 16": 12,
+    "td2_post fix720 8": 12,
+    "td2_post syn352 16": 12,
+    "td2_post syn352 8": 12,
+    "td2_spat fix720 16": 2,
+    "td2_spat fix720 8": 2,
+    "td2_spat syn352 16": 2,
+    "td2_spat syn352 8": 2
+   },
+   "hashes": {
+    "bt1 fix720 16": {
+     "4b5168730678e57fd93a3deac723c5f3": 19,
+     "e68ddebcd510bfe5a8664f7459cc0d7e": 1
+    },
+    "bt1 fix720 8": {
+     "0c40889df65baf7abeea717b3471a37a": 1,
+     "1ffbec23528f329e9753f1aef2f02f71": 19
+    },
+    "bt1 syn352 16": {
+     "59675f6fdd7a6c119260084e8386d265": 19,
+     "670fdbaf26bc132e9ed8958fb7f32cc8": 1
+    },
+    "bt1 syn352 8": {
+     "a52fc183112ad4f0627b37f1e17d7c60": 19,
+     "df588850087ce14eaff6484c1fab9e7b": 1
+    },
+    "nr_bt3 fix720 16": {
+     "62e626e07029f158f9a10238f25384c3": 19,
+     "956b1cd4fe7e8bec6f98246de1423997": 1
+    },
+    "nr_bt3 fix720 8": {
+     "0a1f25c53d1c12438bb697008c01ad29": 1,
+     "ef68151ea979afa096450855d8ab039f": 19
+    },
+    "nr_bt3 syn352 16": {
+     "108bb9212e9a6a6b90661cd2dca3fda3": 19,
+     "3ccc1c5e8d41ed6257652f35d181043c": 1
+    },
+    "nr_bt3 syn352 8": {
+     "4f7ff747212c7af389111071fae31c4d": 1,
+     "f41f0bdb8c01a48c1f83959ccb2eb146": 19
+    },
+    "nr_bt5 fix720 16": {
+     "34a0fe7f9fb3075bfe2fbd45afc9556d": 19,
+     "bc09880e90e0b04783590c6ad547c469": 1
+    },
+    "nr_bt5 fix720 8": {
+     "457a74261751832c9c592d4d342694bc": 1,
+     "a3485d9b3ee61b3b3543e6031b2570c8": 19
+    },
+    "nr_bt5 syn352 16": {
+     "c4d4a59c9e92f184e8005cae38a7ea3c": 1,
+     "efa163384e2f67d0d03762ccad14df35": 19
+    },
+    "nr_bt5 syn352 8": {
+     "2ded2293c9e7f20594b9bdf9ec6e766e": 19,
+     "ce3cd2d09cb94a7673aa71422f99e832": 1
+    },
+    "qtgmc fix720 16": {
+     "5da14b370041041f2bbd5e2242cf83cf": 19,
+     "e112f5c24ee4e5c43d2a0af2d3718e3f": 1
+    },
+    "qtgmc fix720 8": {
+     "a21809b63e146b80698555be63900472": 1,
+     "f2210dd55c3481aaf50ddbd269227a5b": 19
+    },
+    "td2_post fix720 16": {
+     "164319d59063b11caf219e5e8176837d": 1,
+     "2c3023f1f5ea6338faebf9ef3a19b310": 1,
+     "3154e2b4b330a2fdeb1f171f00d9fdf6": 1,
+     "322260a673f3d2a21267174df544052a": 1,
+     "361c6de8708db9ce39bbf141541dd0e9": 1,
+     "55ba30bd331e3b8fe96053795ca2ab4d": 1,
+     "6e0ffd2030b39484ead52ebc221d4f39": 1,
+     "a3ab96013f6e70b0dd6be70b240fb9b4": 2,
+     "cd8b8f3a85e2e487a7c193a67b529857": 1,
+     "cda55435a0ad1141b07f471e5760627d": 1,
+     "e76a94a98e1e7588209963ad7f275801": 4,
+     "eb3656b01e712059c98b0c436db10398": 5
+    },
+    "td2_post fix720 8": {
+     "0b5fb72bf51aa657c5b4c4ee0e762ac8": 1,
+     "0bf9de2ab5f112c6d906c9d77a83df81": 1,
+     "13fa3f3be3158801580d580faba78101": 2,
+     "1f6aa81d4093f1b4d67ba459976f098a": 1,
+     "2b7cc8e72acd83ac531fc80341bcf797": 1,
+     "3ce0540c71f97828f2702ccb390599ea": 1,
+     "44fe9459a8c51514287025efcf7ffaed": 1,
+     "6f769f602929e94a6e1aab1a7727fd5b": 5,
+     "7321d8f13ee560b1f4ee3e83ab814467": 4,
+     "937126dc1ba9e3a7277f05fdd27d6a42": 1,
+     "93e4f6e0fb85824d20e363ac8603857d": 1,
+     "afb53b68367f14f58acf562d9eed5b5b": 1
+    },
+    "td2_post syn352 16": {
+     "08dfa803354020ab519aff74634a630b": 1,
+     "2c5d63eb6e77bc49522782754400040e": 1,
+     "672d26e42405118fe9a9f2517cf2d780": 1,
+     "739ec8cf3322c6da869849c8e9066363": 1,
+     "76be3359f32b3f650842b24cd164c070": 4,
+     "919165bbc607d69bba66c105662bf7fc": 1,
+     "b7700660c6f081db8ccf466517079541": 5,
+     "cca40191a3e698bfc01cd88435bd588b": 2,
+     "dbbcef5a5687d5f32ca8ed9f03a7383b": 1,
+     "f6fbbd960b268f74a0b6045db6465c41": 1,
+     "fc9439703e78fb70eda07d43b5fd5c6f": 1,
+     "fe2cf5ab37fea551dd5c43ec79547ee7": 1
+    },
+    "td2_post syn352 8": {
+     "012e2b696b49265cf1622ab3adc303c9": 1,
+     "04befd6690c6f753ca97eda189c3bc9b": 2,
+     "0a28107d912c314a7c08a936dc7c5713": 1,
+     "0e2e0cf794badcaa2839497f54d07ac0": 1,
+     "1722aa779cd52523fca7d3bb71f29d83": 4,
+     "373d1099d933c29d75ef7c4d39aac8fb": 1,
+     "3ad3830215e41a9ccc05fafa99d4ab65": 1,
+     "3e1b820f8b20301aae5d1df4b61b4377": 5,
+     "9c4b9ef2c8af328205bd03f017d2d82a": 1,
+     "9e5f3bc78d1e34fd17a999259c266a4e": 1,
+     "c2b27f1596693e8024d15a01db61e375": 1,
+     "ef7d8ed78a097d23fb6a9d5e0e63847d": 1
+    },
+    "td2_spat fix720 16": {
+     "3b6850a82b88228271970d519ca9d864": 19,
+     "caf8468f576cfb2a76c7518b53c9985b": 1
+    },
+    "td2_spat fix720 8": {
+     "65b30d9624536da5e282a254e9b0baf4": 19,
+     "bb48d14d2cec8e7146d49dd5db586831": 1
+    },
+    "td2_spat syn352 16": {
+     "221b806c0e2a481104b280413c535617": 19,
+     "6e3f273815937050bf6ed41f3164f464": 1
+    },
+    "td2_spat syn352 8": {
+     "1096f16708b59ce7863f02a0aa36b13f": 1,
+     "986628f478f2fe87a3d480d3cb376e81": 19
+    }
+   },
+   "keys_with_more_than_one": [
+    "bt1 fix720 16",
+    "bt1 fix720 8",
+    "bt1 syn352 16",
+    "bt1 syn352 8",
+    "nr_bt3 fix720 16",
+    "nr_bt3 fix720 8",
+    "nr_bt3 syn352 16",
+    "nr_bt3 syn352 8",
+    "nr_bt5 fix720 16",
+    "nr_bt5 fix720 8",
+    "nr_bt5 syn352 16",
+    "nr_bt5 syn352 8",
+    "qtgmc fix720 16",
+    "qtgmc fix720 8",
+    "td2_post fix720 16",
+    "td2_post fix720 8",
+    "td2_post syn352 16",
+    "td2_post syn352 8",
+    "td2_spat fix720 16",
+    "td2_spat fix720 8",
+    "td2_spat syn352 16",
+    "td2_spat syn352 8"
+   ]
+  },
+  "default": {
+   "distinct": {
+    "bt1 fix720 16": 1,
+    "bt1 fix720 8": 1,
+    "bt1 syn352 16": 1,
+    "bt1 syn352 8": 1,
+    "nr_bt3 fix720 16": 1,
+    "nr_bt3 fix720 8": 1,
+    "nr_bt3 syn352 16": 1,
+    "nr_bt3 syn352 8": 1,
+    "nr_bt5 fix720 16": 1,
+    "nr_bt5 fix720 8": 1,
+    "nr_bt5 syn352 16": 1,
+    "nr_bt5 syn352 8": 1,
+    "qtgmc fix720 16": 1,
+    "qtgmc fix720 8": 1,
+    "td2_post fix720 16": 8,
+    "td2_post fix720 8": 8,
+    "td2_post syn352 16": 8,
+    "td2_post syn352 8": 8,
+    "td2_spat fix720 16": 1,
+    "td2_spat fix720 8": 1,
+    "td2_spat syn352 16": 1,
+    "td2_spat syn352 8": 1
+   },
+   "hashes": {
+    "bt1 fix720 16": {
+     "4b5168730678e57fd93a3deac723c5f3": 20
+    },
+    "bt1 fix720 8": {
+     "1ffbec23528f329e9753f1aef2f02f71": 20
+    },
+    "bt1 syn352 16": {
+     "59675f6fdd7a6c119260084e8386d265": 20
+    },
+    "bt1 syn352 8": {
+     "a52fc183112ad4f0627b37f1e17d7c60": 20
+    },
+    "nr_bt3 fix720 16": {
+     "62e626e07029f158f9a10238f25384c3": 20
+    },
+    "nr_bt3 fix720 8": {
+     "ef68151ea979afa096450855d8ab039f": 20
+    },
+    "nr_bt3 syn352 16": {
+     "108bb9212e9a6a6b90661cd2dca3fda3": 20
+    },
+    "nr_bt3 syn352 8": {
+     "f41f0bdb8c01a48c1f83959ccb2eb146": 20
+    },
+    "nr_bt5 fix720 16": {
+     "34a0fe7f9fb3075bfe2fbd45afc9556d": 20
+    },
+    "nr_bt5 fix720 8": {
+     "a3485d9b3ee61b3b3543e6031b2570c8": 20
+    },
+    "nr_bt5 syn352 16": {
+     "efa163384e2f67d0d03762ccad14df35": 20
+    },
+    "nr_bt5 syn352 8": {
+     "2ded2293c9e7f20594b9bdf9ec6e766e": 20
+    },
+    "qtgmc fix720 16": {
+     "5da14b370041041f2bbd5e2242cf83cf": 20
+    },
+    "qtgmc fix720 8": {
+     "f2210dd55c3481aaf50ddbd269227a5b": 20
+    },
+    "td2_post fix720 16": {
+     "164319d59063b11caf219e5e8176837d": 2,
+     "55ba30bd331e3b8fe96053795ca2ab4d": 1,
+     "a7c4682587830f086f50f977393e76fe": 1,
+     "b6d2801e065c2aa9f7ae228d18944f09": 1,
+     "cda55435a0ad1141b07f471e5760627d": 1,
+     "e76a94a98e1e7588209963ad7f275801": 6,
+     "eb3656b01e712059c98b0c436db10398": 7,
+     "fa0fde8e6594b40b85ff580138851026": 1
+    },
+    "td2_post fix720 8": {
+     "0d290a41f0928542660664c091ae19fb": 1,
+     "44fe9459a8c51514287025efcf7ffaed": 1,
+     "6f769f602929e94a6e1aab1a7727fd5b": 7,
+     "7321d8f13ee560b1f4ee3e83ab814467": 6,
+     "937126dc1ba9e3a7277f05fdd27d6a42": 2,
+     "aaca967027d2931345bc8430a4c5c9ce": 1,
+     "afb53b68367f14f58acf562d9eed5b5b": 1,
+     "e7ac283126d70af45aa62615c3136f22": 1
+    },
+    "td2_post syn352 16": {
+     "51b79bfded123c76e9234c3b01c70e1e": 1,
+     "76be3359f32b3f650842b24cd164c070": 6,
+     "a6b76e15d456024fc9b1d2e2e9428cb5": 1,
+     "b11705c91984610ecf45646913e4900c": 1,
+     "b7700660c6f081db8ccf466517079541": 7,
+     "dbbcef5a5687d5f32ca8ed9f03a7383b": 2,
+     "f6fbbd960b268f74a0b6045db6465c41": 1,
+     "fe2cf5ab37fea551dd5c43ec79547ee7": 1
+    },
+    "td2_post syn352 8": {
+     "012e2b696b49265cf1622ab3adc303c9": 1,
+     "0a28107d912c314a7c08a936dc7c5713": 2,
+     "1722aa779cd52523fca7d3bb71f29d83": 6,
+     "3e1b820f8b20301aae5d1df4b61b4377": 7,
+     "9bcdb0190929cea4ad71739dc296768c": 1,
+     "9c4b9ef2c8af328205bd03f017d2d82a": 1,
+     "b874ad6768565c94896df5cbb6edc739": 1,
+     "e9d2e5b02300e35cd700c106611fe0c4": 1
+    },
+    "td2_spat fix720 16": {
+     "3b6850a82b88228271970d519ca9d864": 20
+    },
+    "td2_spat fix720 8": {
+     "65b30d9624536da5e282a254e9b0baf4": 20
+    },
+    "td2_spat syn352 16": {
+     "221b806c0e2a481104b280413c535617": 20
+    },
+    "td2_spat syn352 8": {
+     "986628f478f2fe87a3d480d3cb376e81": 20
+    }
+   },
+   "keys_with_more_than_one": [
+    "td2_post fix720 16",
+    "td2_post fix720 8",
+    "td2_post syn352 16",
+    "td2_post syn352 8"
+   ]
+  }
+ }
+}

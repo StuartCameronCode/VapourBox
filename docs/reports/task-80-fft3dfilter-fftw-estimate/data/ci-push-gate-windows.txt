@@ -1,0 +1,63 @@
+Windows push-gate jobs (ci-test.yml, deps 1.18.0-rc1), 2026-11-19: the task #62 test's
+second process against its first. Expected = first process, Actual = second. CPU from the
+harness banner (cpuModel=). Extracted with gh run view --job <id> --log.
+
+== run 44510129664, attempt 2 (gh returned this log for both attempts' job IDs; attempt 1,
+   as quoted in task #80, differed in td2_spat only: 8-bit 4c024e5c.. vs b2007764..,
+   16-bit 9b3fc46c.. vs 826be186..) (cpuModel=Intel64 Family 6 Model 207 Stepping 2)
+Expected: {
+            '8-bit td2_spat': '4c024e5ca0a63ace78907376b9c8c4c4',
+            '8-bit single_sigma_bt3': 'e0c503f5ee0e0746edb0b83a863c9b32',
+            '8-bit single_sigma_bt5': 'ec0bfc54635f375933f2c4dfa7eab770',
+            '8-bit bt1': '5be70216255b176746ca0080068e824b',
+            '16-bit td2_spat': '9b3fc46c45db8165f6e528a04d3379a2',
+            '16-bit single_sigma_bt3': '3a8060d72737018b8a17ffc7056f09dc',
+            '16-bit single_sigma_bt5': 'ad91c419a8c4c6b3b2e649cb1d183f47',
+            '16-bit bt1': '91bd2eea8e9093670ac852f563020be6'
+          }
+  Actual: {
+            '8-bit td2_spat': 'be2a9463b007f945134d14f975ee59fe',
+            '8-bit single_sigma_bt3': 'e93ba55057cdf21bc7dc4928ae741814',
+            '8-bit single_sigma_bt5': '8fbd912ac6a048032dce8d4c6e9f8c70',
+            '8-bit bt1': '96d451a8283d624c8c11d83e70bed599',
+            '16-bit td2_spat': 'ee0198f54bf68909324cf60e1fceb9ba',
+            '16-bit single_sigma_bt3': '96c23b0cc43c1b9ac65a7f09485f17ac',
+            '16-bit single_sigma_bt5': '35980518fda6a1e8873551e56e992838',
+            '16-bit bt1': 'ef268881249c7e67192136713d8cfb48'
+          }
+   Which: at location ['8-bit td2_spat'] is 'be2a9463b007f945134d14f975ee59fe' instead of '4c024e5ca0a63ace78907376b9c8c4c4'
+a second process filtered differently: FFTW chose another plan (task #62 plan, P5: pass measure=0)
+
+
+== run 44611343325, job 135868442522 (cpuModel=AMD64 Family 25 Model 17 Stepping 1)
+Expected: {
+            '8-bit td2_spat': '015c55e2c09a89ea7b4c6ef30f5fd4b5',
+            '8-bit single_sigma_bt3': 'e0c503f5ee0e0746edb0b83a863c9b32',
+            '8-bit single_sigma_bt5': 'ea0a002722bb494a27893db95bae8a83',
+            '8-bit bt1': '5be70216255b176746ca0080068e824b',
+            '16-bit td2_spat': '695c18f9a39e12e4ef54b9f29d05fe06',
+            '16-bit single_sigma_bt3': '416cc6072553694e0158125ddd93c41b',
+            '16-bit single_sigma_bt5': '2eaf3293a3c1ed91eaccd3d3abb65d4d',
+            '16-bit bt1': 'ff27939c05d808894b6560d5ead47d8d'
+          }
+  Actual: {
+            '8-bit td2_spat': '4c024e5ca0a63ace78907376b9c8c4c4',
+            '8-bit single_sigma_bt3': 'e0c503f5ee0e0746edb0b83a863c9b32',
+            '8-bit single_sigma_bt5': 'ec0bfc54635f375933f2c4dfa7eab770',
+            '8-bit bt1': '5be70216255b176746ca0080068e824b',
+            '16-bit td2_spat': '9b3fc46c45db8165f6e528a04d3379a2',
+            '16-bit single_sigma_bt3': '3a8060d72737018b8a17ffc7056f09dc',
+            '16-bit single_sigma_bt5': 'ad91c419a8c4c6b3b2e649cb1d183f47',
+            '16-bit bt1': '91bd2eea8e9093670ac852f563020be6'
+          }
+   Which: at location ['8-bit td2_spat'] is '4c024e5ca0a63ace78907376b9c8c4c4' instead of '015c55e2c09a89ea7b4c6ef30f5fd4b5'
+a second process filtered differently: FFTW chose another plan (task #62 plan, P5: pass measure=0)
+
+
+== passing jobs (test passed, same rc1 bundle)
+job 135515053259 cpuModel=AMD64 Family 25 Model 1 Stepping 1
+job 135529791942 cpuModel=AMD64 Family 25 Model 1 Stepping 1
+job 135540066866 cpuModel=AMD64 Family 25 Model 1 Stepping 1
+job 135543511570 cpuModel=AMD64 Family 25 Model 17 Stepping 1
+job 135562429162 cpuModel=AMD64 Family 26 Model 2 Stepping 1
+job 135588444424 cpuModel=AMD64 Family 25 Model 1 Stepping 1

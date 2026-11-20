@@ -1,0 +1,303 @@
+{
+ "cpu_count": 8,
+ "machine": "macOS-27.2-arm64-arm-64bit",
+ "note": "Apple Silicon Mac (8 cores), deps 1.18.0-rc1; xproc and wisdom (speed/move superseded)",
+ "processes": 20,
+ "processor": "arm",
+ "wisdom": {
+  "differs_from_fresh_0": [
+   "td2_post fix720 16",
+   "td2_post fix720 8",
+   "td2_post syn352 16",
+   "td2_post syn352 8"
+  ],
+  "keys": 22
+ },
+ "xproc": {
+  "0": {
+   "distinct": {
+    "bt1 fix720 16": 1,
+    "bt1 fix720 8": 1,
+    "bt1 syn352 16": 1,
+    "bt1 syn352 8": 1,
+    "nr_bt3 fix720 16": 1,
+    "nr_bt3 fix720 8": 1,
+    "nr_bt3 syn352 16": 1,
+    "nr_bt3 syn352 8": 1,
+    "nr_bt5 fix720 16": 1,
+    "nr_bt5 fix720 8": 1,
+    "nr_bt5 syn352 16": 1,
+    "nr_bt5 syn352 8": 1,
+    "qtgmc fix720 16": 1,
+    "qtgmc fix720 8": 1,
+    "td2_post fix720 16": 1,
+    "td2_post fix720 8": 1,
+    "td2_post syn352 16": 1,
+    "td2_post syn352 8": 1,
+    "td2_spat fix720 16": 1,
+    "td2_spat fix720 8": 1,
+    "td2_spat syn352 16": 1,
+    "td2_spat syn352 8": 1
+   },
+   "hashes": {
+    "bt1 fix720 16": {
+     "a07d65c7e05700d8cba1ef98ca0fca72": 20
+    },
+    "bt1 fix720 8": {
+     "9f41fd5a7579bdecc38a86d32c73ead2": 20
+    },
+    "bt1 syn352 16": {
+     "c1e40398dfe32a42c4d9efe46e23216a": 20
+    },
+    "bt1 syn352 8": {
+     "0503762bbe21e2ffceee25604a103634": 20
+    },
+    "nr_bt3 fix720 16": {
+     "7c8b5babd444902572dfcf6bde48b1a5": 20
+    },
+    "nr_bt3 fix720 8": {
+     "af45750e5fe73713183a2192e37c6af9": 20
+    },
+    "nr_bt3 syn352 16": {
+     "901baea9a61c8a0239c51ec25fed61de": 20
+    },
+    "nr_bt3 syn352 8": {
+     "a5fecc6cb73c179190d27d544e8422f0": 20
+    },
+    "nr_bt5 fix720 16": {
+     "be0490ed87c68862d18d841fa7b8c300": 20
+    },
+    "nr_bt5 fix720 8": {
+     "a97bea928fd36b2a0147607b91772f78": 20
+    },
+    "nr_bt5 syn352 16": {
+     "ad273d9173784a835400217d09194036": 20
+    },
+    "nr_bt5 syn352 8": {
+     "1cf82f7e770f39f7416f12a7786da03a": 20
+    },
+    "qtgmc fix720 16": {
+     "afe74787d93190319b50f4ad54570535": 20
+    },
+    "qtgmc fix720 8": {
+     "b2b122aa744adb1ec98c3fd9302b5025": 20
+    },
+    "td2_post fix720 16": {
+     "7073015b4c2f246311178c3e94772762": 20
+    },
+    "td2_post fix720 8": {
+     "18dde204bf8968e5973c566e70cb0465": 20
+    },
+    "td2_post syn352 16": {
+     "3bdd1867087e678dda5f594e2299f585": 20
+    },
+    "td2_post syn352 8": {
+     "7ec37f6d38850a774ad9c3d6a900f233": 20
+    },
+    "td2_spat fix720 16": {
+     "a44686b41f199795786f4456884fb4d4": 20
+    },
+    "td2_spat fix720 8": {
+     "1f449e64558ececdde0a312ec56e8ed0": 20
+    },
+    "td2_spat syn352 16": {
+     "a2e42e03d68b983a623dc3c9b86dc2ab": 20
+    },
+    "td2_spat syn352 8": {
+     "38cfe1a2e86dc7ffd72da0585a67881b": 20
+    }
+   },
+   "keys_with_more_than_one": []
+  },
+  "1": {
+   "distinct": {
+    "bt1 fix720 16": 1,
+    "bt1 fix720 8": 1,
+    "bt1 syn352 16": 1,
+    "bt1 syn352 8": 1,
+    "nr_bt3 fix720 16": 1,
+    "nr_bt3 fix720 8": 1,
+    "nr_bt3 syn352 16": 1,
+    "nr_bt3 syn352 8": 1,
+    "nr_bt5 fix720 16": 1,
+    "nr_bt5 fix720 8": 1,
+    "nr_bt5 syn352 16": 1,
+    "nr_bt5 syn352 8": 1,
+    "qtgmc fix720 16": 1,
+    "qtgmc fix720 8": 1,
+    "td2_post fix720 16": 1,
+    "td2_post fix720 8": 1,
+    "td2_post syn352 16": 1,
+    "td2_post syn352 8": 1,
+    "td2_spat fix720 16": 1,
+    "td2_spat fix720 8": 1,
+    "td2_spat syn352 16": 1,
+    "td2_spat syn352 8": 1
+   },
+   "hashes": {
+    "bt1 fix720 16": {
+     "a07d65c7e05700d8cba1ef98ca0fca72": 20
+    },
+    "bt1 fix720 8": {
+     "9f41fd5a7579bdecc38a86d32c73ead2": 20
+    },
+    "bt1 syn352 16": {
+     "c1e40398dfe32a42c4d9efe46e23216a": 20
+    },
+    "bt1 syn352 8": {
+     "0503762bbe21e2ffceee25604a103634": 20
+    },
+    "nr_bt3 fix720 16": {
+     "7c8b5babd444902572dfcf6bde48b1a5": 20
+    },
+    "nr_bt3 fix720 8": {
+     "af45750e5fe73713183a2192e37c6af9": 20
+    },
+    "nr_bt3 syn352 16": {
+     "901baea9a61c8a0239c51ec25fed61de": 20
+    },
+    "nr_bt3 syn352 8": {
+     "a5fecc6cb73c179190d27d544e8422f0": 20
+    },
+    "nr_bt5 fix720 16": {
+     "be0490ed87c68862d18d841fa7b8c300": 20
+    },
+    "nr_bt5 fix720 8": {
+     "a97bea928fd36b2a0147607b91772f78": 20
+    },
+    "nr_bt5 syn352 16": {
+     "ad273d9173784a835400217d09194036": 20
+    },
+    "nr_bt5 syn352 8": {
+     "1cf82f7e770f39f7416f12a7786da03a": 20
+    },
+    "qtgmc fix720 16": {
+     "afe74787d93190319b50f4ad54570535": 20
+    },
+    "qtgmc fix720 8": {
+     "b2b122aa744adb1ec98c3fd9302b5025": 20
+    },
+    "td2_post fix720 16": {
+     "9ec5866cf17c0de1d421eb492a2aff21": 20
+    },
+    "td2_post fix720 8": {
+     "f949996eb956db55b7e8e4086cf84824": 20
+    },
+    "td2_post syn352 16": {
+     "de3c93568ec2d01db6ceeb8e57ea71f7": 20
+    },
+    "td2_post syn352 8": {
+     "d1fded3e2bb5086048092957a51d3697": 20
+    },
+    "td2_spat fix720 16": {
+     "a44686b41f199795786f4456884fb4d4": 20
+    },
+    "td2_spat fix720 8": {
+     "1f449e64558ececdde0a312ec56e8ed0": 20
+    },
+    "td2_spat syn352 16": {
+     "a2e42e03d68b983a623dc3c9b86dc2ab": 20
+    },
+    "td2_spat syn352 8": {
+     "38cfe1a2e86dc7ffd72da0585a67881b": 20
+    }
+   },
+   "keys_with_more_than_one": []
+  },
+  "default": {
+   "distinct": {
+    "bt1 fix720 16": 1,
+    "bt1 fix720 8": 1,
+    "bt1 syn352 16": 1,
+    "bt1 syn352 8": 1,
+    "nr_bt3 fix720 16": 1,
+    "nr_bt3 fix720 8": 1,
+    "nr_bt3 syn352 16": 1,
+    "nr_bt3 syn352 8": 1,
+    "nr_bt5 fix720 16": 1,
+    "nr_bt5 fix720 8": 1,
+    "nr_bt5 syn352 16": 1,
+    "nr_bt5 syn352 8": 1,
+    "qtgmc fix720 16": 1,
+    "qtgmc fix720 8": 1,
+    "td2_post fix720 16": 1,
+    "td2_post fix720 8": 1,
+    "td2_post syn352 16": 1,
+    "td2_post syn352 8": 1,
+    "td2_spat fix720 16": 1,
+    "td2_spat fix720 8": 1,
+    "td2_spat syn352 16": 1,
+    "td2_spat syn352 8": 1
+   },
+   "hashes": {
+    "bt1 fix720 16": {
+     "a07d65c7e05700d8cba1ef98ca0fca72": 20
+    },
+    "bt1 fix720 8": {
+     "9f41fd5a7579bdecc38a86d32c73ead2": 20
+    },
+    "bt1 syn352 16": {
+     "c1e40398dfe32a42c4d9efe46e23216a": 20
+    },
+    "bt1 syn352 8": {
+     "0503762bbe21e2ffceee25604a103634": 20
+    },
+    "nr_bt3 fix720 16": {
+     "7c8b5babd444902572dfcf6bde48b1a5": 20
+    },
+    "nr_bt3 fix720 8": {
+     "af45750e5fe73713183a2192e37c6af9": 20
+    },
+    "nr_bt3 syn352 16": {
+     "901baea9a61c8a0239c51ec25fed61de": 20
+    },
+    "nr_bt3 syn352 8": {
+     "a5fecc6cb73c179190d27d544e8422f0": 20
+    },
+    "nr_bt5 fix720 16": {
+     "be0490ed87c68862d18d841fa7b8c300": 20
+    },
+    "nr_bt5 fix720 8": {
+     "a97bea928fd36b2a0147607b91772f78": 20
+    },
+    "nr_bt5 syn352 16": {
+     "ad273d9173784a835400217d09194036": 20
+    },
+    "nr_bt5 syn352 8": {
+     "1cf82f7e770f39f7416f12a7786da03a": 20
+    },
+    "qtgmc fix720 16": {
+     "afe74787d93190319b50f4ad54570535": 20
+    },
+    "qtgmc fix720 8": {
+     "b2b122aa744adb1ec98c3fd9302b5025": 20
+    },
+    "td2_post fix720 16": {
+     "9ec5866cf17c0de1d421eb492a2aff21": 20
+    },
+    "td2_post fix720 8": {
+     "f949996eb956db55b7e8e4086cf84824": 20
+    },
+    "td2_post syn352 16": {
+     "de3c93568ec2d01db6ceeb8e57ea71f7": 20
+    },
+    "td2_post syn352 8": {
+     "d1fded3e2bb5086048092957a51d3697": 20
+    },
+    "td2_spat fix720 16": {
+     "a44686b41f199795786f4456884fb4d4": 20
+    },
+    "td2_spat fix720 8": {
+     "1f449e64558ececdde0a312ec56e8ed0": 20
+    },
+    "td2_spat syn352 16": {
+     "a2e42e03d68b983a623dc3c9b86dc2ab": 20
+    },
+    "td2_spat syn352 8": {
+     "38cfe1a2e86dc7ffd72da0585a67881b": 20
+    }
+   },
+   "keys_with_more_than_one": []
+  }
+ }
+}

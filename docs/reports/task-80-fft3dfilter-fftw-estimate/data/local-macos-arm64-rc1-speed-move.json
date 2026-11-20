@@ -1,0 +1,238 @@
+{
+ "cpu_count": 8,
+ "machine": "macOS-27.2-arm64-arm-64bit",
+ "move": {
+  "bt1 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "bt1 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "nr_bt3 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "nr_bt3 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "nr_bt5 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "nr_bt5 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "qtgmc 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "qtgmc 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "td2_post 16": {
+   "max_abs": 1,
+   "max_abs_8bit": 0.004,
+   "mean_abs_8bit": 0.00016,
+   "pct_differ": 4.0276,
+   "psnr_db": 110.28
+  },
+  "td2_post 8": {
+   "max_abs": 1,
+   "max_abs_8bit": 1,
+   "mean_abs_8bit": 0.00029,
+   "pct_differ": 0.0295,
+   "psnr_db": 83.44
+  },
+  "td2_spat 16": {
+   "max_abs": 0,
+   "max_abs_8bit": 0.0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  },
+  "td2_spat 8": {
+   "max_abs": 0,
+   "max_abs_8bit": 0,
+   "mean_abs_8bit": 0.0,
+   "pct_differ": 0.0,
+   "psnr_db": null
+  }
+ },
+ "processes": 1,
+ "processor": "arm",
+ "speed": {
+  "0": {
+   "bt1 1920x1080": {
+    "create_s": 0.0117,
+    "first_frame_s": 0.0179,
+    "fps": 120.44
+   },
+   "bt1 720x480": {
+    "create_s": 0.0023,
+    "first_frame_s": 0.0036,
+    "fps": 699.3
+   },
+   "nr_bt3 1920x1080": {
+    "create_s": 0.0128,
+    "first_frame_s": 0.0191,
+    "fps": 118.35
+   },
+   "nr_bt3 720x480": {
+    "create_s": 0.0025,
+    "first_frame_s": 0.0038,
+    "fps": 663.09
+   },
+   "nr_bt5 1920x1080": {
+    "create_s": 0.0115,
+    "first_frame_s": 0.0177,
+    "fps": 116.83
+   },
+   "nr_bt5 720x480": {
+    "create_s": 0.0023,
+    "first_frame_s": 0.0036,
+    "fps": 634.14
+   },
+   "qtgmc 1920x1080": {
+    "create_s": 0.1573,
+    "first_frame_s": 0.0307,
+    "fps": 42.0
+   },
+   "qtgmc 720x480": {
+    "create_s": 0.168,
+    "first_frame_s": 0.0078,
+    "fps": 235.64
+   },
+   "td2_full 1920x1080": {
+    "create_s": 0.2334,
+    "first_frame_s": 0.118,
+    "fps": 10.64
+   },
+   "td2_full 720x480": {
+    "create_s": 0.1333,
+    "first_frame_s": 0.0247,
+    "fps": 81.0
+   },
+   "td2_post 1920x1080": {
+    "create_s": 0.0289,
+    "first_frame_s": 0.0408,
+    "fps": 55.87
+   },
+   "td2_post 720x480": {
+    "create_s": 0.0063,
+    "first_frame_s": 0.0074,
+    "fps": 311.21
+   },
+   "td2_spat 1920x1080": {
+    "create_s": 0.0132,
+    "first_frame_s": 0.0207,
+    "fps": 136.82
+   },
+   "td2_spat 720x480": {
+    "create_s": 0.0026,
+    "first_frame_s": 0.0038,
+    "fps": 795.35
+   }
+  },
+  "1": {
+   "bt1 1920x1080": {
+    "create_s": 0.0118,
+    "first_frame_s": 0.0182,
+    "fps": 124.31
+   },
+   "bt1 720x480": {
+    "create_s": 0.0023,
+    "first_frame_s": 0.0035,
+    "fps": 716.54
+   },
+   "nr_bt3 1920x1080": {
+    "create_s": 0.0134,
+    "first_frame_s": 0.0191,
+    "fps": 115.8
+   },
+   "nr_bt3 720x480": {
+    "create_s": 0.003,
+    "first_frame_s": 0.0038,
+    "fps": 668.04
+   },
+   "nr_bt5 1920x1080": {
+    "create_s": 0.0116,
+    "first_frame_s": 0.0177,
+    "fps": 115.98
+   },
+   "nr_bt5 720x480": {
+    "create_s": 0.0023,
+    "first_frame_s": 0.0036,
+    "fps": 652.39
+   },
+   "qtgmc 1920x1080": {
+    "create_s": 0.1574,
+    "first_frame_s": 0.0307,
+    "fps": 41.59
+   },
+   "qtgmc 720x480": {
+    "create_s": 0.1643,
+    "first_frame_s": 0.0076,
+    "fps": 244.66
+   },
+   "td2_full 1920x1080": {
+    "create_s": 0.213,
+    "first_frame_s": 0.1064,
+    "fps": 12.58
+   },
+   "td2_full 720x480": {
+    "create_s": 0.1294,
+    "first_frame_s": 0.0232,
+    "fps": 86.62
+   },
+   "td2_post 1920x1080": {
+    "create_s": 0.0256,
+    "first_frame_s": 0.0363,
+    "fps": 62.5
+   },
+   "td2_post 720x480": {
+    "create_s": 0.0082,
+    "first_frame_s": 0.0065,
+    "fps": 367.82
+   },
+   "td2_spat 1920x1080": {
+    "create_s": 0.0135,
+    "first_frame_s": 0.0202,
+    "fps": 138.22
+   },
+   "td2_spat 720x480": {
+    "create_s": 0.0038,
+    "first_frame_s": 0.0038,
+    "fps": 793.1
+   }
+  }
+ }
+}

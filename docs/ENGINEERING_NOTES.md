@@ -5223,6 +5223,32 @@ deterministic` and the heavy `integration_fft3dfilter_determinism_test.dart`
 skip on bundles up to 1.17.x. Report:
 [docs/reports/task-62-fft3dfilter-determinism](reports/task-62-fft3dfilter-determinism/index.html).
 
+### FFT3DFilter's timed FFTW plans differed between processes: ESTIMATE everywhere (task #80, 2026-11-20)
+
+The task #62 push-gate test failed on Windows (deps 1.18.0-rc1, PR #229, which
+didn't touch it): a second vspipe process hashed differently from the first,
+in `td2_spat` on one run and 5 of 8 classes on another; six other Windows
+jobs passed. Cause: FFT3DFilter's default `measure=1` (FFTW_MEASURE) times
+FFTW's candidate algorithms when the filter is created and keeps the
+fastest, which depends on load; algorithms round differently. A preview and
+its encode are two processes, so this was preview ≠ encode again. Probed in
+20 fresh processes per value on 10 hosted runners per run (6 Windows, 2
+Linux, macOS x64 and arm64): with `measure=1` at least one key came out more
+than one way on **every x86 runner** (Windows, Linux, Intel Mac); Apple
+Silicon never varied, which is why task #62 (measured there) concluded
+"processes agreed". `measure=0` (FFTW_ESTIMATE): one hash per key
+everywhere. Also measured: **FFTW reuses a MEASURE plan made earlier in a
+process for a later ESTIMATE request of the same problem**, so an explicit
+`measure=0` is undone by any earlier measured call (havsfunc's QTGMC passes
+none). So the template's three calls pass `measure=0` (`test_261`) and the
+patch makes 0 the plugin's default (deps 1.18.0-rc2). Cost: only TD2's post
+pass (postFFT 1/2, off by default): that call 15–32% slower on x86, ~11–15%
+on an M1 Pro, a whole TD2 job with it 5–23%; its picture moves ≤ 1 level in
+< 0.1% of 8-bit samples. Everything else is within speed noise; at 16 bits the
+FFT3D method and TD2's spatial pass differed from some measured plans by one
+code value in < 0.25% of samples. Report:
+[docs/reports/task-80-fft3dfilter-fftw-estimate](reports/task-80-fft3dfilter-fftw-estimate/index.html).
+
 ### Unblend's 8 = 10-bit test was vacuous; a real 10-bit source picks differently (task #64, 2026-11-17)
 
 Report: [docs/reports/2026-11-srestore](reports/2026-11-srestore/index.html), section 8's correction.
