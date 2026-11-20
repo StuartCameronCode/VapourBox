@@ -785,6 +785,109 @@ flat.set_output()'''
     });
   });
 
+  // Task #82: havsfunc patch 8 (download-deps-*) turns LUTDeCrawl's and
+  // LUTDeRainbow's eight Lut2(function=lambda x, y: x & y) mask ANDs into
+  // Expr 'x y min'. At 10 bits each of those tables was a million Python calls:
+  // 7.9 s of script evaluation per filter on an M1, paid by every preview. min
+  // is only exact because one operand of every call is a strict 0/peak mask, so
+  // this compares both filters (output, and the mask itself) with the same call
+  // made through upstream's own table, at 8 and 10 bits and every subsampling,
+  // on a picture whose masks are partly set. The reference uses Lut2's lut=
+  // list, which is the function's table byte for byte (task #75) at a fraction
+  // of its cost. docs/reports/task-82-havsfunc-mask-and.
+  group('havsfunc mask AND (patch 8)', () {
+    test('LUTDeCrawl and LUTDeRainbow give upstream\'s picture, without '
+        'Python tables (task #82)', () async {
+      final havsfunc = Platform.isWindows
+          ? path.join(depsDir, 'vapoursynth', 'Lib', 'site-packages', 'havsfunc.py')
+          : path.join(depsDir, 'python-packages', 'havsfunc.py');
+      final hasPatch =
+          File(havsfunc).readAsStringSync().contains('def _mask_and(');
+      if (!hasPatch && _depsVersionAtMost(depsDir, [1, 18, 0])) {
+        markTestSkipped('deps <= 1.18.0-rc2 ship havsfunc without patch 8 '
+            '(task #82)');
+        return;
+      }
+      const script = r'''
+import time
+import vapoursynth as vs
+import havsfunc as haf
+core = vs.core
+
+src = open(haf.__file__).read()
+assert 'std.Lut2(' not in src, 'havsfunc still calls std.Lut2 (patch 8 not applied)'
+patched = haf._mask_and
+
+def upstream(clipa, clipb):
+    ba, bb = clipa.format.bits_per_sample, clipb.format.bits_per_sample
+    lut = [x & y for y in range(1 << bb) for x in range(1 << ba)]
+    return core.std.Lut2(clipa, clipb, lut=lut)
+
+def fixture(fmt):
+    # Mid grey with temporally varying grain: neighbouring frames are within
+    # the thresholds in some places and not in others, so every mask is
+    # partly set. A static band keeps part of each mask fully set.
+    f = core.get_video_format(fmt)
+    mid = 1 << (f.bits_per_sample - 1)
+    c = core.std.BlankClip(width=160, height=120, format=fmt, length=6, color=[mid] * 3)
+    g = core.grain.Add(c, var=40, uvar=40, constant=False, seed=3)
+    return core.std.StackVertical([g.std.Crop(bottom=40), c.std.Crop(top=80)])
+
+def same(a, b):
+    if a.format.id != b.format.id or (a.width, a.height, a.num_frames) != (b.width, b.height, b.num_frames):
+        return False
+    for p in range(a.format.num_planes):
+        st = core.std.PlaneStats(a, b, plane=p)
+        for n in range(a.num_frames):
+            if st.get_frame(n).props['PlaneStatsDiff'] != 0:
+                return False
+    return True
+
+CALLS = {
+    'LUTDeCrawl': lambda c, m: haf.LUTDeCrawl(c, ythresh=10, cthresh=10, maxdiff=50, mask=m),
+    'LUTDeRainbow': lambda c, m: haf.LUTDeRainbow(c, cthresh=10, ythresh=10, y=True, linkUV=True, mask=m),
+    'LUTDeRainbow unlinked': lambda c, m: haf.LUTDeRainbow(c, cthresh=10, ythresh=10, y=True, linkUV=False, mask=m),
+}
+bad = []
+slowest = 0.0
+for fmt in (vs.YUV420P8, vs.YUV422P8, vs.YUV444P8, vs.YUV420P10, vs.YUV422P10, vs.YUV444P10):
+    clip = fixture(fmt)
+    name = core.get_video_format(fmt).name
+    for label, call in CALLS.items():
+        # The 10-bit reference costs ~0.3 s a table, so its masks are compared
+        # at 4:2:0 only; the outputs at every subsampling.
+        for mask in ((False, True) if fmt in (vs.YUV420P8, vs.YUV420P10, vs.YUV422P8, vs.YUV444P8) else (False,)):
+            haf._mask_and = patched
+            t = time.perf_counter()
+            got = call(clip, mask)
+            slowest = max(slowest, time.perf_counter() - t)
+            haf._mask_and = upstream
+            want = call(clip, mask)
+            haf._mask_and = patched
+            what = '%s %s %s' % (name, label, 'mask' if mask else 'output')
+            if mask:
+                avg = core.std.PlaneStats(got).get_frame(2).props['PlaneStatsAverage']
+                if not 0.02 < avg < 0.98:
+                    bad.append('%s: mask average %.3f, the fixture no longer exercises both states' % (what, avg))
+            if not same(got, want):
+                bad.append('%s differs from upstream\'s table' % what)
+print('SLOWEST_EVAL %.3f' % slowest)
+# Upstream's 10-bit tables took 7.9 s per call on an M1; the Expr takes
+# milliseconds. Generous, so only a return to Python tables fails it.
+if slowest > 2.0:
+    bad.append('a call took %.2f s to build (Python tables again?)' % slowest)
+if bad:
+    raise Exception('havsfunc patch 8 (task #82): ' + '; '.join(bad))
+print('havsfunc mask AND OK')
+core.std.BlankClip().set_output()''';
+      final r = await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      // ignore: avoid_print
+      print('  ${RegExp(r'SLOWEST_EVAL \S+').stringMatch(r.stdout.toString())}');
+      expect(r.exitCode, 0, reason: 'stdout: ${r.stdout}\nstderr: ${r.stderr}');
+      expect(r.stdout.toString(), contains('havsfunc mask AND OK'));
+    }, timeout: const Timeout(Duration(minutes: 3)));
+  });
+
   // Task #40: AV1 output needs SVT-AV1 in the bundled FFmpeg. BtbN's builds
   // (Windows, Linux) and martin-riedl's (macOS arm64 and, from deps
   // 1.17.0-rc2, x64; task #45) carry it. This proves every bundle has it, on
