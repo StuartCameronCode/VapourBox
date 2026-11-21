@@ -58,12 +58,13 @@ class _FakeContinuity extends TimestampContinuityService {
   String? failPrepareFor;
 
   @override
-  Future<SourceModel?> probeSource(String path, {bool deferScan = false}) async {
+  Future<SourceProbe> probeSource(String path, {bool deferScan = false}) async {
     probed.add((path, deferScan));
     if (proxy != null && path == proxy!.path) {
-      return SourceModel.fromJson(_modelJson(path, continuity: _noReset, frames: 300));
+      return SourceProbe(
+          model: SourceModel.fromJson(_modelJson(path, continuity: _noReset, frames: 300)));
     }
-    return SourceModel.fromJson(_modelJson(path, deferred: deferScan));
+    return SourceProbe(model: SourceModel.fromJson(_modelJson(path, deferred: deferScan)));
   }
 
   @override

@@ -264,6 +264,30 @@ class PreviewGenerator {
     await _useModel(model);
   }
 
+  /// Forgets the loaded source (task #85): a selected video with no model
+  /// shows nothing rather than the previous video's frames, count and
+  /// timeline. The written model file is kept for reuse; nothing reads it
+  /// until a source is selected again.
+  void unloadSource() {
+    _currentVideoPath = null;
+    _thumbnailCache.clear();
+    _totalFrames = 0;
+    _duration = 0;
+    _frameRate = 29.97;
+    _videoStartOffset = 0;
+    _decoderDelayFrames = 0;
+    _seekPlan = null;
+    _sourceGrid = null;
+    _videoWidth = 0;
+    _videoHeight = 0;
+    _pixelFormat = 'yuv420p';
+    _colorMatrix = null;
+    _colorPrimaries = null;
+    _colorTransfer = null;
+    _colorRange = null;
+    _sar = null;
+  }
+
   /// Load thumbnails for a specific time range of the video.
   ///
   /// Used for zoomed timeline views where we want higher density thumbnails

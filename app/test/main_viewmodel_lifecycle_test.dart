@@ -19,6 +19,7 @@ import 'package:vapourbox/services/worker_manager.dart';
 import 'package:vapourbox/viewmodels/main_viewmodel.dart';
 
 import 'fakes/fake_job_runner.dart';
+import 'fakes/no_source_model_continuity.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -28,8 +29,8 @@ void main() {
 
   /// A queue with [n] items sitting at `ready`.
   ///
-  /// Analysis fails without real files, which the viewmodel tolerates — items
-  /// still end up `ready`, which is all these tests need.
+  /// The probe answers nothing ([NoSourceModelContinuity]), so the items have
+  /// no model and are set `ready` by hand, which is all these tests need.
   Future<void> seedQueue(int n) async {
     await vm.addMultipleToQueue([
       for (var i = 0; i < n; i++) '/tmp/vapourbox_test_$i.mkv',
@@ -41,7 +42,8 @@ void main() {
 
   setUp(() {
     runner = FakeJobRunner();
-    vm = MainViewModel(runner: runner);
+    vm = MainViewModel(
+        runner: runner, continuityService: const NoSourceModelContinuity());
   });
 
   tearDown(() => vm.dispose());

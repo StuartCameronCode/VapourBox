@@ -70,7 +70,11 @@ VapourBox is a **cross-platform** (macOS + Windows + Linux) video processing app
   `--complete-source <model>` in the background (task #55). The app
   stores it on `QueueItem.sourceModel` at analysis and sends it in every job
   (inline `source`, or `--source <file>` for previews); the worker probes only
-  when a job carries none. **A new source fact goes in the model, computed in
+  when a job carries none. **A failed probe is shown, never dropped (task
+  #85):** its `{"error"}` and stderr lines (`SourceProbe`) go to the
+  item's log, the item is failed with the reason (`QueueItem.sourceError`),
+  Retry analyses it again, and no job or preview runs without a model.
+  **A new source fact goes in the model, computed in
   the worker; the app never probes a source itself** (idet and the
   soft-telecine flags, which look at pictures, are the exceptions). The
   remaining Rust↔Dart twins and why each is kept: [docs/TWINS.md](docs/TWINS.md)
@@ -176,7 +180,7 @@ VapourBox/
 | `app/lib/services/worker_manager.dart` | Process spawning, IPC |
 | `app/lib/services/filter_loader.dart` | Load filter schemas from JSON |
 | `app/lib/services/preset_service.dart` | Save/load user presets |
-| `app/lib/services/timestamp_continuity_service.dart` | Runs the worker's `--probe-source` (deferred scan), `--complete-source` (the scan, cancellable, with progress) and, on a reset, the copy; `ContinuityProxy` is `QueueItem.decodePath` |
+| `app/lib/services/timestamp_continuity_service.dart` | Runs the worker's `--probe-source` (deferred scan), `--complete-source` (the scan, cancellable, with progress) and, on a reset, the copy; `ContinuityProxy` is `QueueItem.decodePath`; `SourceProbe` is the probe's answer, the model or the worker's reason and stderr lines |
 | `app/lib/models/source_model.dart` | The worker's `SourceModel` as the app reads it: typed getters over the JSON, sent back unchanged |
 | `app/lib/services/temp_directory_service.dart` | Configurable scratch-file directory (see "Temporary Files Directory") |
 | `app/lib/services/pitch_factor_file.dart` | Per-video pitch factor files: sidecar lookup + summary (see "Stabilize") |

@@ -256,6 +256,19 @@ class _QueuePanelState extends State<QueuePanel> {
                 _InfoRow(label: 'Status', value: _statusText(item.status)),
                 if (item.errorMessage != null)
                   _InfoRow(label: 'Error', value: item.errorMessage!),
+                // The worker's own lines, for a bug report (task #85).
+                if (item.sourceErrorLog.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text('Worker log', style: Theme.of(context).textTheme.labelMedium),
+                  const SizedBox(height: 4),
+                  SelectableText(
+                    item.sourceErrorLog.join('\n'),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall
+                        ?.copyWith(fontFamily: 'monospace'),
+                  ),
+                ],
               ],
             ),
           ),
@@ -401,6 +414,20 @@ class _QueueItemTile extends StatelessWidget {
                                 ),
                           ),
                         ),
+                      ] else if (item.analysisFailed) ...[
+                        // The source could not be read (task #85).
+                        Flexible(
+                          child: Tooltip(
+                            message: item.sourceError!,
+                            child: Text(
+                              'Could not read: ${item.sourceError}',
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: colorScheme.error,
+                                  ),
+                            ),
+                          ),
+                        ),
                       ] else ...[
                       if (item.resolution.isNotEmpty) ...[
                         Text(
@@ -466,7 +493,7 @@ class _QueueItemTile extends StatelessWidget {
                   color: colorScheme.primary,
                 ),
                 onPressed: onRequeue,
-                tooltip: 'Reprocess',
+                tooltip: item.analysisFailed ? 'Analyse again' : 'Reprocess',
                 visualDensity: VisualDensity.compact,
                 style: IconButton.styleFrom(
                   minimumSize: const Size(28, 28),
