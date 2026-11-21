@@ -181,6 +181,9 @@ EEDI3 (eedi3m) — GPL-2.0
   Copyright (C) tritical (Kevin Stone); VapourSynth port by HolyWu
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3
   Licence text: GPL-2.0.txt
+  On Apple Silicon and Linux, built from tag r10 with VapourBox's patch
+  Scripts/patches/eedi3m-r10-thread-safety.patch, which moves one check of
+  its per-thread buffer maps under the lock (task #98).
 
 VIVTC — LGPL-2.1
   Copyright (c) 2012-2020 Fredrik Mellbin
@@ -494,6 +497,12 @@ DFTTest — GPL-3.0
   Copyright (C) 2007-2010 Kevin Stone (tritical); VapourSynth port by HolyWu
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest
   Licence text: GPL-3.0.txt
+  Built from source on every platform with VapourBox's patch
+  Scripts/patches/dfttest-bc5e018-thread-safety.patch, which locks its
+  per-thread buffer maps (task #98); the patched source is the upstream
+  commit named in the patch plus that file.
+  On Apple Silicon the source is yuygfgg's fork with an sse2neon port of the
+  SSE2 kernels: https://github.com/yuygfgg/VapourSynth-DFTTest
 
 FFT3DFilter — GPL-2.0
   Copyright (C) 2004-2006 A.G. Balakhnin aka Fizick
@@ -516,12 +525,20 @@ TCanny — GPL-3.0
   Copyright (C) 2009 Kevin Stone (tritical); VapourSynth port by HolyWu
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny
   Licence text: GPL-3.0.txt
+  Built from source on every platform with VapourBox's patch
+  Scripts/patches/tcanny-14ac2ce-thread-safety.patch, which locks its
+  per-thread buffer maps (task #98); the patched source is the upstream
+  commit named in the patch plus that file.
 
 CTMF — GPL-3.0
   Copyright (C) 2006 Simon Perreault (constant-time median filtering);
   VapourSynth port by HolyWu
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF
   Licence text: GPL-3.0.txt
+  Built from source on every platform with VapourBox's patch
+  Scripts/patches/ctmf-r5-thread-safety.patch, which locks its
+  per-thread buffer maps (task #98); the patched source is the upstream
+  commit named in the patch plus that file.
 
 CAS — MIT
   Copyright (c) 2020 Holy Wu
@@ -641,6 +658,10 @@ LGhost — GPL-3.0-or-later
   Ghost Reduction plugin)
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost
   Licence text: GPL-3.0.txt
+  Built from source on every platform with VapourBox's patch
+  Scripts/patches/lghost-r1-thread-safety.patch, which locks its
+  per-thread buffer maps (task #98); the patched source is the upstream
+  commit named in the patch plus that file.
 
 Vector Class Library (VCL) — Apache-2.0
   Copyright (c) Agner Fog

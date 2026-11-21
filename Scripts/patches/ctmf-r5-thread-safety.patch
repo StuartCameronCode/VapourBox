@@ -1,0 +1,143 @@
+CTMF r5 (HomeOfVapourSynthEvolution/VapourSynth-CTMF, the last tag and HEAD).
+VapourBox task #98, docs/reports/task-98-per-thread-buffer-maps.
+
+The filter is fmParallel and keeps scratch buffers per worker thread in
+std::unordered_map<std::thread::id, ...> members of the filter instance. Two
+maps (hCoarse, hFine; every radius but 2, which has its own kernel) are filled
+from getFrame and read by every kernel with no lock at all. Two threads
+starting their first frame of an instance together corrupt the map or lose an
+insert, and the kernel's .at() then throws std::out_of_range inside a noexcept
+function: std::terminate, so vspipe aborts ("unordered_map::at: key not
+found"; on Windows the UCRT's abort is a fail-fast, exit 0xC0000409). Measured
+on an M1 with 8 threads, radius 3: one graph of 1000 instances aborted in 18
+of 20 runs, one instance in a fresh vspipe in 8 of 200; with the patch, none
+in 40 and 200. The Noise Reduction CTMF method and havsfunc's MinBlur(r=3)
+reach it.
+
+The patch locks the map: getFrame checks for the thread's buffers under a
+shared lock and allocates them under a unique lock (only the calling thread
+inserts its own key), and the kernels look them up through threadBuffer(),
+under the shared lock. The buffers, their reuse and so the output are
+unchanged, sample for sample. It also appends "(VapourBox: locked per-thread
+buffers, task #98)" to the plugin's name, which is how a test and the deps
+scripts recognise a patched build. No upstream release fixes this.
+
+Made by docs/reports/task-98-per-thread-buffer-maps/scripts/make_patches.py
+and applied by download-deps-{macos,linux}.sh and download-deps-windows.ps1
+right after the clone; each build fails if it stops applying.
+
+diff --git a/CTMF/CTMF.cpp b/CTMF/CTMF.cpp
+index 3cacfe6..90f55a8 100644
+--- a/CTMF/CTMF.cpp
++++ b/CTMF/CTMF.cpp
+@@ -195,9 +195,8 @@ static void ctmfHelper_c(const void * _srcp, void * _dstp, const CTMFData * cons
+     auto srcp = static_cast<const pixel_t *>(_srcp);
+     auto dstp = static_cast<pixel_t *>(_dstp);
+ 
+-    const auto threadId = std::this_thread::get_id();
+-    auto hCoarse = d->hCoarse.at(threadId).get();
+-    auto hFine = d->hFine.at(threadId).get();
++    auto hCoarse = d->threadBuffer(d->hCoarse);
++    auto hFine = d->threadBuffer(d->hFine);
+ 
+     const pixel_t * p, * q;
+ 
+@@ -337,7 +336,13 @@ static const VSFrameRef * VS_CC ctmfGetFrame(int n, int activationReason, void *
+         try {
+             auto threadId = std::this_thread::get_id();
+ 
+-            if (!d->isRadius2 && !d->hCoarse.count(threadId)) {
++            bool known;
++            {
++                std::shared_lock<std::shared_mutex> lock(d->bufferMutex);
++                known = d->isRadius2 || d->hCoarse.count(threadId);
++            }
++            if (!known) {
++                std::unique_lock<std::shared_mutex> lock(d->bufferMutex);
+                 auto hCoarse = vs_aligned_malloc<uint16_t>(d->bins * d->vi->width * sizeof(uint16_t), 64);
+                 if (!hCoarse)
+                     throw "malloc failure (hCoarse)";
+@@ -595,7 +600,7 @@ static void VS_CC ctmfCreate(const VSMap * in, VSMap * out, void * userData, VSC
+ // Init
+ 
+ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin * plugin) {
+-    configFunc("com.holywu.ctmf", "ctmf", "Constant Time Median Filtering", VAPOURSYNTH_API_VERSION, 1, plugin);
++    configFunc("com.holywu.ctmf", "ctmf", "Constant Time Median Filtering (VapourBox: locked per-thread buffers, task #98)", VAPOURSYNTH_API_VERSION, 1, plugin);
+     registerFunc("CTMF",
+                  "clip:clip;"
+                  "radius:int:opt;"
+diff --git a/CTMF/CTMF.h b/CTMF/CTMF.h
+index a720f2b..27d0e83 100644
+--- a/CTMF/CTMF.h
++++ b/CTMF/CTMF.h
+@@ -2,6 +2,8 @@
+ 
+ #include <algorithm>
+ #include <memory>
++#include <mutex>
++#include <shared_mutex>
+ #include <thread>
+ #include <type_traits>
+ #include <unordered_map>
+@@ -23,7 +25,13 @@ struct CTMFData final {
+     bool isRadius2;
+     int stripeSize[3];
+     uint16_t bins, shift, mask, t;
++    mutable std::shared_mutex bufferMutex;
+     std::unordered_map<std::thread::id, unique_uint16> hCoarse, hFine;
++    // The calling thread's buffer, looked up under bufferMutex (task #98).
++    template<typename M> auto threadBuffer(const M & m) const {
++        std::shared_lock<std::shared_mutex> lock(bufferMutex);
++        return m.at(std::this_thread::get_id()).get();
++    }
+     void (*filter)(const VSFrameRef * src, VSFrameRef * pad, VSFrameRef * dst, const CTMFData * const VS_RESTRICT d, const VSAPI * vsapi) noexcept;
+     void (*copyPad)(const VSFrameRef * src, VSFrameRef * dst, const int plane, const VSAPI * vsapi) noexcept;
+     void (*filterRadius2)(const VSFrameRef * src, VSFrameRef * dst, const int plane, const VSAPI * vsapi) noexcept;
+diff --git a/CTMF/CTMF_AVX2.cpp b/CTMF/CTMF_AVX2.cpp
+index 2561b27..1f6caee 100644
+--- a/CTMF/CTMF_AVX2.cpp
++++ b/CTMF/CTMF_AVX2.cpp
+@@ -154,9 +154,8 @@ void ctmfHelper_avx2(const void * _srcp, void * _dstp, const CTMFData * const VS
+     auto srcp = static_cast<const pixel_t *>(_srcp);
+     auto dstp = static_cast<pixel_t *>(_dstp);
+ 
+-    const auto threadId = std::this_thread::get_id();
+-    auto hCoarse = d->hCoarse.at(threadId).get();
+-    auto hFine = d->hFine.at(threadId).get();
++    auto hCoarse = d->threadBuffer(d->hCoarse);
++    auto hFine = d->threadBuffer(d->hFine);
+ 
+     const pixel_t * p, * q;
+ 
+diff --git a/CTMF/CTMF_AVX512.cpp b/CTMF/CTMF_AVX512.cpp
+index ffcfab9..a6df5f1 100644
+--- a/CTMF/CTMF_AVX512.cpp
++++ b/CTMF/CTMF_AVX512.cpp
+@@ -154,9 +154,8 @@ void ctmfHelper_avx512(const void * _srcp, void * _dstp, const CTMFData * const
+     auto srcp = static_cast<const pixel_t *>(_srcp);
+     auto dstp = static_cast<pixel_t *>(_dstp);
+ 
+-    const auto threadId = std::this_thread::get_id();
+-    auto hCoarse = d->hCoarse.at(threadId).get();
+-    auto hFine = d->hFine.at(threadId).get();
++    auto hCoarse = d->threadBuffer(d->hCoarse);
++    auto hFine = d->threadBuffer(d->hFine);
+ 
+     const pixel_t * p, * q;
+ 
+diff --git a/CTMF/CTMF_SSE2.cpp b/CTMF/CTMF_SSE2.cpp
+index b6dbaa3..3b35d88 100644
+--- a/CTMF/CTMF_SSE2.cpp
++++ b/CTMF/CTMF_SSE2.cpp
+@@ -154,9 +154,8 @@ void ctmfHelper_sse2(const void * _srcp, void * _dstp, const CTMFData * const VS
+     auto srcp = static_cast<const pixel_t *>(_srcp);
+     auto dstp = static_cast<pixel_t *>(_dstp);
+ 
+-    const auto threadId = std::this_thread::get_id();
+-    auto hCoarse = d->hCoarse.at(threadId).get();
+-    auto hFine = d->hFine.at(threadId).get();
++    auto hCoarse = d->threadBuffer(d->hCoarse);
++    auto hFine = d->threadBuffer(d->hFine);
+ 
+     const pixel_t * p, * q;
+ 

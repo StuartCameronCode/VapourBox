@@ -804,11 +804,8 @@ if [ "$ARCH" = "arm64" ]; then
     install_name_tool -id "@loader_path/libneo-f3kdb.dylib" "$PLUGINS_DIR/libneo-f3kdb.dylib"
     codesign -s - -f "$PLUGINS_DIR/libneo-f3kdb.dylib" 2>/dev/null
 
-    # dfttest (with proper FFTW support)
-    curl -sL "$YUYGFGG_BASE/lib/libdfttest.dylib" -o "$PLUGINS_DIR/libdfttest.dylib"
-    install_name_tool -change "@rpath/libfftw3f.3.dylib" "@loader_path/../../lib/libfftw3f.3.dylib" "$PLUGINS_DIR/libdfttest.dylib"
-    install_name_tool -change "@rpath/libfftw3f_threads.3.dylib" "@loader_path/../../lib/libfftw3f_threads.3.dylib" "$PLUGINS_DIR/libdfttest.dylib"
-    codesign -s - -f "$PLUGINS_DIR/libdfttest.dylib" 2>/dev/null
+    # dfttest is not taken from here: yuygfgg's prebuilt has task #98's
+    # unlocked buffer maps. Its source (the same fork) is built below, patched.
 
     # TTempSmooth (core.ttmpsm.TTempSmooth - used by havsfunc MCTemporalDenoise)
     curl -sL "$YUYGFGG_BASE/lib/libttempsmooth.dylib" -o "$PLUGINS_DIR/libttempsmooth.dylib"
@@ -991,6 +988,25 @@ open(path, "w").write(s)
 PYEOF
     return 0
 }
+
+# Task #98: DFTTest, LGhost, CTMF, TCanny and EEDI3m keep scratch buffers per
+# worker thread in an unordered_map that upstream fills (EEDI3m r10: checks)
+# with no lock; two threads starting together abort vspipe with
+# "unordered_map::at: key not found". Each is built at a pinned commit with
+# patches/<plugin>-<ver>-thread-safety.patch, which locks the map and adds
+# TASK98_MARKER to the plugin's name: a build without it (an older run of this
+# script, a prebuilt) is replaced, and the script fails if it is missing
+# afterwards. Keep the pins in step with download-deps-linux.sh and
+# download-deps-windows.ps1. DFTTest on arm64 is yuygfgg's fork (bc5e018 + an
+# sse2neon port of the SSE2 kernels), which the bundle has always shipped
+# prebuilt: upstream's scalar path gives a different picture there.
+TASK98_MARKER="locked per-thread buffers, task #98"
+DFTTEST_COMMIT="bc5e0186a7f309556f20a8e9502f2238e39179b8"          # r7 + 2; no later tag
+DFTTEST_ARM64_COMMIT="e6f580aac37d3f8900c2a52b154ce75bf629c9bd"    # yuygfgg/VapourSynth-DFTTest
+LGHOST_TAG="r1"
+CTMF_TAG="r5"
+TCANNY_COMMIT="14ac2ceeb59afc7089974d0ae233fe8d0ea183c8"           # r14 + 1 (r14 fails on arm64)
+EEDI3_TAG="r10"                                                    # arm64 only; x86_64 ships r8
 
 build_plugin() {
     local name="$1"
@@ -1196,7 +1212,9 @@ if [ "$ARCH" = "x86_64" ]; then
     fi
     download_prebuilt_plugin "ZNEDI3"        "libznedi3.dylib"      "$STEFANOLT/xxx.abc.znedi3/3bd542a/darwin-x86_64/2026-01-10T23.47.38%2B00.00Z/ZNEDI3-3bd542a-darwin-x86_64.zip"
     download_prebuilt_plugin "EEDI3m"        "libeedi3m.dylib"      "$STEFANOLT/com.holywu.eedi3/r8/darwin-x86_64/2026-01-15T20.48.25%2B00.00Z/EEDI3m-r8-darwin-x86_64.zip"
-    download_prebuilt_plugin "DFTTest"       "libdfttest.dylib"     "$STEFANOLT/com.holywu.dfttest/git-89034df/darwin-x86_64/2024-10-09T23.03.28%2B00.00Z/DFTTest-git-89034df-darwin-x86_64.zip"
+    # DFTTest, CTMF, TCanny and LGhost are not taken from here: their builds
+    # have task #98's unlocked buffer maps. They are built from source on both
+    # arches below, after DCTFilter, patched.
     download_prebuilt_plugin "MiscFilters"   "libmiscfilters.dylib" "$STEFANOLT/com.vapoursynth.misc/git-07e0589/darwin-x86_64/2024-10-09T22.52.15%2B00.00Z/Miscfilters-git-07e0589-darwin-x86_64.zip"
     download_prebuilt_plugin "RemoveGrain"   "libremovegrain.dylib" "$STEFANOLT/com.vapoursynth.removegrainvs/git-89ca38a/darwin-x86_64/2024-10-09T22.52.26%2B00.00Z/RemoveGrain-git-89ca38a-darwin-x86_64.zip"
     download_prebuilt_plugin "AddGrain"      "libaddgrain.dylib"    "$STEFANOLT/com.holywu.addgrain/r10/darwin-x86_64/2024-09-30T20.56.34%2B00.00Z/AddGrain-r10-darwin-x86_64.zip"
@@ -1205,8 +1223,6 @@ if [ "$ARCH" = "x86_64" ]; then
     # built from source on both arches below, after FFT3DFilter.
     download_prebuilt_plugin "Deblock"       "libdeblock.dylib"     "$STEFANOLT/com.holywu.deblock/r7.1/darwin-x86_64/2026-01-06T23.51.04%2B00.00Z/Deblock-r7.1-darwin-x86_64.zip"
     download_prebuilt_plugin "AWarpSharp2"   "libawarpsharp2.dylib" "$STEFANOLT/com.nodame.awarpsharp2/v4/darwin-x86_64/2024-07-22T18.51.03Z/AWarpSharp2-v4-darwin-x86_64.zip"
-    download_prebuilt_plugin "CTMF"          "libctmf.dylib"        "$STEFANOLT/com.holywu.ctmf/r5/darwin-x86_64/2024-09-30T20.54.04%2B00.00Z/CTMF-r5-darwin-x86_64.zip"
-    download_prebuilt_plugin "TCanny"        "libtcanny.dylib"      "$STEFANOLT/com.holywu.tcanny/r14/darwin-x86_64/2024-09-30T21.00.45%2B00.00Z/TCanny-r14-darwin-x86_64.zip"
     download_prebuilt_plugin "TemporalMedian" "libtmedian.dylib"    "$STEFANOLT/com.nodame.temporalmedian/v1/darwin-x86_64/2024-09-30T21.01.26%2B00.00Z/TemporalMedian-v1-darwin-x86_64.zip"
 
     # ---- The four plugins Stefan-Olt does not ship: build from source ----
@@ -1443,22 +1459,28 @@ build_plugin "nnedi3cl" \
     "libnnedi3cl.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
-# EEDI3m (edge-directed interpolation)
-build_plugin "eedi3m" \
-    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3.git" \
-    "libeedi3m.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
-
-# DFTTest (FFT-based denoising)
-# On ARM64, we use the pre-built version from yuygfgg (downloaded above)
-if [ "$ARCH" != "arm64" ]; then
-    build_plugin "dfttest" \
-        "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest.git" \
-        "libdfttest.dylib" \
-        "meson setup build --buildtype=release && ninja -C build"
-else
-    echo "  DFTTest: using pre-built ARM64 version from yuygfgg"
+# EEDI3m (edge-directed interpolation). x86_64 takes Stefan-Olt's r8 above,
+# which locks its buffer maps correctly. arm64 builds r10, whose first count()
+# runs outside the lock, with patches/eedi3m-r10-thread-safety.patch (task
+# #98). EEDI3_TAG is set with the other task #98 pins, near the top; keep it in
+# step with download-deps-linux.sh.
+if [ "$ARCH" = "arm64" ]; then
+    if [ -f "$PLUGINS_DIR/libeedi3m.dylib" ] && ! grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/libeedi3m.dylib"; then
+        echo "  libeedi3m.dylib predates task #98's patch; rebuilding it"
+        rm -f "$PLUGINS_DIR/libeedi3m.dylib"
+    fi
+    build_plugin "eedi3m" \
+        "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3.git" \
+        "libeedi3m.dylib" \
+        "{ git apply \"$SCRIPT_DIR/patches/eedi3m-r10-thread-safety.patch\" || { echo '  ERROR: patches/eedi3m-r10-thread-safety.patch did not apply.' >&2; exit 1; }; } && meson setup build --buildtype=release && ninja -C build" \
+        "$EEDI3_TAG"
+    grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/libeedi3m.dylib" 2>/dev/null || {
+        echo "  ERROR: libeedi3m.dylib is missing or lacks task #98's patch" >&2
+        exit 1
+    }
 fi
+
+# DFTTest: built on both arches after DCTFilter, patched (task #98).
 
 # MiscFilters
 build_plugin "miscfilters" \
@@ -1531,17 +1553,7 @@ build_plugin "awarpsharp2" \
     "libawarpsharp2.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
-# CTMF (Constant Time Median Filter)
-build_plugin "ctmf" \
-    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF.git" \
-    "libctmf.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
-
-# TCanny (edge detection)
-build_plugin "tcanny" \
-    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny.git" \
-    "libtcanny.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+# CTMF and TCanny: built on both arches after DCTFilter, patched (task #98).
 
 # BM3D (core.bm3d - Noise Reduction's BM3D method; x86_64 builds it above)
 build_plugin "bm3d" \
@@ -1799,6 +1811,100 @@ if [ "$FORCE" = true ] || ! nm -gU "$PLUGINS_DIR/libdctfilter.dylib" 2>/dev/null
 else
     echo "  DCTFilter ($DCTFILTER_TAG) already exists, skipping"
 fi
+
+# DFTTest, LGhost, CTMF and TCanny (task #98), built from source on BOTH arches
+# with their thread-safety patches (pins and marker near the top). Compiled
+# directly, as FFT3DFilter and DCTFilter are, with the translation units and
+# flags each meson.build uses: on x86_64 the C/SSE2 files and VCL2's
+# instrset_detect at the baseline (-msse2) and the AVX2 / AVX-512 kernels in
+# files of their own, picked at run time, so one build serves both CPU tiers
+# (no _tierFiles entry); on arm64 the C path, plus for DFTTest the fork's
+# sse2neon SSE2 kernels with its own -Ofast. Hidden visibility, as meson builds
+# them: exported template code is merged by dyld with any other image's copy.
+FFTW_INC="$(brew --prefix fftw)/include"
+build_task98_plugin() {  # <Dir> <repo> <ref> <patch> <out dylib> <arm64 sources> <arm64 flags> [libs...]
+    local dir="$1" repo="$2" ref="$3" patch="$4" out="$5" arm_sources="$6" arm_flags="$7"
+    shift 7
+    local libs=("$@")
+    cd "$BUILD_DIR"
+    if [ "$FORCE" = false ] && grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/$out" 2>/dev/null; then
+        echo "  $dir (patched, task #98) already exists, skipping"
+        return 0
+    fi
+    echo ""
+    echo "=== Building $dir ($ref, patched for task #98) ==="
+    local src="$BUILD_DIR/task98-$dir"
+    rm -rf "$src" "$PLUGINS_DIR/$out"
+    if ! { git clone -q "$repo" "$src" && git -C "$src" checkout -q "$ref"; }; then
+        echo "  ERROR: could not fetch $dir at $ref" >&2
+        exit 1
+    fi
+    (cd "$src" && git apply "$SCRIPT_DIR/patches/$patch") || {
+        echo "  ERROR: patches/$patch did not apply to $dir $ref - re-check the patch." >&2
+        exit 1
+    }
+    local upper
+    upper=$(echo "$dir" | tr '[:lower:]' '[:upper:]')
+    local cxx=(c++ -std=c++17 -O3 -fPIC -fvisibility=hidden -fno-math-errno -fno-trapping-math
+               -Wno-deprecated-declarations -I"$VS_INC_DIR" -I"$FFTW_INC")
+    local objs=() unit
+    mkdir -p "$src/obj"
+    compile() {  # <source under $dir/> <flags...>
+        local file="$1"; shift
+        local obj="$src/obj/$(echo "$file" | tr '/' '_').o"
+        "${cxx[@]}" "$@" -c "$src/$dir/$file" -o "$obj" || {
+            echo "  ERROR: compiling $dir/$file failed" >&2
+            exit 1
+        }
+        objs+=("$obj")
+    }
+    if [ "$ARCH" = "x86_64" ]; then
+        for unit in "$dir.cpp" "${dir}_SSE2.cpp" VCL2/instrset_detect.cpp; do
+            compile "$unit" "-D${upper}_X86" -mfpmath=sse -msse2
+        done
+        compile "${dir}_AVX2.cpp" "-D${upper}_X86" -mfpmath=sse -mavx2 -mfma
+        compile "${dir}_AVX512.cpp" "-D${upper}_X86" -mfpmath=sse \
+            -mavx512f -mavx512vl -mavx512bw -mavx512dq -mfma
+    else
+        for unit in $arm_sources; do
+            # shellcheck disable=SC2086 # arm_flags is a word list
+            compile "$unit" $arm_flags
+        done
+    fi
+    c++ -dynamiclib "${objs[@]}" ${libs[@]+"${libs[@]}"} \
+        -install_name "@loader_path/$out" -headerpad_max_install_names \
+        -o "$PLUGINS_DIR/$out" || {
+        echo "  ERROR: linking $out failed" >&2
+        exit 1
+    }
+    for ref in $(otool -L "$PLUGINS_DIR/$out" | awk 'NR > 1 && /libfftw3f/ {print $1}'); do
+        install_name_tool -change "$ref" "@loader_path/../../lib/$(basename "$ref")" "$PLUGINS_DIR/$out"
+    done
+    codesign -s - -f "$PLUGINS_DIR/$out" 2>/dev/null || true
+    grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/$out" || {
+        echo "  ERROR: $out lacks the task #98 marker" >&2
+        exit 1
+    }
+    echo "  Built $dir -> $out"
+    BUILT_PLUGINS+=("$(echo "$dir" | tr '[:upper:]' '[:lower:]')")
+}
+
+if [ "$ARCH" = "arm64" ]; then
+    build_task98_plugin DFTTest https://github.com/yuygfgg/VapourSynth-DFTTest.git \
+        "$DFTTEST_ARM64_COMMIT" dfttest-bc5e018-thread-safety.patch libdfttest.dylib \
+        "DFTTest.cpp DFTTest_SSE2.cpp VCL2/instrset_detect.cpp" "-Ofast -ftree-vectorize" \
+        "$LIB_DIR/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
+else
+    build_task98_plugin DFTTest https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest.git \
+        "$DFTTEST_COMMIT" dfttest-bc5e018-thread-safety.patch libdfttest.dylib "" "" \
+        "$LIB_DIR/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
+fi
+build_task98_plugin LGhost https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost.git \
+    "$LGHOST_TAG" lghost-r1-thread-safety.patch liblghost.dylib "LGhost.cpp" ""
+build_task98_plugin CTMF https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF.git \
+    "$CTMF_TAG" ctmf-r5-thread-safety.patch libctmf.dylib "CTMF.cpp" ""
+build_task98_plugin TCanny https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny.git \
+    "$TCANNY_COMMIT" tcanny-14ac2ce-thread-safety.patch libtcanny.dylib "TCanny.cpp" ""
 
 # The three plugins below sit outside the arch split above, on BOTH arches.
 # They started inside its arm64 branch, where x64 never reached them and the
@@ -2223,18 +2329,9 @@ else
 fi
 
 # LGhost (core.lghost.LGhost) — luminance-ghost / edge-ghost (ringing)
-# reduction, the classic fix for RF and long-cable analogue captures. Pinned to
-# r1, the only tag upstream has published. Taken pre-built from
-# Stefan-Olt/vs-plugin-build on both arches: its meson build compiles a stack of
-# x86 SIMD translation units through VCL2, which is dead weight here, and both
-# published dylibs link nothing outside /usr/lib.
-if [ "$ARCH" = "arm64" ]; then
-    LGHOST_URL="$STEFANOLT/com.holywu.lghost/r1/darwin-aarch64/2024-09-30T20.54.34%2B00.00Z/LGhost-r1-darwin-aarch64.zip"
-else
-    LGHOST_URL="$STEFANOLT/com.holywu.lghost/r1/darwin-x86_64/2024-09-30T20.57.30%2B00.00Z/LGhost-r1-darwin-x86_64.zip"
-fi
-echo ""
-download_prebuilt_plugin "LGhost" "liblghost.dylib" "$LGHOST_URL"
+# reduction, the classic fix for RF and long-cable analogue captures: built on
+# both arches after DCTFilter, patched (task #98). Stefan-Olt's prebuilts,
+# taken here before, have the unlocked buffer map.
 
 # ============================================================================
 # akarin — LLVM JIT for std.Expr (arm64 only)

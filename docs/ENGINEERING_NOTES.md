@@ -5956,9 +5956,10 @@ herring.
   stays `FFTW_PATIENT` (the user's decision): one picture across processes
   on arm64 and on the x64 bundle under Rosetta; Windows and Linux runners not
   measured yet.
-- **Same class elsewhere:** DFTTest (every bundled version, HEAD included)
-  and LGhost r1 keep the same unlocked maps (task #98), a likely cause of the
-  nightly "knlmeanscl denoiser never crashes" `std::out_of_range` flake.
+- **Same class elsewhere:** DFTTest, LGhost, CTMF and TCanny (every
+  bundled build) and EEDI3m r10 keep the same kind of map; task #98 patches
+  them (next entry). DFTTest's is the nightly "knlmeanscl denoiser never
+  crashes" `std::out_of_range` flake.
 - The worker's 0xC0000409 text now says "vspipe or a plugin aborted (an
   uncaught C++ exception, or memory corruption it detected)".
 
@@ -6160,3 +6161,44 @@ Report: [docs/reports/task-91-sweep-ai-encode-budget](reports/task-91-sweep-ai-e
   its last line; converting to 4:4:4 first moved the whole picture ~1.4 levels.
 
 Report: [docs/reports/task-97-off-grid-sources](reports/task-97-off-grid-sources/index.html).
+
+### DFTTest, LGhost, CTMF, TCanny, EEDI3m r10: unlocked per-thread buffer maps (task #98, 2026-11-22)
+
+Task #96's DCTFilter race, in five more plugins. Each keeps scratch buffers
+per worker thread in `unordered_map<std::thread::id, …>` members and fills
+them from `getFrame` with no lock (EEDI3m r9.1+: only its first `count()`
+is unlocked); the kernels' `.at()` then throws inside `noexcept` code and
+vspipe aborts (`unordered_map::at: key not found`, 0xC0000409 on Windows).
+
+- **Audit:** `nm -C` over the macOS arm64 bundle for
+  `unordered_map<std::__1::__thread_id`, and every plugin repo's source at
+  its shipped tag and HEAD. BM3D r12 locks its map correctly; twelve others
+  keep no per-thread state. TCanny's race is task #52's (templates still
+  never call it); CTMF and EEDI3m were new.
+- **Measured** on an M1, 8 threads, against the published 1.18.0-rc2 macOS
+  arm64 bundle: one graph of 1000 spliced instances aborted in 14/20 runs (DFTTest), 20/20 (LGhost), 18/20 (CTMF radius 3), 20/20 (TCanny), 0/10 (EEDI3m, not reproduced); one instance in a fresh vspipe in 5/200 (DFTTest), 8/200 (CTMF), 2/200 (TCanny). Patched (a copy of that bundle with the five
+  rebuilt by the deps script's own code): no abort in any run (40 graphs each, 200 single runs each). Output
+  identical, sample for sample, on arm64 and on the macOS x64 bundle under
+  Rosetta.
+- **CI:** the nightly "knlmeanscl denoiser never crashes" failures on
+  linux-x64-v2 (11-03, 11-09) are DFTTest: with no OpenCL device QTGMC's
+  denoiser falls back to it (inferred from the graph; no backtrace). The
+  memory note that blamed the CPU OpenCL runtime was wrong.
+- **Fix:** our own patches (no upstream release fixes any of them), made by
+  `make_patches.py`: lookups under a shared lock, the insert under a unique
+  lock, a marker in the plugin's name. Not upstream DCTFilter's buffer per
+  call: DFTTest's buffer is a whole float plane and CTMF's up to 16 MB a
+  thread. Pins: DFTTest bc5e018 (macOS arm64 yuygfgg's fork e6f580a, whose
+  sse2neon kernels give that platform's existing picture), LGhost r1, CTMF
+  r5, TCanny 14ac2ce (r14 fails every frame on arm64: 4-byte alignment for
+  `aligned_alloc`), EEDI3m r10 (arm64, Linux).
+- **Traps found on the way:** zig's `-mcpu` list needs `evex512` beside
+  `avx512f` (found by running the Windows recipe locally); a macOS test
+  build without hidden visibility, loaded beside the bundle's DFTTest,
+  crashed in the bundle's `unordered_map::find` (dyld merges exported
+  template code); the reference bundle vanished mid-run with another task's
+  worktree, so the numbers are against the published rc2 zip.
+- **Not this change:** DFTTest's output depends on the process (its
+  `FFTW_PATIENT` planning), with the old and new builds alike: task #101.
+
+Report: [docs/reports/task-98-per-thread-buffer-maps](reports/task-98-per-thread-buffer-maps/index.html).
