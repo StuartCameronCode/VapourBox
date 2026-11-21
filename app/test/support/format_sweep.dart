@@ -741,7 +741,11 @@ enum GeometryKind { rotation, crop, edgeRepairInterior, bordersInside }
 const deltaOnly = <String, DeltaOnly>{
   'descratch': WorkDepth(8, 'DeScratch is 8-bit only; task #34'),
   'chroma_fixes/applyDedot=true': WorkDepth(8, 'dedot.Dedot is 8-bit only; task #37'),
-  'chroma_fixes/applyBifrost=true': WorkDepth(8, 'bifrost is 8-bit only; task #37'),
+  // Not a WorkDepth since Bifrost v4.0 (task #60), which runs at every depth:
+  // a native 10-bit run changes a different set of samples from an 8-bit one
+  // (task #87). What it promises is that luma is never touched.
+  'chroma_fixes/applyBifrost=true':
+      UntouchedPlanes([0], 'Bifrost changes chroma only; v4.0 runs at every depth, task #60'),
   'chroma_fixes/applyDeCrawl=true': WorkDepth(10, 'LUTDeCrawl caps at 10-bit; task #37'),
   'chroma_fixes/applyDeRainbow=true':
       WorkDepth(10, 'LUTDeRainbow caps at 10-bit; task #37'),

@@ -217,6 +217,32 @@ try:
 except vs.Error:
     pass
 
+# run_within (task #87): a depth change alone converts without _FieldBased
+# and pads nothing, so on a field-flagged 4:2:0 frame 2 mod 4 high the
+# plugin sees the real rows, flag kept, and its change is the native 8-bit
+# run's (shifted); a subsampling change still pads to whole field chroma rows.
+short8 = core.resize.Bicubic(base, 160, 122, format=vs.YUV420P8)
+for fb in (0, 2):
+    c8 = core.std.SetFieldBased(short8, fb)
+    c16 = core.std.CopyFrameProps(core.std.Expr(c8, 'x 256 *', format=vs.YUV420P16), c8)
+    # Every graph run_within builds (pad_around builds both paths while the
+    # flag is unknown), with the height and flag fn was handed.
+    seen = []
+    def look(x):
+        seen.append((x.height, x.get_frame(0).props.get('_FieldBased')))
+        return x
+    out = run_within(c16, 'dedot.Dedot', look)
+    name = '160x122 420p16 f%d' % fb
+    check(seen == [(122, fb)], name + ': a depth change built %s, not only the real 122 rows' % seen)
+    check(same(out, c16), name + ': a no-op fn did not give the source back')
+    check(out.get_frame(0).props.get('_FieldBased') == fb, name + ': _FieldBased lost')
+    native = core.std.Expr(run_within(c8, 'dedot.Dedot', invert_top), 'x 256 *', format=vs.YUV420P16)
+    check(same(run_within(c16, 'dedot.Dedot', invert_top), native),
+          name + ': the change differs from the native 8-bit run\'s')
+    built = []
+    run_within(c16, 'probe.Ss422', lambda x: built.append(x.height) or x).get_frame(0)
+    check(124 in built, name + ': a subsampling change built no padded path (%s)' % built)
+
 # pad_around (task #57): a 4:2:0 frame 2 mod 4 high, field-flagged and not.
 def rows_equal(c, plane, a, b):
     g = core.std.ShufflePlanes(c, plane, vs.GRAY)

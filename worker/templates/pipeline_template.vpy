@@ -524,29 +524,40 @@ else:
 # Bwdif — the fast tier. Roughly 4-5x QTGMC Fast on the same clip, for long
 # captures where QTGMC's hours are not justified.
 #
-# Two things measured against the bundled plugin, both negative results and both
-# the point:
-#   * No format limits at all — 8/9/10/12/16-bit, 4:2:0/4:2:2/4:4:4, GRAY, RGB
-#     and even 4:1:1 all pass. Unique among recent additions; no guard needed.
-#     NNEDI3 as its edeint does have one (znedi3 on x86 refuses a 4:2:0 frame
-#     2 mod 4 high): _nnedi3() pads it (task #81).
+# Measured against the bundled plugin:
+#   * It refuses no format: 8/9/10/12/16-bit, 4:2:0/4:2:2/4:4:4, GRAY, RGB
+#     and even 4:1:1 all pass. NNEDI3 as its edeint does refuse one (znedi3
+#     on x86 refuses a 4:2:0 frame 2 mod 4 high): _nnedi3() pads it (task #81).
 #   * No _FieldBased sensitivity. field=1 and field=3 both work with the
 #     property absent, 0, 1 or 2, so it does NOT repeat the znedi3 trap that
 #     cost two nightly cycles.
+#   * But on a plane with an odd number of rows (the chroma of a 4:2:0 frame
+#     2 mod 4 high, 720x486) it never writes the last row, and raises
+#     nothing: the row keeps whatever the frame buffer held, so the bottom
+#     chroma row was garbage and changed from run to run (task #87). So it
+#     runs on a frame padded to whole field chroma rows (each field's own
+#     last row repeated) and is cropped back; a frame that fits gets no
+#     padding, so its output is unchanged. Not field_based_only: Bwdif splits
+#     by `field`, not by the flag. The padded frame fits _nnedi3() too.
 #
 # `field` is required, not optional: 0/1 keep the bottom/top field (single
 # rate), 2/3 double the rate. The parity half comes from the same field-order
 # derivation QTGMC uses, so the two methods cannot disagree about it.
+def _deint_bwdif(clip):
 {{#DEINT_BWDIF_EDEINT}}
-# An external interpolator. Bwdif accepts one directly, which is why Yadifmod
-# is not a separate method: measured, Bwdif+nnedi3 (0.524) beats Yadifmod+nnedi3
-# (0.532) at the same cost. EEDI3 here is 11x slower for no gain.
-_bwdif_edi = _nnedi3(clip, field={{BWDIF_FIELD}}, dh=False)
-clip = core.bwdif.Bwdif(clip, field={{BWDIF_FIELD}}, edeint=_bwdif_edi)
+    # An external interpolator. Bwdif accepts one directly, which is why
+    # Yadifmod is not a separate method: measured, Bwdif+nnedi3 (0.524) beats
+    # Yadifmod+nnedi3 (0.532) at the same cost. EEDI3 here is 11x slower for
+    # no gain.
+    _bwdif_edi = _nnedi3(clip, field={{BWDIF_FIELD}}, dh=False)
+    return core.bwdif.Bwdif(clip, field={{BWDIF_FIELD}}, edeint=_bwdif_edi)
 {{/DEINT_BWDIF_EDEINT}}
 {{#DEINT_BWDIF_PLAIN}}
-clip = core.bwdif.Bwdif(clip, field={{BWDIF_FIELD}})
+    return core.bwdif.Bwdif(clip, field={{BWDIF_FIELD}})
 {{/DEINT_BWDIF_PLAIN}}
+
+
+clip = _pf.pad_around(clip, _deint_bwdif, height_step=_pf.CHROMA, label='Deinterlace')
 {{/DEINT_BWDIF}}
 {{#DEINT_IVTC}}
 # IVTC: Inverse Telecine (VFM field matching + VDecimate)
@@ -1944,8 +1955,15 @@ _chroma_v = _shift_v / (1 << _sub_h) if _sub_h > 0 else _shift_v
 _y = core.std.ShufflePlanes(clip, 0, vs.GRAY)
 _u = core.std.ShufflePlanes(clip, 1, vs.GRAY)
 _v = core.std.ShufflePlanes(clip, 2, vs.GRAY)
-_u = core.resize.Spline36(_u, src_left=_chroma_h, src_top=_chroma_v)
-_v = core.resize.Spline36(_v, src_left=_chroma_h, src_top=_chroma_v)
+# A field-flagged plane is resized per field, and zimg leaves the last row of
+# a plane with an odd number of rows unwritten, raising nothing (the chroma of
+# a 4:2:0 frame 2 mod 4 high, 720x486: task #87). So each plane is padded to
+# whole rows per field (2 GRAY rows: each field's own last row) and cropped
+# back; a progressive frame or one that fits is resized as before.
+_u = _pf.pad_around(_u, lambda c: core.resize.Spline36(c, src_left=_chroma_h, src_top=_chroma_v),
+                    height_step=2, field_based_only=True, label='Chroma Shift')
+_v = _pf.pad_around(_v, lambda c: core.resize.Spline36(c, src_left=_chroma_h, src_top=_chroma_v),
+                    height_step=2, field_based_only=True, label='Chroma Shift')
 clip = core.std.ShufflePlanes([_y, _u, _v], [0, 0, 0], vs.YUV)
 {{/CHROMA_SHIFT}}
 
@@ -3114,10 +3132,17 @@ if clip.format.id != target_format:
 # passes after it work at, 16 by default -- so it is brought back here, dithered
 # like the conversion above. Depth only: a pass that adds colour to a grey source
 # (Colourisation) keeps it. A no-op when nothing changed the depth.
+#
+# Padded like the conversion above (task #87): error diffusion runs per field,
+# so the flag stays, and zimg refuses a field-flagged 4:2:0 frame 2 mod 4 high
+# (720x486) with "Resize error 1027", even for a depth change.
 if (clip.format.bits_per_sample, clip.format.sample_type) != (_source_format.bits_per_sample, _source_format.sample_type):
-    clip = core.resize.Bicubic(clip, format=clip.format.replace(
+    _restore_format = clip.format.replace(
         bits_per_sample=_source_format.bits_per_sample,
-        sample_type=_source_format.sample_type).id, dither_type="error_diffusion")
+        sample_type=_source_format.sample_type).id
+    clip = _pf.pad_around(
+        clip, lambda c: core.resize.Bicubic(c, format=_restore_format, dither_type="error_diffusion"),
+        height_step=2 << clip.format.subsampling_h, field_based_only=True, label='Color Format')
 {{/DEPTH_RESTORE}}
 
 # ============================================================================

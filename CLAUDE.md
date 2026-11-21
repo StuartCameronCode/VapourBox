@@ -1671,9 +1671,20 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    `field_based_only` a progressive frame takes the unpadded path, chosen per
    frame, so jobs that ran before keep their output exactly (padding LSFmod
    every time moved it 26 levels: it supersamples at a size that follows
-   the height). `run_within()` pads whatever it converts. test_258 fails on
-   a `SeparateFields` outside `pad_around`/`run_within`; the format sweep
-   runs a 96x66 row. **znedi3 (x86) refuses an odd plane at graph build,
+   the height). `run_within()` pads a subsampling change; a depth change
+   alone it converts without the flag (undithered, so per sample) and pads
+   nothing, so the plugin sees the real 486 rows as at its native depth
+   (task #87). test_258 fails on a `SeparateFields` outside
+   `pad_around`/`run_within`; the format sweep runs a 96x66 row.
+   **Two cases raise no error at all** (task #87): zimg resizing a
+   field-flagged plane to an odd number of rows (a GRAY chroma plane of that
+   frame shifted, or LUTDeRainbow's luma scaled to the chroma size), and
+   Bwdif on such a plane, leave the **last row unwritten**: it holds whatever
+   the frame buffer held, so the result changes run to run. They are padded
+   too (Bwdif, Chroma Shift, Auto Chroma, the `havsfunc.LUTDeRainbow`
+   contract; test_267). A sweep "runs" row can't see this; only parity or
+   bit-exactness can, and only when the memory differs: reproduce with
+   `MallocScribble=1 MallocPreScribble=1` (macOS). **znedi3 (x86) refuses an odd plane at graph build,
    field flag or not, unless `dh=True`**, so `_nnedi3()` runs every call
    without `dh` through `run_within(..., 'nnedi3.nnedi3', ...)`, and daa
    (havsfunc's own nnedi3) through `'havsfunc.daa'` (task #81: Bwdif with

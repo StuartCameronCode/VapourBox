@@ -46,6 +46,7 @@ shapes from one exported file.
 import numpy as np
 
 import ai_runtime
+import plugin_formats
 
 MODELS = ("ddcolor", "deoldify")
 
@@ -264,7 +265,13 @@ def colorize(
     s = "%.6f" % strength
     yuv = _expr(yuv, ["", "x %s *" % s, "x %s *" % s])
     yuv = core.std.ShufflePlanes([yf, yuv, yuv], [0, 1, 2], vs.YUV)
-    out = core.resize.Bicubic(yuv, format=fmt.id, range_s=color_range, dither_type="error_diffusion",
-                              **ai_runtime.zimg_args(matrix, "both"))
+    # yuv carries the luma's _FieldBased, so zimg converts it per field and
+    # refuses a 4:2:0 frame 2 mod 4 high (720x486: "Resize error 1027"). It is
+    # padded to whole field chroma rows of the target; yuv is 4:4:4, so the
+    # step is in luma rows (task #87). A frame that fits gets no padding.
+    out = plugin_formats.pad_around(
+        yuv, lambda c: core.resize.Bicubic(c, format=fmt.id, range_s=color_range, dither_type="error_diffusion",
+                                           **ai_runtime.zimg_args(matrix, "both")),
+        height_step=2 << fmt.subsampling_h, field_based_only=True, label="Colourisation")
     out = core.std.ShufflePlanes([clip, out, out], [0, 1, 2], vs.YUV)
     return core.std.CopyFrameProps(out, clip)
