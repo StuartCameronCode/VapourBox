@@ -13,7 +13,7 @@ then throws std::out_of_range inside a noexcept function: std::terminate, so
 vspipe aborts ("unordered_map::at: key not found"; on Windows the UCRT's abort
 is a fail-fast, exit 0xC0000409). Measured on an M1 with 8 threads: one graph
 of 1000 instances aborted in 14 of 20 runs, one instance in a fresh vspipe in
-5 of 200; with the patch, none in 20 and 200. Upstream issue #12 (2021)
+5 of 200; with the patch, none in 40 and 200. Upstream issue #12 (2021)
 reported this abort and was closed unreproduced. QTGMC's dfttest denoiser (and
 its knlmeanscl fallback), SMDegrain's and MCTemporalDenoise's prefilters and
 TemporalDegrain2 reach it.

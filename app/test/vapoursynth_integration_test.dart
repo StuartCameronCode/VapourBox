@@ -971,7 +971,7 @@ core.std.BlankClip().set_output()''';
     // Each instance has its own maps, so the race fires on an instance's
     // first frames: one graph of 1000 instances spliced end to end starts many
     // of them under contention. Unpatched, on an M1: DFTTest aborted in 14 of
-    // 20 such graphs, LGhost 17 of 20, CTMF (radius 3) 19 of 20, TCanny 20 of
+    // 20 such graphs, LGhost 20 of 20, CTMF (radius 3) 18 of 20, TCanny 20 of
     // 20; patched, none in 40 each. havsfunc's MinBlur(r=3), which CTMF's
     // radius-3 kernel serves, runs the same way.
     test('DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances '

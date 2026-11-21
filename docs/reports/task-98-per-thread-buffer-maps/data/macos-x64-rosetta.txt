@@ -1,0 +1,14 @@
+dfttest  old      bf13e867ccc48fb9f91babddf9f0a247 
+dfttest  patched  bf13e867ccc48fb9f91babddf9f0a247 
+lghost   old      ebeb3a92f8845fa883b9bdd58c2dae4b 
+lghost   patched  ebeb3a92f8845fa883b9bdd58c2dae4b 
+ctmf     old      00ef573d7fd443069455c53defae8ec2 
+ctmf     patched  00ef573d7fd443069455c53defae8ec2 
+tcanny   old      ded94525358aea07112961b87eb728ec 
+tcanny   patched  ded94525358aea07112961b87eb728ec 
+# DFTTest, 10 fresh processes per build (aborts listed and repeated): count, md5
+old    1 aborted
+old    4 b6c9f5cbedc66f631f4551abe347f8d2
+old    6 bf13e867ccc48fb9f91babddf9f0a247
+patched    2 b6c9f5cbedc66f631f4551abe347f8d2
+patched    8 bf13e867ccc48fb9f91babddf9f0a247
