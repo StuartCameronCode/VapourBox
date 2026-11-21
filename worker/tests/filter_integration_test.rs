@@ -10324,10 +10324,10 @@ fn test_264_yuv_rgb_conversions_name_the_whole_colour_space() {
 /// another's script (vspipe: "File reading exception", a torn script, or the
 /// wrong picture). With a scratch directory each preview's files are its own.
 #[test]
-fn test_263_preview_files_go_in_the_previews_own_scratch_directory() {
+fn test_265_preview_files_go_in_the_previews_own_scratch_directory() {
     create_output_dir();
-    let factors = write_factor_file("test_263_factors", "1.001\n0.999\n");
-    let mut job = stabilize_job("test_263_preview_scratch", StabilizeParameters {
+    let factors = write_factor_file("test_265_factors", "1.001\n0.999\n");
+    let mut job = stabilize_job("test_265_preview_scratch", StabilizeParameters {
         enabled: true,
         weave: false,
         pitch_mode: PitchMode::File,
