@@ -3821,6 +3821,11 @@ Deblock_QED calls it), at any frame size; the format sweep is what saw it.
   bundle's FFTW (x64 at 12.0: PyPI's wheel needs 15.0). Never a prebuilt,
   never r2/r2.1. Same output as r2, sample for sample. Planning stays
   upstream's `FFTW_PATIENT`.
+- **On Windows, `libfftw3f-3.dll` must sit in `vs-plugins\`** (task #90):
+  a plugin finds its DLLs only in its own directory, not `vapoursynth\`.
+  r2's 7z used to put it there; with the source build, section 4b of
+  `download-deps-windows.ps1` installs it and fails the build without it.
+  Missing, DCTFilter, DFTTest and FFT3DFilter all fail to load (error 126).
 - `vapoursynth_integration_test.dart`'s `dctfilter thread safety` group
   checks the bundle's DCTFilter is ≥ 3.2 and that the patch and scripts are
   in place (push gate), and runs 10 graphs of 1000 instances and 3 of 300

@@ -8,7 +8,7 @@
     - Python 3.12 embeddable (hosts the wheel and VSScript)
     - FFmpeg (latest GPL build)
     - VapourSynth plugins (mvtools, nnedi3cl, znedi3, eedi3m, fmtconv, miscfilters, dfttest, neo_f3kdb, cas, fft3dfilter, descratch, temporalmedian)
-    - FFTW library (required by dfttest)
+    - FFTW library (required by dfttest, fft3dfilter, dctfilter; installed into vs-plugins\)
     - Python packages (havsfunc, mvsfunc, adjust)
     - NNEDI3 weights
     - Patches havsfunc for API compatibility (mvtools, DFTTest, YCOCG, EEDI3CL fallback, ...)
