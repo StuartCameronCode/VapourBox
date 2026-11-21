@@ -6094,7 +6094,8 @@ the chroma grid. The before frame tone-maps the full stored frame; it fails
 only on a source stored off the chroma grid (odd-height or odd-width 4:2:0,
 odd-width 4:2:2, from FFV1/rawvideo/Y4M), which VapourSynth refuses outright
 (`BlankClip: invalid height`), so no preview or encode of it works either:
-task #97.
+task #97. (Since fixed by task #97, below: the before frame crops to the grid
+below before the tone map.)
 
 `hdr_thumbnail_test.dart` (push gate) pins the arguments and runs them through
 the bundled ffmpeg on 96x40 and 72x48 4:2:0 PQ/HLG sources, checking that
