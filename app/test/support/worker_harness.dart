@@ -746,14 +746,15 @@ class WorkerHarness {
     return (y: tag('YAVG'), u: tag('UAVG'), v: tag('VAVG'));
   }
 
+  /// Counts [runPreview] calls, so each gets its own config file (task #93).
+  static int _previewCalls = 0;
+
   /// Run the worker in `--preview` mode and return the PNG bytes it writes to
   /// stdout, or a failure with the worker's stderr.
   ///
   /// The preview path is a separate script + separate ffmpeg invocation from the
   /// encode path, so a filter can render fine and still fail the preview (or
   /// vice versa). Anything asserted about one should be asserted about both.
-  static int _previewCalls = 0;
-
   static Future<PreviewResult> runPreview(
     Map<String, dynamic> jobJson, {
     required int frame,

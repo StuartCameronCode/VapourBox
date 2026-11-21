@@ -1795,13 +1795,14 @@ impl PipelineExecutor {
         // ScriptGenerator::field_based_for) so the preview and the encode can
         // never disagree about it — issue #49.
 
-        // FPS as rational
         // Every file this preview writes (its script, pitch factors, the
         // decoded frames) goes in a directory of its own, removed when it
         // drops, on every exit path. Named by `job.id` alone they were shared
         // by every preview of that job running at once, which deleted and
         // rewrote each other's script and frames (task #93).
         let scratch = PreviewScratch::new(&job.id.to_string())?;
+
+        // FPS as rational
         let script_generator = ScriptGenerator::new()?
             .with_opencl_available(self.deps.opencl_available())
             .with_knlm_available(self.deps.knlm_available())
