@@ -6100,3 +6100,27 @@ task #97.
 the bundled ffmpeg on 96x40 and 72x48 4:2:0 PQ/HLG sources, checking that
 `-1` still fails there (so the fixture keeps proving the bug) and SDR keeps
 its odd height.
+
+### The format sweep's AI-model encodes cover 10 frames (task #91, 2026-11-22)
+
+Report: [docs/reports/task-91-sweep-ai-encode-budget](reports/task-91-sweep-ai-encode-budget/index.html).
+
+- **The fault.** On macOS x64 the sweep's delta-only check (an FFV1 encode of
+  30 frames whose untouched samples must be bit-exact) timed out at the 300 s
+  job budget on most Colourisation rows and a CodeFormer row, every nightly
+  (run 44562921675: five DDColor rows took 847 s, four timed out). Most of it
+  was Core ML's start-up, paid by every vspipe process; task #94 moved Intel
+  Macs to the CPU, which also removes the user-visible stall.
+- **What #94 left.** On its verification run every add-on variant passed
+  except DeOldify on the v3 leg (four timeouts; v2 passed at ~150-190 s a
+  row): ~3.3 s a frame on the CPU, two rows at once on 4 vCPUs, each ONNX
+  Runtime session wanting every core.
+- **Fix, test only.** An add-on variant's delta-only encode keeps the
+  fixture's first `sweepAddonEncodeFrames` (10) frames, a trim from frame 0
+  (no seek), and the comparison takes the same frames: both temporal edges
+  (DDColor reads two frames either side, Face Restoration's landmarks two)
+  and some full windows. Every other variant still encodes 30. Not a longer
+  timeout (CI minutes for no coverage) and not a forced CPU (arm64 would
+  stop running the Core ML path users run). If 10 frames is ever not enough,
+  run the add-on encodes one at a time before raising the budget: it is per
+  process.

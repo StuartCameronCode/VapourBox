@@ -556,6 +556,16 @@ const sweepFpsNum = 30000;
 const sweepFpsDen = 1001;
 const sweepPreviewFrame = 15;
 
+/// Frames a delta-only encode of an add-on (AI-model) variant covers: the
+/// first 10, not [sweepFrames] (task #91). Its check is that the samples the
+/// pass promises to leave alone are bit-exact, which needs both temporal
+/// edges (DDColor reads two frames either side, Face Restoration's landmarks
+/// two) and some full windows, not 30 frames. On the macOS x64 runners (4
+/// vCPUs, the models on ONNX Runtime's CPU since task #94) DeOldify costs
+/// ~3.3 s a frame and two rows encode at once, so its 30-frame encodes ran
+/// past the 300 s job budget (docs/reports/task-91-sweep-ai-encode-budget).
+const sweepAddonEncodeFrames = 10;
+
 /// One source the sweep runs a variant on.
 class SweepRow {
   const SweepRow(this.format, this.field, this.size);
@@ -1047,8 +1057,12 @@ Future<String> _makeFixture(SweepRow row) async {
 /// and VapourSynth's cache capped — every concurrent vspipe otherwise sizes
 /// its cache from the machine's memory, which took a 1.4 s SD preview to
 /// 26.5 s at 7 in parallel.
+///
+/// [frames] (an encode only) keeps the fixture's first [frames] frames, as a
+/// trim from frame 0, which never seeks.
 VideoJob sweepJob(ProcessingPipeline pipeline, SweepRow row, String fixture,
-    {String? outputPath}) {
+    {String? outputPath, int? frames}) {
+  final window = frames != null && frames < sweepFrames ? frames : null;
   // The app stamps the detected field order on Deinterlace when it builds a
   // job (PreviewGenerator, MainViewModel); QTGMC refuses a job without it.
   pipeline = pipeline.copyWith(
@@ -1068,7 +1082,8 @@ VideoJob sweepJob(ProcessingPipeline pipeline, SweepRow row, String fixture,
       maxCacheSizeMb: 512,
     ),
     detectedFieldOrder: row.field.fieldOrder,
-    totalFrames: sweepFrames,
+    totalFrames: window ?? sweepFrames,
+    endFrame: window == null ? null : window - 1,
     inputFrameRate: sweepFpsNum / sweepFpsDen,
     inputWidth: row.size.width,
     inputHeight: row.size.height,
