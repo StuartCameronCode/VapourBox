@@ -306,8 +306,9 @@ class WorkerManager implements JobRunner {
 
   /// Find the resolution and kernel [job]'s video was upscaled from
   /// (`--detect-native`). Decodes a few frames and tries every height and the
-  /// common kernels, so it takes tens of seconds on HD. Never throws: a failure
-  /// comes back as [NativeResReport.failed].
+  /// common kernels, so it takes from about half a minute (an 8+ core Apple
+  /// Silicon Mac) to several minutes (a 4-core Intel Mac) on 1080p. Never
+  /// throws: a failure comes back as [NativeResReport.failed].
   static Future<NativeResReport> detectNativeResolution(VideoJob job) async {
     final toolLocator = ToolLocator.instance;
     final workerPath = toolLocator.workerPath;

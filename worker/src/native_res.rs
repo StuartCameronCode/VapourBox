@@ -23,7 +23,9 @@
 //! dip vanished (docs/reports/2026-11-reserved-colour-tags, addendum).
 
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -35,6 +37,13 @@ use crate::source_decode;
 
 /// Marker for the analysis script's one result line on stderr.
 const RESULT_MARKER: &str = "NATIVE_RES_RESULT:";
+
+/// Marker for the analysis script's progress lines on stderr: one per scan
+/// kernel and one for the ranking, each with its time. `detect` passes them
+/// on to the worker's own stderr as they arrive, so a detect that runs long
+/// says how far it got (task #95: 134-397 s on a 4-core Intel Mac, and once
+/// past a 10-minute test budget with nothing to show where).
+const STAGE_MARKER: &str = "NATIVE_RES_STAGE:";
 
 /// What the detection found.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -130,7 +139,7 @@ pub fn luma_gray16(bytes: &[u8], width: usize, height: usize, depth: u32, full_r
 fn analysis_script(paths: &[String], width: i32, height: i32) -> String {
     let paths = paths.iter().map(|p| crate::gpu_plugin::py_str(std::path::Path::new(p))).collect::<Vec<_>>().join(", ");
     format!(
-        r#"import json, sys, ctypes
+        r#"import json, sys, ctypes, time
 import vapoursynth as vs
 core = vs.core
 W, H = {width}, {height}
@@ -165,6 +174,9 @@ KERNELS = [
     ('Spline64', lambda c, w, h: core.descale.Despline64(c, w, h), lambda c, w, h: core.resize.Spline64(c, w, h), ('spline64', 0, 0.5, 3)),
 ]
 
+def stage(text, since):
+    print('{stage}' + ' %s %.1fs' % (text, time.monotonic() - since), file=sys.stderr, flush=True)
+
 def width_for(h):
     return int(round(h * W / H))
 
@@ -191,8 +203,10 @@ heights = list(range(max(H // 2, 16), H))
 probe = frames[0]
 scan = {{}}
 for kernel in (KERNELS[0], KERNELS[1], KERNELS[7], KERNELS[10]):
+    t = time.monotonic()
     for h, e in zip(heights, errors([error_clip(probe, kernel, h) for h in heights])):
         scan[h] = min(e, scan.get(h, e))
+    stage('scan %s %d-%d' % (kernel[0], heights[0], heights[-1]), t)
 
 # 2. The height that dips furthest below its neighbours (+-15, skipping +-2).
 #    Only heights with neighbours on BOTH sides are candidates: the error falls
@@ -208,11 +222,13 @@ candidates = [h for h in heights if (h - 15) in scan and (h + 15) in scan]
 best_h = min(candidates, key=dip)
 
 # 3. Every kernel at that height, averaged over all the sampled frames.
+t = time.monotonic()
 ranked = []
 for kernel in KERNELS:
     errs = errors([error_clip(f, kernel, best_h) for f in frames])
     ranked.append((kernel, sum(errs) / len(errs)))
 ranked.sort(key=lambda kv: kv[1])
+stage('rank %d kernels x %d frames' % (len(KERNELS), len(frames)), t)
 (label, _, _, (name, b, c, taps)), _ = ranked[0]
 
 result = dict(
@@ -224,6 +240,7 @@ print('{marker}' + json.dumps(result), file=sys.stderr, flush=True)
 core.std.BlankClip(width=16, height=16, length=1).set_output()
 "#,
         marker = RESULT_MARKER,
+        stage = STAGE_MARKER,
     )
 }
 
@@ -254,6 +271,7 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
     let dir = std::env::temp_dir().join(format!("vapourbox_native_{}", job.id));
     fs::create_dir_all(&dir).with_context(|| format!("creating {dir:?}"))?;
     let result = (|| -> Result<NativeResReport> {
+        let decode_started = Instant::now();
         let mut paths = Vec::new();
         for &frame in &frames {
             let path = dir.join(format!("frame_{frame}.gray16"));
@@ -288,16 +306,28 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
             paths.push(path.to_string_lossy().to_string());
         }
 
+        eprintln!(
+            "{STAGE_MARKER} decode {} frames {:.1}s",
+            frames.len(),
+            decode_started.elapsed().as_secs_f64()
+        );
+
         let script = dir.join("detect.vpy");
         fs::write(&script, analysis_script(&paths, width, height))?;
-        let out = Command::new(&vspipe)
+        let mut child = Command::new(&vspipe)
             .args(["--info", script.to_string_lossy().as_ref(), "-"])
             .envs(&env)
+            .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
-            .output()
+            .spawn()
             .context("running vspipe")?;
-        let stderr = String::from_utf8_lossy(&out.stderr);
+        // Read stderr as it comes, passing each progress line on at once
+        // (stdout stays the JSON report alone).
+        let stderr = read_analysis_stderr(BufReader::new(child.stderr.take().context("vspipe's stderr")?), |stage| {
+            eprintln!("{stage}")
+        });
+        child.wait().context("waiting for vspipe")?;
         let line = stderr
             .lines()
             .find_map(|l| l.trim().strip_prefix(RESULT_MARKER))
@@ -307,6 +337,30 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
     })();
     let _ = fs::remove_dir_all(&dir);
     result
+}
+
+/// All of the analysis's stderr, calling `on_stage` with each progress line
+/// (marker included) as it is read. Bytes that are not UTF-8 are replaced, not
+/// a reason to stop: vspipe must be read to the end, or it can block on a full
+/// pipe while `detect` waits for it.
+fn read_analysis_stderr(mut reader: impl BufRead, mut on_stage: impl FnMut(&str)) -> String {
+    let mut all = String::new();
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = String::from_utf8_lossy(&buf);
+        let line = line.trim_end_matches(['\n', '\r']);
+        if line.trim_start().starts_with(STAGE_MARKER) {
+            on_stage(line.trim());
+        }
+        all.push_str(line);
+        all.push('\n');
+    }
+    all
 }
 
 fn tail(s: &str) -> String {
@@ -439,5 +493,31 @@ mod tests {
             assert!(s.contains(k), "{k}");
         }
         assert!(s.contains(RESULT_MARKER));
+        // Progress: one line per scan kernel and one for the ranking.
+        assert!(s.contains(&format!("print('{STAGE_MARKER}'")));
+        assert!(s.contains("stage('scan %s %d-%d'"));
+        assert!(s.contains("stage('rank %d kernels x %d frames'"));
+    }
+
+    #[test]
+    fn stage_lines_are_passed_on_and_the_result_line_kept() {
+        let text = format!(
+            "Script evaluation\n{STAGE_MARKER} scan Bilinear 540-1079 37.4s\r\nsome warning @\n  {STAGE_MARKER} rank 12 kernels x 4 frames 3.8s\n{RESULT_MARKER}{{\"dip\": 0.1}}\nOutput 1 frames\n"
+        );
+        let mut stages = Vec::new();
+        // A line that is not UTF-8 (0xFF) mustn't stop the reading.
+        let bytes: Vec<u8> = text.bytes().map(|b| if b == b'@' { 0xFF } else { b }).collect();
+        let all = read_analysis_stderr(bytes.as_slice(), |s| stages.push(s.to_string()));
+        assert_eq!(
+            stages,
+            vec![
+                format!("{STAGE_MARKER} scan Bilinear 540-1079 37.4s"),
+                format!("{STAGE_MARKER} rank 12 kernels x 4 frames 3.8s"),
+            ]
+        );
+        assert_eq!(
+            all.lines().find_map(|l| l.trim().strip_prefix(RESULT_MARKER)),
+            Some("{\"dip\": 0.1}")
+        );
     }
 }

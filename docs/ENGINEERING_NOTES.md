@@ -2564,7 +2564,8 @@ Probed with descale r12 (wheel) on an M1 Pro. A float 720p image upscaled to
 bilinear 6.3e-5, Spline36 8.0e-5, Lanczos3 1.0e-4. A sequential 231-height
 scan took 12 s; spliced into one clip and read with `frames()` the whole
 1080p detection (4 kernels x 540 heights, then 12 kernels x 4 frames, plus
-decoding) takes ~30 s.
+decoding) takes ~30 s. (That is on all of an M1 Pro's cores; CI's runners
+take 1-7 min, see task #95, 2026-11-21.)
 
 What went wrong on the way, so it is not repeated:
 
@@ -5962,3 +5963,59 @@ herring.
   uncaught C++ exception, or memory corruption it detected)".
 
 Report: [docs/reports/task-96-dctfilter-thread-race](reports/task-96-dctfilter-thread-race/index.html).
+
+### Descale Detect on a 4-core Intel Mac: minutes, not seconds (task #95, 2026-11-21)
+
+The macOS x64 v2 nightly (run 44767156916) timed out "Detect finds 720p
+Catmull-Rom on a Catmull-Rom master" at its 10-minute limit. It was slow, not
+hung.
+
+- **Every macOS x64 detect is near the old budget.** Over nine nightlies
+  (runs 44089342398 to 44767156916, 2026-11-17..20), one `--detect-native`
+  on the test's 1080p fixtures, measured between consecutive test results:
+
+  | leg | one detect | BT.709 test (two detects) |
+  |---|---|---|
+  | macos-x64 (v3) | 165-396 s | 363-523 s |
+  | macos-x64-v2 | 134-397 s, and > 600 s once | 262-579 s, and > 600 s once (run 44127090331) |
+  | macos-arm64 | 75-126 s | 179-220 s |
+  | linux-x64, windows-x64 (both tiers) | 63-112 s | 129-232 s |
+
+  So this was the second timeout, not the first. The tiers don't differ:
+  Detect uses neither MVTools nor zsmooth, the only plugins the v2 delta
+  replaces.
+- **On macOS x64 the descale file shares the runner with Face Restoration.**
+  `integration_face_restore_test.dart` takes 40-60 min there (ONNX Runtime
+  on the CPU) and has overlapped the descale file in every run; on the other
+  platforms it is done before the descale file starts. The failed detect
+  (17:08:59-17:18:59) ran exactly beside its strength-0, GFPGAN and
+  CodeFormer encodes. The detects after the timeout took normal times
+  (154 s, 184 s), so the killed one was not still spinning.
+- **Where the time goes.** On macOS arm64 at 4 VapourSynth threads (deps
+  1.14.0, descale r12, the test's Catmull-Rom fixture): the height scan
+  (540 heights x 4 kernels = 2160 round trips) takes 144 s, the ranking
+  (12 kernels x 4 frames) 3.8 s, graph building 0.2 s. A `sample` of
+  vspipe shows all four threads busy, ~70% in descale's `create_core`: each
+  instance builds its weights and matrix decomposition on its first frame,
+  and every candidate is its own instance rendering one frame. So splicing
+  fewer candidates at once saves nothing (it would only lower peak memory,
+  1.4 GB). descale's AVX2 kernels on x86 speed up only the pixel part.
+- **Not adopted: scanning the height only** (`De*(c, W, h)`, width kept):
+  the scan takes 76 s instead of 144 s and the Catmull-Rom fixture still
+  reads 720 / Catmull-Rom (dip 0.126 instead of 0.130). But every dip that
+  `DIP_THRESHOLD` and the fixture figures above were calibrated on would
+  move, so it is a change to the method, left alone.
+- **What changed.** The heavy test gives each detect a 20-minute budget,
+  past which it kills the worker's process group (`ProcessTree.killTree`;
+  before, a timed-out `Process.run` left the worker and its vspipe running)
+  and fails with the stages finished. Each test's timeout is that budget per
+  detect plus a margin. The analysis script prints one `NATIVE_RES_STAGE:`
+  line per scan kernel and one for the ranking, the worker one for the
+  decode, all passed on to the worker's stderr as they come; the test prints
+  each detect's time and stages, so every nightly records them per platform.
+  The report (stdout) is unchanged. On this Mac (macOS arm64, all 8 cores,
+  deps 1.18.0-rc2) the heavy file's detects took 62-78 s on the 8-bit
+  fixtures, 121-149 s on the 10-bit ones, each scan kernel 13-40 s, and every
+  report was identical to before (dip 0.1436 / 0.1358 / 0.3536 / 0.9084).
+  With `VAPOURBOX_DETECT_BUDGET_SECS=30` the Catmull-Rom test failed at 30 s
+  naming the two scan kernels done, and no vspipe was left running.

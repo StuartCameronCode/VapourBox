@@ -25,11 +25,27 @@ import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
+import 'package:vapourbox/services/process_tree.dart';
 
 import 'support/worker_harness.dart';
 
 const _frames = 12;
 String get _dir => p.join(WorkerHarness.outputDir, 'descale');
+
+/// How long one `--detect-native` on these 1080p fixtures may take before it is
+/// killed (task #95). Measured over nine nightlies (2026-11-17..20): 63-126 s
+/// on Linux, Windows and macOS arm64; 134-397 s on macOS x64 (macos-15-intel,
+/// 4 vCPU), where Face Restoration's CPU encodes run beside this file, and once
+/// over 600 s there, which the old 10-minute test timeout cut off. The time is
+/// descale's per-candidate setup in the height scan (ENGINEERING_NOTES,
+/// 2026-11-21). `VAPOURBOX_DETECT_BUDGET_SECS` overrides it (to check the
+/// timeout path locally).
+final Duration _detectBudget = Duration(
+    seconds: int.tryParse(Platform.environment['VAPOURBOX_DETECT_BUDGET_SECS'] ?? '') ?? 20 * 60);
+
+/// A test's timeout: [detects] detect budgets plus [extra] for the rest of it.
+Timeout _budgetFor(int detects, {Duration extra = const Duration(minutes: 2)}) =>
+    Timeout(_detectBudget * detects + extra);
 
 Future<String> _master(String name, String scaleFlags, {bool credits = false}) async {
   final out = p.join(_dir, '$name.mkv');
@@ -106,21 +122,48 @@ VideoJob _job(String name, String input, DescaleParameters ds,
 Future<Map<String, dynamic>> _detect(VideoJob job) async {
   final config = File(p.join(Directory.systemTemp.path, 'vb_detect_${job.id}.json'));
   await config.writeAsString(jsonEncode(job.toJson()));
+  final name = p.basename(job.inputPath);
   try {
-    final r = await Process.run(
+    final stopwatch = Stopwatch()..start();
+    final process = await Process.start(
       WorkerHarness.workerPath,
       ['--detect-native', '--config', config.path],
       environment: WorkerHarness.workerEnv,
       workingDirectory: File(WorkerHarness.workerPath).parent.path,
     );
-    final line = const LineSplitter().convert(r.stdout.toString())
+    final stdout = StringBuffer();
+    final stderr = <String>[];
+    final stdoutDone = process.stdout.transform(utf8.decoder).listen(stdout.write).asFuture<void>();
+    final stderrDone = process.stderr
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen(stderr.add)
+        .asFuture<void>();
+    // Past the budget, kill the worker's whole process group: the worker alone
+    // would leave its vspipe scanning on every core, slowing the tests after it.
+    await process.exitCode.timeout(_detectBudget, onTimeout: () async {
+      await ProcessTree.killTree(process, ProcessSignal.sigkill);
+      final where = stderr.where((l) => l.contains('NATIVE_RES_STAGE:')).toList();
+      fail('detect $name took more than ${_detectBudget.inSeconds} s and was killed. '
+          'Stages finished (decode, 4 scan kernels, rank): '
+          '${where.isEmpty ? 'none' : where.join(' | ')}\n'
+          'stderr tail: ${stderr.reversed.take(6).toList().reversed.join(' | ')}');
+    });
+    await Future.wait([stdoutDone, stderrDone]);
+    final elapsed = stopwatch.elapsed.inMilliseconds / 1000;
+    final line = const LineSplitter().convert(stdout.toString())
         .lastWhere((l) => l.trim().startsWith('{'), orElse: () => '');
-    expect(line, isNotEmpty, reason: 'no report: ${r.stdout}\n${r.stderr}');
+    expect(line, isNotEmpty, reason: 'no report: $stdout\n${stderr.join('\n')}');
     final report = jsonDecode(line) as Map<String, dynamic>;
+    final stages = stderr
+        .where((l) => l.contains('NATIVE_RES_STAGE:'))
+        .map((l) => l.split('NATIVE_RES_STAGE:').last.trim())
+        .join('; ');
     // ignore: avoid_print
-    print('  detect ${p.basename(job.inputPath)}: found ${report['found']} '
+    print('  detect $name: found ${report['found']} '
         '${report['height']}p ${report['kernel']} b=${report['bicubicB']} '
-        'c=${report['bicubicC']} dip ${report['dip']}');
+        'c=${report['bicubicC']} dip ${report['dip']} '
+        'in ${elapsed.toStringAsFixed(1)} s ($stages)');
     expect(report['error'], isNull, reason: '${report['error']}');
     return report;
   } finally {
@@ -176,26 +219,26 @@ void main() {
       expect(r['kernel'], 'bicubic');
       expect((r['bicubicB'] as num).toDouble(), closeTo(0, 1e-9));
       expect((r['bicubicC'] as num).toDouble(), closeTo(0.5, 1e-9));
-    }, timeout: const Timeout(Duration(minutes: 10)));
+    }, timeout: _budgetFor(1));
 
     test('finds 720p bilinear on a bilinear master', () async {
       final r = await _detect(_job('d_bilinear', bilinear, const DescaleParameters()));
       expect(r['found'], isTrue);
       expect(r['height'], 720);
       expect(r['kernel'], 'bilinear');
-    }, timeout: const Timeout(Duration(minutes: 10)));
+    }, timeout: _budgetFor(1));
 
     test('still finds it with credits drawn over the picture', () async {
       final r = await _detect(_job('d_credits', credits, const DescaleParameters()));
       expect(r['found'], isTrue);
       expect(r['height'], 720);
-    }, timeout: const Timeout(Duration(minutes: 10)));
+    }, timeout: _budgetFor(1));
 
     test('finds nothing on a source that was never upscaled', () async {
       final r = await _detect(_job('d_vhs', WorkerHarness.inputFile, const DescaleParameters(),
           width: 720, height: 576, pixFmt: 'yuv422p', fps: 25, total: 75));
       expect(r['found'], isFalse, reason: 'a never-upscaled VHS capture reported a native resolution');
-    }, timeout: const Timeout(Duration(minutes: 10)));
+    }, timeout: _budgetFor(1));
 
     // The matrix tag says how to make RGB from YUV; it must not change the
     // luma Detect measures. A decode to gray16le through swscale did (up to
@@ -219,7 +262,7 @@ void main() {
       for (final k in ['dip', 'kernels', 'curve', 'frames']) {
         expect(b[k], a[k], reason: '$k differs between the tagged and untagged copy');
       }
-    }, timeout: const Timeout(Duration(minutes: 10)));
+    }, timeout: _budgetFor(2, extra: const Duration(minutes: 3)));
   });
 
   group('Encode', () {
