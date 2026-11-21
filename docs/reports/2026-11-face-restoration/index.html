@@ -216,7 +216,10 @@ detection, after warm-up):</p>
 <li><strong>Windows (DirectML), Linux (CPU), macOS x64</strong>: only macOS arm64 was run. The models are plain opset-17
 graphs and ran on ONNX Runtime's CPU provider here, but DirectML's operator coverage for the transformer models
 (RestoreFormer++, CodeFormer) is unverified; a failure there falls back to the CPU at session creation, or at the first run
-(<code>ai_runtime.Runner</code>).</li>
+(<code>ai_runtime.Runner</code>).
+<br><strong>Correction (2026-11-21, task #94):</strong> that fallback catches only errors that raise. On macOS x64, Core ML's Metal
+kernel compile can abort the whole process instead, so Intel Macs now run on the CPU, which was also faster on CI's Intel runners
+(RestoreFormer++ 16 frames: 98 s against 188 s). See <a href="../task-94-coreml-intel-mps-abort/index.html">task-94-coreml-intel-mps-abort</a>.</li>
 <li>TensorRT/CUDA: hooks only, as for every ai-runtime pass.</li>
 <li>One clip, one face, frontal, mostly still. Crowds, profiles, occlusion, scene cuts across a face, and faces smaller
 than ~60 px at 640 were not measured.</li>

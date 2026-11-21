@@ -70,9 +70,11 @@ Future<String> _encode(String name, ColorizeParameters? cz,
     {String? input, String pixFmt = 'yuv420p', double fps = 24}) async {
   final r = await WorkerHarness.runJob(_job(name, cz, input: input, pixFmt: pixFmt, fps: fps),
       label: name, timeout: const Duration(minutes: 25),
-      // On the Intel-Mac CI VMs Core ML's virtual GPU fails and the models run
-      // on a slow CPU: CodeFormer's first frame (five frames of faces, for the
-      // smoothing) took ~10 min, past the worker's 600 s stall limit.
+      // The Intel-Mac CI VMs are slow: on Core ML, CodeFormer's first frame
+      // (five frames of faces, for the smoothing) took ~10 min, past the
+      // worker's 600 s stall limit. Intel Macs run on the CPU since task #94
+      // (Core ML's Metal compile could abort vspipe), which was faster there;
+      // the budget is kept until the nightlies show the CPU's times.
       extraEnv: const {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'});
   expect(r.success, isTrue, reason: '${r.error}\n${r.logs.reversed.take(30).toList().reversed.join('\n')}');
   // ignore: avoid_print
@@ -198,8 +200,8 @@ void main() {
     // neighbours (two either side) are the preview's.
     for (final frame in [_start + 2, _start + 10]) {
       final pv = await WorkerHarness.runPreview(_job('preview', cz, trimmed: false), frame: frame,
-          // Same budget as _encode: on the Intel-Mac VMs Core ML falls back to
-          // the CPU, and the v2 runner's first frame alone can take ~10 min.
+          // Same budget as _encode: the Intel-Mac VMs' first frame alone took
+          // ~10 min on Core ML (they run on the CPU since task #94).
           timeout: const Duration(minutes: 20),
           extraEnv: const {'VAPOURBOX_STALL_TIMEOUT_SECS': '1200'});
       expect(pv.success, isTrue, reason: '${pv.error}\n${pv.logs}');

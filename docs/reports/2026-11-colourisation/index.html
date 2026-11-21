@@ -132,7 +132,8 @@ figcaption { color: var(--muted); font-size: 0.9rem; }
 
 <h2>7. Not tested here</h2>
 <ul>
-<li>Windows (DirectML), Linux (CPU only, where DDColor at 512 is about 0.8 s per frame), macOS x64 (Core ML on Intel, ONNX Runtime 1.23.2).</li>
+<li>Windows (DirectML), Linux (CPU only, where DDColor at 512 is about 0.8 s per frame), macOS x64 (Core ML on Intel, ONNX Runtime 1.23.2).
+<br><strong>Correction (2026-11-21, task #94):</strong> macOS x64 was later measured on CI's Intel runners, and it no longer uses Core ML. There Core ML's Metal kernel compile aborted vspipe in 8 nightly jobs (SIGABRT, no Python error, so no CPU fallback), and the CPU provider was faster anyway (DDColor 16 frames: 35 s against 179 s). Intel Macs now run both models on the CPU; a real Intel Mac's GPU was not measured. See <a href="../task-94-coreml-intel-mps-abort/index.html">task-94-coreml-intel-mps-abort</a>.</li>
 <li>Whether the colour is <em>right</em>: there is no ground truth for a 1945 black-and-white film, and the flicker metric only measures steadiness.</li>
 <li>One clip: a close-up, a dissolve and a two-shot, with little camera motion. Fast pans, where the motion weighting excludes most neighbours, are untested.</li>
 </ul>

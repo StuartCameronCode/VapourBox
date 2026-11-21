@@ -2,7 +2,7 @@
 // offers, per machine (task #94). Intel Macs are never offered Core ML: there
 // it runs on the GPU through Metal Performance Shaders, which can abort the
 // whole vspipe process while compiling a model's kernels (SIGABRT in
-// MPSLibrary, seen in 6 of 14 macOS x64 nightly heavy jobs in five days), and
+// MPSLibrary, seen in 6 of 12 macOS x64 nightly heavy jobs in four days), and
 // no Python exception reaches the CPU retry. This runs the helper under the
 // bundle's Python with onnxruntime replaced by a stub that offers Core ML and
 // the CPU, and the platform patched, so it needs no add-on and runs on every
