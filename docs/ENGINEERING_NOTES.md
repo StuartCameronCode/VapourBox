@@ -6056,3 +6056,47 @@ Report: [docs/reports/task-94-coreml-intel-mps-abort](reports/task-94-coreml-int
   real hardware reports a slowdown.
 - **Crash reports name it:** `print-crash-reports.py` classifies the
   signature as `coreml-mps-compile` (fixture: nightly 44767156916's `.ips`).
+
+### HDR thumbnails scale to an even height (task #86, 2026-11-22)
+
+**Fault.** The timeline thumbnail is `scale=160:-1` then, for a PQ/HLG source,
+the display tone map (`HdrDisplay.toneMapFilter`), whose first stage is
+zscale. `scale` keeps the source's pixel format, and zimg refuses a 4:2:0
+frame with an odd dimension (`code 1027: image dimensions must be divisible by
+subsampling factor`). Every 2.40:1 HDR film (1920x800, 3840x1600: 160x67) and
+720x480 (160x107) had an empty strip. Found by task #76.
+
+**Measured** (FFmpeg 9.0.2, macOS arm64 bundle, FFV1 fixtures tagged
+bt2020/PQ/bt2020nc):
+
+| source | `160:-1` + tone map | `160:-2` + tone map |
+|---|---|---|
+| 1920x800, 3840x1600, 720x480, 64x26, 64x30 4:2:0 10-bit | fails (odd height) | ok (66, 66, 106, 66, 76) |
+| 1919x800 4:2:0 (odd width, FFV1) | fails | ok |
+| 1920x1080, 1440x1080, 720x576, 720x486 4:2:0 | ok | ok, same size |
+| 1920x800 / 1920x817 4:2:2, 4:4:4, gbrp | ok at 67 / 68 | ok |
+
+Only 4:2:0 at an odd scaled height fails: zimg needs each dimension divisible
+by that direction's subsampling only, and the width is always 160.
+
+**Fix: HDR only** (`PreviewGenerator.thumbnailScale`). A tone-mapped
+thumbnail takes `scale=160:-2`. An SDR thumbnail goes straight to JPEG, which
+takes any height, so it keeps `-1`: the nearest height (`-2` can be a pixel
+further off) and its arguments byte for byte. The strip draws thumbnails
+`BoxFit.cover`, so the pixel is invisible either way. Not fixed in the tone
+map: it is pinned character for character to the worker's
+`display_tonemap_filter`, which never needs rounding, and rounding there would
+also resample the before frame. 4:1:0 would need `-4`; no HDR source uses it.
+
+**Not affected.** The worker's preview tone-maps vspipe's Y4M with no scale
+first, and vspipe can only emit sizes VapourSynth accepts, which are always on
+the chroma grid. The before frame tone-maps the full stored frame; it fails
+only on a source stored off the chroma grid (odd-height or odd-width 4:2:0,
+odd-width 4:2:2, from FFV1/rawvideo/Y4M), which VapourSynth refuses outright
+(`BlankClip: invalid height`), so no preview or encode of it works either:
+task #97.
+
+`hdr_thumbnail_test.dart` (push gate) pins the arguments and runs them through
+the bundled ffmpeg on 96x40 and 72x48 4:2:0 PQ/HLG sources, checking that
+`-1` still fails there (so the fixture keeps proving the bug) and SDR keeps
+its odd height.

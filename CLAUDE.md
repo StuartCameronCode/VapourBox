@@ -1134,6 +1134,12 @@ tone-mapped.
   the JPEG encode converts with BT.2020's matrix — a 21-level hue shift).
   `bt2020c` is read as `bt2020nc`: zimg refuses constant luminance with a PQ
   or HLG transfer, so it had no picture at all (task #76).
+- **An HDR thumbnail is scaled to an even height** (`scale=160:-2`,
+  `PreviewGenerator.thumbnailScale`, task #86): `scale` keeps 4:2:0 and the
+  tone map's zscale refuses an odd dimension (zimg 1027), so every 2.40:1 and
+  720x480 HDR timeline was empty. SDR keeps `-1` and its arguments; nothing
+  else scales before the tone map. `hdr_thumbnail_test.dart` (push gate) runs
+  it through the bundled ffmpeg.
 - **The preview job carries the source's colour tags** (`PreviewGenerator`
   sends `inputColor*`). Without them the worker can't tell the source is HDR,
   and the SDR matrix fix in `swscale_input_opts` doesn't apply either.

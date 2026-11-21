@@ -139,7 +139,7 @@ void main() {
       final both = PreviewGenerator.thumbnailArgs(
           videoPath: 'in.mov', time: 1, tagFix: fix, toneMap: hdr,
           outputPath: 't.jpg');
-      expect(both[both.indexOf('-vf') + 1], '$fix,scale=160:-1,$hdr');
+      expect(both[both.indexOf('-vf') + 1], '$fix,scale=160:-2,$hdr');
     });
   });
 }
