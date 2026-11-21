@@ -1,0 +1,16 @@
+# build, shape: aborted runs / runs (first abort message)
+bundle dctf, fresh process, 96x64                             0 / 200  
+r2, fresh process, 96x64                                      3 / 200  libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found
+r2, fresh process, 720x480, 10 frames                         0 / 200  
+r3.2 + patch, fresh process, 96x64                            2 / 300  
+bundle dctf, 1000 instances                                   0 / 20   
+r2, 1000 instances                                           14 / 20   libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found
+r3.2 + patch, 1000 instances                                  0 / 20   
+# Note on "r3.2 + patch, fresh process": both failures were SIGSEGV with no
+# exception text. Their crash reports (macOS .ips) show a worker thread in
+# vspipe's frameDoneCallback/outputFrame while the main thread was in
+# vpy4_freeScript / VSNode::~VSNode: vspipe R78's teardown race (task #68),
+# which the bundle used here (deps 1.16.0) still has and deps 1.18.0 fixes.
+# Not DCTFilter. A second run of the same trial, exit codes kept:
+r3.2 + patch, fresh process, 96x64 (rerun)                    0 / 300
+bundle dctf, fresh process, 96x64 (rerun)                     0 / 300

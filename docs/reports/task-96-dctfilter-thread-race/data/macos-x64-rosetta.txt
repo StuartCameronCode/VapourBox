@@ -1,0 +1,4 @@
+# bundle: {"version":"1.10.0","installedAt":"2026-08-31T01:38:18Z"}
+r2.1 (bundle), 1000 instances: 11 / 20 aborted
+# same_output.vpy in 12 fresh processes: count, md5
+  12 42cc056f2e8c478a5f9938e1a9cbb3cb
