@@ -1,0 +1,17 @@
+# bundle, plugin, shape: aborted runs / runs (first abort message)
+unpatched dfttest, 1000 instances                      14 / 20   libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found
+unpatched lghost, 1000 instances                       20 / 20   libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found
+unpatched ctmf radius 3, 1000 instances                18 / 20   libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found
+unpatched tcanny, 1000 instances                       20 / 20   libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found
+unpatched eedi3m, 1000 instances                        0 / 10   
+unpatched dfttest, 1 instance, 40 frames                5 / 200  libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found
+unpatched ctmf radius 3, 1 instance, 40 frames          8 / 200  libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found
+unpatched tcanny, 1 instance, 40 frames                 2 / 200  libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found
+patched dfttest, 1000 instances                         0 / 40   
+patched lghost, 1000 instances                          0 / 40   
+patched ctmf radius 3, 1000 instances                   0 / 40   
+patched tcanny, 1000 instances                          0 / 40   
+patched eedi3m, 1000 instances                          0 / 10   
+patched dfttest, 1 instance, 40 frames                  0 / 200  
+patched ctmf radius 3, 1 instance, 40 frames            0 / 200  
+patched tcanny, 1 instance, 40 frames                   0 / 200  

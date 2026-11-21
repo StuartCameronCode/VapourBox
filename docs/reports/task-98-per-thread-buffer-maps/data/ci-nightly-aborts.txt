@@ -1,0 +1,20 @@
+# Nightly failures 2026-11-01 .. 2026-11-21 whose vspipe aborted with
+# unordered_map::at / std::out_of_range, or exit 0xC0000409 (-1073740791).
+# Every failed job's full log (33 failed runs, ~140 failed jobs) was searched
+# for: unordered_map, out_of_range, terminate called, -1073740791, 0xC0000409,
+# 3221226505, SIGABRT, fail-fast.
+#
+# run          date   job                    test / row                                         plugin
+41656657950    11-03  linux-x64-v2 heavy     knlmeanscl denoiser never crashes                  DFTTest (inferred, below)
+42591335088    11-09  linux-x64-v2 heavy     knlmeanscl denoiser never crashes                  DFTTest (inferred, below)
+43724227748    11-15  macos-x64 heavy        MCDegrainSharp (full encode)                       TCanny (crash report: tcannyGetFrame), task #52
+44562921675    11-19  windows-x64 sweep      deblock/dctfilter 98x64 (two rows)                 DCTFilter, task #96
+44562921675    11-19  windows-x64-v2 heavy   8-bit vs 10-bit parity deblock_DCTFilter          DCTFilter, task #96
+44767156916    11-20  windows-x64-v2 sweep   deblock/deblock_qed 96x64/yuv422p12le/tff          DCTFilter, task #96
+#
+# The knlmeanscl jobs print "vspipe stderr: terminate called after throwing an
+# instance of 'std::out_of_range' / what(): unordered_map::at". The same jobs
+# log "no OpenCL device KNLMeansCL can use here", so the worker's
+# gate_knlm_denoiser swaps QTGMC's denoiser to dfttest; QTGMC Fast reaches no
+# other plugin with a per-thread map. No backtrace (before Linux core dumps).
+# No abort names CTMF, LGhost or EEDI3m.

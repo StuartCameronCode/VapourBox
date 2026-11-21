@@ -9,8 +9,8 @@ starting their first frame of an instance together corrupt the map or lose an
 insert, and the kernel's .at() then throws std::out_of_range inside a noexcept
 function: std::terminate, so vspipe aborts ("unordered_map::at: key not
 found"; on Windows the UCRT's abort is a fail-fast, exit 0xC0000409). Measured
-on an M1 with 8 threads, radius 3: one graph of 1000 instances aborted in 19
-of 20 runs, one instance in a fresh vspipe in 11 of 200; with the patch, none
+on an M1 with 8 threads, radius 3: one graph of 1000 instances aborted in 18
+of 20 runs, one instance in a fresh vspipe in 8 of 200; with the patch, none
 in 40 and 200. The Noise Reduction CTMF method and havsfunc's MinBlur(r=3)
 reach it.
 

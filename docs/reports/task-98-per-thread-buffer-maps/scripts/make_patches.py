@@ -76,7 +76,7 @@ HEADERS = {
         "every kernel with no lock at all.",
         "Measured on an M1 with 8 threads: one graph of 1000\n"
         "instances aborted in 14 of 20 runs, one instance in a fresh vspipe in 5 of\n"
-        "200; with the patch, none in 20 and 200. Upstream issue #12 (2021) reported\n"
+        "200; with the patch, none in 40 and 200. Upstream issue #12 (2021) reported\n"
         "this abort and was closed unreproduced. QTGMC's dfttest denoiser (and its\n"
         "knlmeanscl fallback), SMDegrain's and MCTemporalDenoise's prefilters and\n"
         "TemporalDegrain2 reach it."),
@@ -86,15 +86,15 @@ HEADERS = {
         "One map (buffer) is filled from getFrame and read by every kernel with\n"
         "no lock at all.",
         "Measured on an M1 with 8 threads: one graph of 1000 instances\n"
-        "aborted in 17 of 20 runs; with the patch, none in 40."),
+        "aborted in 20 of 20 runs; with the patch, none in 40."),
     "ctmf": (
         "CTMF r5 (HomeOfVapourSynthEvolution/VapourSynth-CTMF, the last tag and HEAD).\n"
         "VapourBox task #98, docs/reports/task-98-per-thread-buffer-maps.\n",
         "Two maps (hCoarse, hFine; every radius but 2, which has its own kernel)\n"
         "are filled from getFrame and read by every kernel with no lock at all.",
         "Measured on an M1 with 8 threads, radius 3: one graph of\n"
-        "1000 instances aborted in 19 of 20 runs, one instance in a fresh vspipe in\n"
-        "11 of 200; with the patch, none in 40 and 200. The Noise Reduction CTMF\n"
+        "1000 instances aborted in 18 of 20 runs, one instance in a fresh vspipe in\n"
+        "8 of 200; with the patch, none in 40 and 200. The Noise Reduction CTMF\n"
         "method and havsfunc's MinBlur(r=3) reach it."),
     "tcanny": (
         "TCanny at 14ac2ce (HomeOfVapourSynthEvolution/VapourSynth-TCanny, r14 + \"Use\n"

@@ -9,7 +9,7 @@ the map or lose an insert, and the kernel's .at() then throws
 std::out_of_range inside a noexcept function: std::terminate, so vspipe aborts
 ("unordered_map::at: key not found"; on Windows the UCRT's abort is a
 fail-fast, exit 0xC0000409). Measured on an M1 with 8 threads: one graph of
-1000 instances aborted in 17 of 20 runs; with the patch, none in 40.
+1000 instances aborted in 20 of 20 runs; with the patch, none in 40.
 
 The patch locks the map: getFrame checks for the thread's buffers under a
 shared lock and allocates them under a unique lock (only the calling thread
