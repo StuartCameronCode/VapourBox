@@ -128,6 +128,21 @@ class PreviewGenerator {
         transfer: _colorTransfer,
       );
 
+  /// The timeline thumbnail's `scale`, 160 pixels wide (task #86).
+  ///
+  /// `scale` keeps the source's pixel format, and the HDR tone map starts
+  /// with zscale, which refuses a 4:2:0 frame with an odd dimension (zimg
+  /// 1027, "image dimensions must be divisible by subsampling factor"). A
+  /// 2.40:1 scope source (1920x800, 3840x1600) comes out 160x67 and 720x480
+  /// 160x107, so every HDR thumbnail of those was empty. A tone-mapped
+  /// thumbnail therefore takes an even height (`-2`); 4:2:2, 4:4:4 and RGB
+  /// need it in no direction the width doesn't already cover. (4:1:0 would
+  /// need `-4`; no HDR source uses it.) An SDR thumbnail goes straight to the
+  /// JPEG encoder, which takes any height, so it keeps `-1`, the nearest
+  /// height, and its arguments as they were.
+  static String thumbnailScale({required bool toneMapped}) =>
+      toneMapped ? 'scale=160:-2' : 'scale=160:-1';
+
   /// The ffmpeg arguments for one timeline thumbnail at [time] seconds on
   /// the video's own timeline (0 = its first picture). [videoStartOffset] is
   /// added because `-ss` counts from the file's start. [tagFix] precedes
@@ -140,6 +155,9 @@ class PreviewGenerator {
   /// [frameRate]); near its start such a file cannot seek at all, so the
   /// thumbnail decodes from the start and drops pictures by count. A
   /// thumbnail at the very start never seeks.
+  ///
+  /// The scale is [thumbnailScale]: an HDR thumbnail ([toneMap] given) is
+  /// scaled to an even height, or the tone map's zscale refuses it.
   static List<String> thumbnailArgs({
     required String videoPath,
     required double time,
@@ -188,7 +206,7 @@ class PreviewGenerator {
         if (tagFix != null) tagFix,
         ...?onGrid?.filters,
         if (planned?.trim != null) planned!.trim!,
-        'scale=160:-1',
+        thumbnailScale(toneMapped: toneMap != null),
         if (toneMap != null) toneMap,
       ].join(','),
       '-q:v', '5',
