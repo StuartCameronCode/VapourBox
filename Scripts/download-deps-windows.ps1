@@ -282,11 +282,6 @@ $Plugins7z = @(
         Check = "MiscFilters.dll"
     },
     @{
-        Name = "dfttest"
-        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest/releases/download/r7/DFTTest-r7.7z"
-        Check = "DFTTest.dll"
-    },
-    @{
         # core.ttmpsm.TTempSmooth - used by havsfunc MCTemporalDenoise
         Name = "ttempsmooth"
         Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth/releases/download/r4.1/TTempSmooth-r4.1-win64.7z"
@@ -335,19 +330,9 @@ $Plugins7z = @(
         Check = "RemoveGrainVS.dll"
     },
     @{
-        Name = "ctmf"
-        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF/releases/download/r5/CTMF-r5.7z"
-        Check = "CTMF.dll"
-    },
-    @{
         Name = "addgrain"
         Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain/releases/download/r10/AddGrain-r10-win64.7z"
         Check = "AddGrain.dll"
-    },
-    @{
-        Name = "tcanny"
-        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny/releases/download/r14/TCanny-r14-win64.7z"
-        Check = "TCanny.dll"
     },
     @{
         Name = "vivtc"
@@ -387,16 +372,6 @@ $Plugins7z = @(
         Url = "https://github.com/pinterf/RemoveDirt/releases/download/v1.1/RemoveDirt-1.1.7z"
         Check = "RemoveDirt.dll"
         Prefer = '(?i)x64_Clang'
-    },
-    @{
-        # core.lghost.LGhost - luminance/edge ghost (ringing) reduction for RF
-        # and long-cable analogue captures. r1 is upstream's only tag. Its DLL
-        # sits under plugins64\, which the generic $Win64 filter does NOT match
-        # (no 'x64'/'win64' in the name) - harmless here because the archive
-        # ships nothing else, and the PE-arch verifier would catch it if it did.
-        Name = "lghost"
-        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost/releases/download/r1/LGhost-r1.7z"
-        Check = "LGhost.dll"
     }
 )
 
@@ -917,6 +892,127 @@ if (Test-FileContainsAscii $DctOut "VapourSynthPluginInit2") {
 }
 if (-not (Test-FileContainsAscii $DctOut "VapourSynthPluginInit2")) {
     throw "DCTFilter.dll is not the r3.2 build (task #96)"
+}
+
+# =============================================================================
+# 4b5. DFTTest, LGhost, CTMF, TCanny with task #98's thread-safety patches
+# =============================================================================
+# Each keeps scratch buffers per worker thread in an unordered_map that its
+# getFrame fills with no lock; two threads starting an instance together lose
+# an insert, .at() throws inside noexcept code, and vspipe aborts: exit
+# 0xC0000409. The published DLLs (DFTTest r7, LGhost r1, CTMF r5, TCanny r14)
+# all have it. Each is built here at the commit download-deps-{macos,linux}.sh
+# pin, with patches/<plugin>-<ver>-thread-safety.patch, which locks the map
+# and adds $Task98Marker to the plugin's name: that is how a DLL from an older
+# run of this script is recognised and replaced. Keep the pins in step.
+#
+# DCTFilter's recipe (4b4) with several translation units, as each meson.build
+# lays them out: the C/SSE2 files and VCL2's instrset_detect at the x86-64
+# baseline, the AVX2 and AVX-512 kernels in files of their own, picked at run
+# time, so one build serves both CPU tiers (no _tierFiles entry).
+# -ffp-contract=off keeps clang from fusing a*b+c into FMA in the AVX files,
+# which MSVC (the published DLLs' compiler) never did. Zig's -mcpu feature
+# list needs evex512 named beside avx512f, or the 512-bit intrinsics refuse
+# to inline. Any failure throws:
+# shipping the old DLLs would bring the abort back.
+Write-Host ""
+Write-Host "[4b5/8] Building DFTTest, LGhost, CTMF, TCanny (patched, task #98)..." -ForegroundColor Yellow
+
+$Task98Marker = "locked per-thread buffers, task #98"
+$DftCommit = "bc5e0186a7f309556f20a8e9502f2238e39179b8"     # r7 + 2; no later tag
+$LGhostTag = "r1"
+$CtmfTag = "r5"
+$TCannyCommit = "14ac2ceeb59afc7089974d0ae233fe8d0ea183c8"  # r14 + 1
+$Task98Plugins = @(
+    @{ Dir = "DFTTest"; Ref = $DftCommit; Patch = "dfttest-bc5e018-thread-safety.patch"; Dll = "DFTTest.dll"; Fftw = $true
+       Repo = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest.git" },
+    @{ Dir = "LGhost"; Ref = $LGhostTag; Patch = "lghost-r1-thread-safety.patch"; Dll = "LGhost.dll"; Fftw = $false
+       Repo = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost.git" },
+    @{ Dir = "CTMF"; Ref = $CtmfTag; Patch = "ctmf-r5-thread-safety.patch"; Dll = "CTMF.dll"; Fftw = $false
+       Repo = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF.git" },
+    @{ Dir = "TCanny"; Ref = $TCannyCommit; Patch = "tcanny-14ac2ce-thread-safety.patch"; Dll = "TCanny.dll"; Fftw = $false
+       Repo = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny.git" }
+)
+$Task98Pending = @($Task98Plugins | Where-Object { -not (Test-FileContainsAscii "$PluginsDir\$($_.Dll)" $Task98Marker) })
+if ($Task98Pending.Count -eq 0) {
+    Write-Host "  All four already installed (patched)" -ForegroundColor Gray
+} else {
+    $T98Work = Join-Path $TempDir "task98-build"
+    Remove-Item $T98Work -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $T98Work -Force | Out-Null
+    Push-Location $T98Work
+    try {
+        $ZigZip = Join-Path $T98Work "zig.zip"
+        Download-File -Url "https://ziglang.org/download/$ZigVersion/zig-x86_64-windows-$ZigVersion.zip" -OutFile $ZigZip
+        Expand-Archive -Path $ZigZip -DestinationPath (Join-Path $T98Work "zig") -Force
+        $ZigExe = (Get-ChildItem -Path (Join-Path $T98Work "zig") -Recurse -Filter "zig.exe" | Select-Object -First 1).FullName
+        if (-not $ZigExe) { throw "zig.exe not found in the toolchain archive" }
+
+        $FftwZip = Join-Path $T98Work "fftw.zip"
+        Download-File -Url "https://fftw.org/pub/fftw/fftw-3.3.5-dll64.zip" -OutFile $FftwZip
+        $FftwDir = Join-Path $T98Work "fftw"
+        Expand-Archive -Path $FftwZip -DestinationPath $FftwDir -Force
+        $FftwLib = Join-Path $T98Work "libfftw3f-3.lib"
+        & $ZigExe dlltool -m i386:x86-64 -d (Join-Path $FftwDir "libfftw3f-3.def") -D libfftw3f-3.dll -l $FftwLib
+        if ($LASTEXITCODE -ne 0) { throw "zig dlltool failed (exit $LASTEXITCODE)" }
+
+        # DFTTest, LGhost and CTMF are API 3, TCanny API 4.
+        $VsInc = Join-Path $T98Work "vsinc"
+        New-Item -ItemType Directory -Path $VsInc -Force | Out-Null
+        foreach ($Hdr in @("VapourSynth.h", "VSHelper.h", "VapourSynth4.h", "VSHelper4.h", "VSConstants4.h")) {
+            Download-File -Url "https://raw.githubusercontent.com/vapoursynth/vapoursynth/$VSRelease/include/$Hdr" -OutFile (Join-Path $VsInc $Hdr)
+        }
+
+        $Common = @("-target", "x86_64-windows-gnu", "-std=c++17", "-O3", "-fvisibility=hidden",
+                    "-fno-math-errno", "-fno-trapping-math", "-ffp-contract=off", "-Wno-deprecated-declarations",
+                    "-I$VsInc", "-I$FftwDir")
+        foreach ($P in $Task98Pending) {
+            $Dir = $P.Dir
+            Write-Host "  $Dir ($($P.Ref))..." -ForegroundColor Gray
+            # LF on both sides, as for FFT3DFilter.
+            $Src = Join-Path $T98Work $Dir
+            & git -c advice.detachedHead=false -c core.autocrlf=false clone --quiet $P.Repo $Src
+            if ($LASTEXITCODE -ne 0) { throw "git clone of $Dir failed (exit $LASTEXITCODE)" }
+            & git -C $Src -c advice.detachedHead=false checkout --quiet $P.Ref
+            if ($LASTEXITCODE -ne 0) { throw "git checkout of $Dir $($P.Ref) failed (exit $LASTEXITCODE)" }
+            $Patch = Join-Path $T98Work "$Dir.patch"
+            $PatchText = [IO.File]::ReadAllText((Join-Path $ScriptDir "patches\$($P.Patch)")).Replace("`r`n", "`n")
+            [IO.File]::WriteAllText($Patch, $PatchText, (New-Object System.Text.UTF8Encoding($false)))
+            & git -C $Src apply $Patch
+            if ($LASTEXITCODE -ne 0) { throw "patches/$($P.Patch) did not apply to $Dir $($P.Ref) - re-check the patch" }
+
+            $Define = "-D$($Dir.ToUpper())_X86"
+            $Units = @(
+                @{ File = "$Dir.cpp"; Cpu = "x86_64" },
+                @{ File = "${Dir}_SSE2.cpp"; Cpu = "x86_64" },
+                @{ File = "VCL2\instrset_detect.cpp"; Cpu = "x86_64" },
+                @{ File = "${Dir}_AVX2.cpp"; Cpu = "x86_64+avx2+fma" },
+                @{ File = "${Dir}_AVX512.cpp"; Cpu = "x86_64+avx512f+avx512vl+avx512bw+avx512dq+evex512+fma" }
+            )
+            $Objs = @()
+            foreach ($U in $Units) {
+                $Obj = Join-Path $Src ("obj-" + ($U.File -replace '[\\/]', '_') + ".o")
+                & $ZigExe c++ @Common "-mcpu=$($U.Cpu)" $Define -c (Join-Path (Join-Path $Src $Dir) $U.File) -o $Obj
+                if ($LASTEXITCODE -ne 0) { throw "zig c++ failed compiling $Dir\$($U.File) (exit $LASTEXITCODE)" }
+                $Objs += $Obj
+            }
+            if ($P.Fftw) { $Objs += $FftwLib }
+            $Built = Join-Path $T98Work $P.Dll
+            & $ZigExe c++ -target x86_64-windows-gnu -shared @Objs -o $Built
+            if ($LASTEXITCODE -ne 0) { throw "zig c++ failed linking $($P.Dll) (exit $LASTEXITCODE)" }
+            if (-not (Test-FileContainsAscii $Built $Task98Marker)) { throw "the built $($P.Dll) lacks the task #98 marker" }
+            Copy-Item $Built "$PluginsDir\$($P.Dll)" -Force
+            Write-Host "    Built: $($P.Dll) ($($P.Ref), patched)" -ForegroundColor Gray
+        }
+    } finally {
+        Pop-Location
+        Remove-Item $T98Work -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+foreach ($P in $Task98Plugins) {
+    if (-not (Test-FileContainsAscii "$PluginsDir\$($P.Dll)" $Task98Marker)) {
+        throw "$($P.Dll) is not the patched build (task #98)"
+    }
 }
 
 # =============================================================================
