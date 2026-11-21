@@ -1747,7 +1747,11 @@ tiny row per variant (`smokeRows`, every one also a nightly row), runs and
 depth only, on every platform's flutter job; the rest is nightly's `sweep` leg
 (swscale converts 8-bit 4:2:0 to RGB without chroma interpolation: ~4.5
 levels at passthrough). Passes declared in `deltaOnly` also get an FFV1
-encode whose untouched samples must be bit-exact. A failing row is either
+encode whose untouched samples must be bit-exact; an add-on (AI-model)
+variant's encode covers the fixture's first 10 frames only
+(`sweepAddonEncodeFrames`, task #91: DeOldify on the macOS x64 runners'
+CPU ran 30 frames past the 300 s job budget), every other variant's all 30.
+A failing row is either
 fixed or listed in `knownFailures` with the text it must fail with and its
 task; a listed row that starts passing fails the test.
 `format_sweep_cases_test.dart` (push gate, no worker) pins the variant count
