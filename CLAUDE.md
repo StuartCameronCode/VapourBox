@@ -2376,7 +2376,12 @@ keeps chroma and the source size. Rules:
   dip is ≤ 0.5 of its neighbours' median — a never-upscaled VHS capture
   measures ~0.9, a credit-free master ~0.14. All candidates are spliced into
   one clip and read with `frames()`, so VapourSynth runs them in parallel
-  (~30 s at 1080p). **The luma is the source's own Y plane**: decoded in the
+  (~30 s at 1080p on an M1 Pro's 10 cores; 1-2 min on CI's 3-4-core runners,
+  2-7 min on the 4-core Intel Mac one; almost all of it is descale setting up
+  each of the scan's 2160 candidates, so splicing fewer at once saves
+  nothing). Each stage's time is printed on stderr (`NATIVE_RES_STAGE:`), and
+  the heavy test's per-detect budget (20 min, killed past it) is set by the
+  slowest platform, not by arm64 (task #95). **The luma is the source's own Y plane**: decoded in the
   pipe format and scaled by `native_res::luma_gray16` (limited expanded to
   full-range GRAY16, full scaled), never a decode to gray — swscale makes
   that with the matrix tag, and a BT.709-tagged copy of a master lost its dip
