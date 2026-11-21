@@ -10483,3 +10483,90 @@ fn test_267_odd_plane_rows_are_padded_for_bwdif_and_chroma_shifts() {
     let formats = std::fs::read_to_string(templates_dir.join("plugin_formats.py")).unwrap().replace("\r\n", "\n");
     assert!(formats.contains("'havsfunc.LUTDeRainbow': Contract(depths=(8, 10), height_step=CHROMA, field_based_only=True),"));
 }
+
+/// Task #97: a source stored off its chroma grid (1279x719 4:2:0) is read
+/// with pipe_source's padding, its resize reads only the real picture, and
+/// the picture is padded to every grid it must sit on before the output
+/// conversion, with the worker's sizes asserted. A source on its grid gets
+/// none of it, so its scripts are as they were.
+#[test]
+fn test_268_a_source_off_its_chroma_grid_is_padded() {
+    create_output_dir();
+    let off_grid = |name: &str, pipeline: ProcessingPipeline, codec: VideoCodec| {
+        let mut job = create_base_job(name);
+        job.qtgmc_parameters.enabled = false;
+        job.detected_field_order = None;
+        job.input_width = Some(1279);
+        job.input_height = Some(719);
+        job.input_pixel_format = Some("yuv420p".to_string());
+        job.encoding_settings.codec = codec;
+        job.processing_pipeline = Some(pipeline);
+        job
+    };
+    let plain = || ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        ..ProcessingPipeline::default()
+    };
+
+    // Kept as it is: padded by the reader, the encoder crops (FFV1).
+    let job = off_grid("test_268_ffv1", plain(), VideoCodec::FFV1);
+    let (encode, preview) = generate_both_scripts(&job);
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("    pad_right=1,\n    pad_bottom=1,\n    pad_fields=False,\n)"), "{name}");
+        assert!(script.contains("if (clip.width, clip.height) != (1280, 720):"), "{name}");
+        assert!(script.contains("clip = _pf.pad_to(clip, 1280, 720, fields=False, label='Chroma grid')"), "{name}");
+        for tag in ["{{PIPE_", "{{#PIPE_", "{{GRID", "{{#GRID", "{{RESIZE_SRC"] {
+            assert!(!script.contains(tag), "{name}: an unsubstituted {tag}");
+        }
+        assert!(!script.contains("_grid_real_w"), "{name}: no resize");
+    }
+
+    // Still interlaced: the reader repeats each field's own last row.
+    let mut job = off_grid("test_268_fields", plain(), VideoCodec::FFV1);
+    job.detected_field_order = Some(FieldOrder::TopFieldFirst);
+    let (encode, _) = generate_both_scripts(&job);
+    assert!(encode.contains("    pad_fields=True,"), "{encode}");
+
+    // A resize reads the real picture only.
+    let mut resize = plain();
+    resize.crop_resize = CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_width: Some(640),
+        ..CropResizeParameters::default()
+    };
+    let job = off_grid("test_268_resize", resize, VideoCodec::FFV1);
+    let (encode, preview) = generate_both_scripts(&job);
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        assert!(script.contains("_grid_pad_in = (clip.width, clip.height)"), "{name}");
+        assert!(script.contains("_grid_real_w = clip.width - 1 * (clip.width // _grid_pad_in[0])"), "{name}");
+        assert!(script.contains("_fit_aspect = _grid_real_w / _grid_real_h"), "{name}");
+        assert!(script.contains("    window.update(src_width=_grid_real_w, src_height=_grid_real_h)"), "{name}");
+        assert!(!script.contains("pad_to(clip"), "{name}: a resize decides the size");
+        for tag in ["{{PIPE_", "{{#PIPE_", "{{GRID", "{{#GRID", "{{RESIZE_SRC"] {
+            assert!(!script.contains(tag), "{name}: an unsubstituted {tag}");
+        }
+    }
+
+    // On the grid: none of it.
+    let mut job = create_base_job("test_268_on_grid");
+    job.input_width = Some(1280);
+    job.input_height = Some(720);
+    job.input_pixel_format = Some("yuv420p".to_string());
+    let mut pipeline = plain();
+    pipeline.crop_resize = CropResizeParameters {
+        enabled: true,
+        resize_enabled: true,
+        target_width: Some(640),
+        ..CropResizeParameters::default()
+    };
+    job.processing_pipeline = Some(pipeline);
+    let (encode, preview) = generate_both_scripts(&job);
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        for marker in ["pad_right", "_grid_", "pad_to(clip", "GRID", "Chroma grid"] {
+            assert!(!script.contains(marker), "{name}: {marker} in an on-grid script");
+        }
+        assert!(script.contains("_fit_aspect = clip.width / clip.height"), "{name}");
+        assert!(script.contains("def _resize(src, **window):\n    return core.resize."), "{name}");
+    }
+}

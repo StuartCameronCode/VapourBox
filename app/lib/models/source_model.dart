@@ -149,6 +149,34 @@ class SourceModel {
     );
   }
 
+  /// The stored frame is off its chroma grid (task #97), or null: a 4:2:0
+  /// frame with an odd width or height, 4:2:2 / 4:1:1 with a width off its
+  /// grid. The worker pads it for VapourSynth; the app's HDR "before" frame
+  /// crops to the grid below ([gridCropBelow]) before its tone map.
+  GridPad? get gridPad {
+    final g = _video['gridPad'];
+    if (g is! Map) return null;
+    int v(String k) => (g[k] as num?)?.toInt() ?? 0;
+    return GridPad(
+      right: v('right'),
+      bottom: v('bottom'),
+      stepWidth: v('stepWidth') < 1 ? 1 : v('stepWidth'),
+      stepHeight: v('stepHeight') < 1 ? 1 : v('stepHeight'),
+    );
+  }
+
+  /// A `crop` to the largest size on the chroma grid inside the stored frame
+  /// (63x33 4:2:0 -> 62x32), for a decode that zscale reads: zimg refuses a
+  /// frame off its grid ("code 1027"). Null when the frame is on its grid.
+  String? get gridCropBelow {
+    final g = gridPad;
+    if (g == null) return null;
+    final w = width - width % g.stepWidth;
+    final h = height - height % g.stepHeight;
+    if (w <= 0 || h <= 0) return null;
+    return 'crop=$w:$h:0:0';
+  }
+
   List<SourceAudioStream> get audioStreams => [
         for (final a in (_json['audioStreams'] as List? ?? const []))
           SourceAudioStream.fromJson(a as Map<String, dynamic>),
@@ -186,4 +214,21 @@ class SourceModel {
     final d = double.tryParse(parts[1]);
     return n != null && d != null && d != 0 ? n / d : null;
   }
+}
+
+/// [SourceModel.gridPad]: the columns and rows the worker repeats to bring a
+/// stored frame onto its chroma grid, and the grid (luma samples per chroma
+/// sample across and down).
+class GridPad {
+  const GridPad({
+    required this.right,
+    required this.bottom,
+    required this.stepWidth,
+    required this.stepHeight,
+  });
+
+  final int right;
+  final int bottom;
+  final int stepWidth;
+  final int stepHeight;
 }

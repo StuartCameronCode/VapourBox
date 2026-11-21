@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Off-grid source sizes</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  ul.notes { font-size: 14px; }
+  details summary { cursor: pointer; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Sources stored off the chroma grid</h1>
+<p class="meta">2026-11-22 · task #97 (found by task #86) · measured on an Apple M1 Pro, macOS arm64 deps 1.16.0
+(FFmpeg 9.0.2) and 1.17.0-rc1 · every number below comes from a script in <code>scripts/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: such sources are processed, and kept at their stored size wherever the encoder can store it.</strong>
+A subsampled picture whose size is not a whole number of chroma samples (4:2:0 with an odd width or height,
+4:2:2 with an odd width, 4:1:1 with a width off a multiple of 4) is stored and decoded by FFmpeg, but VapourSynth
+refuses a clip of that format and size, so every preview and encode of one failed. <code>pipe_source</code> now reads
+it at the stored size and pads it onto the grid, repeating the last column and row; the encoder's <code>crop</code>
+takes the pad off again. An FFV1 encode is the source sample for sample. An encoder that can't store the size
+(x264 and x265 in 4:2:0/4:2:2, HuffYUV, v210, VideoToolbox and the other hardware encoders) gets the next size up,
+with the repeated line, and the job log says which encoders keep the exact size.</p>
+</div>
+
+<h2>1. What happened</h2>
+<p>The worker on <code>main</code> (fdd51267) with FFV1 fixtures made by <code>scale=W:H,format=F</code> from
+<code>testsrc2</code> (its own <code>s=WxH</code> rounds the size down, so it never makes one). The preview and the
+encode failed alike:</p>
+<table>
+<tr><th>stored</th><th>preview</th><th>encode</th></tr>
+<tr><td>64x33 yuv420p</td><td class="bad" colspan="2"><code>BlankClip: invalid height</code> (traceback through <code>pipe_source.py</code>)</td></tr>
+<tr><td>63x32 yuv420p, 63x32 yuv422p, 63x33 yuv420p10le, 63x32 / 62x32 yuv411p</td><td class="bad" colspan="2"><code>BlankClip: invalid width</code></td></tr>
+<tr><td>63x33 gray, 63x33 yuv440p (the decoder converts them to 4:2:0 / 4:2:2)</td><td class="bad" colspan="2"><code>invalid width</code></td></tr>
+<tr><td>VP9 63x33, MJPEG 63x33 yuvj420p / yuvj422p, ProRes 63x33 4:2:2</td><td class="bad" colspan="2"><code>invalid width</code></td></tr>
+<tr><td>63x33 4:4:4 with Color Format 4:2:0 (an on-grid source, an off-grid output)</td><td class="ok">ok</td><td class="bad"><code>Crop: cropped area needs to have mod 2 height</code></td></tr>
+<tr><td>64x32 4:2:0, 63x33 4:4:4, 64x33 4:2:2 (controls)</td><td class="ok">ok</td><td class="ok">ok</td></tr>
+</table>
+<p>Analysis, thumbnails and the SDR before frame worked, so such a source looked fine until its first preview.
+The HDR before frame failed too: its tone map starts with zscale, which refuses the frame ("code 1027").
+The crop, noise and native-resolution detectors decode in plain Rust and worked at 1279x719 4:2:0.</p>
+
+<h2>2. Which encoders write such sources</h2>
+<p><code>scripts/encoders_that_write.sh</code>, a 63x33 picture into each encoder of the bundled FFmpeg. Task #86
+assumed only FFV1, rawvideo and Y4M; far more do, VP9 and AV1 included, so a browser or screen recording of a window
+with an odd size is exactly this.</p>
+<table>
+<tr><th>writes 63x33 as it is</th><td class="ok">VP9, VP8, libaom AV1, SVT-AV1, MJPEG (yuvj420p, yuvj422p), MPEG-4 ASP, MPEG-2,
+MagicYUV, rawvideo, FFV1, ProRes (4:2:2 at an odd width)</td></tr>
+<tr><th>refuses</th><td>libx264, libx265, HuffYUV, FFVHuff (8-bit 4:2:0), UTVideo, CFHD, DNxHD, DV</td></tr>
+<tr><th>silently changes</th><td class="bad">h264_videotoolbox writes 62x32</td></tr>
+</table>
+
+<h2>3. Which encoders store an off-grid size</h2>
+<p><code>scripts/encoder_steps.sh</code>: a 64x34 picture cropped to 63x33 in the encoder's own <code>-vf</code>, as the
+worker now does. This is <code>VideoCodec::size_step</code>; <code>worker/tests/encoder_size_step_test.rs</code> holds
+every software row to the bundle on each platform (it found the FFVHuff row: only 8-bit subsampled formats refuse
+an odd width).</p>
+<table>
+<tr><th>encoder</th><th>4:2:0 8-bit</th><th>4:2:2 8-bit</th><th>4:2:2 10-bit</th><th>4:4:4</th></tr>
+<tr><td>FFV1</td><td class="ok">63x33</td><td class="ok">63x33</td><td class="ok">63x33</td><td class="ok">63x33</td></tr>
+<tr><td>SVT-AV1 (stores 4:2:0)</td><td class="ok">63x33</td><td class="ok">63x33</td><td class="ok">63x33</td><td class="ok">63x33</td></tr>
+<tr><td>ProRes (prores_ks)</td><td class="ok">63x33</td><td class="ok">63x33</td><td class="ok">63x33</td><td class="ok">63x33</td></tr>
+<tr><td>FFVHuff</td><td class="bad">refused</td><td class="bad">refused</td><td class="ok">63x33</td><td class="ok">63x33</td></tr>
+<tr><td>HuffYUV, v210</td><td class="bad">refused</td><td class="bad">refused</td><td class="bad">refused</td><td class="bad">refused</td></tr>
+<tr><td>libx264, libx265</td><td class="bad">refused</td><td class="bad">refused</td><td class="bad">refused</td><td class="ok">63x33</td></tr>
+<tr><td>h264 / hevc_videotoolbox</td><td class="bad">62x32, silently</td><td class="bad">62x32</td><td class="bad">62x32</td><td class="bad">62x32</td></tr>
+</table>
+<p class="muted">NVENC, QSV and AMF can't run here. They encode 4:2:0 / nv12, so the table holds them to even sizes,
+as it does VideoToolbox.</p>
+
+<h2>4. The fix, and why it pads in the reader</h2>
+<ul class="notes">
+<li><strong>FFmpeg's rawvideo rounds a chroma plane up</strong> (63x33 4:2:0 carries 32x17 chroma samples: 3,200 bytes for
+64x33, 3,040 for 63x32, 4,064 for 63x32 4:2:2, 3,040 for 63x32 4:1:1), and that is exactly the chroma of the
+grid-padded frame. So <code>pipe_source</code> copies every plane as stored and only repeats the last luma column / row
+into the pad (each field's own last row on an interlaced clip). The decoder is unchanged: it decodes the stored frame
+and its size guard still holds it to the probed size.</li>
+<li><strong>Not the decoder's <code>pad</code> filter</strong>: FFmpeg's <code>pad</code> floors an odd input width and
+writes black into the last real column (measured on 63x32: column 62 became 16). It pads an odd height exactly.</li>
+<li><strong>Not refusing the source</strong> (the other option in the plan): VP9/AV1 screen recordings are ordinary inputs.</li>
+<li><strong>The sizes are the worker's</strong>: <code>VideoJob::grid_output</code> rounds the picture up to every grid it must
+sit on (the pipe's, the output format's, the encoder's step), the script pads to that before the output conversion and
+raises if the clip is any other size, and the encoder crops to the encoder's own step. A pipeline that reshapes the
+frame (Rotate / Flip, resize, upscale, borders) decides the size itself, as before.</li>
+</ul>
+
+<h2>5. After the fix</h2>
+<p><code>scripts/worker_roundtrip.sh</code>, preview and FFV1 encode through the worker of this change:</p>
+<table>
+<tr><th>stored</th><th>preview</th><th>encode</th><th>encode vs source (framemd5)</th></tr>
+<tr><td>64x33, 63x32 yuv420p; 63x32 yuv422p; 63x33 yuv420p10le; 1279x719 yuv420p</td><td class="ok">ok, stored size</td><td class="ok">stored size</td><td class="ok">bit-exact</td></tr>
+<tr><td>VP9 63x33, MJPEG 63x33, ProRes 63x33, HDR PQ 63x33 10-bit, interlaced TFF 176x121</td><td class="ok">ok</td><td class="ok">stored size</td><td class="ok">bit-exact</td></tr>
+<tr><td>63x32 yuv411p, 63x33 gray</td><td class="ok">ok</td><td class="ok">stored size</td><td>differs, as it does for an on-grid 64x32 4:1:1 or gray source: the decoder's and script's existing format conversions, not this change</td></tr>
+<tr><td>64x32 yuv420p, 63x33 yuv444p (controls)</td><td class="ok">ok</td><td class="ok">as before</td><td class="ok">bit-exact; script and arguments unchanged</td></tr>
+</table>
+<p>Other cases (heavy test <code>integration_off_grid_source_test.dart</code>, and by hand): x264 of 1279x719 4:2:0
+is 1280x720 with the log line; 63x33 4:4:4 with Color Format 4:2:0 is now 63x33 (it failed before); a left/top crop is
+cropped back to the exact size; a right/bottom crop takes the repeated line with it and keeps one real line more than
+asked (1279x719 cropped 8/4 gives 1272x716, logged); a resize to 640 wide reads only the real 1279x719 picture
+(zimg's <code>src_width</code>/<code>src_height</code>) and fits from its aspect; Rotate turns the padded frame and the
+repeated line stays (logged); a denoise pass and QTGMC run.</p>
+
+<h2>6. A conversion trap: FFmpeg's RGB of an odd-height 4:2:0 frame</h2>
+<p>The first preview = encode check failed by 4–8 levels. The preview was right: <code>scripts/before_frame_options.py</code>
+shows that FFmpeg's own YUV → RGB conversion of a 64x33 4:2:0 frame differs from the same frame padded to 64x34,
+converted, and cropped by <strong>3.4 levels on average (max 106)</strong>, through the whole picture. Its scaler spreads
+the 17 chroma rows over 33 luma rows, a vertical stretch of the chroma, where the samples belong to 34. The worker's
+preview converts the padded frame, so it is the correct one; the heavy test now builds its reference from an on-grid
+twin padded in Dart, and the preview matches it within 0.5 levels. A player that converts an off-grid file with
+FFmpeg's scaler shows that stretch whatever produced the file; the file's samples are the source's.</p>
+
+<h2>7. The HDR before frame</h2>
+<p><code>scripts/before_frame_options.py</code>, a 1280x719 PQ 10-bit 4:2:0 source, against the worker's preview
+(tone map on the padded frame):</p>
+<table>
+<tr><th>before frame</th><th>vs the preview</th></tr>
+<tr><td>tone map as it was</td><td class="bad">fails: zimg 1027</td></tr>
+<tr><td>convert to 4:4:4 first (<code>format=yuv444p16le</code>)</td><td>1.42 levels mean (max 255): the whole picture moves</td></tr>
+<tr><td class="ok"><strong>crop to the grid below, then tone map</strong> (chosen)</td><td class="ok">0.000 here; with the worker's real padding of a 1279x719 frame, 0 away from the last line, max 25 on it</td></tr>
+</table>
+<p>The source model reports <code>video.gridPad</code> (right, bottom, the grid's steps), computed in the worker
+(<code>GridPad::of</code>, the same rule as <code>VideoJob::source_grid_pad</code>); the app's
+<code>SourceModel.gridCropBelow</code> turns it into the crop. SDR before frames and thumbnails keep their arguments.
+The push-gate test <code>off_grid_before_frame_test.dart</code> runs it through each platform's ffmpeg and keeps a
+guard that the uncropped tone map still fails.</p>
+
+<h2>Decisions</h2>
+<ul class="notes">
+<li><strong>An encoder that can't store the size gets the next size up</strong>, never a dropped real line and never a refusal
+(the user's choice, option A). This changes one existing behaviour: an odd-sized 4:4:4 source into VideoToolbox was
+silently 1 px smaller in each direction and is now 1 px larger, with a repeated line.</li>
+<li><strong>Reshaping passes keep their own sizes</strong>: a right/bottom crop rounds outward by the repeated line, a resize
+reads the real picture, Rotate / Flip and borders leave the repeated line in the picture; each is logged.</li>
+<li><strong>No schema bump</strong>: the worker computes the pad at job time from the job's format and size, so a model probed
+before the field existed still processes correctly; only the app's HDR before frame needs a re-analysis.</li>
+<li><strong>No format-sweep row</strong>: every pass sees an ordinary on-grid padded frame, which the sweep already covers.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul class="notes">
+<li>NVENC, QSV and AMF with an off-grid size (no hardware); they are held to even sizes.</li>
+<li>Windows and Linux: the push-gate and heavy tests run there in CI; everything above was measured on macOS arm64.</li>
+<li>The AI upscalers and edge-directed upscaling on a padded frame: they enlarge the repeated line with the picture
+(logged), and a following resize reads the scaled real window.</li>
+<li>A real VP9/AV1 screen recording (the fixtures are synthetic, made with the bundled encoders).</li>
+</ul>
+<p class="muted">Related: task #100 (4:4:0 sources decoded as 4:2:2, which halves their horizontal chroma; found while
+planning this).</p>
+
+</main>
+</body>
+</html>

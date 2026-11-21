@@ -135,7 +135,7 @@ VapourBox/
 | `worker/src/models/processing_pipeline.rs` | Pipeline passes + `FrameMap` (source↔output frame mapping: `output_count` drives the progress total, `invert`/`total_radius`/`preview_output_in` drive frame-accurate preview, including a decimation's phase) |
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
-| `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
+| `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats"); a format's chroma grid and a size's pad onto it (`chroma_grid`, `grid_pad`, task #97) |
 | `worker/templates/stabilize.py` | Stabilize pass: the weave (`Stab` measured at 16-bit) and the vertical pitch correction (see "Stabilize") |
 | `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
 | `worker/templates/plugin_formats.py` | Each limited plugin's format `Contract` and `run_within()`, the one way a pass runs a plugin outside its formats; `pad_around()` / `read_padded()` for a frame size it refuses (see "High Bit Depth Sources"); `mvtools_blocks()` and `mvtools_flow_opt()` for MVTools' small-picture faults |
@@ -1148,6 +1148,9 @@ tone-mapped.
   when the tags are PQ/HLG. Probed by the executor (stream side data, else
   the first frame's SEI). Any other encoder keeps the tags only; never hand
   it another encoder's options.
+- **A source stored off its chroma grid** (63x33 4:2:0) can't reach zscale
+  as it is (zimg 1027): the app's before frame crops to the grid below first
+  (task #97); the worker's preview tone-maps the padded frame and crops after.
 - **Dolby Vision RPU is not carried.** Profiles 7/8/9 decode as their HDR10 /
   HLG / SDR base layer and come out as that. **Profile 5** (IPTPQc2,
   `ipt-c2`) can't be decoded correctly — no bundled FFmpeg on macOS has
@@ -1188,6 +1191,10 @@ it — if they disagree, the byte stream desyncs from the frame geometry
   contra. So the Noise Reduction CTMF block has no 9-bit guard of its own
   (docs/reports/2026-11-9-bit-sources). `test_no_native_format_is_9_or_14_bit`
   keeps both depths out of `NATIVE_FORMATS` and `native_name`.
+
+`pipe_source` sizes each chroma plane rounded **up** (`-(-w // ss)`), as
+FFmpeg's rawvideo writes it: the plain quotient on the grid, the stored
+samples off it (task #97, "Source Frame Size").
 
 `NATIVE_FORMATS` (Rust) and `_FORMAT_MAP` (Python) must stay in step —
 `test_native_formats_match_pipe_source` parses the Python file and fails if they
@@ -1565,6 +1572,36 @@ the **single** builder of both decoders' arguments (encode + preview):
   written before checking the header, gap-free packet timestamps and each
   beep on its flash (the copied case too, since task #43); `_expectAacTimedOnce` also guards the other AVI Convert tests
   (docs/reports/issue-41-aac-avi-block-align).
+
+- **A size off the chroma grid is padded by `pipe_source`, never by the
+  decoder (task #97).** A 4:2:0 frame with an odd width or height (4:2:2 /
+  4:1:1 with a width off its grid) is stored by VP9, AV1, MJPEG, MPEG-4,
+  MPEG-2, FFV1, ProRes and others, and VapourSynth refuses a clip of that
+  format and size. FFmpeg's rawvideo already rounds chroma up (63x33 4:2:0
+  carries 32x17), so the reader copies every plane and repeats the last luma
+  column / row onto the grid (each field's own row when interlaced;
+  `VideoJob::source_grid_pad`, the model's `video.gridPad`). Never FFmpeg's
+  `pad`: it floors an odd width and blacks the last real column.
+  `VideoJob::grid_output` is the one decision of the output sizes, for a
+  pipeline that keeps the geometry (a crop is fine): the script pads to every
+  grid the picture must sit on (pipe, output format, `VideoCodec::size_step`)
+  in `{{#GRID_PAD_TO}}` and raises on any other size; the encoder's
+  `grid_crop_filter`, first in its one `-vf` (and in the test twin), and the
+  preview's, after RGB, take it to the encoder's step. FFV1, SVT-AV1 and
+  ProRes keep the stored size, bit-exact; an encoder that can't (x264/x265 in
+  4:2:0/4:2:2, HuffYUV, v210, FFVHuff 8-bit subsampled, every hardware
+  encoder; VideoToolbox silently drops a row and column otherwise) gets the
+  next size up, said in the job log (`grid_note`), never refused. Reshaping
+  passes keep their sizes: a right/bottom crop takes the repeated line (one
+  real line more than asked), a standard resize reads the real window
+  (`{{#GRID_PAD_RESIZE}}`), Rotate / Flip and borders keep it, logged. The
+  app's HDR before frame crops to the grid below before the tone map
+  (`SourceModel.gridCropBelow`). **Never compare a preview with FFmpeg's own
+  RGB of an off-grid frame**: its scaler spreads 17 chroma rows over 33 luma
+  rows (3.4 levels); build the reference from an on-grid twin
+  (`integration_off_grid_source_test.dart`, heavy;
+  `encoder_size_step_test.rs` holds `size_step` to the bundle;
+  docs/reports/task-97-off-grid-sources).
 
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
@@ -3275,6 +3312,8 @@ cd worker && cargo test --test subtitle_integration_test -- --ignored --nocaptur
   `Tests/TestResources/small_clip.mp4`; needs the whisper add-on + ffmpeg.
   `#[ignore]`d (40–170 s of CPU): nightly runs it with `--ignored`, the push
   gate leaves it out (task #84).
+- `encoder_size_step_test.rs` — `VideoCodec::size_step` against the bundled
+  FFmpeg's software encoders (task #97); push gate.
 - `zimg_colorspace_test.rs` — runs every colour space
   `ColorMetadata::zimg_colorspace` can name through the bundled
   VapourSynth (task #88), like `vspipe_environment_test.rs`; push gate.

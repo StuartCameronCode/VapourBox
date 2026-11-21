@@ -257,6 +257,62 @@ fn native_name(class: ChromaClass, depth: u32) -> String {
     }
 }
 
+/// The chroma grid of an FFmpeg pixel format: luma samples per chroma sample
+/// across and down (4:2:0 `(2, 2)`, 4:2:2 `(2, 1)`, 4:1:1 `(4, 1)`, 4:4:4,
+/// RGB and gray `(1, 1)`).
+///
+/// A frame whose size isn't a multiple of its format's grid is "off the
+/// chroma grid" (task #97): FFmpeg stores and decodes it (its last chroma
+/// sample covers fewer luma samples), but VapourSynth refuses a clip of that
+/// format and size outright (`BlankClip: invalid width`).
+pub fn chroma_grid(name: &str) -> (i32, i32) {
+    let lower = name.trim().to_ascii_lowercase();
+    let stem = lower.strip_suffix("le").or_else(|| lower.strip_suffix("be")).unwrap_or(&lower);
+    for prefix in ["yuva", "yuvj", "yuv"] {
+        if let Some(rest) = stem.strip_prefix(prefix) {
+            if rest.len() >= 3 && rest[..3].chars().all(|c| c.is_ascii_digit()) {
+                return match &rest[..3] {
+                    "410" => (4, 2),
+                    "411" => (4, 1),
+                    "420" => (2, 2),
+                    "422" => (2, 1),
+                    "440" => (1, 2),
+                    _ => (1, 1),
+                };
+            }
+        }
+    }
+    match stem {
+        "nv12" | "nv21" | "p010" | "p012" | "p016" => (2, 2),
+        "nv16" | "p210" | "p212" | "p216" => (2, 1),
+        _ => (1, 1),
+    }
+}
+
+/// `value` rounded up to a multiple of `step` (a `step` below 1 counts as 1).
+pub fn ceil_to(value: i32, step: i32) -> i32 {
+    let step = step.max(1);
+    (value + step - 1).div_euclid(step) * step
+}
+
+/// The columns and rows a `width` x `height` frame of `pix_fmt` lacks to
+/// reach its chroma grid: `(0, 0)` for every frame VapourSynth accepts.
+/// `pipe_source` repeats the last column / row into them (task #97).
+pub fn grid_pad(pix_fmt: &str, width: i32, height: i32) -> (i32, i32) {
+    let (gw, gh) = chroma_grid(pix_fmt);
+    (ceil_to(width, gw) - width, ceil_to(height, gh) - height)
+}
+
+/// The least common multiple of two grid steps.
+pub fn lcm(a: i32, b: i32) -> i32 {
+    let (a, b) = (a.max(1), b.max(1));
+    let (mut x, mut y) = (a, b);
+    while y != 0 {
+        (x, y) = (y, x % y);
+    }
+    a / x * b
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -442,5 +498,51 @@ mod tests {
             keys, native,
             "NATIVE_FORMATS and pipe_source.py's _FORMAT_MAP have drifted"
         );
+    }
+
+    /// The grid of every format pipe_source reads, and of the encoder-side
+    /// names that matter (task #97).
+    #[test]
+    fn chroma_grid_of_every_native_format() {
+        let expected = [
+            ("yuv411p", (4, 1)),
+            ("yuv420p", (2, 2)), ("yuvj420p", (2, 2)), ("yuv420p10le", (2, 2)),
+            ("yuv420p12le", (2, 2)), ("yuv420p16le", (2, 2)),
+            ("yuv422p", (2, 1)), ("yuvj422p", (2, 1)), ("yuv422p10le", (2, 1)),
+            ("yuv422p12le", (2, 1)), ("yuv422p16le", (2, 1)),
+            ("yuv444p", (1, 1)), ("yuvj444p", (1, 1)), ("yuv444p10le", (1, 1)),
+            ("yuv444p12le", (1, 1)), ("yuv444p16le", (1, 1)),
+        ];
+        assert_eq!(expected.len(), NATIVE_FORMATS.len());
+        for (name, grid) in expected {
+            assert!(NATIVE_FORMATS.contains(&name), "{name}");
+            assert_eq!(chroma_grid(name), grid, "{name}");
+        }
+        for (name, grid) in [
+            ("nv12", (2, 2)), ("p010le", (2, 2)), ("nv16", (2, 1)), ("yuv440p", (1, 2)),
+            ("yuv410p", (4, 2)), ("gray", (1, 1)), ("gbrp10le", (1, 1)), ("rgb24", (1, 1)),
+            ("YUV420P10LE", (2, 2)),
+        ] {
+            assert_eq!(chroma_grid(name), grid, "{name}");
+        }
+    }
+
+    #[test]
+    fn grid_pad_is_zero_on_the_grid_and_reaches_it_otherwise() {
+        assert_eq!(grid_pad("yuv420p", 720, 480), (0, 0));
+        assert_eq!(grid_pad("yuv420p", 720, 486), (0, 0));
+        assert_eq!(grid_pad("yuv420p", 64, 33), (0, 1));
+        assert_eq!(grid_pad("yuv420p", 63, 32), (1, 0));
+        assert_eq!(grid_pad("yuv420p10le", 1279, 719), (1, 1));
+        assert_eq!(grid_pad("yuv422p", 63, 33), (1, 0));
+        assert_eq!(grid_pad("yuv444p", 63, 33), (0, 0));
+        assert_eq!(grid_pad("yuv411p", 62, 32), (2, 0));
+        assert_eq!(grid_pad("yuv411p", 63, 33), (1, 0));
+        assert_eq!(ceil_to(33, 2), 34);
+        assert_eq!(ceil_to(32, 2), 32);
+        assert_eq!(ceil_to(7, 1), 7);
+        assert_eq!(lcm(4, 2), 4);
+        assert_eq!(lcm(2, 1), 2);
+        assert_eq!(lcm(1, 1), 1);
     }
 }

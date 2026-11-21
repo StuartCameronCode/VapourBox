@@ -89,6 +89,10 @@ class PreviewGenerator {
   /// seek of the source adds it.
   int _decoderDelayFrames = 0;
 
+  /// The crop to the chroma grid below a source stored off it (task #97),
+  /// null for every other source. See [beforeFrameArgs].
+  String? _gridCrop;
+
   /// Video dimensions and pixel format (for pipe source).
   int _videoWidth = 0;
   int _videoHeight = 0;
@@ -294,6 +298,7 @@ class PreviewGenerator {
     _frameRate = 29.97;
     _videoStartOffset = 0;
     _decoderDelayFrames = 0;
+    _gridCrop = null;
     _seekPlan = null;
     _sourceGrid = null;
     _videoWidth = 0;
@@ -410,6 +415,7 @@ class PreviewGenerator {
     SeekPlan? seekPlan,
     SourceGrid? grid,
     int decoderDelayFrames = 0,
+    String? gridCrop,
     required String outputPath,
   }) {
     final frame = frameIndex < 0 ? 0 : frameIndex;
@@ -432,6 +438,12 @@ class PreviewGenerator {
       if (tagFix != null) tagFix,
       ...?onGrid?.filters,
       if (seek?.trim != null) seek!.trim!,
+      // A source stored off its chroma grid (task #97, `gridCrop` from
+      // [SourceModel.gridCropBelow]) is cropped to the grid below for the
+      // tone map, whose zscale refuses it (zimg 1027). It then matches the
+      // worker's preview (which tone-maps the padded frame) everywhere but
+      // its last line. SDR needs no crop and keeps its arguments.
+      if (toneMap != null && gridCrop != null) gridCrop,
       if (toneMap != null) toneMap,
     ];
     return [
@@ -475,6 +487,7 @@ class PreviewGenerator {
           seekPlan: _seekPlan,
           grid: _sourceGrid,
           decoderDelayFrames: _decoderDelayFrames,
+          gridCrop: _gridCrop,
           outputPath: outputPath,
         ),
       );
@@ -761,6 +774,7 @@ class PreviewGenerator {
     _frameRate = model.frameRate > 0 ? model.frameRate : 29.97;
     _videoStartOffset = model.videoStartOffset;
     _decoderDelayFrames = model.decoderDelayFrames;
+    _gridCrop = model.gridCropBelow;
     _seekPlan = model.seekPlan;
     _sourceGrid = model.sourceGrid;
     _totalFrames = model.frameCount;
