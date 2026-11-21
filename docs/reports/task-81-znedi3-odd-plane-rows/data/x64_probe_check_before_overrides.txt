@@ -1,0 +1,16 @@
+vivtc.VFM                                 112 cells,    2 refused,     2.4 s
+bwdif.Bwdif                               112 cells,    0 refused,     5.2 s
+mpeg2stinx                                112 cells,    0 refused,     5.8 s
+nnedi3.nnedi3                             112 cells,    4 refused,     8.4 s
+havsfunc.daa                              112 cells,    4 refused,     9.0 s
+probe: 5 calls in 18 s, --jobs 6, lut memo on
+nnedi3.nnedi3 420p8/f0/720x486: table says ok, the bundle says refused (znedi3: clip must have even number of scanlines)
+nnedi3.nnedi3 420p8/f2/720x486: table says ok, the bundle says refused (znedi3: clip must have even number of scanlines)
+nnedi3.nnedi3 420p16/f0/720x486: table says ok, the bundle says refused (znedi3: clip must have even number of scanlines)
+nnedi3.nnedi3 420p16/f2/720x486: table says ok, the bundle says refused (znedi3: clip must have even number of scanlines)
+havsfunc.daa 420p8/f0/720x486: table says ok, the bundle says refused (znedi3: clip must have even number of scanlines)
+havsfunc.daa 420p8/f2/720x486: table says ok, the bundle says refused (znedi3: clip must have even number of scanlines)
+havsfunc.daa 420p16/f0/720x486: table says ok, the bundle says refused (znedi3: clip must have even number of scanlines)
+havsfunc.daa 420p16/f2/720x486: table says ok, the bundle says refused (znedi3: clip must have even number of scanlines)
+vivtc.VFM 420p9/f0/160x120: table says refused (VFM: input clip must be constant format YUV420P8, YUV422P8, YUV440P8, YUV444P8, or GRAY8), the bundle says ok
+vivtc.VFM 420p14/f0/160x120: table says refused (VFM: input clip must be constant format YUV420P8, YUV422P8, YUV440P8, YUV444P8, or GRAY8), the bundle says ok

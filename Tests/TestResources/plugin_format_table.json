@@ -16003,334 +16003,442 @@
      "ok": true
     },
     "420p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p14/f0/160x120": {
      "ok": true
     },
     "420p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p9/f0/160x120": {
      "ok": true
     },
     "422p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     }
    },
    "summary": {
@@ -16346,7 +16454,8 @@
      "420",
      "422",
      "444"
-    ]
+    ],
+    "within_refused": []
    }
   },
   "havsfunc.santiag": {
@@ -19921,334 +20030,442 @@
      "ok": true
     },
     "420p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p14/f0/160x120": {
      "ok": true
     },
     "420p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "420p9/f0/160x120": {
      "ok": true
     },
     "422p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "422p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p10/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p12/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p16/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f0/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f1/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/160x120": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/1920x1080": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/352x240": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/64x48": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/718x480": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x486": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     },
     "444p8/f2/720x576": {
-     "ok": true
+     "ok": true,
+     "within": "ok"
     }
    },
    "summary": {
@@ -20264,7 +20481,8 @@
      "420",
      "422",
      "444"
-    ]
+    ],
+    "within_refused": []
    }
   },
   "pass.DeScratch": {
@@ -27030,6 +27248,50 @@
  "platform": "",
  "platforms": {
   "linux-x64": {
+   "havsfunc.daa": {
+    "420p16/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    }
+   },
+   "nnedi3.nnedi3": {
+    "420p16/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    }
+   },
    "vivtc.VFM": {
     "420p10/f0/160x120": {
      "ok": true
@@ -27047,6 +27309,9 @@
      "ok": true
     },
     "420p12/f2/160x120": {
+     "ok": true
+    },
+    "420p14/f0/160x120": {
      "ok": true
     },
     "420p16/f0/160x120": {
@@ -27092,6 +27357,9 @@
      "ok": true
     },
     "420p16/f2/720x576": {
+     "ok": true
+    },
+    "420p9/f0/160x120": {
      "ok": true
     },
     "422p10/f0/160x120": {
@@ -27223,6 +27491,50 @@
    }
   },
   "macos-x64": {
+   "havsfunc.daa": {
+    "420p16/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    }
+   },
+   "nnedi3.nnedi3": {
+    "420p16/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    }
+   },
    "vivtc.VFM": {
     "420p10/f0/160x120": {
      "ok": true
@@ -27240,6 +27552,9 @@
      "ok": true
     },
     "420p12/f2/160x120": {
+     "ok": true
+    },
+    "420p14/f0/160x120": {
      "ok": true
     },
     "420p16/f0/160x120": {
@@ -27285,6 +27600,9 @@
      "ok": true
     },
     "420p16/f2/720x576": {
+     "ok": true
+    },
+    "420p9/f0/160x120": {
      "ok": true
     },
     "422p10/f0/160x120": {
@@ -27412,6 +27730,52 @@
     },
     "444p16/f2/720x576": {
      "ok": true
+    }
+   }
+  },
+  "windows-x64": {
+   "havsfunc.daa": {
+    "420p16/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    }
+   },
+   "nnedi3.nnedi3": {
+    "420p16/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p16/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f0/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
+    },
+    "420p8/f2/720x486": {
+     "error": "znedi3: clip must have even number of scanlines",
+     "ok": false,
+     "within": "ok"
     }
    }
   }

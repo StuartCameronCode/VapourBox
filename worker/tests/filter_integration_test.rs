@@ -4011,11 +4011,12 @@ fn test_104_anti_alias_daa() {
         ..ProcessingPipeline::default()
     });
     // znedi3 refuses a 4:2:0 frame 2 mod 4 high (odd chroma rows), so daa
-    // runs on a frame padded to whole field chroma rows (task #57).
+    // runs on a frame padded to whole field chroma rows, through its contract
+    // (tasks #57, #81).
     run_job_and_verify(
         &job,
         "Anti-Alias daa",
-        &["haf.daa(", "clip = _pf.pad_around(clip, _aa_daa, height_step=_pf.CHROMA, label='Anti-aliasing')"],
+        &["haf.daa(", "clip = _pf.run_within(clip, 'havsfunc.daa', _aa_daa, label='Anti-aliasing')"],
     )
     .unwrap();
 
@@ -10088,4 +10089,58 @@ fn test_261_every_fft3dfilter_call_plans_with_fftw_estimate() {
     }
     // pipeline_template.vpy's FFT3D method and TemporalDegrain2's two passes.
     assert!(calls >= 3, "only {calls} FFT3DFilter calls found in the templates");
+}
+
+/// Task #81: znedi3 (x86) refuses a plane with an odd number of rows unless it
+/// doubles the height (dh=True), at graph build and whatever _FieldBased says:
+/// a 4:2:0 frame 2 mod 4 high (720x486) has 243 chroma rows, so every Bwdif +
+/// NNEDI3 job on one failed on Windows, Linux and Intel Macs. dubhater's nnedi3
+/// (arm64) takes it, so the probe table, written there, said ok. The one
+/// interpolator helper, _nnedi3(), runs every call without dh through
+/// run_within() under the 'nnedi3.nnedi3' contract (which pads to whole chroma
+/// rows and crops back), and only a dh=True call bypasses it. havsfunc's daa
+/// calls its own nnedi3, so it runs through a contract of its own.
+#[test]
+fn test_262_nnedi3_without_dh_is_padded_to_whole_plane_rows() {
+    create_output_dir();
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let template = std::fs::read_to_string(templates_dir.join(vapourbox_worker::script_generator::TEMPLATE_FILE))
+        .unwrap()
+        .replace("\r\n", "\n");
+    let start = template.find("def _nnedi3(").expect("the _nnedi3() helper");
+    let end = start + template[start..].find("\n\n").expect("a blank line after the helper");
+    let helper = &template[start..end];
+    let bypass = helper.find("if kwargs.get('dh'):").expect("_nnedi3() bypasses padding only for dh=True");
+    let padded = helper
+        .find("_pf.run_within(clip, 'nnedi3.nnedi3', _nnedi3_plugin, delta_only=False")
+        .expect("_nnedi3() runs a call without dh through the 'nnedi3.nnedi3' contract");
+    assert!(bypass < padded, "the dh bypass must come before the padded call");
+
+    let formats = std::fs::read_to_string(templates_dir.join("plugin_formats.py")).unwrap().replace("\r\n", "\n");
+    for key in ["nnedi3.nnedi3", "havsfunc.daa"] {
+        let line = formats
+            .lines()
+            .find(|l| l.trim_start().starts_with(&format!("'{key}': Contract(")))
+            .unwrap_or_else(|| panic!("plugin_formats.CONTRACTS has no '{key}'"));
+        assert!(line.contains("height_step=CHROMA"), "{key}: {line}");
+        assert!(!line.contains("field_based_only"), "{key}: znedi3 refuses unflagged frames too: {line}");
+    }
+
+    // Bwdif + NNEDI3 (the path that failed) reaches the helper, and daa its contract.
+    let mut job = create_base_job("test_262_bwdif_edeint");
+    let deinterlace = QTGMCParameters {
+        enabled: true,
+        method: DeinterlaceMethod::Bwdif,
+        bwdif_edeint: true,
+        tff: Some(true),
+        ..Default::default()
+    };
+    job.qtgmc_parameters = deinterlace.clone();
+    job.processing_pipeline = Some(ProcessingPipeline { deinterlace, ..ProcessingPipeline::default() });
+    let (encode, preview) = generate_both_scripts(&job);
+    for script in [&encode, &preview] {
+        assert!(script.contains("_bwdif_edi = _nnedi3(clip, field=3, dh=False)"));
+        assert!(script.contains("core.bwdif.Bwdif(clip, field=3, edeint=_bwdif_edi)"));
+    }
+    assert!(template.contains("clip = _pf.run_within(clip, 'havsfunc.daa', _aa_daa, label='Anti-aliasing')"));
 }

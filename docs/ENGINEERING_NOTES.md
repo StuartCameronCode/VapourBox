@@ -5738,3 +5738,36 @@ Found when a Windows push-gate run probed `small_clip.mp4` twice and got
   errors rather than counting `nb_frames`. With the fix, 2,700/2,700 runs
   per platform counted 3151.
 - **Not done:** the app drops a `--probe-source` error silently (task #85).
+
+### znedi3 refuses an odd plane on x86; the probe table is arm64's (task #81, 2026-11-21)
+
+The nightly full plugin probe on Linux x64 and Windows x64 reported `bwdif.Bwdif`,
+`nnedi3.nnedi3`, `havsfunc.daa` and `mpeg2stinx` refused at 720x486 4:2:0
+("znedi3: clip must have even number of scanlines") where the table, written
+on macOS arm64, said ok. znedi3's constructor refuses any plane with an odd row
+count unless `dh=True`, whatever `_FieldBased` says; arm64 runs dubhater's
+nnedi3 (patch 6), which takes it. A 4:2:0 frame 486 high has 243 chroma rows.
+
+- **One real failure.** Run as real jobs with the x86 worker on the macOS x64
+  bundle under Rosetta: Deinterlace → Bwdif with "High-quality interpolation"
+  (NNEDI3) failed every 720x486 4:2:0 job, 8 and 16-bit, with or without a
+  field order. daa and mpeg2stinx were already padded by task #57 (the probe
+  calls the plugins raw); plain Bwdif has no limit.
+- **Fix.** `_nnedi3()` runs every call without `dh` through
+  `run_within(..., 'nnedi3.nnedi3', ...)` (`height_step=CHROMA`), and daa
+  moved from a bare `pad_around` to the `'havsfunc.daa'` contract, so the
+  probe measures both padded paths. A frame that fits gets no node. Padding
+  runs on arm64 too (one graph everywhere): there Bwdif + NNEDI3 at 720x486
+  4:2:0 changes in the last 3 rows of each plane only.
+- **The hole.** The contracts test read only the base table's summaries,
+  one platform's. A refusal another bundle shows is a `platforms` override,
+  and nothing required one to be handled. Now it must be padded by a
+  contract, or be HANDLED / KNOWN. The x86 cells are overrides for
+  linux-x64, windows-x64 and macos-x64 (the last measured under Rosetta);
+  VFM's 9/14-bit documentation rows accept on Linux and macOS x64.
+- **Found on the way:** x264 of a still-interlaced 720x486 4:2:0 picture
+  fails at the encoder (interlaced coding needs a height mod 4; task #92),
+  and the nightly sweep's 96x66 rows fail on every platform for other
+  passes (task #87).
+
+Report: [docs/reports/task-81-znedi3-odd-plane-rows](reports/task-81-znedi3-odd-plane-rows/index.html).

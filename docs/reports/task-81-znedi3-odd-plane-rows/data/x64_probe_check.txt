@@ -1,0 +1,6 @@
+bwdif.Bwdif                               112 cells,    0 refused,     3.6 s
+mpeg2stinx                                112 cells,    0 refused,     4.0 s
+vivtc.VFM                                 112 cells,    2 refused,     1.5 s
+nnedi3.nnedi3                             112 cells,    4 refused,     6.9 s
+havsfunc.daa                              112 cells,    4 refused,     7.4 s
+probe: 5 calls in 8 s, --jobs 4, lut memo on

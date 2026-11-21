@@ -34,7 +34,7 @@ import 'support/format_sweep.dart';
 /// disappears fails here; adding a method or sub-feature means changing one
 /// number (and, if it is inert on the fixture, an actuation override).
 const expectedVariantCounts = <String, int>{
-  'deinterlace': 14, // 3 methods + QTGMC's 11 presets
+  'deinterlace': 15, // 3 methods + QTGMC's 11 presets + Bwdif with NNEDI3 (task #81)
   'unblend': 1,
   'descratch': 1,
   'spotless': 2,
@@ -297,6 +297,24 @@ void main() {
           expect(params, contains(param), reason: '$key sets $param, not in $filterId.json');
         }
         expect(value.reason, isNotEmpty);
+      }
+    });
+
+    test('option variants', () {
+      for (final v in optionVariants) {
+        final params = loadSchemaJson(v.filterId)['parameters'] as Map;
+        final methods = schemaMethodIds(loadSchemaJson(v.filterId));
+        for (final MapEntry(:key, :value) in v.values.entries) {
+          if (key == 'method') {
+            expect(methods, contains(value), reason: '${v.filterId}: no method $value');
+          } else {
+            expect(params, contains(key), reason: '${v.filterId}: no parameter $key');
+          }
+        }
+        final id = '${v.filterId}/${v.values['method']}+'
+            '${(v.values.entries.where((e) => e.key != 'method').toList()..sort((a, b) => a.key.compareTo(b.key))).map((e) => '${e.key}=${e.value}').join('+')}';
+        expect(ids, contains(id), reason: 'option variant $id was not generated (a duplicate pipeline?)');
+        expect(v.reason, isNotEmpty);
       }
     });
 

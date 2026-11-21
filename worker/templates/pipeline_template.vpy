@@ -206,9 +206,19 @@ _IS_ARM = _platform.machine().lower() in ('arm64', 'aarch64')
 
 
 def _nnedi3(clip, **kwargs):
-    if _IS_ARM and hasattr(core, 'nnedi3'):
-        return core.nnedi3.nnedi3(clip, **kwargs)
-    return core.znedi3.nnedi3(clip, **kwargs)
+    def _nnedi3_plugin(c):
+        if _IS_ARM and hasattr(core, 'nnedi3'):
+            return core.nnedi3.nnedi3(c, **kwargs)
+        return core.znedi3.nnedi3(c, **kwargs)
+    if kwargs.get('dh'):
+        # Doubling the height never leaves a plane with an odd row count.
+        return _nnedi3_plugin(clip)
+    # znedi3 (x86) refuses a plane with an odd number of rows unless dh=True,
+    # when the graph is built and whatever _FieldBased says: a 4:2:0 frame 2
+    # mod 4 high (720x486) has 243 chroma rows. nnedi3 (arm64) takes it, but
+    # the frame is padded on every platform so both run one graph (task #81;
+    # plugin_formats.CONTRACTS['nnedi3.nnedi3']). A frame that fits gets no node.
+    return _pf.run_within(clip, 'nnedi3.nnedi3', _nnedi3_plugin, delta_only=False, label='NNEDI3')
 
 
 # VapourSynth's std.Expr JIT is wrapped in #ifdef VS_TARGET_CPU_X86, so on ARM
@@ -514,6 +524,8 @@ else:
 # the point:
 #   * No format limits at all — 8/9/10/12/16-bit, 4:2:0/4:2:2/4:4:4, GRAY, RGB
 #     and even 4:1:1 all pass. Unique among recent additions; no guard needed.
+#     NNEDI3 as its edeint does have one (znedi3 on x86 refuses a 4:2:0 frame
+#     2 mod 4 high): _nnedi3() pads it (task #81).
 #   * No _FieldBased sensitivity. field=1 and field=3 both work with the
 #     property absent, 0, 1 or 2, so it does NOT repeat the znedi3 trap that
 #     cost two nightly cycles.
@@ -1821,14 +1833,15 @@ clip = core.std.SetFieldBased(clip, {{AA_FIELD_BASED_VALUE}})
 # averages them, so a stair-stepped diagonal is rebuilt rather than blurred.
 # The gentler of the two methods and the usual choice.
 # znedi3 (x86) refuses a plane with an odd number of rows, progressive or not:
-# a 4:2:0 frame whose height is 2 mod 4 has one in chroma, so it is padded to
-# whole field chroma rows and cropped back (task #57). nnedi3 (arm64) takes
-# it, but the padded frame runs on both alike.
+# a 4:2:0 frame whose height is 2 mod 4 has one in chroma. havsfunc calls its
+# own nnedi3, not _nnedi3(), so daa runs through its contract, which pads to
+# whole field chroma rows and crops back (tasks #57, #81). nnedi3 (arm64)
+# takes it, but the padded frame runs on both alike.
 def _aa_daa(clip):
     return haf.daa(clip)
 
 
-clip = _pf.pad_around(clip, _aa_daa, height_step=_pf.CHROMA, label='Anti-aliasing')
+clip = _pf.run_within(clip, 'havsfunc.daa', _aa_daa, label='Anti-aliasing')
 {{/AA_DAA}}
 
 {{#AA_SANTIAG}}

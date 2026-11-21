@@ -17,6 +17,15 @@ Tests/TestResources) converted to every format a pass can be handed:
     (width not mod 4), 720x486, 720x576 and 1920x1080, at each subsampling,
     progressive and TFF, 8 and 16-bit.
 
+The committed table is measured on one platform (macOS arm64). A cell
+another bundle measures differently is recorded under `platforms` by
+platform id (znedi3 on x86 refuses what nnedi3 on arm64 accepts, task #81);
+plugin_format_contracts_test requires such a refusal to be padded by a
+contract, or listed in HANDLED / KNOWN, like any other. The calls that use
+NNEDI3 as a helper (Bwdif, mpeg2stinx, EEDI3's sclip) go through nnedi3(),
+the template's _nnedi3() with its padding; 'nnedi3.nnedi3' measures the
+plugin itself.
+
 A cell is "ok" when a frame of the call's output can be requested; otherwise
 it records the first line of the error, or "crash: <status>" when the
 process died. Every call runs in its own process; after a crash the cells
@@ -87,11 +96,20 @@ def _calls():
     sys.path.insert(0, TEMPLATES)
     import havsfunc as haf
 
-    def nnedi3(c, **kw):
-        # The template's _nnedi3(): nnedi3 on ARM where it is bundled.
+    def nnedi3_plugin(c, **kw):
+        # The plugin _nnedi3() picks: nnedi3 on ARM where it is bundled.
         if platform.machine().lower() in ('arm64', 'aarch64') and hasattr(core, 'nnedi3'):
             return core.nnedi3.nnedi3(c, **kw)
         return core.znedi3.nnedi3(c, **kw)
+
+    def nnedi3(c, **kw):
+        # The template's _nnedi3(), padding included: without dh, through the
+        # 'nnedi3.nnedi3' contract (znedi3 refuses an odd plane on x86, #81).
+        if kw.get('dh'):
+            return nnedi3_plugin(c, **kw)
+        import plugin_formats
+        return plugin_formats.run_within(c, 'nnedi3.nnedi3', lambda x: nnedi3_plugin(x, **kw),
+                                         delta_only=False)
 
     def luma(c):
         return core.std.ShufflePlanes(c, 0, vs.GRAY)
@@ -189,7 +207,8 @@ def _calls():
     # #56 F2). The template picks this contract for SrchClipPP 1.
     call('havsfunc.QTGMC[SrchClipPP=1]', ['havsfunc.QTGMC'], lambda c: haf.QTGMC(c, Preset='Super Fast', TFF=True))
     call('bwdif.Bwdif', ['bwdif.Bwdif'], lambda c: core.bwdif.Bwdif(c, field=3, edeint=nnedi3(c, field=3)))
-    call('nnedi3.nnedi3', ['nnedi3.nnedi3', 'znedi3.nnedi3'], lambda c: nnedi3(c, field=1))
+    # The plugin itself (its refusal), and through run_within() its contract.
+    call('nnedi3.nnedi3', ['nnedi3.nnedi3', 'znedi3.nnedi3'], lambda c: nnedi3_plugin(c, field=1))
     call('vivtc.VFM', ['vivtc.VFM'], lambda c: core.vivtc.VFM(c, order=1, mode=1, cthresh=9, mi=80, blockx=16, blocky=16))
     call('vivtc.VDecimate', ['vivtc.VDecimate'], lambda c: core.vivtc.VDecimate(c, cycle=5, dupthresh=1.1, scthresh=15.0))
     call('srestore.unblend', ['havsfunc.AverageFrames'],

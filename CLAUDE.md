@@ -428,7 +428,13 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   with `field_based_only=True` when the plugin refuses it only
   field-flagged. A refusal no contract expresses (a field flag) is handled
   in the pass and explained in `plugin_formats.HANDLED`, or filed as a task
-  and listed in `plugin_formats.KNOWN` until it is. **Anything that reaches
+  and listed in `plugin_formats.KNOWN` until it is. **The committed table is
+  measured on macOS arm64**, where several plugins differ from x86 (nnedi3
+  for znedi3, task #81): a cell another bundle measures differently is a
+  `platforms` override (by platform id, no tier), and a refusal there needs
+  a contract that pads it, or HANDLED / KNOWN, exactly as in the base table
+  (`plugin_format_contracts_test.dart`). Probe a frame-size change on an
+  x86 bundle too: the macOS x64 one runs under Rosetta. **Anything that reaches
   MVTools' Compensate, Degrain or BlockFPS with an overlap** (directly or
   through havsfunc / a vendored module) goes through
   `_pf.mvtools_blocks(clip, fn)` (test_256): MVTools picks the overlap
@@ -1633,7 +1639,12 @@ A >8-bit source is read natively off the pipe. Two ways this breaks after that:
    every time moved it 26 levels: it supersamples at a size that follows
    the height). `run_within()` pads whatever it converts. test_258 fails on
    a `SeparateFields` outside `pad_around`/`run_within`; the format sweep
-   runs a 96x66 row. Never strip `_FieldBased` to get round it, except for a
+   runs a 96x66 row. **znedi3 (x86) refuses an odd plane at graph build,
+   field flag or not, unless `dh=True`**, so `_nnedi3()` runs every call
+   without `dh` through `run_within(..., 'nnedi3.nnedi3', ...)`, and daa
+   (havsfunc's own nnedi3) through `'havsfunc.daa'` (task #81: Bwdif with
+   NNEDI3 failed every such job on x86; arm64's nnedi3 accepts it, so the
+   table missed it). Never strip `_FieldBased` to get round it, except for a
    copy whose samples it can't change (stabilize.weave's undithered depth
    change); error diffusion runs per field
    (docs/reports/task-57-height-2-mod-4-and-removedirt).
@@ -3408,6 +3419,9 @@ silently does nothing — behavioural tests matter more than usual here (see
    **Never call `core.znedi3.nnedi3`/`core.nnedi3.nnedi3` directly** — always go
    through the templates' `_nnedi3()` helper (`test_92` enforces this). Measured
    ~6x CPU-time win on arm64 QTGMC for a picture within 0.045/255 of znedi3's.
+   The two differ in one limit: znedi3 refuses a plane with an odd number of
+   rows without `dh`, nnedi3 takes it, so a template change checked on arm64
+   alone can miss it; `_nnedi3()` pads such calls (`test_262`, task #81).
 7. **akarin Expr routing** — on ARM, rebinds havsfunc's `core` so `.std.Expr`
    calls go to `akarin.Expr` (a real LLVM JIT) instead of VapourSynth's own
    x86-only Expr JIT, which falls back to a scalar per-pixel interpreter on
