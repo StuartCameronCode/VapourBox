@@ -1,0 +1,6 @@
+mode=shared rounds=20 busy=6 ok=143 wrong_picture=299 failed=278
+failed previews' messages:
+  22 Error generating preview: Failed to create raw frame file
+   1 Error generating preview: Failed to decode frames: [out#0/rawvideo @ 0x…] Error opening output $TMPDIR/vapourbox_preview_<job id>/frames.raw: Invalid argument
+  27 Error generating preview: Failed to decode frames: [out#0/rawvideo @ 0x…] Error opening output $TMPDIR/vapourbox_preview_<job id>/frames.raw: No such file or directory
+ 228 Error generating preview: The VapourSynth script failed: see the traceback below

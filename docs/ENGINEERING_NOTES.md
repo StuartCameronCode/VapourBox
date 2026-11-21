@@ -5847,3 +5847,29 @@ interlaced stream crops in 2x4 units, so padding to 488 and declaring a
 - The unflagged codecs' note no longer suggests H.264 at such a size.
 
 Report: [docs/reports/task-92-x264-interlaced-height-2-mod-4](reports/task-92-x264-interlaced-height-2-mod-4/index.html).
+
+### Concurrent previews of one job shared their script and frames (task #93, 2026-11-21)
+
+The nightly "IVTC preview exits cleanly, run after run" failed 3–4 of 36
+previews on windows-x64, windows-x64-v2 and macos-x64-v2 (deps 1.18.0-rc1/rc2)
+with "The VapourSynth script failed: see the traceback below" and no
+traceback. Not the IVTC graph: the test runs three previews of one job at a
+time, and the worker named each preview's script, `frames.raw` and pitch
+factors by `job.id` alone, so previews deleted and rewrote each other's files.
+
+- **The message.** A script vspipe cannot open prints vsscript's `File
+  reading exception: [Errno 2] …`, not a Python exception, so
+  `vspipe_failure_message` had no reason and no traceback to quote. It now
+  quotes vsscript's words.
+- **The silent half.** On an M1 under load, 278 of 720 shared-job previews
+  failed and 299 of the 442 that exited 0 showed another preview's picture.
+  With a job per frame, 720/720 were right; after the fix, 1,080/1,080 with
+  the shared job.
+- **Fix.** `PreviewScratch` (a uuid-named directory per run, removed on drop)
+  holds every file a preview writes; `ScriptGenerator::with_scratch_dir`.
+  Child stderr is read lossily (`lossy_lines`). The harness names its config
+  file per call and prints the worker's whole error (`workerError`); the
+  repeat test keeps one job and requires each concurrent preview to equal the
+  frame previewed alone. The app was never affected (a fresh id per preview).
+
+Report: [docs/reports/task-93-preview-scratch-collision](reports/task-93-preview-scratch-collision/index.html).

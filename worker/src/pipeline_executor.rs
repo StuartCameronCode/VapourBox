@@ -139,6 +139,58 @@ fn is_native_crash(status: &std::process::ExitStatus) -> bool {
     }
 }
 
+/// A directory private to one preview run, in the temp directory (so it
+/// follows Settings → Temporary Files through `TMPDIR`), removed when it
+/// drops, on every exit path. The job id in its name is only for whoever
+/// reads the temp directory: two previews of one job get two directories
+/// (task #93).
+pub(crate) struct PreviewScratch {
+    path: std::path::PathBuf,
+}
+
+impl PreviewScratch {
+    pub(crate) fn new(job_id: &str) -> Result<Self> {
+        let path = std::env::temp_dir()
+            .join(format!("vapourbox_preview_{}_{}", job_id, uuid::Uuid::new_v4().simple()));
+        // create_dir, not create_dir_all: a directory that already exists is
+        // somebody else's.
+        fs::create_dir(&path)
+            .with_context(|| format!("Failed to create the preview's scratch directory {:?}", path))?;
+        Ok(Self { path })
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl Drop for PreviewScratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
+/// A child's output, line by line, to its end. A line that is not UTF-8 is
+/// decoded lossily rather than ending the read, as `lines().map_while(Ok)`
+/// did: that dropped the rest of the error, and closed the pipe, so the
+/// child's next write failed (task #93). The line ending (`\n` or `\r\n`) is
+/// removed.
+pub(crate) fn lossy_lines<R: BufRead>(mut reader: R) -> impl Iterator<Item = String> {
+    let mut buf = Vec::new();
+    std::iter::from_fn(move || {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => {
+                while matches!(buf.last(), Some(b'\n') | Some(b'\r')) {
+                    buf.pop();
+                }
+                Some(String::from_utf8_lossy(&buf).into_owned())
+            }
+        }
+    })
+}
+
 /// True if the process was terminated by SIGPIPE (Unix only; always false
 /// elsewhere). A vspipe SIGPIPE means the downstream consumer (ffmpeg) closed
 /// the pipe — usually because ffmpeg itself failed, so the ffmpeg error is the
@@ -763,7 +815,7 @@ impl PipelineExecutor {
             // Keep a bounded tail: enough to recognise a size-guard failure
             // (source_decode::explain_decoder_failure) and to report the cause.
             let mut tail: Vec<String> = Vec::new();
-            for line in reader.lines().map_while(Result::ok) {
+            for line in lossy_lines(reader) {
                 decoder_reporter.send_log(LogLevel::Debug, &format!("decoder stderr: {}", line));
                 tail.push(line);
                 if tail.len() > 40 {
@@ -783,7 +835,7 @@ impl PipelineExecutor {
             let mut autoload_failed = false;
             // vspipe's last lines, for the job error if it fails (task #28).
             let mut tail = std::collections::VecDeque::new();
-            for line in reader.lines().map_while(Result::ok) {
+            for line in lossy_lines(reader) {
                 // Log all stderr for debugging
                 reporter_clone.send_log(LogLevel::Debug, &format!("vspipe stderr: {}", line));
                 vspipe_failure::push_tail(&mut tail, &line, vspipe_failure::VSPIPE_TAIL_LINES);
@@ -822,7 +874,7 @@ impl PipelineExecutor {
             // useful error (e.g. "Unknown encoder 'h264_qsv'"), not just its
             // final — often blank — stderr line.
             let mut tail: std::collections::VecDeque<String> = std::collections::VecDeque::new();
-            for line in reader.lines().map_while(Result::ok) {
+            for line in lossy_lines(reader) {
                 ffmpeg_reporter.send_log(LogLevel::Debug, &format!("ffmpeg stderr: {}", line));
                 if !line.trim().is_empty() {
                     tail.push_back(line);
@@ -1743,6 +1795,13 @@ impl PipelineExecutor {
         // ScriptGenerator::field_based_for) so the preview and the encode can
         // never disagree about it — issue #49.
 
+        // Every file this preview writes (its script, pitch factors, the
+        // decoded frames) goes in a directory of its own, removed when it
+        // drops, on every exit path. Named by `job.id` alone they were shared
+        // by every preview of that job running at once, which deleted and
+        // rewrote each other's script and frames (task #93).
+        let scratch = PreviewScratch::new(&job.id.to_string())?;
+
         // FPS as rational
         let script_generator = ScriptGenerator::new()?
             .with_opencl_available(self.deps.opencl_available())
@@ -1764,7 +1823,8 @@ impl PipelineExecutor {
             })
             .with_animejanai(self.deps.animejanai_runtime())
             .with_addons(self.deps.addons_dir(), self.deps.platform_suffix())
-            .with_timeline(window.clone());
+            .with_timeline(window.clone())
+            .with_scratch_dir(scratch.path().to_path_buf());
         let (fps_num, fps_den) = script_generator.frame_rate_to_rational(frame_rate);
 
         let preview_params = PreviewParams {
@@ -1788,10 +1848,7 @@ impl PipelineExecutor {
 
         // Decode frames to a temp raw file (avoids rawvideo muxer pipe issues on Windows)
         // For 11 frames this is tiny (~9MB) and near-instant with keyframe seeking
-        let temp_dir = std::env::temp_dir().join(format!("vapourbox_preview_{}", job.id));
-        fs::create_dir_all(&temp_dir)
-            .with_context(|| format!("Failed to create temp dir: {:?}", temp_dir))?;
-        let raw_path = temp_dir.join("frames.raw");
+        let raw_path = scratch.path().join("frames.raw");
 
         // Same decode as the encode path: the full stored frame at exactly the
         // probed size, never resampled — see source_decode.rs.
@@ -1828,7 +1885,6 @@ impl PipelineExecutor {
 
         if !extract_result.status.success() {
             let stderr = String::from_utf8_lossy(&extract_result.stderr);
-            let _ = fs::remove_dir_all(&temp_dir);
             if let Some(msg) = source_decode::explain_decoder_failure(&stderr, width, height) {
                 bail!("{}", msg);
             }
@@ -1836,7 +1892,6 @@ impl PipelineExecutor {
         }
 
         if !raw_path.exists() {
-            let _ = fs::remove_dir_all(&temp_dir);
             bail!("Failed to create raw frame file");
         }
 
@@ -1902,7 +1957,7 @@ impl PipelineExecutor {
                 let reader = BufReader::new(stderr);
                 let mut errors = Vec::new();
                 let mut decimate_corr = None;
-                for line in reader.lines().map_while(Result::ok) {
+                for line in lossy_lines(reader) {
                     // The preview script's decimation reports which of the
                     // two outputs it showed (task #46).
                     if let Some(v) = line.strip_prefix(PREVIEW_DECIMATE_PREFIX) {
@@ -1925,9 +1980,9 @@ impl PipelineExecutor {
         let vspipe_status = vspipe.wait().context("Failed to wait for vspipe")?;
         let output = ffmpeg_enc.wait_with_output().context("Failed to wait for ffmpeg")?;
 
-        // Clean up temp files
-        let _ = fs::remove_dir_all(&temp_dir);
-        let _ = fs::remove_file(&script_path);
+        // Both processes have exited: nothing holds a file in the scratch
+        // directory any more (Windows refuses to delete an open file).
+        drop(scratch);
 
         let (errors, decimate_corr) = stderr_thread.and_then(|t| t.join().ok()).unwrap_or_default();
 
@@ -2144,6 +2199,43 @@ mod tests {
     use super::*;
     use crate::models::{AudioCodec, AudioMode, AudioQuality, ChromaSubsampling, ContainerFormat, EncodingSettings, ProResQuantMat, QTGMCParameters, VideoCodec};
     use uuid::Uuid;
+
+    /// Task #93: two previews of one job wrote, read and deleted the same
+    /// script and frames file. Each gets its own directory, gone on drop.
+    #[test]
+    fn two_previews_of_one_job_get_their_own_scratch_directory() {
+        let id = Uuid::new_v4().to_string();
+        let a = PreviewScratch::new(&id).unwrap();
+        let b = PreviewScratch::new(&id).unwrap();
+        assert_ne!(a.path(), b.path());
+        for s in [&a, &b] {
+            assert!(s.path().is_dir());
+            assert!(s.path().starts_with(std::env::temp_dir()));
+            assert!(s.path().file_name().unwrap().to_string_lossy().contains(&id));
+        }
+        fs::write(a.path().join("frames.raw"), b"x").unwrap();
+        let (pa, pb) = (a.path().to_path_buf(), b.path().to_path_buf());
+        drop(a);
+        assert!(!pa.exists(), "dropped with its files");
+        assert!(pb.is_dir(), "the other preview's directory is untouched");
+        drop(b);
+        assert!(!pb.exists());
+    }
+
+    /// A line that is not UTF-8 no longer ends the read of a child's stderr
+    /// (task #93): the lines after it are the error.
+    #[test]
+    fn lossy_lines_reads_past_a_line_that_is_not_utf8() {
+        let bytes: &[u8] = b"Script evaluation failed:\r\nbad \xff\xfe bytes\npath\nlast";
+        let lines: Vec<String> = lossy_lines(bytes).collect();
+        assert_eq!(lines, vec![
+            "Script evaluation failed:".to_string(),
+            "bad \u{fffd}\u{fffd} bytes".to_string(),
+            "path".to_string(),
+            "last".to_string(),
+        ]);
+        assert_eq!(lossy_lines(&b""[..]).count(), 0);
+    }
 
     /// The two codes that have actually cost debugging time must be named in
     /// the error, and an ordinary exit code must not be dressed up as a crash.

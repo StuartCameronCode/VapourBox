@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Preview scratch collision</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+</style>
+</head>
+<body>
+<h1>Concurrent previews of one job shared their script and frames</h1>
+<p class="meta">Task #93, 2026-11-21. Measured on an Apple Silicon Mac (M1 Pro), macos-arm64 deps 1.17.0-rc1, debug worker. "Before" is the worker at <code>bbf1927c</code>; "after" is this change. The x86 failures are nightly run 44767156916 (main <code>9190d08d</code>, deps 1.18.0-rc2) and 44562921675 (deps 1.18.0-rc1); they were not re-run here.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>Symptom:</b> the heavy test "IVTC preview exits cleanly, run after run" failed 3–4 of its 36 previews on windows-x64, windows-x64-v2 and macos-x64-v2 with <code>The VapourSynth script failed: see the traceback below | (vspipe exited with exit code 1)</code>, and no traceback anywhere in the log.</li>
+<li><b>Cause:</b> the test runs three previews at a time of <i>one</i> job (one <code>job.id</code>), and the worker named every file a preview writes by the job id alone: <code>$TMP/&lt;id&gt;_preview.vpy</code>, <code>$TMP/vapourbox_preview_&lt;id&gt;/frames.raw</code>, <code>$TMP/&lt;id&gt;_preview_pitch_factors.txt</code>. The harness's config file was <code>vb_pv_&lt;id&gt;.json</code> too. Each preview writes its script, decodes its frames, runs vspipe and deletes both. Running together, previews deleted, rewrote and replaced each other's files. It is not in the IVTC graph, <code>_preview_decimate_pick</code> or <code>pipe_source</code>.</li>
+<li><b>Why no traceback:</b> a script vspipe cannot open is not a Python error. vsscript prints <code>Script evaluation failed:</code> / <code>File reading exception:</code> / <code>[Errno 2] No such file or directory: '…'</code>. <code>vspipe_failure_message</code> found no <code>Python exception:</code> and no <code>Traceback</code>, so it said "see the traceback below" and dropped the reason. Checked by running the bundle's vspipe on a missing file.</li>
+<li><b>Worse than the failures:</b> most previews that exited 0 showed <b>another preview's picture</b> (they read its <code>frames.raw</code> or its script). The test checked only the exit status, so this was never seen.</li>
+<li><b>The app was never affected:</b> <code>PreviewGenerator</code> gives every preview its own <code>Uuid().v4()</code>; so does the format sweep. Only this test reuses one job.</li>
+<li><b>Fix:</b> each preview writes into a directory of its own (<code>PreviewScratch</code>: <code>vapourbox_preview_&lt;id&gt;_&lt;uuid&gt;</code>, removed on drop on every exit path; <code>ScriptGenerator::with_scratch_dir</code> for the script and pitch factors). The job error now carries vsscript's words for a non-Python evaluation error. Child stderr is read lossily, so a non-UTF-8 line no longer ends the read. The harness names its config file per call and prints the worker's whole error. The repeat test keeps one job on purpose and requires every concurrent preview to equal that frame previewed alone.</li>
+</ul>
+
+<h2>Measurements</h2>
+<p><code>scripts/race.sh</code>: the test's ProRes 422 10-bit IVTC job, 36 previews a round at frames <code>(i·7) mod 30</code>, three at a time, each started after a random 0–0.4 s delay; optional busy-loop cores beside them. Every PNG is compared (md5) with the same frame previewed alone. "Shared" uses one job for all previews, as the test does; "unique" one job per frame. Raw output: <code>data/</code>.</p>
+<table>
+<tr><th>Worker</th><th>Job ids</th><th>Load</th><th>Previews</th><th>Right picture</th><th>Wrong picture (exit 0)</th><th>Failed (exit 1)</th></tr>
+<tr><td>before</td><td>shared</td><td>none</td><td class=num>360</td><td class=num>101</td><td class="num no">136</td><td class="num no">123</td></tr>
+<tr><td>before</td><td>shared</td><td>6 busy cores</td><td class=num>720</td><td class=num>143</td><td class="num no">299</td><td class="num no">278</td></tr>
+<tr><td>before</td><td>unique</td><td>6 busy cores</td><td class=num>720</td><td class="num ok">720</td><td class=num>0</td><td class=num>0</td></tr>
+<tr><td>after</td><td>shared</td><td>none</td><td class=num>360</td><td class="num ok">360</td><td class=num>0</td><td class=num>0</td></tr>
+<tr><td>after</td><td>shared</td><td>6 busy cores</td><td class=num>720</td><td class="num ok">720</td><td class=num>0</td><td class=num>0</td></tr>
+</table>
+<p>The failures before, by message (shared, loaded): 228 "The VapourSynth script failed: see the traceback below" (CI's message), 27 + 1 ffmpeg could not open <code>frames.raw</code> (its directory deleted under it), 22 "Failed to create raw frame file".</p>
+<p><b>Limits.</b> The rates depend entirely on timing: the start delays make collisions far likelier than the test's simultaneous starts (an earlier run during planning, starting all three at once, failed 3 of 360 idle and 48 of 720 loaded, with 252 wrong of 338 that exited 0). CI's 3–4 of 36 is that test's own timing on slower x86 runners. It is not an x86 bug: the arm64 runners were lucky. Measured on arm64 only; the worker change has no platform branch.</p>
+<p><b>The strengthened test catches it.</b> Run against the old worker under load, the new repeat test failed with <code>frame 0: not the picture it previews alone (MAD 8.027)</code> and others (MAD 3–9); against this change it passes (32 s on the M1).</p>
+
+<h2>What the job error says now</h2>
+<pre>before: The VapourSynth script failed: see the traceback below
+        (vspipe exited with exit code 1)
+after:  The VapourSynth script failed: File reading exception: [Errno 2] No such file or directory: '…_preview.vpy'
+        (vspipe exited with exit code 1)</pre>
+<p>Pinned by <code>vspipe_failure::tests::a_script_file_that_cannot_be_read_says_why</code> on vspipe's recorded output.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><b>Fixed in the worker, not only in the test.</b> A job id names a job, not a process; a preview must not depend on its caller to be unique. The test keeps sharing one job so it guards this.</li>
+<li><b>A uuid-named directory, not the <code>tempfile</code> crate.</b> <code>tempfile</code> is only a dev-dependency; <code>uuid</code> already ships. <code>create_dir</code> (not <code>_all</code>) refuses a directory that already exists.</li>
+<li><b>The encode's <code>&lt;id&gt;.vpy</code> and other id-keyed scratch</b> (Descale detection, audio render, the progress file) are unchanged: each belongs to one run per job, and nothing runs two at once for one id.</li>
+<li><b>No retries.</b></li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>x86 itself (Windows, Intel Mac): left to the nightly run after this change.</li>
+<li>No screenshot: a wrong picture here is simply another, correct-looking frame of the clip; the MAD figures above are the evidence.</li>
+</ul>
+</body>
+</html>

@@ -10318,3 +10318,49 @@ fn test_264_yuv_rgb_conversions_name_the_whole_colour_space() {
         }
     }
 }
+
+/// Task #93: three previews of one job at once shared `<id>_preview.vpy`
+/// and the pitch factors in the temp directory; one deleted or rewrote
+/// another's script (vspipe: "File reading exception", a torn script, or the
+/// wrong picture). With a scratch directory each preview's files are its own.
+#[test]
+fn test_265_preview_files_go_in_the_previews_own_scratch_directory() {
+    create_output_dir();
+    let factors = write_factor_file("test_265_factors", "1.001\n0.999\n");
+    let mut job = stabilize_job("test_265_preview_scratch", StabilizeParameters {
+        enabled: true,
+        weave: false,
+        pitch_mode: PitchMode::File,
+        ..StabilizeParameters::default()
+    });
+    job.pitch_factors_path = Some(factors);
+    let params = PreviewParams {
+        rate_pad: 0,
+        unblend_pad: 0,
+        unblend_origin: 0,
+        decimate: None,
+        source_frame_offset: 0,
+        width: 720, height: 576, pix_fmt: "yuv420p".into(), num_frames: 11,
+        fps_num: 25, fps_den: 1, output_index: 5,
+    };
+
+    let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+    let mut scripts = Vec::new();
+    for dir in &dirs {
+        let generator = ScriptGenerator::new().unwrap().with_scratch_dir(dir.path().to_path_buf());
+        let script = generator.generate_preview(&job, &params).unwrap();
+        assert!(script.starts_with(dir.path()), "{:?} is outside {:?}", script, dir.path());
+        let text = std::fs::read_to_string(&script).unwrap();
+        let line = text.lines().find(|l| l.contains("factors_path=r\"")).expect("factors_path line");
+        let factors_path = PathBuf::from(line.split("r\"").nth(1).unwrap().trim_end_matches("\","));
+        assert!(factors_path.starts_with(dir.path()), "{:?} is outside {:?}", factors_path, dir.path());
+        assert!(factors_path.exists());
+        scripts.push(script);
+    }
+    assert_ne!(scripts[0], scripts[1]);
+
+    // Without one (the library's callers and these tests), the temp directory
+    // as before.
+    let script = ScriptGenerator::new().unwrap().generate_preview(&job, &params).unwrap();
+    assert_eq!(script, std::env::temp_dir().join(format!("{}_preview.vpy", job.id)));
+}

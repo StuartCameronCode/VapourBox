@@ -2090,10 +2090,23 @@ time span `[t, t+1)`; the worker reports `sub_frame`, `sub_frames` and
   lookup starts at `preview_source_offset` (`first + skip - pad`).
   `integration_ivtc_preview_test.dart` (heavy) checks previews against a
   lossless encode by the film frame they hold, and repeats the decimating
-  preview 36 times (docs/reports/issue-46-ivtc-preview,
+  preview 36 times, three at a time on one job, each required to equal the
+  same frame previewed alone (docs/reports/issue-46-ivtc-preview,
   docs/reports/task-65-ivtc-preview-teardown). An IVTC test needs a source
   with pulldown: on progressive frames IVTC keeps each frame unchanged
   (`_telecineFixture` in the parity test).
+- **A preview's files are its own, never named by the job alone (task
+  #93).** Its script, decoded frames (`frames.raw`) and pitch factors go in
+  a directory private to that worker run (`PreviewScratch`, removed on
+  drop; `ScriptGenerator::with_scratch_dir`). Named by `job.id`, three
+  previews of one job at once (the repeat test above) deleted, rewrote and
+  replaced each other's script and frames: exit 1 with "see the traceback
+  below" (vsscript's "File reading exception", whose text the job error
+  used to drop) on 3–4 of 36 x86 previews, and, unseen, exit 0 with
+  another preview's picture (299 of the 442 that exited 0, under load on an M1). The app gives
+  each preview its own id, so it was never hit; any new scratch file a
+  preview writes goes in that directory
+  (docs/reports/task-93-preview-scratch-collision).
 - A source frame with no output of its own (down-conversion, decimation)
   shows the output just before it, as the preview always has.
 
@@ -3786,6 +3799,10 @@ Rules:
     `--malloc-fill` runs, compared) and `bisect` with `:cpu=none`.
     `qtgmc_stride_padding_test.dart` (push gate) checks QTGMC's picture
     ignores padding on every platform.
+    **"The VapourSynth script failed:" with vsscript's own words and no
+    traceback** (`File reading exception: [Errno 2] …`) means vspipe could
+    not read the script file; it is not a Python error (task #93). Before,
+    such a job error said only "see the traceback below" with none below.
 
 ## Platform-Specific Notes
 

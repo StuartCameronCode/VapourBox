@@ -312,10 +312,20 @@ void main() {
   // because the preview read VDecimate's drop with get_frame() during script
   // evaluation and its one frame came back at once (2-3% of previews with
   // four running under CPU load; 0 run one at a time). It is read in the
-  // graph now (test_259 keeps it there). This runs the preview again and
-  // again, three at a time, at every cycle phase: too few runs to catch a
-  // 2% fault reliably, so test_259 is the guard and this the smoke test.
-  test('IVTC preview exits cleanly, run after run (task #65)', () async {
+  // graph now (test_259 keeps it there).
+  //
+  // Task #93: this test then failed 3-4 times in 36 on x86 with "The
+  // VapourSynth script failed: see the traceback below" and no traceback.
+  // The three previews here share one job (one job id, on purpose), and the
+  // worker named a preview's script and decoded frames by the job id alone:
+  // one preview deleted another's script before vspipe read it (vsscript's
+  // "File reading exception", whose text the job error dropped), rewrote it
+  // mid-read, or replaced its frames, which exited 0 with the wrong picture
+  // (299 of the 442 that exited 0, under load on an M1). Each preview has its own scratch
+  // directory now. So every concurrent preview must equal the same frame
+  // previewed alone, exactly (previews are deterministic), and a failure
+  // prints the worker's whole error.
+  test('IVTC preview exits cleanly, run after run (tasks #65, #93)', () async {
     final job = VideoJob(
       id: const Uuid().v4(),
       inputPath: _prores.path,
@@ -332,7 +342,24 @@ void main() {
       totalFrames: _prores.slots,
     ).toJson();
     final failures = <String>[];
+    void fail(String what) {
+      print('  FAILED $what');
+      failures.add(what);
+    }
+
     final frames = [for (var i = 0; i < 36; i++) (i * 7) % _prores.slots];
+
+    // Each frame previewed alone: the picture every concurrent run must match.
+    final reference = <int, Uint8List>{};
+    for (final f in frames.toSet()) {
+      final pv = await WorkerHarness.runPreview(job, frame: f, label: 'repeat_ref_$f');
+      if (!pv.success) {
+        fail('frame $f (alone): ${pv.error}\n${pv.workerError}');
+        continue;
+      }
+      reference[f] = await WorkerHarness.imageToRgb24(pv.png!, label: 'repeat_ref_$f');
+    }
+
     for (var i = 0; i < frames.length; i += 3) {
       final runs = await Future.wait([
         for (final f in frames.skip(i).take(3))
@@ -341,12 +368,22 @@ void main() {
       ]);
       for (final (f, pv) in runs) {
         if (!pv.success) {
-          failures.add('frame $f: ${pv.error} | ${pv.errorTail}');
-        } else if (!pv.logs.contains('decimation dropped a frame at or before the target: ')) {
-          failures.add('frame $f: no decimation report');
+          fail('frame $f: ${pv.error}\n${pv.workerError}');
+          continue;
+        }
+        if (!pv.logs.contains('decimation dropped a frame at or before the target: ')) {
+          fail('frame $f: no decimation report');
+        }
+        final ref = reference[f];
+        if (ref == null) continue;
+        final rgb = await WorkerHarness.imageToRgb24(pv.png!, label: 'repeat_$f');
+        final mad = WorkerHarness.meanAbsDiff(rgb, ref);
+        if (mad != 0) {
+          fail('frame $f: not the picture it previews alone (MAD ${mad.toStringAsFixed(3)})');
         }
       }
     }
-    expect(failures, isEmpty, reason: '${failures.length} of ${frames.length} previews');
+    expect(failures, isEmpty,
+        reason: '${failures.length} of ${frames.length} previews:\n${failures.join('\n')}');
   }, timeout: const Timeout(Duration(minutes: 10)));
 }
