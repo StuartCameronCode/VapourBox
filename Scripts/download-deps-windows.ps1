@@ -610,13 +610,21 @@ if (-not (Test-Path $ZsmoothOut)) {
 Write-Host "  zsmooth: $ZsmoothCpu build present" -ForegroundColor Green
 
 # =============================================================================
-# 4b. FFTW Library (required by DFTTest)
+# 4b. FFTW Library (required by DFTTest, FFT3DFilter and DCTFilter)
 # =============================================================================
+# VapourSynth loads a plugin with its own directory as the search path, so the
+# plugins find FFTW only in vs-plugins\. The copy in vapoursynth\ is not on
+# that path. Up to deps 1.18.0-rc2, DCTFilter r2's 7z unpacked its own
+# libfftw3f-3.dll into vs-plugins\, and DFTTest and FFT3DFilter loaded that
+# one. Building DCTFilter from source (task #96) dropped the 7z, and all three
+# plugins then failed to load (GetLastError 126) (task #90). So this section
+# installs FFTW 3.3.5 into vs-plugins\ too, and fails the build without it.
 Write-Host ""
 Write-Host "[4b/8] Downloading FFTW library..." -ForegroundColor Yellow
 
 $FFTWPath = "$FullTargetDir\vapoursynth\libfftw3f-3.dll"
-if (-not (Test-Path $FFTWPath)) {
+$FFTWPluginPath = "$PluginsDir\libfftw3f-3.dll"
+if (-not (Test-Path $FFTWPath) -or -not (Test-Path $FFTWPluginPath)) {
     Write-Host "  Downloading FFTW 3.3.5..." -ForegroundColor Gray
     $FFTWZip = Join-Path $TempDir "fftw.zip"
     $FFTWUrl = "https://fftw.org/pub/fftw/fftw-3.3.5-dll64.zip"
@@ -628,7 +636,8 @@ if (-not (Test-Path $FFTWPath)) {
 
         # Copy the single-precision float DLL (required by DFTTest)
         Copy-Item "$FFTWExtractDir\libfftw3f-3.dll" "$FullTargetDir\vapoursynth\" -Force
-        Write-Host "    Copied: libfftw3f-3.dll" -ForegroundColor Gray
+        Copy-Item "$FFTWExtractDir\libfftw3f-3.dll" "$PluginsDir\" -Force
+        Write-Host "    Copied: libfftw3f-3.dll (vapoursynth\ and vs-plugins\)" -ForegroundColor Gray
 
         Remove-Item $FFTWZip -Force -ErrorAction SilentlyContinue
         Remove-Item $FFTWExtractDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -638,6 +647,9 @@ if (-not (Test-Path $FFTWPath)) {
     }
 } else {
     Write-Host "  FFTW library already installed" -ForegroundColor Gray
+}
+if (-not (Test-Path $FFTWPluginPath)) {
+    throw "libfftw3f-3.dll is missing from vs-plugins\: DFTTest, FFT3DFilter and DCTFilter would not load (task #90)"
 }
 
 # =============================================================================
