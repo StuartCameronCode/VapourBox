@@ -10423,7 +10423,7 @@ fn test_266_ai_yuv_rgb_conversions_are_padded() {
 fn test_267_odd_plane_rows_are_padded_for_bwdif_and_chroma_shifts() {
     create_output_dir();
     for edeint in [false, true] {
-        let mut job = create_base_job("test_264_bwdif");
+        let mut job = create_base_job("test_267_bwdif");
         let deinterlace = QTGMCParameters {
             enabled: true,
             method: DeinterlaceMethod::Bwdif,
@@ -10445,7 +10445,7 @@ fn test_267_odd_plane_rows_are_padded_for_bwdif_and_chroma_shifts() {
         }
     }
 
-    let mut job = create_base_job("test_264_chroma_shift");
+    let mut job = create_base_job("test_267_chroma_shift");
     job.qtgmc_parameters.enabled = false;
     job.processing_pipeline = Some(ProcessingPipeline {
         deinterlace: QTGMCParameters { enabled: false, ..job.qtgmc_parameters.clone() },
