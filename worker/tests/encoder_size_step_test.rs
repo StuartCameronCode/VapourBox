@@ -22,7 +22,7 @@ use vapourbox_worker::models::VideoCodec;
 fn every_software_encoder_stores_exactly_the_sizes_its_step_allows() {
     let deps = DependencyLocator::new().expect("locate dependencies");
     let ffmpeg = deps.ffmpeg_path().expect("locate ffmpeg");
-    let ffprobe = ffmpeg.with_file_name(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" });
+    let ffprobe = deps.ffprobe_path().expect("locate ffprobe");
     let env = deps.build_environment();
     let dir = std::env::temp_dir().join(format!("vapourbox_size_step_{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
