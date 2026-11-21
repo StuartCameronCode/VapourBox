@@ -32,7 +32,7 @@ void main() {
   for (final (file, resetAt) in [('seek_reset_dvd_pal.mpg', 150), ('seek_reset_h264.ts', 150)]) {
     test('$file: deferred, completed with progress, joined from the model\'s scan', () async {
       final source = _resource(file);
-      final deferred = await service.probeSource(source, deferScan: true);
+      final deferred = (await service.probeSource(source, deferScan: true)).model;
       expect(deferred, isNotNull);
       expect(deferred!.continuityDeferred, isTrue);
       expect(deferred.continuity, isNull);
@@ -48,7 +48,7 @@ void main() {
       for (var i = 1; i < progress.length; i++) {
         expect(progress[i], greaterThanOrEqualTo(progress[i - 1]));
       }
-      final full = await service.probeSource(source);
+      final full = (await service.probeSource(source)).model;
       expect(completed.toJson(), full!.toJson(),
           reason: 'completing the deferred model gives the model probed in one go');
 
@@ -57,7 +57,7 @@ void main() {
       expect(r.error, isNull);
       expect(r.proxy, isNotNull);
       addTearDown(r.proxy!.delete);
-      final copy = await service.probeSource(r.proxy!.path);
+      final copy = (await service.probeSource(r.proxy!.path)).model;
       expect(copy!.frameCount, 300, reason: 'the copy counts both segments');
       expect(copy.continuity!.needsCopy, isFalse);
     });
@@ -65,14 +65,14 @@ void main() {
 
   test('a scan stopped part way completes with nothing', () async {
     final deferred =
-        await service.probeSource(_resource('seek_reset_dvd_pal.mpg'), deferScan: true);
+        (await service.probeSource(_resource('seek_reset_dvd_pal.mpg'), deferScan: true)).model;
     final task = service.completeSource(deferred!);
     task.cancel();
     expect(await task.result, isNull);
   });
 
   test('a format without a scan has nothing to defer', () async {
-    final m = await service.probeSource(_resource('small_clip.mp4'), deferScan: true);
+    final m = (await service.probeSource(_resource('small_clip.mp4'), deferScan: true)).model;
     expect(m!.continuityDeferred, isFalse);
     expect(m.continuity!.needsCopy, isFalse);
   });

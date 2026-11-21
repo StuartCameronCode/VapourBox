@@ -9663,7 +9663,7 @@ fn test_256_mvtools_overlap_callers_pad_short_pictures() {
     // field chroma samples.
     assert!(formats.contains("MVTOOLS_MIN_ROWS = 96"), "rows: 3 x 32 - 2 x 1 = 94, rounded up");
     assert!(formats.contains("MVTOOLS_MIN_COLS = 64"), "columns: 2 x 32 - 2 = 62, rounded up");
-    assert!(formats.contains("def mvtools_blocks(clip, fn, *, label=None):"));
+    assert!(formats.contains("def mvtools_blocks(clip, fn, *, min_cols=0, label=None):"));
 
     fn enclosing_def(lines: &[&str], at: usize) -> Option<String> {
         let indent = |l: &str| l.len() - l.trim_start().len();
@@ -10145,6 +10145,97 @@ fn test_262_nnedi3_without_dh_is_padded_to_whole_plane_rows() {
     assert!(template.contains("clip = _pf.run_within(clip, 'havsfunc.daa', _aa_daa, label='Anti-aliasing')"));
 }
 
+#[test]
+fn test_263_qtgmc_input_type_2_3_pads_for_mvtools_mask() {
+    // Task #79: havsfunc's QTGMC runs mv.Mask(kind=1) on InputType 2 and 3 at
+    // Placebo..Medium (ProgSADMask) with no opt. Mask writes before its buffer
+    // on x86 under 4 block columns, and garbles its bottom rows when a row is
+    // as wide as its stride. The Deinterlace pass pads the width with
+    // mvtools_mask_cols(width, height, BlockSize, Overlap) for those jobs
+    // only, with the block size and overlap havsfunc will use; every other
+    // job's script is what it was.
+    create_output_dir();
+    let scripts = |preset: QTGMCPreset, input_type: Option<i32>, block: Option<i32>, overlap: Option<i32>| {
+        let mut job = create_base_job("test_263_qtgmc_mask_cols");
+        job.qtgmc_parameters = QTGMCParameters {
+            enabled: true,
+            preset,
+            tff: Some(true),
+            input_type,
+            block_size: block,
+            overlap,
+            ..QTGMCParameters::default()
+        };
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            ..ProcessingPipeline::default()
+        });
+        generate_both_scripts(&job)
+    };
+    // Lines that differ with InputType itself, or are blank where its tag was.
+    let plain = |s: &str| -> String {
+        s.lines()
+            .filter(|l| !l.contains("InputType=") && !l.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let call = "_pf.mvtools_blocks(clip, _deinterlace_qtgmc, ";
+    let pad = |b: i32, o: i32| format!("min_cols=_pf.mvtools_mask_cols(clip.width, clip.height, {b}, {o}), ");
+
+    let (base_encode, base_preview) = scripts(QTGMCPreset::Slow, None, Some(32), Some(16));
+    for s in [&base_encode, &base_preview] {
+        assert!(s.contains(&format!("{call}label='Deinterlace')")), "no plain Deinterlace pad call");
+        assert!(!s.contains("QTGMC_MASK_COLS"), "placeholder left in the script");
+        assert!(!s.contains("min_cols="));
+    }
+    for input_type in [Some(0), Some(1)] {
+        let (encode, preview) = scripts(QTGMCPreset::Slow, input_type, Some(32), Some(16));
+        assert_eq!(plain(&encode), plain(&base_encode), "InputType {input_type:?} encode changed");
+        assert_eq!(plain(&preview), plain(&base_preview), "InputType {input_type:?} preview changed");
+    }
+    // The Mask runs only where ProgSADMask defaults on: Placebo..Medium.
+    for preset in [QTGMCPreset::Fast, QTGMCPreset::VeryFast, QTGMCPreset::Draft] {
+        let (encode, _) = scripts(preset, Some(2), Some(32), Some(16));
+        assert!(!encode.contains("min_cols="), "{preset:?} runs no Mask");
+    }
+    for input_type in [2, 3] {
+        let (encode, preview) = scripts(QTGMCPreset::Slow, Some(input_type), Some(32), Some(16));
+        for s in [&encode, &preview] {
+            assert!(s.contains(&format!("InputType={input_type},")));
+            assert!(s.contains(&format!("{call}{}label='Deinterlace')", pad(32, 16))), "InputType {input_type}: no Mask pad");
+        }
+        // Only that argument differs.
+        let strip = |s: &str| plain(s).replace(&pad(32, 16), "");
+        assert_eq!(strip(&encode), plain(&base_encode));
+        assert_eq!(strip(&preview), plain(&base_preview));
+    }
+    // havsfunc's own defaults at these presets (no Tuning): 16, half of it.
+    for (preset, block, overlap, want) in [
+        (QTGMCPreset::Placebo, None, None, (16, 8)),
+        (QTGMCPreset::Medium, None, None, (16, 8)),
+        (QTGMCPreset::Slower, Some(32), None, (32, 16)),
+        (QTGMCPreset::Slow, None, Some(4), (16, 4)),
+        (QTGMCPreset::VerySlow, Some(8), Some(2), (8, 2)),
+    ] {
+        let (encode, _) = scripts(preset, Some(2), block, overlap);
+        assert!(encode.contains(&pad(want.0, want.1)), "{preset:?} {block:?}/{overlap:?}: want {want:?}");
+    }
+
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let formats = std::fs::read_to_string(root.join("templates/plugin_formats.py")).unwrap();
+    assert!(formats.contains("MVTOOLS_MASK_MIN_BLOCKS = 4"));
+    assert!(formats.contains("def mvtools_mask_cols(width, height, blksize, overlap):"));
+    assert!(formats.contains("min_cols=max(MVTOOLS_MIN_COLS, min_cols)"));
+    // The panel's largest block and smallest overlap need 128 columns.
+    let schema: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root.join("../app/assets/filters/core/deinterlace.json")).unwrap(),
+    )
+    .unwrap();
+    let b = schema["parameters"]["blockSize"]["max"].as_i64().unwrap();
+    let o = schema["parameters"]["overlap"]["min"].as_i64().unwrap();
+    assert_eq!((b, o), (32, 0), "BlockSize/Overlap range changed: re-check task #79's valgrind cells");
+}
+
 /// Task #88: every script conversion between YUV and RGB names the colour
 /// space zimg needs, from `ColorMetadata::zimg_colorspace`. zimg refuses
 /// `2020cl`, `chromancl`, `chromacl` and `ictcp` from the matrix alone
@@ -10153,7 +10244,7 @@ fn test_262_nnedi3_without_dh_is_padded_to_whole_plane_rows() {
 /// converted renders the text it always did. `zimg_colorspace_test.rs` runs
 /// each colour space through the bundled VapourSynth.
 #[test]
-fn test_263_yuv_rgb_conversions_name_the_whole_colour_space() {
+fn test_264_yuv_rgb_conversions_name_the_whole_colour_space() {
     create_output_dir();
     fn tag(job: &mut VideoJob, m: &str, p: Option<&str>, t: Option<&str>) {
         job.input_color_matrix = Some(m.to_string());
@@ -10175,7 +10266,7 @@ fn test_263_yuv_rgb_conversions_name_the_whole_colour_space() {
         // Unchanged for a tag that always worked.
         ("bt709", Some("bt709"), Some("bt709"), r#"matrix_s="709""#),
     ] {
-        let mut job = borders_job("test_263_borders", canvas_720x576());
+        let mut job = borders_job("test_264_borders", canvas_720x576());
         tag(&mut job, m, p, t);
         let (encode, preview) = generate_both_scripts(&job);
         for (name, script) in [("encode", &encode), ("preview", &preview)] {
@@ -10194,9 +10285,9 @@ fn test_263_yuv_rgb_conversions_name_the_whole_colour_space() {
         .with_rife(Ok(rife_files()))
         .with_upscale(Ok(upscale_files()))
         .with_addons(root.clone(), "macos-arm64");
-    let mut rife = rife_job("test_263_rife");
+    let mut rife = rife_job("test_264_rife");
     tag(&mut rife, "ictcp", Some("bt2020"), Some("smpte2084"));
-    let mut ai = ai_upscale_job("test_263_ai", UpscaleMethod::RealEsrgan, 2, "");
+    let mut ai = ai_upscale_job("test_264_ai", UpscaleMethod::RealEsrgan, 2, "");
     tag(&mut ai, "ictcp", Some("bt2020"), Some("smpte2084"));
     for (job, pass) in [(&rife, "RIFE"), (&ai, "AI upscale")] {
         let (encode, preview) = both_scripts_with(&generator, job).unwrap();
@@ -10213,11 +10304,11 @@ fn test_263_yuv_rgb_conversions_name_the_whole_colour_space() {
     let platform = "macos-arm64";
     let root = fake_addons_with_requirements("263", &["face-restoration", "colorize-ddcolor"], platform);
     let generator = ScriptGenerator::new().unwrap().with_addons(root, platform);
-    let mut fr = face_restore_job("test_263_fr", FaceRestoreParameters::default());
+    let mut fr = face_restore_job("test_264_fr", FaceRestoreParameters::default());
     tag(&mut fr, "ictcp", Some("bt2020"), Some("smpte2084"));
-    let mut cz = colorize_job("test_263_cz", ColorizeParameters::default());
+    let mut cz = colorize_job("test_264_cz", ColorizeParameters::default());
     tag(&mut cz, "ictcp", Some("bt2020"), Some("smpte2084"));
-    let mut plain = colorize_job("test_263_cz_709", ColorizeParameters::default());
+    let mut plain = colorize_job("test_264_cz_709", ColorizeParameters::default());
     tag(&mut plain, "bt709", None, None);
     for (job, want) in [(&fr, ICTCP_PY), (&cz, ICTCP_PY), (&plain, r#""709""#)] {
         let (encode, preview) = both_scripts_with(&generator, job).unwrap();

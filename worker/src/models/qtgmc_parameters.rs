@@ -443,6 +443,34 @@ impl QTGMCParameters {
         })
     }
 
+    /// The (BlockSize, Overlap) havsfunc's QTGMC analyses with when it runs
+    /// MVTools' `Mask` (kind 1, ProgSADMask), else `None`. The Mask runs on
+    /// InputType 2 or 3 at Placebo..Medium, where ProgSADMask defaults to 10
+    /// (it is not exposed). Mirrors havsfunc r31's preset table: Tuning is
+    /// never passed, so BlockSize defaults to 16 at these presets, and Overlap
+    /// to half the BlockSize in effect. Mask writes before its buffer on x86
+    /// under 4 block columns and garbles its bottom rows when a row fills its
+    /// stride, and takes no `opt` from QTGMC, so the template pads the width
+    /// (`plugin_formats.mvtools_mask_cols`, task #79).
+    pub fn prog_sad_mask_blocks(&self) -> Option<(i32, i32)> {
+        if !matches!(self.input_type, Some(2) | Some(3)) {
+            return None;
+        }
+        let mask_preset = matches!(
+            self.preset,
+            QTGMCPreset::Placebo
+                | QTGMCPreset::VerySlow
+                | QTGMCPreset::Slower
+                | QTGMCPreset::Slow
+                | QTGMCPreset::Medium
+        );
+        if !mask_preset {
+            return None;
+        }
+        let block = self.block_size.unwrap_or(16);
+        Some((block, self.overlap.unwrap_or(block / 2)))
+    }
+
     /// The fade fix's mode as the template spells it. Anything but `match`
     /// is `average`, upstream's first and gentler mode: it keeps a fade's
     /// overall level, where `match` darkens every frame to its darker field.

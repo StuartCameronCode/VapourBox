@@ -24,9 +24,9 @@ class _FakeContinuity extends TimestampContinuityService {
   _FakeContinuity({this.proxy, this.checked = true, this.error, this.model});
 
   @override
-  Future<SourceModel?> probeSource(String path, {bool deferScan = false}) async {
+  Future<SourceProbe> probeSource(String path, {bool deferScan = false}) async {
     probed.add(path);
-    return model?.call(path);
+    return SourceProbe(model: model?.call(path));
   }
 
   @override

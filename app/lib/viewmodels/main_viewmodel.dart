@@ -303,6 +303,11 @@ class MainViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// [itemId]'s own log (what its failure log is written from).
+  @visibleForTesting
+  List<LogMessage> debugItemLog(String itemId) =>
+      List.unmodifiable(_itemLogs[itemId] ?? const []);
+
   /// Put an analysed video in the queue and select it, for widget tests.
   @visibleForTesting
   QueueItem debugAddQueueItemForTest(String path,
@@ -1024,19 +1029,78 @@ class MainViewModel extends ChangeNotifier {
   /// goes on with what needs no seek.
   Future<void> _prepareContinuity(QueueItem item) async {
     if (item.continuityProxy != null) {
-      item.sourceModel ??= await _continuity.probeSource(item.decodePath);
+      item.sourceModel ??= await _probeSource(item, item.decodePath, copy: true);
       return;
     }
     // One worker call answers everything about the source but its reset
     // scan (task #50); only a source that resets needs a second, of the
     // joined copy.
-    final model = await _continuity.probeSource(item.inputPath, deferScan: true);
+    final model = await _probeSource(item, item.inputPath, deferScan: true);
     item.sourceModel = model;
+    // Unreadable: no scan or copy (the item is failed with the reason).
+    if (item.analysisFailed) return;
     if (model != null && model.continuityDeferred) {
       item.beginContinuityScan();
       return;
     }
     await _applyContinuity(item);
+  }
+
+  /// Runs `--probe-source` on [path] for [item]. On a failure the worker's
+  /// reason and its stderr lines are kept on the item
+  /// ([QueueItem.sourceError]) and written to the shared log and the item's
+  /// own (task #85), never dropped; null is returned. [copy] says [path] is
+  /// the item's joined copy, which the reason then names.
+  Future<SourceModel?> _probeSource(QueueItem item, String path,
+      {bool deferScan = false, bool copy = false}) async {
+    final probe = await _continuity.probeSource(path, deferScan: deferScan);
+    final error = probe.error;
+    if (probe.ok || error == null) return probe.model;
+    item.sourceError = copy ? 'its joined copy could not be read: $error' : error;
+    item.sourceErrorLog = probe.log;
+    _logForItem(
+        LogMessage(
+            level: LogLevel.error,
+            message: '${item.filename}: could not be read: ${item.sourceError}'),
+        item: item);
+    for (final line in probe.log) {
+      _logForItem(
+          LogMessage(level: LogLevel.warning, message: '${item.filename}: worker: $line'),
+          item: item);
+    }
+    return null;
+  }
+
+  /// Marks [item] failed because its source could not be read
+  /// ([QueueItem.analysisFailed]), and unloads the preview if it is the
+  /// selected video, so nothing of the previous video stays on screen.
+  void _failAnalysis(QueueItem item) {
+    item.status = QueueItemStatus.failed;
+    item.errorMessage = 'Could not read this video: ${item.sourceError}';
+    if (_selectedItemId == item.id) {
+      _cancelPreviewGeneration();
+      _previewGenerator.unloadSource();
+    }
+    notifyListeners();
+  }
+
+  /// Analyses [itemId] again (its Retry, after its source could not be
+  /// read): the reason, its log and Video Info are cleared, and the source
+  /// is probed afresh.
+  Future<void> reanalyzeItem(String itemId) async {
+    final item = _queue.where((q) => q.id == itemId).firstOrNull;
+    if (item == null || item.status == QueueItemStatus.processing ||
+        item.status == QueueItemStatus.analyzing) {
+      return;
+    }
+    item.sourceError = null;
+    item.sourceErrorLog = const [];
+    item.errorMessage = null;
+    item.videoInfo = null;
+    item.sourceModel = null;
+    item.thumbnails = [];
+    _itemLogs.remove(item.id);
+    await _analyzeQueueItem(item);
   }
 
   /// Acts on [item]'s scan (in its model): when its timestamps reset, makes
@@ -1072,7 +1136,7 @@ class MainViewModel extends ChangeNotifier {
       }
       item.continuityProxy = r.proxy;
       _log(LogLevel.info, '${item.filename}: ${r.proxy!.note}');
-      item.sourceModel = await _continuity.probeSource(item.decodePath);
+      item.sourceModel = await _probeSource(item, item.decodePath, copy: true);
       return true;
     } else if (r.error != null) {
       _log(LogLevel.warning,
@@ -1117,14 +1181,28 @@ class MainViewModel extends ChangeNotifier {
       if (_disposed || !_queue.contains(item) || task.isCancelled) return;
       if (completed == null || completed.continuityDeferred) {
         item.continuityChecked = false;
-        _log(LogLevel.warning,
-            '${item.filename}: its timestamps could not be checked for resets; it is '
-            'decoded as it is (a job will check again and warn)');
+        final why = task.error == null ? '' : ' (${task.error})';
+        _logForItem(
+            LogMessage(
+                level: LogLevel.warning,
+                message: '${item.filename}: its timestamps could not be checked for '
+                    'resets$why; it is decoded as it is (a job will check again and warn)'),
+            item: item);
+        for (final line in task.log) {
+          _logForItem(
+              LogMessage(level: LogLevel.warning, message: '${item.filename}: worker: $line'),
+              item: item);
+        }
         return;
       }
       item.sourceModel = completed;
       final joined = await _applyContinuity(item);
       if (_disposed || !_queue.contains(item)) return;
+      if (item.analysisFailed) {
+        // The joined copy could not be read: the item has no model.
+        _failAnalysis(item);
+        return;
+      }
       final copy = item.sourceModel;
       if (joined && copy != null) {
         // The copy counts every segment (the source's own count stopped at
@@ -1150,6 +1228,7 @@ class MainViewModel extends ChangeNotifier {
   /// the selected video), its preview from the file it is now decoded from,
   /// and the noise / halo measurement.
   Future<void> _afterContinuity(QueueItem item) async {
+    if (item.analysisFailed) return;
     if (_selectedItemId == item.id && item.status != QueueItemStatus.analyzing) {
       final model = item.sourceModel;
       if (model != null) {
@@ -1197,12 +1276,19 @@ class MainViewModel extends ChangeNotifier {
     // item itself from here, not on the index found before it.
     if (!_queue.contains(item)) return;
 
+    // The source could not be read (task #85): the reason is on the item
+    // and in its log; with no model there is nothing more to analyse.
+    if (item.analysisFailed) {
+      _failAnalysis(item);
+      return;
+    }
+
     // Analyze video: the worker's model, plus the scan type.
     try {
       final model = item.sourceModel;
       if (model == null) {
         _log(LogLevel.warning,
-            'Failed to analyze ${item.filename}: the worker could not read it');
+            'Failed to analyze ${item.filename}: the worker gave no model');
       } else {
         item.videoInfo =
             await _fieldOrderDetector.getVideoInfo(item.decodePath, model);
@@ -1415,7 +1501,11 @@ class MainViewModel extends ChangeNotifier {
     final model = item.sourceModel;
     // Load thumbnails if not already loaded
     if (model == null) {
-      // Not analysed yet (or unreadable): nothing to show.
+      // Not analysed yet (or unreadable): nothing to show, and nothing of the
+      // previous video either (its frames, count and timeline, task #85).
+      _previewGenerator.unloadSource();
+      notifyListeners();
+      return;
     } else if (!item.seeksAllowed) {
       // Its reset scan is pending: frame 0 only, which never seeks; the
       // thumbnails follow the scan (task #55).
@@ -1479,6 +1569,12 @@ class MainViewModel extends ChangeNotifier {
   void requeueItem(String itemId) {
     final item = _queue.where((q) => q.id == itemId).firstOrNull;
     if (item == null) return;
+
+    // Its source could not be read: Retry analyses it again (task #85).
+    if (item.analysisFailed) {
+      reanalyzeItem(itemId);
+      return;
+    }
 
     // Only allow requeueing items that have finished processing
     if (item.status == QueueItemStatus.completed ||
@@ -1725,7 +1821,8 @@ class MainViewModel extends ChangeNotifier {
   /// allowed to update shared state (_isGeneratingPreview, processedPreview).
   Future<void> _generateProcessedPreview() async {
     final item = selectedItem;
-    if (item == null) return;
+    // No model, no preview: the generator would render the previous video.
+    if (item == null || item.sourceModel == null) return;
 
     // Cancel any existing preview generation
     _cancelPreviewGeneration();
@@ -1993,7 +2090,10 @@ class MainViewModel extends ChangeNotifier {
     _isQueueProcessing = true;
     _currentProcessingIndex = -1;
     _logMessages.clear();
-    _itemLogs.clear();
+    // An unreadable source's log (its reason, the worker's lines) is kept:
+    // it is still failed, and its failure log is written from it.
+    _itemLogs.removeWhere((id, _) =>
+        !_queue.any((q) => q.id == id && q.analysisFailed));
     _clearShutdown();
     notifyListeners();
 
@@ -2030,6 +2130,17 @@ class MainViewModel extends ChangeNotifier {
 
     _currentProcessingIndex = nextIndex;
     final item = _queue[nextIndex];
+
+    // Never run a job without a model (task #85): the worker would probe
+    // again, fail the same way, and guess the count by decoding.
+    if (item.analysisFailed) {
+      item.status = QueueItemStatus.failed;
+      item.errorMessage ??= 'Could not read this video: ${item.sourceError}';
+      notifyListeners();
+      await _processNextItem();
+      return;
+    }
+
     _currentItemLog = _itemLogs[item.id] = [];
 
     // Mark as processing
@@ -2212,14 +2323,21 @@ class MainViewModel extends ChangeNotifier {
     _currentItemLog = null;
   }
 
-  /// Add to the shared log and to the current video's own.
-  void _logForItem(LogMessage message) {
+  /// Add to the shared log and to the current video's own; given an [item],
+  /// to that item's own log (outside a run too, e.g. at analysis).
+  void _logForItem(LogMessage message, {QueueItem? item}) {
     _logMessages.add(message);
-    _appendItemLog(message);
+    if (item == null) {
+      _appendItemLog(message);
+    } else {
+      // Only [item]'s own log: never the video being encoded meanwhile,
+      // whose failure log must hold only its own lines.
+      _appendItemLog(message, log: _itemLogs.putIfAbsent(item.id, () => []));
+    }
   }
 
-  void _appendItemLog(LogMessage message) {
-    final log = _currentItemLog;
+  void _appendItemLog(LogMessage message, {List<LogMessage>? log}) {
+    log ??= _currentItemLog;
     if (log == null) return;
     log.add(message);
     if (log.length > FailureLogWriter.maxLines) {
@@ -2392,9 +2510,16 @@ class MainViewModel extends ChangeNotifier {
     if (_isQueueProcessing) return;
     _clearShutdown();
 
+    // Unreadable sources are analysed again first (task #85); one that still
+    // can't be read stays failed with its reason.
+    for (final item in _queue.where((q) => q.analysisFailed).toList()) {
+      await reanalyzeItem(item.id);
+    }
+    if (_isQueueProcessing) return;
+
     // Reset failed items to ready
     for (final item in _queue) {
-      if (item.status == QueueItemStatus.failed) {
+      if (item.status == QueueItemStatus.failed && !item.analysisFailed) {
         item.status = QueueItemStatus.ready;
         item.errorMessage = null;
       }
@@ -2417,8 +2542,10 @@ class MainViewModel extends ChangeNotifier {
     _isQueueProcessing = false;
     _currentProcessingIndex = -1;
 
-    // Reset queue item statuses for failed/cancelled items to ready
+    // Reset queue item statuses for failed/cancelled items to ready. An
+    // unreadable source stays failed: it has no model to run a job with.
     for (final item in _queue) {
+      if (item.analysisFailed) continue;
       if (item.status == QueueItemStatus.failed ||
           item.status == QueueItemStatus.cancelled) {
         item.status = QueueItemStatus.ready;

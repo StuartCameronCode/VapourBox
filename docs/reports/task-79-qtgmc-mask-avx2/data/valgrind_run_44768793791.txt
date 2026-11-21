@@ -1,0 +1,18 @@
+qtgmc:128x96:YUV420P8:blksize=32,overlap=8: exit 99, ERROR SUMMARY: 6734 errors from 4 contexts (suppressed: 0 from 0)  by 0x83157FA: newVideoFrame(
+mask:128x96:YUV420P8:blksize=32,overlap=8: exit 99, ERROR SUMMARY: 15 errors from 3 contexts (suppressed: 0 from 0)  by 0x83157FA: newVideoFrame(
+mask:256x196:YUV420P8:blksize=32,overlap=8: exit 99, ERROR SUMMARY: 22 errors from 3 contexts (suppressed: 0 from 0)  by 0x83157FA: newVideoFrame(
+mask:136x96:YUV420P8:blksize=32,overlap=8: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=32,overlap=16,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=32,overlap=8,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=32,overlap=0,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:96x96:YUV420P8:blksize=32,overlap=8,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:128x96:YUV420P8:blksize=32,overlap=8,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:120x96:YUV420P8:blksize=32,overlap=0,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=32,overlap=16,input_type=3,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV422P8:blksize=32,overlap=0,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV444P8:blksize=32,overlap=0,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV422P8:blksize=32,overlap=8,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+mask:64x96:YUV420P8:blksize=32,overlap=16,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+mask:128x96:YUV420P8:blksize=32,overlap=8,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+mask:256x196:YUV420P8:blksize=32,overlap=8,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  
+qtgmc:64x96:YUV420P8:blksize=16,overlap=8,guard=1: exit 0, ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)  

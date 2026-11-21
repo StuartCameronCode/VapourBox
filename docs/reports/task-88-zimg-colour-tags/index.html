@@ -86,7 +86,7 @@ code { font:.9em ui-monospace, Menlo, monospace; }
 <h2>Tests</h2>
 <ul>
 <li><code>worker/tests/zimg_colorspace_test.rs</code> (push gate): every recognised matrix × primaries × transfer (and untagged) at 480 and 1080 lines, reduced to the 16 distinct colour spaces, run through the bundle's vspipe with the argument text the template receives: swatches at 4:2:0/4:2:2/4:4:4, 8–16 bits; round trip within 1 code (a quarter of an 8-bit level at 16 bits, where float32 through PQ moves up to 34 codes); black, white and (NCL) grey equal to the BT.709 reading; <code>ai_runtime</code>'s helpers and Colourisation's float path. With <code>bt2020c</code> mapped back to <code>2020cl</code> it fails with error 3074.</li>
-<li><code>test_263</code> (script generation): each site's arguments, and byte-identical text for an ordinary tag.</li>
+<li><code>test_264</code> (script generation): each site's arguments, and byte-identical text for an ordinary tag.</li>
 <li><code>app/test/integration_zimg_colour_tags_test.dart</code> (heavy): Add Borders on a 10-bit 4:2:0 fixture per tag, black and a custom colour, encode and preview. NCL readings equal a twin tagged with the matrix, bit for bit; exact readings match the H.273 / BT.2100 closed forms within 1 code, the picture inside untouched. Colourisation keeps luma bit-exact and Face Restoration (no faces) every sample on bt2020c and ictcp PQ. RIFE (real frames bit-exact) and AI upscale run on them (<code>gpu</code>).</li>
 </ul>
 

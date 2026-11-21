@@ -505,7 +505,11 @@ def _deinterlace_qtgmc(clip):
 def _deinterlace_qtgmc_rows(clip):
     # MVTools inside QTGMC divides by zero on a picture two block rows tall
     # (Very Fast..Draft: 32-px blocks, overlap 8, so 56..79 rows; task #56 F9).
-    return _pf.mvtools_blocks(clip, _deinterlace_qtgmc, label='Deinterlace')
+    # InputType 2 and 3 at Placebo..Medium also run MVTools' Mask inside
+    # QTGMC, which writes before its buffer on x86 under 4 block columns and
+    # garbles its bottom rows when a row fills its stride: the width is padded
+    # by mvtools_mask_cols() for them (task #79).
+    return _pf.mvtools_blocks(clip, _deinterlace_qtgmc, {{QTGMC_MASK_COLS}}label='Deinterlace')
 
 
 # SrchClipPP 1 (Super / Ultra Fast) halves the frame for the motion search, so
