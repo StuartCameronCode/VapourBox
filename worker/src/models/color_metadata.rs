@@ -154,6 +154,93 @@ pub fn decode_tag_neutraliser(
     (!params.is_empty()).then(|| format!("setparams={}", params.join(":")))
 }
 
+/// zimg's name for an FFmpeg `-color_primaries` value, or `None` where the
+/// bundled VapourSynth resize has none (`smpte428`: "unrecognized primaries";
+/// `jedec-p22` / `ebu3213`: reachable only by number).
+fn zimg_primaries(ffmpeg: &str) -> Option<&'static str> {
+    Some(match ffmpeg {
+        "bt709" => "709",
+        "bt470m" => "470m",
+        "bt470bg" => "470bg",
+        "smpte170m" => "170m",
+        "smpte240m" => "240m",
+        "film" => "film",
+        "bt2020" => "2020",
+        "smpte431" => "st431-2",
+        "smpte432" => "st432-1",
+        _ => return None,
+    })
+}
+
+/// The colour space a script conversion between YUV and RGB names to zimg
+/// (`ColorMetadata::zimg_colorspace`, task #88). It renders its own Python,
+/// so no template spells the arguments: a matrix-only colour space renders
+/// exactly the text the templates had before (`matrix_s="709"`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ZimgColorspace {
+    pub matrix: &'static str,
+    pub transfer: Option<&'static str>,
+    pub primaries: Option<&'static str>,
+}
+
+impl ZimgColorspace {
+    fn matrix_only(matrix: &'static str) -> Self {
+        Self { matrix, transfer: None, primaries: None }
+    }
+
+    fn ictcp(transfer: &'static str) -> Self {
+        Self { matrix: "ictcp", transfer: Some(transfer), primaries: Some("2020") }
+    }
+
+    /// Transfer and primaries, on **both** sides of the call: R78's resize
+    /// copies an unset output colour space from the input, not the other way
+    /// round, so an RGB swatch (untagged) converted with only `transfer_s` /
+    /// `primaries_s` still fails.
+    fn extra_args(&self) -> String {
+        let mut s = String::new();
+        if let Some(t) = self.transfer {
+            s.push_str(&format!(", transfer_in_s=\"{t}\", transfer_s=\"{t}\""));
+        }
+        if let Some(p) = self.primaries {
+            s.push_str(&format!(", primaries_in_s=\"{p}\", primaries_s=\"{p}\""));
+        }
+        s
+    }
+
+    /// Keyword arguments for an RGB -> YUV `core.resize` call.
+    pub fn to_yuv_args(&self) -> String {
+        format!("matrix_s=\"{}\"{}", self.matrix, self.extra_args())
+    }
+
+    /// Keyword arguments for a YUV -> RGB `core.resize` call.
+    pub fn from_yuv_args(&self) -> String {
+        format!("matrix_in_s=\"{}\"{}", self.matrix, self.extra_args())
+    }
+
+    /// A Python literal for the template modules (`ai_runtime.zimg_args`):
+    /// the matrix as a string when that is all there is, else a dict.
+    pub fn py_literal(&self) -> String {
+        if self.transfer.is_none() && self.primaries.is_none() {
+            return format!("\"{}\"", self.matrix);
+        }
+        let mut parts = vec![format!("\"matrix\": \"{}\"", self.matrix)];
+        if let Some(t) = self.transfer {
+            parts.push(format!("\"transfer\": \"{t}\""));
+        }
+        if let Some(p) = self.primaries {
+            parts.push(format!("\"primaries\": \"{p}\""));
+        }
+        format!("{{{}}}", parts.join(", "))
+    }
+}
+
+/// Every tag value `from_raw` keeps, for tests that sweep them (task #88's
+/// `zimg_colorspace_test`, which runs each through the bundled VapourSynth).
+#[doc(hidden)]
+pub fn recognised_tags() -> (&'static [&'static str], &'static [&'static str], &'static [&'static str]) {
+    (MATRICES, PRIMARIES, TRANSFERS)
+}
+
 /// The four colour tags, as read from the source and re-declared on the output.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ColorMetadata {
@@ -232,28 +319,73 @@ impl ColorMetadata {
         matches!(self.range.as_deref(), Some("pc") | Some("jpeg") | Some("full"))
     }
 
-    /// The zimg `matrix_s` for converting an RGB colour into the source's YUV —
-    /// used for border fills (issue #86), the only place the script turns RGB
-    /// into YUV. Nothing re-matrixes the picture, so the samples still carry the
-    /// source's matrix; untagged, it is the usual guess by frame height.
-    ///
-    /// Neutral fills (black/grey/white) come out identical under every matrix,
-    /// so this only matters for a custom colour.
+    /// The zimg matrix name of `zimg_colorspace` — the matrix only. Used where
+    /// the matrix alone is wanted (`is_bt601_family`, the BT.601 → BT.709
+    /// block, which only a BT.601 picture reaches). **Any conversion between
+    /// YUV and RGB takes its arguments from `zimg_colorspace`**, never a bare
+    /// `matrix_s` built from this: four matrices need a transfer and
+    /// primaries too (task #88).
     pub fn zimg_matrix(&self, source_height: Option<i32>) -> &'static str {
+        self.zimg_colorspace(source_height).matrix
+    }
+
+    /// The colour space the script's own conversions between YUV and RGB use
+    /// for this picture: border fills (issue #86), RIFE, AI upscaling, Face
+    /// Restoration and Colourisation. Nothing re-matrixes the picture, so the
+    /// samples still carry the source's matrix; untagged, it is the usual
+    /// guess by frame height.
+    ///
+    /// zimg converts most matrices from the matrix alone, but refuses four
+    /// without more ("Resize error 3074: invalid colorspace definition";
+    /// task #88, docs/reports/task-88-zimg-colour-tags):
+    ///
+    /// - `chroma-derived-nc` is exact: `chromancl` with the source's
+    ///   primaries, which is lossless and keeps every neutral. With BT.709 or
+    ///   BT.2020 primaries it *is* `709` / `2020ncl` (measured identical), so
+    ///   those are named directly. Primaries that are untagged, or that zimg
+    ///   has no name for (`smpte428`, `jedec-p22`, `ebu3213`), leave nothing
+    ///   to derive coefficients from: the height guess, as untagged.
+    /// - `bt2020c` and `chroma-derived-c` are read as their NCL twin (the same
+    ///   coefficients). zimg's constant-luminance conversion linearises with
+    ///   the display EOTF but encodes Y' with the OETF, so it does not keep
+    ///   grey (grey 128 came out Y' 434, not 504), and it refuses PQ and HLG
+    ///   outright. NCL keeps every neutral exact for any decoder, and it is
+    ///   how the preview (`swscale_matrix`) and the decodes
+    ///   (`scaler_stand_in`) read these tags.
+    /// - `ictcp` is exact with a PQ or HLG transfer: zimg converts it only
+    ///   then, and only with BT.2020 primaries, which are the only ones ICtCp
+    ///   is defined with, so they are passed whatever the tag says. On any
+    ///   other transfer it cannot be converted, and is read as `2020ncl`, as
+    ///   the preview reads it.
+    pub fn zimg_colorspace(&self, source_height: Option<i32>) -> ZimgColorspace {
+        let only = ZimgColorspace::matrix_only;
+        let guess = || only(if source_height.is_some_and(|h| h >= 720) { "709" } else { "170m" });
         match self.matrix.as_deref() {
-            Some("bt709") => "709",
-            Some("fcc") => "fcc",
-            Some("bt470bg") => "470bg",
-            Some("smpte170m") => "170m",
-            Some("smpte240m") => "240m",
-            Some("ycgco") => "ycgco",
-            Some("bt2020nc") => "2020ncl",
-            Some("bt2020c") => "2020cl",
-            Some("chroma-derived-nc") => "chromancl",
-            Some("chroma-derived-c") => "chromacl",
-            Some("ictcp") => "ictcp",
-            _ if source_height.is_some_and(|h| h >= 720) => "709",
-            _ => "170m",
+            Some("bt709") => only("709"),
+            Some("fcc") => only("fcc"),
+            Some("bt470bg") => only("470bg"),
+            Some("smpte170m") => only("170m"),
+            Some("smpte240m") => only("240m"),
+            Some("ycgco") => only("ycgco"),
+            Some("bt2020nc") => only("2020ncl"),
+            Some("bt2020c") => only("2020ncl"),
+            Some("chroma-derived-nc") | Some("chroma-derived-c") => {
+                match self.primaries.as_deref() {
+                    Some("bt709") => only("709"),
+                    Some("bt2020") => only("2020ncl"),
+                    p => match p.and_then(zimg_primaries) {
+                        Some(z) => ZimgColorspace { matrix: "chromancl", transfer: None, primaries: Some(z) },
+                        None => guess(),
+                    },
+                }
+            }
+            Some("ictcp") => match self.transfer.as_deref() {
+                Some("smpte2084") => ZimgColorspace::ictcp("st2084"),
+                Some("arib-std-b67") => ZimgColorspace::ictcp("std-b67"),
+                _ => only("2020ncl"),
+            },
+            // rgb, smpte2085 (zimg has no Y'D'zD'x) and untagged.
+            _ => guess(),
         }
     }
 
@@ -663,17 +795,94 @@ mod tests {
         assert_eq!(rgb.zimg_matrix(Some(480)), "170m");
     }
 
+    /// One decision per `MATRICES` entry (task #88): a tag added to
+    /// `MATRICES` fails here until its zimg reading is chosen.
+    /// (matrix, with bt709 primaries + PQ, with bt470bg primaries + bt709
+    /// transfer, untagged primaries and transfer), each at 1080 lines.
     #[test]
-    fn every_recognised_matrix_maps_to_a_zimg_name() {
-        // Only the RGB identity, and SMPTE 2085 (which zimg does not implement),
-        // may fall through to the height guess.
-        for m in MATRICES.iter().filter(|m| !matches!(**m, "rgb" | "smpte2085")) {
-            let c = ColorMetadata::from_raw(Some(m), None, None, None);
-            assert_ne!(
-                (c.zimg_matrix(Some(1080)), c.zimg_matrix(Some(480))),
-                ("709", "170m"),
-                "{m} is not mapped"
-            );
+    fn zimg_colorspace_decides_every_matrix() {
+        let m = ZimgColorspace::matrix_only;
+        let cl = |p| ZimgColorspace { matrix: "chromancl", transfer: None, primaries: Some(p) };
+        let table: &[(&str, [ZimgColorspace; 3])] = &[
+            ("rgb", [m("709"); 3]),
+            ("bt709", [m("709"); 3]),
+            ("fcc", [m("fcc"); 3]),
+            ("bt470bg", [m("470bg"); 3]),
+            ("smpte170m", [m("170m"); 3]),
+            ("smpte240m", [m("240m"); 3]),
+            ("ycgco", [m("ycgco"); 3]),
+            ("bt2020nc", [m("2020ncl"); 3]),
+            ("bt2020c", [m("2020ncl"); 3]),
+            ("smpte2085", [m("709"); 3]),
+            ("chroma-derived-nc", [m("709"), cl("470bg"), m("709")]),
+            ("chroma-derived-c", [m("709"), cl("470bg"), m("709")]),
+            ("ictcp", [ZimgColorspace::ictcp("st2084"), m("2020ncl"), m("2020ncl")]),
+        ];
+        let keys: Vec<&str> = table.iter().map(|(m, _)| *m).collect();
+        assert_eq!(keys, MATRICES, "decide the zimg reading of every matrix");
+        let tags = [(Some("bt709"), Some("smpte2084")), (Some("bt470bg"), Some("bt709")), (None, None)];
+        for (matrix, want) in table {
+            for ((p, t), w) in tags.iter().zip(want) {
+                let c = ColorMetadata::from_raw(Some(matrix), *p, *t, None);
+                assert_eq!(c.zimg_colorspace(Some(1080)), *w, "{matrix} / {p:?} / {t:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn zimg_colorspace_rows() {
+        let cs = |m, p, t| ColorMetadata::from_raw(Some(m), p, t, None).zimg_colorspace(Some(480));
+        // chroma-derived: BT.2020 primaries are 2020ncl; a name zimg lacks
+        // falls back to the height guess.
+        assert_eq!(cs("chroma-derived-nc", Some("bt2020"), None).matrix, "2020ncl");
+        assert_eq!(cs("chroma-derived-c", Some("smpte432"), None).primaries, Some("st432-1"));
+        for p in ["smpte428", "jedec-p22", "ebu3213"] {
+            assert_eq!(cs("chroma-derived-nc", Some(p), None), ZimgColorspace::matrix_only("170m"), "{p}");
+        }
+        // ictcp: HLG too, with BT.2020 primaries whatever the tag says.
+        assert_eq!(cs("ictcp", Some("bt709"), Some("arib-std-b67")), ZimgColorspace::ictcp("std-b67"));
+        assert_eq!(cs("ictcp", None, Some("bt2020-10")).matrix, "2020ncl");
+        // bt2020c is never CL, HDR included.
+        assert_eq!(cs("bt2020c", Some("bt2020"), Some("smpte2084")), ZimgColorspace::matrix_only("2020ncl"));
+    }
+
+    #[test]
+    fn zimg_colorspace_renders_python() {
+        let ictcp = ZimgColorspace::ictcp("st2084");
+        assert_eq!(
+            ictcp.to_yuv_args(),
+            r#"matrix_s="ictcp", transfer_in_s="st2084", transfer_s="st2084", primaries_in_s="2020", primaries_s="2020""#
+        );
+        assert_eq!(
+            ictcp.from_yuv_args(),
+            r#"matrix_in_s="ictcp", transfer_in_s="st2084", transfer_s="st2084", primaries_in_s="2020", primaries_s="2020""#
+        );
+        assert_eq!(
+            ictcp.py_literal(),
+            r#"{"matrix": "ictcp", "transfer": "st2084", "primaries": "2020"}"#
+        );
+        let derived = ZimgColorspace { matrix: "chromancl", transfer: None, primaries: Some("470bg") };
+        assert_eq!(derived.to_yuv_args(), r#"matrix_s="chromancl", primaries_in_s="470bg", primaries_s="470bg""#);
+        assert_eq!(derived.py_literal(), r#"{"matrix": "chromancl", "primaries": "470bg"}"#);
+    }
+
+    /// Every tag that converted before task #88 renders exactly the text the
+    /// templates had (`matrix_s="<zimg_matrix>"`), so its scripts are
+    /// byte-identical.
+    #[test]
+    fn matrix_only_colourspaces_render_as_before() {
+        for m in MATRICES.iter().map(|m| Some(*m)).chain([None]) {
+            if matches!(m, Some("chroma-derived-nc" | "chroma-derived-c" | "ictcp")) {
+                continue;
+            }
+            for p in PRIMARIES.iter().map(|p| Some(*p)).chain([None]) {
+                for t in TRANSFERS.iter().map(|t| Some(*t)).chain([None]) {
+                    let c = ColorMetadata::from_raw(m, p, t, None).zimg_colorspace(Some(1080));
+                    assert_eq!(c.to_yuv_args(), format!("matrix_s=\"{}\"", c.matrix), "{m:?}");
+                    assert_eq!(c.from_yuv_args(), format!("matrix_in_s=\"{}\"", c.matrix), "{m:?}");
+                    assert_eq!(c.py_literal(), format!("\"{}\"", c.matrix), "{m:?}");
+                }
+            }
         }
     }
 

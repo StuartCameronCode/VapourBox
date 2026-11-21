@@ -150,7 +150,7 @@ VapourBox/
 | `worker/src/upscale_addons.rs` | The manifest add-on upscalers (Real-ESRGAN anime, Real-CUGAN, Real-ESRGAN General, Live Action SPAN, Real-ESRGAN x4plus/x2plus): which add-on holds which model, each network's own factor (see "GPU Plugins") |
 | `worker/src/addons.rs` | Manifest add-ons (compiled in from `app/assets/addons/` by `worker/build.rs`): install state, `require`, `addon_dir` (see "Add-ons", docs/ADDONS.md) |
 | `worker/src/ai_runtime.rs` | The AI runtime add-on's `--probe-ai-runtime`: runs the self-test model through `templates/ai_runtime.py`, classifies failures |
-| `worker/templates/ai_runtime.py` | ONNX Runtime helpers for passes: `setup`, `session` (provider choice), `map_frames`, NCHW frame conversion, `to_rgbs`/`from_rgbs`, `shifted`, `FrameMemo`, `Runner` |
+| `worker/templates/ai_runtime.py` | ONNX Runtime helpers for passes: `setup`, `session` (provider choice), `map_frames`, NCHW frame conversion, `to_rgbs`/`from_rgbs` and `zimg_args` (the colour space a conversion names, task #88), `shifted`, `FrameMemo`, `Runner` |
 | `worker/templates/face_restore.py` | The Face Restoration pass: RetinaFace decode, FFHQ alignment, restore, BiSeNet mask, temporal smoothing, bit-exact merge (see "Face Restoration") |
 | `worker/src/models/face_restore_parameters.rs` | Face Restoration's parameters, its add-ons per model, and its temporal reach |
 | `worker/templates/colorize.py` | The Colourisation pass: model run at a fixed square size, temporal smoothing, Lab/RGB to chroma, luma kept bit-exact (see "Colourisation") |
@@ -964,9 +964,9 @@ block inside `RESIZE_STANDARD` only *records* the box (`_aspect_box_w/h`).
   `BORDERS` that touches pixels.
 - **Never call `AddBorders` without `color=`.** Its default is luma 0 —
   below video black on a limited-range clip. `_border_color()` converts the
-  chosen RGB into the clip's own format via `resize` with the source's matrix and
-  range (`ColorMetadata::zimg_matrix` / `is_full_range`), so depth, range and
-  matrix come out right from one path.
+  chosen RGB into the clip's own format via `resize` with the source's colour
+  space and range (`ColorMetadata::zimg_colorspace` / `is_full_range`), so
+  depth, range and matrix come out right from one path.
 - **Offsets stay on the chroma grid, and on the field grid if still
   interlaced** (`{{BORDER_FIELD_ALIGN}}`: deinterlacing off + a detected field
   order). A picture bigger than the canvas **raises** rather than being
@@ -1050,6 +1050,29 @@ bridge through each platform's ffmpeg. `integration_unconvertible_matrix_test.da
 (heavy) checks the before frame, thumbnail, detectors and converting
 encodes against stand-in-tagged twins
 (docs/reports/task-76-unconvertible-matrix-tags).
+
+**The script's own YUV ↔ RGB conversions name the whole colour space
+(task #88).** Borders, RIFE, AI upscaling, Face Restoration and
+Colourisation take their zimg arguments from
+`ColorMetadata::zimg_colorspace` (`ZimgColorspace`: the template's
+`{{*_MATRIX_ARGS}}` / `{{*_MATRIX_IN_ARGS}}`, `to_yuv_args` /
+`from_yuv_args`; the modules' `matrix=` literal through
+`ai_runtime.zimg_args`), **never a bare `matrix_s` built from
+`zimg_matrix`**. zimg refuses `2020cl`, `chromancl`, `chromacl` and `ictcp`
+from the matrix alone ("Resize error 3074"), which failed every such job:
+`chroma-derived-nc` is exact (`chromancl` + the source's primaries, or plain
+`709` / `2020ncl` for those); `ictcp` with PQ/HLG is exact (BT.2020
+primaries forced); `bt2020c`, `chroma-derived-c` and SDR `ictcp` are read as
+their NCL matrix, because zimg's constant-luminance conversion is
+display-referred and does not keep grey (grey 128 → Y′ 434, not 504) and
+refuses PQ/HLG. Transfer and primaries go on **both** sides of every call
+(R78 copies an unset output colour space from the input, not back). Every
+tag that converted before renders byte-identical text.
+`worker/tests/zimg_colorspace_test.rs` (push gate) runs every tag ×
+primaries × transfer through the bundled VapourSynth;
+`integration_zimg_colour_tags_test.dart` (heavy; RIFE/AI `gpu`) checks the
+bars against stand-in twins or the closed-form H.273 / BT.2100 values
+(docs/reports/task-88-zimg-colour-tags).
 
 **BT.601 → BT.709 on SD → HD (app 1.7.0) is the one place the script
 converts colour.** Crop & Resize's `convertToBt709` (`Bt709Conversion`:
@@ -2220,7 +2243,7 @@ than fail cleanly.
   first pass only (`CropResizeParameters::ai_upscale_models`). Above SD the
   frame runs in 512-px tiles with 16 px overlap — whole-frame CUGAN at 1080p
   ran out of GPU memory on a 16 GB Mac. Float RGB in and out with the source's
-  matrix/range, odd sizes edge-padded, frame props copied back, fp16 (≤0.3/255
+  colour space (`zimg_colorspace`) and range, odd sizes edge-padded, frame props copied back, fp16 (≤0.3/255
   from fp32, ~3x faster). Real-ESRGAN measurably tints flat colour (up to ~11
   levels at 4x, in fp32 too); that is the model, not the pipeline.
 - **AnimeJaNai** (`UpscaleMethod::AnimeJanai`) runs on the same plugin and
@@ -3172,6 +3195,9 @@ cd worker && cargo test --test subtitle_integration_test -- --ignored --nocaptur
   `Tests/TestResources/small_clip.mp4`; needs the whisper add-on + ffmpeg.
   `#[ignore]`d (40–170 s of CPU): nightly runs it with `--ignored`, the push
   gate leaves it out (task #84).
+- `zimg_colorspace_test.rs` — runs every colour space
+  `ColorMetadata::zimg_colorspace` can name through the bundled
+  VapourSynth (task #88), like `vspipe_environment_test.rs`; push gate.
 - In **debug** builds `DependencyLocator` finds repo-root `deps/`/`addons/` by
   searching upward — **except Linux**, which only reads
   `~/.local/share/VapourBox/` (no upward search), so CI symlinks those there.

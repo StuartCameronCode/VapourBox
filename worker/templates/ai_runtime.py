@@ -282,15 +282,42 @@ def self_test(force_cpu=False):
 # ----------------------------------------------------------------------------
 
 
+def zimg_args(colorspace, direction):
+    """Keyword arguments naming `colorspace` to a `core.resize` call.
+
+    `colorspace` is what the worker substitutes (`ZimgColorspace::py_literal`,
+    task #88): a zimg matrix name ("709"), or a dict with the transfer and
+    primaries zimg needs for `chromancl` / `ictcp`. `direction` is "in" (YUV
+    to RGB: `matrix_in_s`), "out" (RGB to YUV: `matrix_s`) or "both" (YUV to
+    YUV in the same colour space). The transfer and primaries go on both
+    sides of every call: R78's resize copies an unset output colour space
+    from the input, not the other way round, so an RGB clip converted with
+    only `transfer_s` fails.
+    """
+    if isinstance(colorspace, str):
+        colorspace = {"matrix": colorspace}
+    args = {}
+    if direction in ("in", "both"):
+        args["matrix_in_s"] = colorspace["matrix"]
+    if direction in ("out", "both"):
+        args["matrix_s"] = colorspace["matrix"]
+    if colorspace.get("transfer"):
+        args["transfer_in_s"] = args["transfer_s"] = colorspace["transfer"]
+    if colorspace.get("primaries"):
+        args["primaries_in_s"] = args["primaries_s"] = colorspace["primaries"]
+    return args
+
+
 def to_rgbs(clip, matrix, range_):
     """`clip` (YUV, GRAY or RGB, any depth) as planar float RGB, using the
-    source's matrix and range (zimg names, e.g. "709" / "limited") for YUV."""
+    source's colour space (`zimg_args`: a zimg matrix name such as "709", or
+    a dict) and range ("limited" / "full") for YUV."""
     import vapoursynth as vs
 
     core = vs.core
     family = clip.format.color_family
     if family == vs.YUV:
-        return core.resize.Spline36(clip, format=vs.RGBS, matrix_in_s=matrix, range_in_s=range_)
+        return core.resize.Spline36(clip, format=vs.RGBS, range_in_s=range_, **zimg_args(matrix, "in"))
     if family == vs.GRAY:
         gray = core.resize.Point(clip, format=vs.GRAYS, range_in_s=range_)
         return core.std.ShufflePlanes(gray, [0, 0, 0], vs.RGB)
@@ -304,8 +331,8 @@ def from_rgbs(rgbs, fmt, matrix, range_):
 
     core = vs.core
     if fmt.color_family == vs.YUV:
-        return core.resize.Spline36(rgbs, format=fmt.id, matrix_s=matrix, range_s=range_,
-                                    dither_type="error_diffusion")
+        return core.resize.Spline36(rgbs, format=fmt.id, range_s=range_,
+                                    dither_type="error_diffusion", **zimg_args(matrix, "out"))
     if fmt.color_family == vs.GRAY:
         return core.resize.Point(core.std.ShufflePlanes(rgbs, 1, vs.GRAY), format=fmt.id, range_s=range_,
                                  dither_type="error_diffusion")

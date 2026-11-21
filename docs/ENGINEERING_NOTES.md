@@ -5652,6 +5652,25 @@ for 2020cl/chromancl/chromacl/ictcp), #86 (HDR thumbnails at an odd height).
 Report:
 [docs/reports/task-76-unconvertible-matrix-tags](reports/task-76-unconvertible-matrix-tags/index.html).
 
+### The script's YUV ↔ RGB on bt2020c, chroma-derived-* and ictcp (task #88, 2026-11-21)
+
+Borders, RIFE, AI upscaling, Face Restoration and Colourisation converted
+with `matrix_s` alone, and zimg refuses `2020cl`, `chromancl`, `chromacl`
+and `ictcp` that way ("Resize error 3074"), so a source with one of those
+tags failed every such job, Borders included whatever its colour. zimg needs
+the transfer and/or primaries, on **both** sides of the call (an untagged
+RGB swatch with them on the output alone still fails). `chromancl` needs the
+primaries and is exact (0 codes from H.273's derived coefficients); `ictcp`
+converts only with PQ or HLG and BT.2020 primaries (PQ within 1 code of
+BT.2100; HLG is display-referred, up to 84 codes from BT.2100's scene-light
+form but ~5x closer than reading it as 2020ncl). `2020cl`/`chromacl` were
+not adopted: zimg linearises with the display EOTF and encodes Y′ with the
+OETF, so grey 128 became Y′ 434 instead of 504, and it refuses PQ/HLG; they
+are read as their NCL matrix, which keeps neutrals for any decoder and is
+the preview's reading. `ColorMetadata::zimg_colorspace` is the decision;
+every other tag's scripts are byte-identical. Report:
+[docs/reports/task-88-zimg-colour-tags](reports/task-88-zimg-colour-tags/index.html).
+
 ### The pull-request gate in ten minutes (task #84, 2026-11-20)
 
 `ci-test.yml` took 21–31 min, set by macOS x64 (28.9 in the measured run). Two
