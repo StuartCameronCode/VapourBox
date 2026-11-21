@@ -16,6 +16,10 @@
 ///   * x265: deliberately not flagged (its interlace mode declares each woven
 ///     frame a single field), and the job log says so.
 ///   * A deinterlaced job stays progressive.
+///   * x264 at 720x486 4:2:0 (task #92): H.264 can't code a 4:2:0 picture as
+///     fields at a height that isn't a multiple of 4, so it is coded
+///     progressive and the job log says how to keep the fields; cropped to
+///     484, or at 4:2:2, it is MBAFF again. ProRes and x265 encode it too.
 ///
 /// Heavy (full-encode) — runs in the nightly workflow, not the push gate.
 @Tags(['heavy'])
@@ -29,6 +33,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
+import 'package:vapourbox/models/crop_resize_parameters.dart';
 import 'package:vapourbox/models/encoding_settings.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
@@ -47,10 +52,15 @@ const _frames = 10;
 const _fps = 25;
 
 Map<String, dynamic> _job(String name, VideoCodec codec, ContainerFormat container,
-    FieldOrder order, {bool deinterlace = false}) {
+    FieldOrder order,
+    {bool deinterlace = false,
+    String? input,
+    int height = 576,
+    String pixFmt = 'yuv422p',
+    CropResizeParameters cropResize = const CropResizeParameters()}) {
   return VideoJob(
     id: const Uuid().v4(),
-    inputPath: _source,
+    inputPath: input ?? _source,
     outputPath: p.join(_outDir, '$name.${container.extension}'),
     processingPipeline: ProcessingPipeline(
       deinterlace: QTGMCParameters(
@@ -58,6 +68,7 @@ Map<String, dynamic> _job(String name, VideoCodec codec, ContainerFormat contain
         preset: QTGMCPreset.fast,
         tff: order != FieldOrder.bottomFieldFirst,
       ),
+      cropResize: cropResize,
     ),
     encodingSettings: EncodingSettings(
       codec: codec,
@@ -66,8 +77,8 @@ Map<String, dynamic> _job(String name, VideoCodec codec, ContainerFormat contain
     ),
     detectedFieldOrder: order,
     inputWidth: 720,
-    inputHeight: 576,
-    inputPixelFormat: 'yuv422p',
+    inputHeight: height,
+    inputPixelFormat: pixFmt,
     inputFrameRate: 25,
     startFrame: 0,
     endFrame: _frames - 1,
@@ -77,8 +88,17 @@ Map<String, dynamic> _job(String name, VideoCodec codec, ContainerFormat contain
 /// Encodes and returns (output path, the job's log lines).
 Future<(String, List<String>)> _encode(
     String name, VideoCodec codec, ContainerFormat container, FieldOrder order,
-    {bool deinterlace = false}) async {
-  final job = _job(name, codec, container, order, deinterlace: deinterlace);
+    {bool deinterlace = false,
+    String? input,
+    int height = 576,
+    String pixFmt = 'yuv422p',
+    CropResizeParameters cropResize = const CropResizeParameters()}) async {
+  final job = _job(name, codec, container, order,
+      deinterlace: deinterlace,
+      input: input,
+      height: height,
+      pixFmt: pixFmt,
+      cropResize: cropResize);
   final result = await WorkerHarness.runJob(job, label: name);
   if (!result.success) {
     print(result.logs.reversed.take(30).toList().reversed.join('\n'));
@@ -128,6 +148,29 @@ Future<List<String>> _frameMd5s(String path) async {
       .where((l) => l.isNotEmpty && !l.startsWith('#'))
       .map((l) => l.split(',').last.trim())
       .toList();
+}
+
+/// The same VHS picture cut to 720x486 (NTSC D1 height) at an even offset, so
+/// the field order holds, in [pixFmt]; 4:2:0 is converted field by field.
+/// Lossless (FFV1), first [_frames] slots.
+Future<String> _d1Fixture(String pixFmt) async {
+  final path = p.join(_outDir, 'd1_src_$pixFmt.mkv');
+  if (File(path).existsSync()) return path;
+  final r = await Process.run(
+    WorkerHarness.ffmpegPath,
+    ['-hide_banner', '-v', 'error', '-y', '-i', _source,
+     '-vf', 'setpts=PTS-STARTPTS,fps=$_fps,crop=720:486:0:44,scale=interl=1,format=$pixFmt',
+     '-frames:v', '$_frames', '-c:v', 'ffv1', '-an', path],
+    environment: WorkerHarness.ffmpegEnv,
+  );
+  expect(r.exitCode, 0, reason: 'D1 fixture: ${r.stderr}');
+  return path;
+}
+
+Future<(int, int, String)> _size(String path) async {
+  final s = (await WorkerHarness.firstStream(path,
+      selector: 'v:0', entries: ['width', 'height', 'pix_fmt']))!;
+  return (s['width'] as int, s['height'] as int, s['pix_fmt'] as String);
 }
 
 const _orders = [
@@ -237,6 +280,70 @@ void main() {
     expect(logs.any((l) => l.contains('cannot mark it as interlaced')), isTrue,
         reason: 'job log: ${logs.join('\n')}');
   }, timeout: const Timeout(Duration(minutes: 5)));
+
+  group('720x486 (task #92)', () {
+    const mbaffFields = ['frame_mbs_only_flag', 'mb_adaptive_frame_field_flag', 'pic_struct'];
+
+    test('H.264 at 4:2:0 is coded progressive, and the job log says why', () async {
+      for (final pixFmt in ['yuv420p', 'yuv420p10le']) {
+        final src = await _d1Fixture(pixFmt);
+        final (mkv, logs) = await _encode('x264_d1_$pixFmt', VideoCodec.h264, ContainerFormat.mkv,
+            FieldOrder.topFieldFirst,
+            input: src, height: 486, pixFmt: pixFmt);
+        expect(await _size(mkv), (720, 486, pixFmt));
+        final h = await WorkerHarness.bitstreamHeaderCounts(mkv, ['frame_mbs_only_flag']);
+        expect(h['frame_mbs_only_flag'], {'1': 1}, reason: 'progressive coding');
+        expect(await _fieldOrder(mkv), 'progressive', reason: 'no container-only flag');
+        expect(logs.any((l) => l.contains('multiple of 4') && l.contains('720x486')), isTrue,
+            reason: 'job log: ${logs.join('\n')}');
+      }
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('H.264 cropped to 484 lines is MBAFF again', () async {
+      final src = await _d1Fixture('yuv420p');
+      final (mkv, logs) = await _encode('x264_d1_crop2', VideoCodec.h264, ContainerFormat.mkv,
+          FieldOrder.topFieldFirst,
+          input: src,
+          height: 486,
+          pixFmt: 'yuv420p',
+          cropResize: const CropResizeParameters(enabled: true, cropEnabled: true, cropBottom: 2));
+      expect(await _size(mkv), (720, 484, 'yuv420p'));
+      final h = await WorkerHarness.bitstreamHeaderCounts(mkv, mbaffFields);
+      expect(h['frame_mbs_only_flag'], {'0': 1});
+      expect(h['mb_adaptive_frame_field_flag'], {'1': 1});
+      expect(h['pic_struct'], {'3': _frames});
+      expect(await _fieldOrder(mkv), 'tb');
+      expect(logs.any((l) => l.contains('still interlaced')), isFalse);
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('H.264 at 4:2:2 is MBAFF at 486 lines', () async {
+      final src = await _d1Fixture('yuv422p');
+      final (mkv, _) = await _encode('x264_d1_422', VideoCodec.h264, ContainerFormat.mkv,
+          FieldOrder.topFieldFirst,
+          input: src, height: 486, pixFmt: 'yuv422p');
+      expect(await _size(mkv), (720, 486, 'yuv422p'));
+      final h = await WorkerHarness.bitstreamHeaderCounts(mkv, mbaffFields);
+      expect(h['frame_mbs_only_flag'], {'0': 1});
+      expect(h['pic_struct'], {'3': _frames});
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('ProRes keeps the fields; x265 is not told to use H.264', () async {
+      final src = await _d1Fixture('yuv420p');
+      final (mov, _) = await _encode('prores_d1', VideoCodec.proresHQ, ContainerFormat.mov,
+          FieldOrder.topFieldFirst,
+          input: src, height: 486, pixFmt: 'yuv420p');
+      expect((await _size(mov)).$2, 486);
+      expect(WorkerHarness.movFielAtom(mov), '0209');
+      expect(await _frameFlags(mov), {(1, 1)}, reason: 'ProRes frame header');
+
+      final (mp4, logs) = await _encode('x265_d1', VideoCodec.h265, ContainerFormat.mp4,
+          FieldOrder.topFieldFirst,
+          input: src, height: 486, pixFmt: 'yuv420p');
+      expect((await _size(mp4)).$2, 486);
+      final note = logs.firstWhere((l) => l.contains('cannot mark it as interlaced'));
+      expect(note, isNot(contains('H.264')), reason: 'H.264 cannot keep these fields either');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+  });
 
   group('deinterlaced output is progressive', () {
     for (final (codec, container) in [

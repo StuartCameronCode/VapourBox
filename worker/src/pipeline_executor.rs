@@ -274,9 +274,11 @@ pub struct FieldOrderArgs {
 ///   order in `-x264-params` makes every frame agree. A Custom FFmpeg
 ///   Argument `-x264-params` comes later and replaces it (the stream stays
 ///   MBAFF; only a BFF picture's SEI goes back to disagreeing).
+/// - x264 cannot code a 4:2:0 picture as fields when its height is not a
+///   multiple of 4 (720x486): it gets nothing, as x265 does, and is coded
+///   progressive (`VideoJob::field_order_signal`, task #92).
 pub fn field_order_args(job: &VideoJob) -> FieldOrderArgs {
-    let codec = job.encoding_settings.codec;
-    let signal = codec.field_order_signal();
+    let signal = job.field_order_signal();
     if signal == FieldOrderSignal::None {
         return FieldOrderArgs::default();
     }
@@ -327,12 +329,25 @@ pub fn field_order_note(job: &VideoJob) -> Option<String> {
     let codec = job.encoding_settings.codec;
     let pipeline = job.effective_pipeline();
     ScriptGenerator::output_field_order(job, &pipeline)?;
-    match codec.field_order_signal() {
+    let h264_refuses = job.h264_cannot_code_fields_at();
+    match job.field_order_signal() {
+        // x264 would code it as fields, but can't at this size (task #92).
+        FieldOrderSignal::None if codec.field_order_signal() == FieldOrderSignal::X264Interlaced => {
+            let (w, h) = h264_refuses.unwrap_or_default();
+            Some(format!(
+                "The picture is still interlaced, but H.264 can only code a 4:2:0 picture as \
+                 interlaced when its height is a multiple of 4, and this one is {w}x{h}. It is \
+                 coded as progressive, so players will show it as progressive. To keep the \
+                 fields, crop 2 lines with Crop & Resize, choose Color Format 4:2:2, or choose \
+                 ProRes, v210 or FFV1."
+            ))
+        }
         FieldOrderSignal::None => Some(format!(
             "The picture is still interlaced, but {} cannot mark it as interlaced, so players \
-             will show it as progressive. Deinterlace it, or choose H.264, ProRes, v210 or FFV1 \
-             to keep the fields.",
-            codec.display_name()
+             will show it as progressive. Deinterlace it, or choose {} to keep the fields.",
+            codec.display_name(),
+            // H.264 can't keep a 4:2:0 picture's fields at this height either.
+            if h264_refuses.is_some() { "ProRes, v210 or FFV1" } else { "H.264, ProRes, v210 or FFV1" }
         )),
         // FFV1 writes the field order in its own bitstream, so AVI keeps it.
         FieldOrderSignal::Container
@@ -4298,6 +4313,117 @@ mod tests {
                     assert_eq!(field_order_note(&job), None, "{codec:?} {container:?}");
                 }
             }
+        }
+    }
+
+    /// A still-interlaced job at `w`x`h` in `pix_fmt`, with Crop & Resize as
+    /// given (task #92).
+    fn sized_field_order_job(
+        codec: VideoCodec,
+        h: i32,
+        pix_fmt: &str,
+        chroma: ChromaSubsampling,
+        crop_resize: Option<crate::models::CropResizeParameters>,
+    ) -> VideoJob {
+        let mut job = field_order_job(codec, ContainerFormat::Mkv);
+        job.detected_field_order = Some(crate::models::FieldOrder::TopFieldFirst);
+        job.input_width = Some(720);
+        job.input_height = Some(h);
+        job.input_pixel_format = Some(pix_fmt.to_string());
+        job.encoding_settings.chroma_subsampling = chroma;
+        if let Some(cr) = crop_resize {
+            job.processing_pipeline.as_mut().unwrap().crop_resize = cr;
+        }
+        job
+    }
+
+    /// x264 codes a still-interlaced picture as fields only where H.264 can:
+    /// a 4:2:0 OUTPUT whose height is a multiple of 4 (or any 4:2:2 / 4:4:4
+    /// output). libx264 refuses the rest ("height not divisible by 4"), and an
+    /// interlaced stream's crop unit is 4 rows, so it is coded progressive
+    /// (docs/reports/task-92-x264-interlaced-height-2-mod-4).
+    #[test]
+    fn x264_codes_interlaced_only_where_4_2_0_fields_fit() {
+        use crate::models::CropResizeParameters;
+        use ChromaSubsampling::{Original, Yuv420, Yuv422};
+        let crop = |bottom| CropResizeParameters { enabled: true, crop_enabled: true, crop_bottom: bottom, ..Default::default() };
+        let resize_to = |height| CropResizeParameters {
+            enabled: true,
+            resize_enabled: true,
+            target_width: Some(720),
+            target_height: Some(height),
+            maintain_aspect: false,
+            ..Default::default()
+        };
+        let canvas = |height| CropResizeParameters {
+            enabled: true,
+            pad_enabled: true,
+            pad_width: Some(720),
+            pad_height: Some(height),
+            ..Default::default()
+        };
+        // (source height, pipe format, Color Format, Crop & Resize, MBAFF expected, output size)
+        let cases: Vec<(i32, &str, ChromaSubsampling, Option<CropResizeParameters>, bool, (i32, i32))> = vec![
+            (486, "yuv420p", Original, None, false, (720, 486)),
+            (486, "yuv420p10le", Original, None, false, (720, 486)),
+            (486, "yuv422p", Original, None, true, (720, 486)),
+            (486, "yuv444p", Original, None, true, (720, 486)),
+            (486, "yuv422p", Yuv420, None, false, (720, 486)),
+            (486, "yuv420p", Yuv422, None, true, (720, 486)),
+            (486, "yuv420p", Original, Some(crop(2)), true, (720, 484)),
+            (486, "yuv420p", Original, Some(crop(6)), true, (720, 480)),
+            // A still-interlaced 4:2:0 resize rounds its height to 4 (task #56).
+            (480, "yuv420p", Original, Some(resize_to(486)), true, (720, 484)),
+            (480, "yuv420p", Original, Some(canvas(486)), false, (720, 486)),
+            (480, "yuv420p", Original, None, true, (720, 480)),
+            (576, "yuv420p", Original, None, true, (720, 576)),
+        ];
+        for (h, pix_fmt, chroma, cr, mbaff, size) in cases {
+            let what = format!("{h} {pix_fmt} {chroma:?} {cr:?}");
+            let job = sized_field_order_job(VideoCodec::H264, h, pix_fmt, chroma, cr);
+            assert_eq!(job.estimated_output_size(), Some(size), "{what}");
+            let expected = if mbaff { FieldOrderSignal::X264Interlaced } else { FieldOrderSignal::None };
+            assert_eq!(job.field_order_signal(), expected, "{what}");
+            assert_eq!(job.h264_cannot_code_fields_at().is_some(), !mbaff, "{what}");
+            let args = field_order_args(&job);
+            let note = field_order_note(&job);
+            if mbaff {
+                assert_eq!(args.input, ["-top", "1"], "{what}");
+                assert!(args.encoder.contains(&"+ildct".to_string()), "{what}");
+                assert_eq!(note, None, "{what}");
+            } else {
+                assert_eq!(args, FieldOrderArgs::default(), "{what}: coded progressive, unflagged");
+                let note = note.expect("the job log says why");
+                assert!(note.contains("multiple of 4"), "{note}");
+                assert!(note.contains(&format!("{}x{}", size.0, size.1)), "{note}");
+                assert!(note.contains("crop 2 lines"), "{note}");
+            }
+        }
+
+        // Size unknown: as before task #92.
+        let mut job = sized_field_order_job(VideoCodec::H264, 486, "yuv420p", Original, None);
+        job.input_height = None;
+        assert_eq!(job.field_order_signal(), FieldOrderSignal::X264Interlaced);
+
+        // The other codecs keep their own signal at 720x486 4:2:0: each was
+        // measured to encode it.
+        for codec in VideoCodec::ALL.iter().copied().filter(|&c| c != VideoCodec::H264) {
+            let job = sized_field_order_job(codec, 486, "yuv420p", Original, None);
+            assert_eq!(job.field_order_signal(), codec.field_order_signal(), "{codec:?}");
+        }
+    }
+
+    /// The unflagged codecs' note suggests H.264 only where H.264 could keep
+    /// the fields (task #92).
+    #[test]
+    fn the_field_order_note_suggests_h264_only_where_it_can_code_fields() {
+        for codec in [VideoCodec::H265, VideoCodec::Av1, VideoCodec::H264Videotoolbox] {
+            let d1 = sized_field_order_job(codec, 486, "yuv420p", ChromaSubsampling::Original, None);
+            let note = field_order_note(&d1).expect("unflagged");
+            assert!(!note.contains("H.264,"), "{codec:?}: {note}");
+            assert!(note.contains("ProRes, v210 or FFV1"), "{note}");
+            let sd = sized_field_order_job(codec, 480, "yuv420p", ChromaSubsampling::Original, None);
+            assert!(field_order_note(&sd).expect("unflagged").contains("H.264, ProRes"), "{codec:?}");
         }
     }
 
