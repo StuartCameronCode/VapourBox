@@ -17,3 +17,9 @@ Inputs for `app/test/crash_report_classifier_test.dart`, which runs
   `core.vspipe-bin.52015.1795010338`, run 44318045317's Linux job, from
   "faulting thread" to the end of "every thread (top frames)". The same race
   on Linux: SIGSEGV in `outputFrame`, main in `vpy4_freeScript`.
+- `macos-x64-coreml-mps-compile-sigabrt.ips` (task #94): the whole
+  `vspipe-bin-2026-11-20-163119.ips` that nightly run 44767156916 uploaded
+  (`crash-reports-macos-x64-v2-heavy`), from the first DDColor encode of
+  `integration_colorize_test.dart`. Core ML on the runner's paravirtual GPU:
+  SIGABRT from `MTLReportFailure` in `MPSLibrary::MPSKey_Compile`, under
+  Espresso's `MpsGraphInferenceOperation::ExecuteSync`.

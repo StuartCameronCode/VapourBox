@@ -1,0 +1,157 @@
+{
+  "platform": "macos-x64",
+  "tier": "macos-x64",
+  "runner": "macos-x64-3",
+  "runs": [
+    {
+      "model": "ddcolor",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 366.694,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: ddcolor at 512x512 on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/ddcolor_coreml_120_long1.mkv"
+    },
+    {
+      "model": "ddcolor",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 216.498,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: ddcolor at 512x512 on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/ddcolor_cpu_120_long1.mkv"
+    },
+    {
+      "model": "ddcolor",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 344.805,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: ddcolor at 512x512 on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/ddcolor_coreml_120_long2.mkv"
+    },
+    {
+      "model": "ddcolor",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 220.006,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: ddcolor at 512x512 on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/ddcolor_cpu_120_long2.mkv"
+    },
+    {
+      "compare": "ddcolor",
+      "a": "long1",
+      "b": "long1",
+      "frames": 120,
+      "sameSize": true,
+      "lumaSamplesChanged": 0,
+      "lumaMeanAbsDiff": 0.0,
+      "chromaMeanAbsDiff": 0.0
+    },
+    {
+      "model": "deoldify",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 443.89,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: deoldify at 336x336 on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/deoldify_coreml_120_long1.mkv"
+    },
+    {
+      "model": "deoldify",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 418.668,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: deoldify at 336x336 on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/deoldify_cpu_120_long1.mkv"
+    },
+    {
+      "model": "deoldify",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 440.805,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: deoldify at 336x336 on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/deoldify_coreml_120_long2.mkv"
+    },
+    {
+      "model": "deoldify",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 424.128,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: deoldify at 336x336 on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/deoldify_cpu_120_long2.mkv"
+    },
+    {
+      "compare": "deoldify",
+      "a": "long1",
+      "b": "long1",
+      "frames": 120,
+      "sameSize": true,
+      "lumaSamplesChanged": 0,
+      "lumaMeanAbsDiff": 0.0,
+      "chromaMeanAbsDiff": 0.0
+    },
+    {
+      "model": "restoreformer",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 845.138,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Face restoration: restoreformer on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/restoreformer_coreml_120_long1.mkv"
+    },
+    {
+      "model": "restoreformer",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 775.243,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Face restoration: restoreformer on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/restoreformer_cpu_120_long1.mkv"
+    },
+    {
+      "model": "restoreformer",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 825.318,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Face restoration: restoreformer on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/restoreformer_coreml_120_long2.mkv"
+    },
+    {
+      "model": "restoreformer",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 788.667,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Face restoration: restoreformer on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/restoreformer_cpu_120_long2.mkv"
+    },
+    {
+      "compare": "restoreformer",
+      "a": "long1",
+      "b": "long1",
+      "frames": 120,
+      "sameSize": true,
+      "lumaSamplesChanged": 142078,
+      "lumaMeanAbsDiff": 0.0038541124131944446,
+      "chromaMeanAbsDiff": 0.0016788194444444444
+    }
+  ]
+}

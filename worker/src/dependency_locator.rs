@@ -846,7 +846,7 @@ impl DependencyLocator {
     /// Whether the AI runtime add-on runs here, and on which provider (see
     /// `ai_runtime.rs`). As for the GPU plugins, only a positive result is
     /// cached for the boot — keyed by the add-on's version and the force-CPU
-    /// setting too, so reinstalling or upgrading it re-probes — because a
+    /// and Core-ML-on-Intel settings too, so reinstalling or upgrading it re-probes — because a
     /// failure is what the user is about to fix.
     pub fn ai_runtime_status(&self) -> crate::ai_runtime::AiRuntimeStatus {
         use crate::ai_runtime::{self, AiRuntimeReason, AiRuntimeStatus};
@@ -855,6 +855,7 @@ impl DependencyLocator {
             return status;
         }
         let force_cpu = ai_runtime::force_cpu_requested();
+        let coreml_on_intel = ai_runtime::coreml_on_intel_requested();
         let version = crate::addons::manifest(crate::addons::AI_RUNTIME)
             .map(|m| m.version.clone())
             .unwrap_or_default();
@@ -866,6 +867,9 @@ impl DependencyLocator {
                     if json.get("boot").and_then(|v| v.as_str()) == Some(boot.as_str())
                         && json.get("addonVersion").and_then(|v| v.as_str()) == Some(version.as_str())
                         && json.get("forceCpu").and_then(|v| v.as_bool()) == Some(force_cpu)
+                        // Absent from a cache written before task #94, whose
+                        // status may claim Core ML on an Intel Mac: re-probe.
+                        && json.get("coremlOnIntel").and_then(|v| v.as_bool()) == Some(coreml_on_intel)
                     {
                         if let Some(status) = json
                             .get("status")
@@ -900,6 +904,7 @@ impl DependencyLocator {
                     "boot": boot,
                     "addonVersion": version,
                     "forceCpu": force_cpu,
+                    "coremlOnIntel": coreml_on_intel,
                     "status": status,
                 })
                 .to_string(),

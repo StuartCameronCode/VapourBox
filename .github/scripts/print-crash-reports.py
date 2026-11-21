@@ -24,7 +24,11 @@ vspipe R78's teardown race (task #68): that frame is vspipe's own
 (`pthread_cond_signal` on the freed condition variable traps in
 `_os_unfair_lock_unowned_abort`), on Linux as SIGSEGV (task #72). The line
 also says whether the installed bundle's vspipe carries the fix (its
-`--version` marker, read from the binary).
+`--version` marker, read from the binary). A second signature is Core ML's
+kernel compile on an Intel Mac (task #94): Metal Performance Shaders
+asserting in `MPSLibrary::MPSKey_Compile` (via `MTLReportFailure`) under
+an ONNX Runtime prediction, SIGABRT. Intel Macs no longer run Core ML, so
+seeing it means something offered Core ML there again.
 
 Never fails the step: it is diagnostic.
 
@@ -45,6 +49,7 @@ DEFAULT_NAMES = ["vspipe-bin", "python3", "python3.12"]
 NEWEST = 3
 
 TEARDOWN = "vspipe-teardown"
+MPS_COMPILE = "coreml-mps-compile"
 # The marker task #68's patch adds to `vspipe --version`; it is a literal in
 # the binary, so it can be found without running vspipe (which needs the
 # bundle's environment).
@@ -66,9 +71,13 @@ def is_system(image):
 def classify(frames, other_threads=()):
     """frames: the faulting thread, top first, as (image basename, symbol).
     other_threads: the other threads' frames, the same way. Returns
-    (verdict, detail): verdict is TEARDOWN for task #68's race, else
+    (verdict, detail): verdict is TEARDOWN for task #68's race,
+    MPS_COMPILE for task #94's Metal kernel compile abort, else
     "image:<name>" for the first frame outside the system libraries, else
     "unknown"."""
+    if any(img == "MPSCore" and "MPSKey_Compile" in sym for img, sym in frames[:12]):
+        via = next((img for img, _ in frames if img in ("Espresso", "CoreML", "libonnxruntime")), None)
+        return MPS_COMPILE, "MPSLibrary::MPSKey_Compile" + (f" under {via}" if via else "")
     first = next(((img, sym) for img, sym in frames if not is_system(img)), None)
     if first is None:
         return "unknown", "every frame is in a system library"
@@ -105,6 +114,10 @@ def verdict_line(verdict, detail):
                None: "could not check the installed vspipe for the fix"}[fix]
         return (f"  => vspipe R78's teardown race (task #68): {detail}. "
                 f"Not a plugin or an instruction-set fault; {has}.")
+    if verdict == MPS_COMPILE:
+        return (f"  => Core ML's Metal kernel compile aborted the process (task #94): {detail}. "
+                "Intel Macs should not be running Core ML: check ai_runtime.preferred_providers() "
+                "and VAPOURBOX_AI_COREML_ON_INTEL.")
     if verdict.startswith("image:"):
         return f"  => faulted in {verdict[6:]}: {detail}"
     return f"  => {detail}"

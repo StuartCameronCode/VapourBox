@@ -30,6 +30,10 @@ class AiRuntimeStatus {
   /// Why the preferred GPU provider was not used, if it fell back to the CPU.
   final String? fallback;
 
+  /// Why this computer is not offered a GPU provider at all, when that is why
+  /// it runs on the CPU (Intel Macs skip Core ML: task #94).
+  final String? cpuReason;
+
   const AiRuntimeStatus({
     required this.available,
     this.reason,
@@ -38,6 +42,7 @@ class AiRuntimeStatus {
     this.providers = const [],
     this.provider,
     this.fallback,
+    this.cpuReason,
   });
 
   /// The status when the probe itself could not be run or read.
@@ -49,7 +54,8 @@ class AiRuntimeStatus {
         version = null,
         providers = const [],
         provider = null,
-        fallback = null;
+        fallback = null,
+        cpuReason = null;
 
   factory AiRuntimeStatus.fromJson(Map<String, dynamic> json) {
     final available = json['available'] == true;
@@ -63,6 +69,7 @@ class AiRuntimeStatus {
       providers: (json['providers'] as List<dynamic>? ?? const []).cast<String>(),
       provider: json['provider'] as String?,
       fallback: json['fallback'] as String?,
+      cpuReason: json['cpuReason'] as String?,
     );
   }
 

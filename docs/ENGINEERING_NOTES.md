@@ -6019,3 +6019,40 @@ hung.
   report was identical to before (dip 0.1436 / 0.1358 / 0.3536 / 0.9084).
   With `VAPOURBOX_DETECT_BUDGET_SECS=30` the Catmull-Rom test failed at 30 s
   naming the two scan kernels done, and no vspipe was left running.
+
+### Core ML aborts vspipe on Intel Macs; they run ai-runtime models on the CPU (task #94, 2026-11-21)
+
+Report: [docs/reports/task-94-coreml-intel-mps-abort](reports/task-94-coreml-intel-mps-abort/index.html).
+
+- **The fault.** On macOS x64, Core ML (`MLComputeUnits: ALL`, no Neural
+  Engine) runs on the GPU through Metal Performance Shaders, which compiles
+  its kernels at the first prediction. On the CI runners' paravirtual GPU a
+  compile sometimes fails and MPS asserts: SIGABRT in
+  `MPSLibrary::MPSKey_Compile` via `MTLReportFailure`, inside
+  `session.run`. Nothing raises, so `Runner`'s CPU retry and `session()`'s
+  creation fallback are never reached. 6 of 12 x64 heavy nightly jobs and 2
+  of 12 sweep jobs from 2026-11-17 to 2026-11-20, both tiers, DDColor and
+  DeOldify (kernels `reduce_multiple_passes_axes_add`, `depthwiseConv3d_TGM`),
+  never arm64, never Face Restoration (which shares the path).
+- **Not detectable in advance.** Intermittent on one machine (the same VM
+  compiled the same model minutes later; the probe's 12 cold first-compiles
+  on fresh runners all passed), and `--probe-ai-runtime`'s two-node model
+  uses neither failing kernel.
+- **The fix costs nothing on the runner.** `preferred_providers()` leaves
+  Core ML out on darwin/x86_64. On four Intel runners the CPU was faster for
+  every model (16 frames: DDColor 35 s vs 179 s warm Core ML, DeOldify 64 vs
+  102, RestoreFormer++ 98 vs 188), mostly because Core ML's per-process
+  compile is 34–134 s there. At 120 frames the CPU was still 1.05–1.8×
+  ahead: per frame the two are equal within noise, so Core ML never earns
+  its start-up back. Colourisation's output is identical (DDColor within
+  0.012 levels at 120 frames), Face Restoration's within 0.004 levels. A
+  nightly dispatch on the fix passed every x64 Colourisation and Face
+  Restoration heavy test; the first DDColor encode took 79–85 s, not a
+  median 414–593 s. `PREVIEW_ON_CPU` now decides only on
+  Apple Silicon.
+- **Unmeasured: a real Intel Mac GPU** (Intel UHD/Iris, AMD Radeon Pro).
+  It might make Core ML worth having and might never abort. Revisit with
+  `VAPOURBOX_AI_COREML_ON_INTEL=1` and the report's script if a user with
+  real hardware reports a slowdown.
+- **Crash reports name it:** `print-crash-reports.py` classifies the
+  signature as `coreml-mps-compile` (fixture: nightly 44767156916's `.ips`).

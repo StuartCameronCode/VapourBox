@@ -1,0 +1,101 @@
+name: Probe Core ML vs CPU on Intel Macs (task 94)
+
+# The workflow that produced docs/reports/task-94-coreml-intel-mps-abort. It
+# ran from a throwaway branch (a push of this file to
+# .github/workflows/ runs it) and is kept here, not in .github/workflows/.
+# Each runner is a fresh macos-15-intel VM, so its first Core ML process per
+# model is a cold Metal shader compile, the case that aborted in the nightlies.
+
+on:
+  push:
+    paths:
+      - .github/workflows/probe-coreml-intel.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {asset: macos-x64, n: 3}
+          - {asset: macos-x64-v2, n: 3}
+    name: probe (${{ matrix.asset }} #${{ matrix.n }})
+    runs-on: macos-15-intel
+    timeout-minutes: 330
+    env:
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-x64
+      VAPOURBOX_PROBE_ASSET: ${{ matrix.asset }}
+      VAPOURBOX_PROBE_RUNNER: ${{ matrix.asset }}-${{ matrix.n }}
+      # Which tests: "(cold, warm)" (run 44869508189, four runners) or
+      # "120 frames" (the long encodes, one runner per tier).
+      PROBE_NAME: '120 frames'
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve deps tag
+        id: deps
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Download dependencies (${{ matrix.asset }})
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/install-deps-bundle.sh "${{ matrix.asset }}" \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/macos-x64
+          xattr -cr deps/macos-x64 2>/dev/null || true
+
+      - name: Machine
+        run: |
+          sysctl -n machdep.cpu.brand_string hw.ncpu hw.memsize
+          system_profiler SPDisplaysDataType | sed -n 1,20p
+
+      - name: Build worker (debug)
+        run: cd worker && cargo build
+
+      - name: Generate Dart serialization
+        run: |
+          cd app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Core ML vs CPU
+        env:
+          VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
+        run: |
+          cp docs/reports/task-94-coreml-intel-mps-abort/scripts/coreml_vs_cpu_test.dart app/test/
+          cd app && flutter test test/coreml_vs_cpu_test.dart --reporter expanded --plain-name "$PROBE_NAME"
+
+      - name: Crash reports
+        if: always()
+        run: |
+          python3 .github/scripts/print-crash-reports.py || true
+          mkdir -p Tests/TestOutput/coreml_probe/ips
+          for f in ~/Library/Logs/DiagnosticReports/{vspipe-bin,python3,vapourbox-worker}*.ips; do
+            [ -f "$f" ] && cp "$f" Tests/TestOutput/coreml_probe/ips/
+          done
+          ls Tests/TestOutput/coreml_probe/ips
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: coreml-probe-${{ matrix.asset }}-${{ matrix.n }}-${{ github.run_id }}
+          path: |
+            Tests/TestOutput/coreml_probe/results.json
+            Tests/TestOutput/coreml_probe/ips/*.ips
+          if-no-files-found: warn

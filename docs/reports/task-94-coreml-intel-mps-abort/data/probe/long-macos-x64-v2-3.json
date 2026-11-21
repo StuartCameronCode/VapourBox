@@ -1,0 +1,157 @@
+{
+  "platform": "macos-x64",
+  "tier": "macos-x64-v2",
+  "runner": "macos-x64-v2-3",
+  "runs": [
+    {
+      "model": "ddcolor",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 429.792,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: ddcolor at 512x512 on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/ddcolor_coreml_120_long1.mkv"
+    },
+    {
+      "model": "ddcolor",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 222.721,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: ddcolor at 512x512 on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/ddcolor_cpu_120_long1.mkv"
+    },
+    {
+      "model": "ddcolor",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 290.573,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: ddcolor at 512x512 on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/ddcolor_coreml_120_long2.mkv"
+    },
+    {
+      "model": "ddcolor",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 180.529,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: ddcolor at 512x512 on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/ddcolor_cpu_120_long2.mkv"
+    },
+    {
+      "compare": "ddcolor",
+      "a": "long1",
+      "b": "long1",
+      "frames": 120,
+      "sameSize": true,
+      "lumaSamplesChanged": 0,
+      "lumaMeanAbsDiff": 0.0,
+      "chromaMeanAbsDiff": 0.012161675347222222
+    },
+    {
+      "model": "deoldify",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 382.433,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: deoldify at 336x336 on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/deoldify_coreml_120_long1.mkv"
+    },
+    {
+      "model": "deoldify",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 348.939,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: deoldify at 336x336 on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/deoldify_cpu_120_long1.mkv"
+    },
+    {
+      "model": "deoldify",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 595.001,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: deoldify at 336x336 on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/deoldify_coreml_120_long2.mkv"
+    },
+    {
+      "model": "deoldify",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 364.79,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Colourisation: deoldify at 336x336 on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/deoldify_cpu_120_long2.mkv"
+    },
+    {
+      "compare": "deoldify",
+      "a": "long1",
+      "b": "long1",
+      "frames": 120,
+      "sameSize": true,
+      "lumaSamplesChanged": 0,
+      "lumaMeanAbsDiff": 0.0,
+      "chromaMeanAbsDiff": 0.0
+    },
+    {
+      "model": "restoreformer",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 780.594,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Face restoration: restoreformer on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/restoreformer_coreml_120_long1.mkv"
+    },
+    {
+      "model": "restoreformer",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long1",
+      "success": true,
+      "seconds": 649.005,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Face restoration: restoreformer on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/restoreformer_cpu_120_long1.mkv"
+    },
+    {
+      "model": "restoreformer",
+      "provider": "coreml",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 717.144,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Face restoration: restoreformer on CoreMLExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/restoreformer_coreml_120_long2.mkv"
+    },
+    {
+      "model": "restoreformer",
+      "provider": "cpu",
+      "frames": 120,
+      "label": "long2",
+      "success": true,
+      "seconds": 671.731,
+      "providerLine": "{\"type\":\"log\",\"level\":\"debug\",\"message\":\"vspipe stderr: Face restoration: restoreformer on CPUExecutionProvider\"}",
+      "output": "/Users/runner/work/VapourBox/VapourBox/Tests/TestOutput/coreml_probe/restoreformer_cpu_120_long2.mkv"
+    },
+    {
+      "compare": "restoreformer",
+      "a": "long1",
+      "b": "long1",
+      "frames": 120,
+      "sameSize": true,
+      "lumaSamplesChanged": 142078,
+      "lumaMeanAbsDiff": 0.0038541124131944446,
+      "chromaMeanAbsDiff": 0.0016788194444444444
+    }
+  ]
+}

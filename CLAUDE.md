@@ -2523,6 +2523,22 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
   PYTHONPATH**. `--probe-ai-runtime` runs a committed self-test model the way
   a job would (`ai_runtime.rs`, positive results cached per boot);
   `VAPOURBOX_AI_FORCE_CPU=1` forces the CPU provider.
+- **Intel Macs run every ai-runtime model on the CPU, never Core ML**
+  (task #94). There Core ML runs on the GPU through Metal Performance
+  Shaders, which compiles its kernels at the first prediction and, when a
+  compile fails, **aborts the whole vspipe process** (SIGABRT in
+  `MPSLibrary::MPSKey_Compile`): 6 of 12 macOS x64 nightly heavy jobs in
+  four days, DDColor and DeOldify, both tiers. No Python exception is
+  raised, so `Runner`'s CPU retry and `session()`'s creation fallback can't
+  catch it, and it is intermittent on one machine, so no probe can detect it.
+  `ai_runtime.preferred_providers()` leaves Core ML out on darwin/x86_64
+  (the x64 bundle under Rosetta too); `cpu_reason()` says why, in the probe
+  (`cpuReason`) and the passes' log lines. `VAPOURBOX_AI_COREML_ON_INTEL=1`
+  offers it again, **for measuring only**. Measured on CI's Intel VMs only
+  (paravirtual GPU, docs/reports/task-94-coreml-intel-mps-abort): **a real
+  Intel Mac GPU (Intel UHD/Iris, AMD Radeon Pro) was never measured**, so
+  what such a machine loses is unknown. Revisit if a user with real hardware
+  reports it; never add a retry for the abort in a test.
 - **`VAPOURBOX_ADDON_MIRROR=<dir>`** makes the installer (app and
   `WorkerHarness.ensureAddon`) take files from a local directory, still size-
   and hash-checked — how an add-on is tested before its files are uploaded.
@@ -2573,7 +2589,9 @@ it to the face itself with BiSeNet and blends it back
   in RGB and convert the whole frame back.
 - **Model runs are serialised per pass** (`ai_runtime.Runner` with one shared
   lock), with a CPU retry if a GPU run fails: concurrent Core ML predictions
-  from VapourSynth's threads ran a 16 GB Mac out of GPU memory.
+  from VapourSynth's threads ran a 16 GB Mac out of GPU memory. The retry
+  covers errors that raise only; an MPS kernel compile abort kills the
+  process, which is why Intel Macs run on the CPU (task #94, "Add-ons").
 - **NumPy only** — no OpenCV (it is in neither the deps bundle nor the
   ai-runtime add-on); `pipeline_parity.py` in the report checks the NumPy
   detection, alignment and paste-back against facexlib/OpenCV.
@@ -2617,7 +2635,8 @@ model (`worker/templates/colorize.py`, on `ai_runtime`). Rules:
 - **Core ML compiles DDColor for 50-80 s per session** (every vspipe process;
   DeOldify ~5 s). So the preview script passes `preview=True` (a `PREVIEW_ONLY` line) and DDColor
   previews on the CPU (`colorize.PREVIEW_ON_CPU`); outputs agree to <0.001
-  CIELAB units. Don't add `ModelCacheDirectory` casually: its cache is ~900 MB
+  CIELAB units. That choice matters on Apple Silicon only: Intel Macs run
+  both models on the CPU for previews and encodes alike (task #94, above). Don't add `ModelCacheDirectory` casually: its cache is ~900 MB
   per render size and the key is the model path, not the overridden shape.
 - **Temporal smoothing is a pure function of frames n-r..n+r**: each frame's
   render-size prediction is averaged with its neighbours' (`shifted` +

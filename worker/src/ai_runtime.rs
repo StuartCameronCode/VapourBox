@@ -75,6 +75,10 @@ pub struct AiRuntimeStatus {
     /// Why the preferred GPU provider was not used, when it fell back to the CPU.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
+    /// Why this machine is not offered a GPU provider at all (Intel Macs
+    /// skip Core ML, task #94), when that is why it runs on the CPU.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_reason: Option<String>,
 }
 
 impl AiRuntimeStatus {
@@ -87,6 +91,7 @@ impl AiRuntimeStatus {
             providers: Vec::new(),
             provider: None,
             fallback: None,
+            cpu_reason: None,
         }
     }
 
@@ -221,6 +226,7 @@ pub fn classify(exit: &ProbeExit, stderr: &str) -> AiRuntimeStatus {
                     .unwrap_or_default(),
                 provider: s("provider"),
                 fallback: s("fallback"),
+                cpu_reason: s("cpuReason"),
             };
         }
         return AiRuntimeStatus::unavailable(R::ProbeFailed, "the self-test reported nothing".to_string());
@@ -291,11 +297,22 @@ pub fn run_probe(
     }
 }
 
-/// `VAPOURBOX_AI_FORCE_CPU=1`: run on the CPU only (also read by ai_runtime.py).
-pub fn force_cpu_requested() -> bool {
-    std::env::var("VAPOURBOX_AI_FORCE_CPU")
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
         .map(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"))
         .unwrap_or(false)
+}
+
+/// `VAPOURBOX_AI_FORCE_CPU=1`: run on the CPU only (also read by ai_runtime.py).
+pub fn force_cpu_requested() -> bool {
+    env_flag("VAPOURBOX_AI_FORCE_CPU")
+}
+
+/// `VAPOURBOX_AI_COREML_ON_INTEL=1`: offer Core ML on an Intel Mac again, for
+/// measuring only (read by ai_runtime.py, which otherwise leaves it out there:
+/// task #94). The probe's cache is keyed by it.
+pub fn coreml_on_intel_requested() -> bool {
+    env_flag("VAPOURBOX_AI_COREML_ON_INTEL")
 }
 
 #[cfg(test)]
@@ -318,8 +335,25 @@ mod tests {
         assert_eq!(s.version.as_deref(), Some("1.31.1"));
         assert_eq!(s.providers.len(), 2);
         assert_eq!(s.fallback, None);
+        assert_eq!(s.cpu_reason, None);
         assert_eq!(s.message("macos-arm64"), None);
         assert!(!classify(&exit(true, "0"), "AI_RUNTIME_PROBE:start\n").available);
+    }
+
+    #[test]
+    fn an_intel_mac_probe_says_why_it_runs_on_the_cpu() {
+        // Task #94: Intel Macs are not offered Core ML.
+        let stderr = "AI_RUNTIME_PROBE:start\n\
+            AI_RUNTIME_RESULT:{\"version\": \"1.23.2\", \"providers\": [\"CoreMLExecutionProvider\", \
+            \"CPUExecutionProvider\"], \"provider\": \"CPUExecutionProvider\", \"fallback\": null, \
+            \"cpuReason\": \"Core ML is not used on Intel Macs\"}\n";
+        let s = classify(&exit(true, "0"), stderr);
+        assert!(s.available);
+        assert_eq!(s.provider.as_deref(), Some("CPUExecutionProvider"));
+        assert_eq!(s.cpu_reason.as_deref(), Some("Core ML is not used on Intel Macs"));
+        let json = serde_json::to_value(&s).unwrap();
+        assert_eq!(json["cpuReason"], "Core ML is not used on Intel Macs");
+        assert_eq!(s.message("macos-x64"), None);
     }
 
     #[test]

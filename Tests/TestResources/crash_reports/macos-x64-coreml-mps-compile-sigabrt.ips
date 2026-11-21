@@ -1,0 +1,713 @@
+{"app_name":"vspipe-bin","timestamp":"2026-11-20 16:31:19.00 +0000","app_version":"","slice_uuid":"5f7dbf2b-dd3b-35c9-a737-0bae5f2a93d3","build_version":"","platform":1,"share_with_app_devs":0,"is_first_party":1,"bug_type":"309","os_version":"macOS 15.7.9 (24G830)","roots_installed":0,"incident_id":"388DFD79-6DA1-4C82-82BF-12D0BAC4BBE9","name":"vspipe-bin"}
+{
+  "uptime" : 1700,
+  "procRole" : "Unspecified",
+  "version" : 2,
+  "userID" : 501,
+  "deployVersion" : 210,
+  "modelCode" : "Macmini6,2",
+  "coalitionID" : 873,
+  "osVersion" : {
+    "train" : "macOS 15.7.9",
+    "build" : "24G830",
+    "releaseType" : "User"
+  },
+  "captureTime" : "2026-11-20 16:30:39.5252 +0000",
+  "codeSigningMonitor" : 0,
+  "incident" : "388DFD79-6DA1-4C82-82BF-12D0BAC4BBE9",
+  "pid" : 26718,
+  "cpuType" : "X86-64",
+  "roots_installed" : 0,
+  "bug_type" : "309",
+  "procLaunch" : "2026-11-20 16:24:05.5168 +0000",
+  "procStartAbsTime" : 1345092871875,
+  "procExitAbsTime" : 1739009530978,
+  "procName" : "vspipe-bin",
+  "procPath" : "\/Users\/USER\/*\/vspipe-bin",
+  "parentProc" : "vapourbox-worker",
+  "parentPid" : 26664,
+  "coalitionName" : "runner-provisioner",
+  "crashReporterKey" : "FAEC242F-9277-4BE3-116D-CF37CC3F7139",
+  "appleIntelligenceStatus" : {"reasons":["countryBillingIneligible","deviceNotCapable","selectedSiriLanguageIneligible","countryLocationIneligible"],"state":"unavailable"},
+  "responsiblePid" : 981,
+  "responsibleProc" : "hosted-compute-agent",
+  "codeSigningID" : "vspipe-bin-555549445f7dbf2bdd3b35c9a7370bae5f2a93d3",
+  "codeSigningTeamID" : "",
+  "codeSigningFlags" : 570425345,
+  "codeSigningValidationCategory" : 10,
+  "codeSigningTrustLevel" : 4294967295,
+  "codeSigningAuxiliaryInfo" : 0,
+  "bootSessionUUID" : "62B7CABB-1696-418D-993B-8E1F52931BBD",
+  "sip" : "disabled",
+  "exception" : {"codes":"0x0000000000000000, 0x0000000000000000","rawCodes":[0,0],"type":"EXC_CRASH","signal":"SIGABRT"},
+  "termination" : {"flags":0,"code":6,"namespace":"SIGNAL","indicator":"Abort trap: 6","byProc":"vspipe-bin","byPid":26718},
+  "ktriageinfo" : "VM - (arg = 0x3) mach_vm_allocate_kernel failed within call to vm_map_enter\n",
+  "extMods" : {"caller":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"system":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"targeted":{"thread_create":0,"thread_set_state":0,"task_for_pid":0},"warnings":0},
+  "faultingThread" : 7,
+  "threads" : [{"id":75445,"threadState":{"r13":{"value":4294967552},"rax":{"value":260},"rflags":{"value":583},"cpu":{"value":0},"r14":{"value":140461689108800},"rsi":{"value":4294967552},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":0},"r10":{"value":0},"r9":{"value":160},"r15":{"value":0},"rbx":{"value":140704532263296,"symbolLocation":0,"symbol":"_main_thread"},"trap":{"value":133},"err":{"value":33554737},"r11":{"value":582},"rip":{"value":140703431022326},"rbp":{"value":140702011470304},"rsp":{"value":140702011470152},"r12":{"value":140702011470176},"rcx":{"value":140702011470152},"flavor":"x86_THREAD_STATE","rdi":{"value":140461689108800}},"queue":"com.apple.main-thread","frames":[{"imageOffset":14070,"symbol":"__psynch_cvwait","symbolLocation":10,"imageIndex":54},{"imageOffset":25262,"symbol":"_pthread_cond_wait","symbolLocation":988,"imageIndex":55},{"imageOffset":112784,"symbol":"std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&)","symbolLocation":18,"imageIndex":56},{"imageOffset":64507,"symbol":"outputNode(VSPipeOptions const&, VSPipeOutputData*, VSCore*)","symbolLocation":219,"imageIndex":0},{"imageOffset":54781,"symbol":"main","symbolLocation":9981,"imageIndex":0},{"imageOffset":25904,"symbol":"start","symbolLocation":3056,"imageIndex":57}]},{"id":75488,"frames":[{"imageOffset":14070,"symbol":"__psynch_cvwait","symbolLocation":10,"imageIndex":54},{"imageOffset":25262,"symbol":"_pthread_cond_wait","symbolLocation":988,"imageIndex":55},{"imageOffset":3621167,"symbol":"blas_thread_server","symbolLocation":191,"imageIndex":47},{"imageOffset":24069,"symbol":"_pthread_start","symbolLocation":115,"imageIndex":55},{"imageOffset":6231,"symbol":"thread_start","symbolLocation":15,"imageIndex":55}],"threadState":{"r13":{"value":4294967552},"rax":{"value":260},"rflags":{"value":583},"cpu":{"value":0},"r14":{"value":4480237776,"symbolLocation":80,"symbol":"thread_status"},"rsi":{"value":4294967552},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":0},"r10":{"value":0},"r9":{"value":160},"r15":{"value":0},"rbx":{"value":123145514532864},"trap":{"value":133},"err":{"value":33554737},"r11":{"value":582},"rip":{"value":140703431022326},"rbp":{"value":123145514532736},"rsp":{"value":123145514532584},"r12":{"value":123145514532608},"rcx":{"value":123145514532584},"flavor":"x86_THREAD_STATE","rdi":{"value":4480237776,"symbolLocation":80,"symbol":"thread_status"}}},{"id":75489,"frames":[{"imageOffset":14070,"symbol":"__psynch_cvwait","symbolLocation":10,"imageIndex":54},{"imageOffset":25262,"symbol":"_pthread_cond_wait","symbolLocation":988,"imageIndex":55},{"imageOffset":3621167,"symbol":"blas_thread_server","symbolLocation":191,"imageIndex":47},{"imageOffset":24069,"symbol":"_pthread_start","symbolLocation":115,"imageIndex":55},{"imageOffset":6231,"symbol":"thread_start","symbolLocation":15,"imageIndex":55}],"threadState":{"r13":{"value":4294967552},"rax":{"value":260},"rflags":{"value":583},"cpu":{"value":0},"r14":{"value":4480237904,"symbolLocation":208,"symbol":"thread_status"},"rsi":{"value":4294967552},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":0},"r10":{"value":0},"r9":{"value":160},"r15":{"value":0},"rbx":{"value":123145515069440},"trap":{"value":133},"err":{"value":33554737},"r11":{"value":582},"rip":{"value":140703431022326},"rbp":{"value":123145515069312},"rsp":{"value":123145515069160},"r12":{"value":123145515069184},"rcx":{"value":123145515069160},"flavor":"x86_THREAD_STATE","rdi":{"value":4480237904,"symbolLocation":208,"symbol":"thread_status"}}},{"id":75490,"frames":[{"imageOffset":14070,"symbol":"__psynch_cvwait","symbolLocation":10,"imageIndex":54},{"imageOffset":25262,"symbol":"_pthread_cond_wait","symbolLocation":988,"imageIndex":55},{"imageOffset":3621167,"symbol":"blas_thread_server","symbolLocation":191,"imageIndex":47},{"imageOffset":24069,"symbol":"_pthread_start","symbolLocation":115,"imageIndex":55},{"imageOffset":6231,"symbol":"thread_start","symbolLocation":15,"imageIndex":55}],"threadState":{"r13":{"value":4294967552},"rax":{"value":260},"rflags":{"value":583},"cpu":{"value":0},"r14":{"value":4480238032,"symbolLocation":336,"symbol":"thread_status"},"rsi":{"value":4294967552},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":0},"r10":{"value":0},"r9":{"value":160},"r15":{"value":0},"rbx":{"value":123145515606016},"trap":{"value":133},"err":{"value":33554737},"r11":{"value":582},"rip":{"value":140703431022326},"rbp":{"value":123145515605888},"rsp":{"value":123145515605736},"r12":{"value":123145515605760},"rcx":{"value":123145515605736},"flavor":"x86_THREAD_STATE","rdi":{"value":4480238032,"symbolLocation":336,"symbol":"thread_status"}}},{"id":75623,"frames":[{"imageOffset":14070,"symbol":"__psynch_cvwait","symbolLocation":10,"imageIndex":54},{"imageOffset":25262,"symbol":"_pthread_cond_wait","symbolLocation":988,"imageIndex":55},{"imageOffset":112784,"symbol":"std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&)","symbolLocation":18,"imageIndex":56},{"imageOffset":15573067,"symbol":"onnxruntime::concurrency::ThreadPoolTempl<onnxruntime::Env>::WorkerData::SetBlocked(std::__1::function<bool ()>, std::__1::function<void ()>)","symbolLocation":187,"imageIndex":52},{"imageOffset":15571016,"symbol":"onnxruntime::concurrency::ThreadPoolTempl<onnxruntime::Env>::WorkerLoop(int)","symbolLocation":1352,"imageIndex":52},{"imageOffset":15564640,"symbol":"onnxruntime::concurrency::ThreadPoolTempl<onnxruntime::Env>::WorkerLoop(int, Eigen::ThreadPoolInterface*)","symbolLocation":16,"imageIndex":52},{"imageOffset":15665866,"symbol":"onnxruntime::(anonymous namespace)::PosixThread::ThreadMain(void*)","symbolLocation":42,"imageIndex":52},{"imageOffset":24069,"symbol":"_pthread_start","symbolLocation":115,"imageIndex":55},{"imageOffset":6231,"symbol":"thread_start","symbolLocation":15,"imageIndex":55}],"threadState":{"r13":{"value":4294967552},"rax":{"value":260},"rflags":{"value":583},"cpu":{"value":0},"r14":{"value":140461654921928},"rsi":{"value":4294967552},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":0},"r10":{"value":0},"r9":{"value":160},"r15":{"value":0},"rbx":{"value":123145516142592},"trap":{"value":133},"err":{"value":33554737},"r11":{"value":582},"rip":{"value":140703431022326},"rbp":{"value":123145516142048},"rsp":{"value":123145516141896},"r12":{"value":123145516141920},"rcx":{"value":123145516141896},"flavor":"x86_THREAD_STATE","rdi":{"value":140461654921928}}},{"id":87193,"frames":[{"imageOffset":6196,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":55}],"threadState":{"r13":{"value":0},"rax":{"value":33554800},"rflags":{"value":512},"cpu":{"value":0},"r14":{"value":1},"rsi":{"value":14863},"r8":{"value":409602},"cr2":{"value":0},"rdx":{"value":123145517764608},"r10":{"value":0},"r9":{"value":18446744073709551615},"r15":{"value":123145518287736},"rbx":{"value":123145518288896},"trap":{"value":133},"err":{"value":33554800},"r11":{"value":582},"rip":{"value":140703431264308},"rbp":{"value":0},"rsp":{"value":123145518288896},"r12":{"value":5193730},"rcx":{"value":0},"flavor":"x86_THREAD_STATE","rdi":{"value":123145518288896}}},{"id":89687,"frames":[{"imageOffset":14070,"symbol":"__psynch_cvwait","symbolLocation":10,"imageIndex":54},{"imageOffset":25262,"symbol":"_pthread_cond_wait","symbolLocation":988,"imageIndex":55},{"imageOffset":112784,"symbol":"std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&)","symbolLocation":18,"imageIndex":56},{"imageOffset":207795,"symbol":"VSThreadPool::runTasks(bool&)","symbolLocation":8435,"imageIndex":4},{"imageOffset":220596,"symbol":"void* std::__1::__thread_proxy[abi:ne190102]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, void (*)(VSThreadPool*, bool&), VSThreadPool*, std::__1::reference_wrapper<bool>>>(void*)","symbolLocation":52,"imageIndex":4},{"imageOffset":24069,"symbol":"_pthread_start","symbolLocation":115,"imageIndex":55},{"imageOffset":6231,"symbol":"thread_start","symbolLocation":15,"imageIndex":55}],"threadState":{"r13":{"value":28587302329344},"rax":{"value":4},"rflags":{"value":583},"cpu":{"value":0},"r14":{"value":140461657574576},"rsi":{"value":28587302329344},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":6656},"r10":{"value":0},"r9":{"value":160},"r15":{"value":6656},"rbx":{"value":123145516679168},"trap":{"value":133},"err":{"value":33554737},"r11":{"value":582},"rip":{"value":140703431022326},"rbp":{"value":123145516677824},"rsp":{"value":123145516677672},"r12":{"value":123145516677696},"rcx":{"value":123145516677672},"flavor":"x86_THREAD_STATE","rdi":{"value":140461657574576}}},{"triggered":true,"id":89688,"threadState":{"r13":{"value":3},"rax":{"value":0},"rflags":{"value":582},"cpu":{"value":0},"r14":{"value":21003},"rsi":{"value":6},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":0},"r10":{"value":140704534436288,"symbolLocation":0,"symbol":"_os_xbs_chrooted"},"r9":{"value":10000000},"r15":{"value":22},"rbx":{"value":6},"trap":{"value":133},"err":{"value":33554760},"r11":{"value":582},"rip":{"value":140703431039046,"matchesCrashFrame":1},"rbp":{"value":123145517192672},"rsp":{"value":123145517192632},"r12":{"value":6},"rcx":{"value":123145517192632},"flavor":"x86_THREAD_STATE","rdi":{"value":21003}},"frames":[{"imageOffset":30790,"symbol":"__pthread_kill","symbolLocation":10,"imageIndex":54},{"imageOffset":23314,"symbol":"pthread_kill","symbolLocation":259,"imageIndex":55},{"imageOffset":525590,"symbol":"__abort","symbolLocation":145,"imageIndex":59},{"imageOffset":525445,"symbol":"abort","symbolLocation":141,"imageIndex":59},{"imageOffset":521880,"symbol":"__assert_rtn","symbolLocation":314,"imageIndex":59},{"imageOffset":1881030,"symbol":"MTLReportFailure.cold.1","symbolLocation":41,"imageIndex":60},{"imageOffset":1690206,"symbol":"MTLReportFailure","symbolLocation":512,"imageIndex":60},{"imageOffset":605309,"symbol":"MPSLibrary::MPSKey_Compile(MPSKey_data*)","symbolLocation":4877,"imageIndex":61},{"imageOffset":612683,"symbol":"MPSLibrary::GetPipelineStateForMPSKey(MPSKey_data*, id<MTLCommandBuffer>)","symbolLocation":27,"imageIndex":61},{"imageOffset":834087,"imageIndex":62},{"imageOffset":692120,"imageIndex":62},{"imageOffset":708065,"imageIndex":62},{"imageOffset":16508265,"symbol":"GPU::BaseReductionOpHandler<mlir::mps::ReductionSumOp, (MPSNDArrayReductionOperation)4>::encodeNDArrayOp(GPU::EncodeDescriptor*, NSArray*)","symbolLocation":1033,"imageIndex":63},{"imageOffset":15725269,"symbol":"GPU::StitchedOpHandler::encodeOp(GPU::EncodeDescriptor*)","symbolLocation":917,"imageIndex":63},{"imageOffset":13153088,"symbol":"void GPURegionRuntime::runOp<GPU::StitchedOpHandler>(mlir::Operation*, GPU::EncodeDescriptor*)","symbolLocation":80,"imageIndex":63},{"imageOffset":13127083,"symbol":"GPURegionRuntime::encodeOp(mlir::Operation*, GPU::EncodeDescriptor*)","symbolLocation":6075,"imageIndex":63},{"imageOffset":13120766,"symbol":"GPURegionRuntime::encodeOpWithCommitAndContinue(mlir::Operation*, GPU::EncodeDescriptor*)","symbolLocation":46,"imageIndex":63},{"imageOffset":13116948,"symbol":"GPURegionRuntime::evaluateOps(GPU::EncodeDescriptor*, NSArray<MPSGraphTensorData*>*, NSArray<MPSGraphTensorData*>*)","symbolLocation":4964,"imageIndex":63},{"imageOffset":13106329,"symbol":"MPSRuntime::evaluateOps(mlir::func::FuncOp, RuntimeSpecialization*, NSArray<MPSGraphTensorData*>*, NSArray<MPSGraphTensorData*>*, MPSGraphExecutableExecutionDescriptor*, MPSCommandBuffer*, signed char, signed char, signed char, signed char*)","symbolLocation":953,"imageIndex":63},{"imageOffset":16983450,"symbol":"-[MPSGraphExecutable runInternalWithDevice:commandBuffer:feeds:results:executableExecutionDescriptor:mpsGraphOwnedCommandBuffer:]","symbolLocation":5226,"imageIndex":63},{"imageOffset":16970168,"symbol":"-[MPSGraphExecutable encodeWithMPSCommandBuffer:inputsArray:resultsArray:executionDescriptor:]","symbolLocation":216,"imageIndex":63},{"imageOffset":16969921,"symbol":"-[MPSGraphExecutable encodeToCommandBuffer:inputsArray:resultsArray:executionDescriptor:]","symbolLocation":17,"imageIndex":63},{"imageOffset":439051,"symbol":"E5RT::Ops::MpsGraphInferenceOperation::Impl::SubmitWorkToMpsGraph(bool)","symbolLocation":907,"imageIndex":64},{"imageOffset":440258,"symbol":"E5RT::Ops::MpsGraphInferenceOperation::Impl::ExecuteSync(E5RT::ExecuteOptions const&)","symbolLocation":818,"imageIndex":64},{"imageOffset":456528,"symbol":"E5RT::Ops::MpsGraphInferenceOperation::ExecuteSync(E5RT::ExecuteOptions const&)","symbolLocation":96,"imageIndex":64},{"imageOffset":655594,"symbol":"void E5RT::ExecutionStreamImpl::ExecuteStreamSyncImpl<(E5RT::TraceDetail::EventId)723730532>(E5RT::ExecuteOptions const&, std::__1::function<void ()>)","symbolLocation":922,"imageIndex":64},{"imageOffset":654555,"symbol":"E5RT::ExecutionStreamImpl::ExecuteStreamSync()","symbolLocation":59,"imageIndex":64},{"imageOffset":96298,"imageIndex":64},{"imageOffset":6069,"symbol":"E5RT::ExceptionSafeExecute(std::__1::function<e5rt_error_code_t ()>)","symbolLocation":21,"imageIndex":64},{"imageOffset":92200,"symbol":"e5rt_execution_stream_execute_sync","symbolLocation":56,"imageIndex":64},{"imageOffset":3055717,"symbol":"-[MLE5ExecutionStream _executeStream:error:]","symbolLocation":63,"imageIndex":65},{"imageOffset":3055578,"symbol":"-[MLE5ExecutionStream executeForInputFeatures:options:error:]","symbolLocation":101,"imageIndex":65},{"imageOffset":2670035,"symbol":"-[MLE5Engine _predictionFromFeatures:stream:options:error:]","symbolLocation":84,"imageIndex":65},{"imageOffset":2669675,"symbol":"-[MLE5Engine _predictionFromFeatures:options:error:]","symbolLocation":299,"imageIndex":65},{"imageOffset":2667342,"symbol":"-[MLE5Engine _predictionFromFeatures:usingState:options:error:]","symbolLocation":561,"imageIndex":65},{"imageOffset":2666645,"symbol":"-[MLE5Engine predictionFromFeatures:options:error:]","symbolLocation":107,"imageIndex":65},{"imageOffset":2503663,"symbol":"-[MLDelegateModel _predictionFromFeatures:usingState:options:error:]","symbolLocation":1041,"imageIndex":65},{"imageOffset":2502153,"symbol":"-[MLDelegateModel predictionFromFeatures:options:error:]","symbolLocation":137,"imageIndex":65},{"imageOffset":2290945,"symbol":"onnxruntime::coreml::Execution::Predict(std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, onnxruntime::coreml::OnnxTensorData, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, onnxruntime::coreml::OnnxTensorData>>> const&, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, onnxruntime::coreml::OnnxTensorInfo, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, onnxruntime::coreml::OnnxTensorInfo>>> const&, std::__1::function<void* (std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, int, gsl::span<long long const, 18446744073709551615ul>)> const&)","symbolLocation":3361,"imageIndex":52},{"imageOffset":2302257,"symbol":"onnxruntime::coreml::Model::Predict(std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, onnxruntime::coreml::OnnxTensorData, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, onnxruntime::coreml::OnnxTensorData>>> const&, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, onnxruntime::coreml::OnnxTensorInfo, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, onnxruntime::coreml::OnnxTensorInfo>>> const&, std::__1::function<void* (std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const&, int, gsl::span<long long const, 18446744073709551615ul>)> const&)","symbolLocation":17,"imageIndex":52},{"imageOffset":1918021,"symbol":"std::__1::__function::__func<onnxruntime::CoreMLExecutionProvider::Compile(std::__1::vector<onnxruntime::IExecutionProvider::FusedNodeAndGraph, std::__1::allocator<onnxruntime::IExecutionProvider::FusedNodeAndGraph>> const&, std::__1::vector<onnxruntime::NodeComputeInfo, std::__1::allocator<onnxruntime::NodeComputeInfo>>&)::$_3, std::__1::allocator<onnxruntime::CoreMLExecutionProvider::Compile(std::__1::vector<onnxruntime::IExecutionProvider::FusedNodeAndGraph, std::__1::allocator<onnxruntime::IExecutionProvider::FusedNodeAndGraph>> const&, std::__1::vector<onnxruntime::NodeComputeInfo, std::__1::allocator<onnxruntime::NodeComputeInfo>>&)::$_3>, onnxruntime::common::Status (void*, OrtApi const*, OrtKernelContext*)>::operator()(void*&&, OrtApi const*&&, OrtKernelContext*&&)","symbolLocation":3253,"imageIndex":52},{"imageOffset":12693131,"symbol":"onnxruntime::FunctionKernel::Compute(onnxruntime::OpKernelContext*) const","symbolLocation":107,"imageIndex":52},{"imageOffset":12913433,"symbol":"onnxruntime::ExecuteKernel(onnxruntime::StreamExecutionContext&, unsigned long, unsigned long, bool const&, onnxruntime::SessionScope&)","symbolLocation":393,"imageIndex":52},{"imageOffset":12618934,"symbol":"onnxruntime::LaunchKernelStep::Execute(onnxruntime::StreamExecutionContext&, unsigned long, onnxruntime::SessionScope&, bool const&, bool&)","symbolLocation":38,"imageIndex":52},{"imageOffset":13108989,"symbol":"onnxruntime::RunSince(unsigned long, onnxruntime::StreamExecutionContext&, onnxruntime::SessionScope&, bool const&, unsigned long)","symbolLocation":381,"imageIndex":52},{"imageOffset":12918044,"symbol":"onnxruntime::ExecuteThePlan(onnxruntime::SessionState const&, gsl::span<int const, 18446744073709551615ul>, gsl::span<OrtValue const, 18446744073709551615ul>, gsl::span<int const, 18446744073709551615ul>, std::__1::vector<OrtValue, std::__1::allocator<OrtValue>>&, std::__1::unordered_map<unsigned long, std::__1::function<onnxruntime::common::Status (onnxruntime::TensorShape const&, OrtDevice const&, OrtValue&, bool&)>, std::__1::hash<unsigned long>, std::__1::equal_to<unsigned long>, std::__1::allocator<std::__1::pair<unsigned long const, std::__1::function<onnxruntime::common::Status (onnxruntime::TensorShape const&, OrtDevice const&, OrtValue&, bool&)>>>> const&, onnxruntime::logging::Logger const&, onnxruntime::DeviceStreamCollection const*, bool const&, bool, bool)","symbolLocation":764,"imageIndex":52},{"imageOffset":13262563,"symbol":"onnxruntime::utils::ExecuteGraphImpl(onnxruntime::SessionState const&, onnxruntime::FeedsFetchesManager const&, gsl::span<OrtValue const, 18446744073709551615ul>, std::__1::vector<OrtValue, std::__1::allocator<OrtValue>>&, std::__1::unordered_map<unsigned long, std::__1::function<onnxruntime::common::Status (onnxruntime::TensorShape const&, OrtDevice const&, OrtValue&, bool&)>, std::__1::hash<unsigned long>, std::__1::equal_to<unsigned long>, std::__1::allocator<std::__1::pair<unsigned long const, std::__1::function<onnxruntime::common::Status (onnxruntime::TensorShape const&, OrtDevice const&, OrtValue&, bool&)>>>> const&, ExecutionMode, bool const&, onnxruntime::logging::Logger const&, onnxruntime::DeviceStreamCollection*, bool, onnxruntime::Stream*)","symbolLocation":1379,"imageIndex":52},{"imageOffset":13260772,"symbol":"onnxruntime::utils::ExecuteGraph(onnxruntime::SessionState const&, onnxruntime::FeedsFetchesManager&, gsl::span<OrtValue const, 18446744073709551615ul>, std::__1::vector<OrtValue, std::__1::allocator<OrtValue>>&, ExecutionMode, bool const&, onnxruntime::logging::Logger const&, onnxruntime::DeviceStreamCollectionHolder&, bool, onnxruntime::Stream*)","symbolLocation":916,"imageIndex":52},{"imageOffset":13268043,"symbol":"onnxruntime::utils::ExecuteGraph(onnxruntime::SessionState const&, onnxruntime::FeedsFetchesManager&, gsl::span<OrtValue const, 18446744073709551615ul>, std::__1::vector<OrtValue, std::__1::allocator<OrtValue>>&, ExecutionMode, OrtRunOptions const&, onnxruntime::DeviceStreamCollectionHolder&, onnxruntime::logging::Logger const&)","symbolLocation":43,"imageIndex":52},{"imageOffset":1283090,"symbol":"onnxruntime::InferenceSession::Run(OrtRunOptions const&, gsl::span<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, 18446744073709551615ul>, gsl::span<OrtValue const, 18446744073709551615ul>, gsl::span<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, 18446744073709551615ul>, std::__1::vector<OrtValue, std::__1::allocator<OrtValue>>*, std::__1::vector<OrtDevice, std::__1::allocator<OrtDevice>> const*)","symbolLocation":4066,"imageIndex":52},{"imageOffset":1295052,"symbol":"onnxruntime::InferenceSession::Run(OrtRunOptions const&, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, OrtValue, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, OrtValue>>> const&, gsl::span<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, 18446744073709551615ul>, std::__1::vector<OrtValue, std::__1::allocator<OrtValue>>*)","symbolLocation":588,"imageIndex":52},{"imageOffset":1294387,"symbol":"onnxruntime::InferenceSession::Run(std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, OrtValue, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, OrtValue>>> const&, gsl::span<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, 18446744073709551615ul>, std::__1::vector<OrtValue, std::__1::allocator<OrtValue>>*)","symbolLocation":131,"imageIndex":52},{"imageOffset":870027,"symbol":"std::__1::enable_if<!std::is_void<pybind11::list>::value, pybind11::list>::type pybind11::detail::argument_loader<onnxruntime::python::PyInferenceSession*, std::__1::vector<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::allocator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>> const&, std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, pybind11::object const, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, pybind11::object const>>> const&, OrtRunOptions*>::call<pybind11::list, pybind11::detail::void_type, onnxruntime::python::addObjectMethods(pybind11::module_&, std::__1::function<void (onnxruntime::InferenceSession*, std::__1::vector<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::allocator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>> const&, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>>>>>> const&)>)::$_88&>(onnxruntime::python::addObjectMethods(pybind11::module_&, std::__1::function<void (onnxruntime::InferenceSession*, std::__1::vector<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::allocator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>> const&, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>>>>>> const&)>)::$_88&) &&","symbolLocation":1595,"imageIndex":52},{"imageOffset":868080,"symbol":"void pybind11::cpp_function::initialize<onnxruntime::python::addObjectMethods(pybind11::module_&, std::__1::function<void (onnxruntime::InferenceSession*, std::__1::vector<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::allocator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>> const&, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>>>>>> const&)>)::$_88, pybind11::list, onnxruntime::python::PyInferenceSession*, std::__1::vector<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::allocator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>> const&, std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, pybind11::object const, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, pybind11::object const>>> const&, OrtRunOptions*, pybind11::name, pybind11::is_method, pybind11::sibling>(onnxruntime::python::addObjectMethods(pybind11::module_&, std::__1::function<void (onnxruntime::InferenceSession*, std::__1::vector<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::allocator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>> const&, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::unordered_map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::hash<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::equal_to<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>>>>>> const&)>)::$_88&&, pybind11::list (*)(onnxruntime::python::PyInferenceSession*, std::__1::vector<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, std::__1::allocator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>> const&, std::__1::map<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>, pybind11::object const, std::__1::less<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>>>, std::__1::allocator<std::__1::pair<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char>> const, pybind11::object const>>> const&, OrtRunOptions*), pybind11::name const&, pybind11::is_method const&, pybind11::sibling const&)::'lambda'(pybind11::detail::function_call&)::__invoke(pybind11::detail::function_call&)","symbolLocation":192,"imageIndex":52},{"imageOffset":46523,"symbol":"pybind11::cpp_function::dispatcher(_object*, _object*, _object*)","symbolLocation":5499,"imageIndex":52},{"imageOffset":2653042,"symbol":"cfunction_call","symbolLocation":66,"imageIndex":2},{"imageOffset":717977,"symbol":"_PyEval_EvalFrameDefault","symbolLocation":214377,"imageIndex":2},{"imageOffset":284769,"symbol":"_PyVectorcall_Call.llvm.7698229294688237923","symbolLocation":145,"imageIndex":2},{"imageOffset":626137,"symbol":"__pyx_pw_11vapoursynth_8FuncData_3__call__(_object*, _object*, _object*)","symbolLocation":153,"imageIndex":3},{"imageOffset":13634,"symbol":"PyObject_Call","symbolLocation":130,"imageIndex":2},{"imageOffset":47584,"symbol":"__pyx_f_11vapoursynth_publicFunction(VSMap const*, VSMap*, void*, VSCore*, VSAPI const*)","symbolLocation":640,"imageIndex":3},{"imageOffset":52259,"symbol":"callFunction(VSFunction*, VSMap const*, VSMap*)","symbolLocation":163,"imageIndex":4},{"imageOffset":958082,"symbol":"modifyFrameGetFrame(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*)","symbolLocation":258,"imageIndex":6},{"imageOffset":201933,"symbol":"VSThreadPool::runTasks(bool&)","symbolLocation":2573,"imageIndex":4},{"imageOffset":220596,"symbol":"void* std::__1::__thread_proxy[abi:ne190102]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, void (*)(VSThreadPool*, bool&), VSThreadPool*, std::__1::reference_wrapper<bool>>>(void*)","symbolLocation":52,"imageIndex":4},{"imageOffset":24069,"symbol":"_pthread_start","symbolLocation":115,"imageIndex":55},{"imageOffset":6231,"symbol":"thread_start","symbolLocation":15,"imageIndex":55}]},{"id":89689,"frames":[{"imageOffset":14070,"symbol":"__psynch_cvwait","symbolLocation":10,"imageIndex":54},{"imageOffset":25262,"symbol":"_pthread_cond_wait","symbolLocation":988,"imageIndex":55},{"imageOffset":112784,"symbol":"std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&)","symbolLocation":18,"imageIndex":56},{"imageOffset":207795,"symbol":"VSThreadPool::runTasks(bool&)","symbolLocation":8435,"imageIndex":4},{"imageOffset":220596,"symbol":"void* std::__1::__thread_proxy[abi:ne190102]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, void (*)(VSThreadPool*, bool&), VSThreadPool*, std::__1::reference_wrapper<bool>>>(void*)","symbolLocation":52,"imageIndex":4},{"imageOffset":24069,"symbol":"_pthread_start","symbolLocation":115,"imageIndex":55},{"imageOffset":6231,"symbol":"thread_start","symbolLocation":15,"imageIndex":55}],"threadState":{"r13":{"value":28591597296384},"rax":{"value":4},"rflags":{"value":583},"cpu":{"value":0},"r14":{"value":140461657574576},"rsi":{"value":28591597296384},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":6656},"r10":{"value":0},"r9":{"value":160},"r15":{"value":6656},"rbx":{"value":123145517752320},"trap":{"value":133},"err":{"value":33554737},"r11":{"value":582},"rip":{"value":140703431022326},"rbp":{"value":123145517750976},"rsp":{"value":123145517750824},"r12":{"value":123145517750848},"rcx":{"value":123145517750824},"flavor":"x86_THREAD_STATE","rdi":{"value":140461657574576}}},{"id":89690,"frames":[{"imageOffset":14070,"symbol":"__psynch_cvwait","symbolLocation":10,"imageIndex":54},{"imageOffset":25262,"symbol":"_pthread_cond_wait","symbolLocation":988,"imageIndex":55},{"imageOffset":112784,"symbol":"std::__1::condition_variable::wait(std::__1::unique_lock<std::__1::mutex>&)","symbolLocation":18,"imageIndex":56},{"imageOffset":207795,"symbol":"VSThreadPool::runTasks(bool&)","symbolLocation":8435,"imageIndex":4},{"imageOffset":220596,"symbol":"void* std::__1::__thread_proxy[abi:ne190102]<std::__1::tuple<std::__1::unique_ptr<std::__1::__thread_struct, std::__1::default_delete<std::__1::__thread_struct>>, void (*)(VSThreadPool*, bool&), VSThreadPool*, std::__1::reference_wrapper<bool>>>(void*)","symbolLocation":52,"imageIndex":4},{"imageOffset":24069,"symbol":"_pthread_start","symbolLocation":115,"imageIndex":55},{"imageOffset":6231,"symbol":"thread_start","symbolLocation":15,"imageIndex":55}],"threadState":{"r13":{"value":28587302329600},"rax":{"value":260},"rflags":{"value":583},"cpu":{"value":0},"r14":{"value":140461657574576},"rsi":{"value":28587302329600},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":6656},"r10":{"value":0},"r9":{"value":160},"r15":{"value":6656},"rbx":{"value":123145518825472},"trap":{"value":133},"err":{"value":33554737},"r11":{"value":582},"rip":{"value":140703431022326},"rbp":{"value":123145518824128},"rsp":{"value":123145518823976},"r12":{"value":123145518824000},"rcx":{"value":123145518823976},"flavor":"x86_THREAD_STATE","rdi":{"value":140461657574576}}},{"id":89692,"frames":[{"imageOffset":6196,"symbol":"start_wqthread","symbolLocation":0,"imageIndex":55}],"threadState":{"r13":{"value":0},"rax":{"value":33554800},"rflags":{"value":512},"cpu":{"value":0},"r14":{"value":1},"rsi":{"value":16899},"r8":{"value":409604},"cr2":{"value":0},"rdx":{"value":123145518837760},"r10":{"value":0},"r9":{"value":18446744073709551615},"r15":{"value":123145519360888},"rbx":{"value":123145519362048},"trap":{"value":133},"err":{"value":33554800},"r11":{"value":582},"rip":{"value":140703431264308},"rbp":{"value":0},"rsp":{"value":123145519362048},"r12":{"value":5193732},"rcx":{"value":0},"flavor":"x86_THREAD_STATE","rdi":{"value":123145519362048}}},{"id":89693,"threadState":{"r13":{"value":16777218},"rax":{"value":18446744073709551612},"rflags":{"value":582},"cpu":{"value":0},"r14":{"value":19203},"rsi":{"value":105553151921168},"r8":{"value":0},"cr2":{"value":0},"rdx":{"value":0},"r10":{"value":0},"r9":{"value":128},"r15":{"value":0},"rbx":{"value":0},"trap":{"value":133},"err":{"value":33554976},"r11":{"value":582},"rip":{"value":140703431056146},"rbp":{"value":123145519896272},"rsp":{"value":123145519896200},"r12":{"value":105553151921168},"rcx":{"value":123145519896200},"flavor":"x86_THREAD_STATE","rdi":{"value":16777218}},"queue":"com.apple.MPS.MPSLibrary.preheat","frames":[{"imageOffset":47890,"symbol":"__ulock_wait2","symbolLocation":10,"imageIndex":54},{"imageOffset":6083,"symbol":"_os_unfair_lock_lock_slow","symbolLocation":161,"imageIndex":66},{"imageOffset":600484,"symbol":"MPSLibrary::MPSKey_Compile(MPSKey_data*)","symbolLocation":52,"imageIndex":61},{"imageOffset":5817,"symbol":"_dispatch_call_block_and_release","symbolLocation":12,"imageIndex":67},{"imageOffset":96764,"symbol":"_dispatch_client_callout","symbolLocation":6,"imageIndex":67},{"imageOffset":33631,"symbol":"_dispatch_lane_serial_drain","symbolLocation":779,"imageIndex":67},{"imageOffset":36269,"symbol":"_dispatch_lane_invoke","symbolLocation":382,"imageIndex":67},{"imageOffset":72598,"symbol":"_dispatch_root_queue_drain_deferred_wlh","symbolLocation":275,"imageIndex":67},{"imageOffset":70883,"symbol":"_dispatch_workloop_worker_thread","symbolLocation":688,"imageIndex":67},{"imageOffset":10337,"symbol":"_pthread_wqthread","symbolLocation":298,"imageIndex":55},{"imageOffset":6211,"symbol":"start_wqthread","symbolLocation":15,"imageIndex":55}]}],
+  "usedImages" : [
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4337311744,
+    "size" : 98304,
+    "uuid" : "5f7dbf2b-dd3b-35c9-a737-0bae5f2a93d3",
+    "path" : "\/Users\/USER\/*\/vspipe-bin",
+    "name" : "vspipe-bin"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4337520640,
+    "size" : 24576,
+    "uuid" : "d971f6fa-b5df-34e8-9de6-4e2cd302b4f8",
+    "path" : "\/Users\/USER\/*\/libvsscript.dylib",
+    "name" : "libvsscript.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4357537792,
+    "size" : 14589952,
+    "uuid" : "4c4c440c-5555-3144-a1b1-9d963ebbab58",
+    "path" : "\/Users\/USER\/*\/libpython3.12.dylib",
+    "name" : "libpython3.12.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4342784000,
+    "size" : 700416,
+    "uuid" : "944f3bce-5699-3db0-b751-56c021e11fb9",
+    "path" : "\/Users\/USER\/*\/vapoursynth.abi3.so",
+    "name" : "vapoursynth.abi3.so"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4342247424,
+    "size" : 253952,
+    "uuid" : "48ed302f-53ec-3977-87cc-eed2341b8ccd",
+    "path" : "\/Users\/USER\/*\/libvapoursynth.4.dylib",
+    "name" : "libvapoursynth.4.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4344434688,
+    "size" : 548864,
+    "uuid" : "9d343e96-fea7-30bc-85de-18b21b1dc6e3",
+    "path" : "\/Users\/USER\/*\/libzimg.dylib",
+    "name" : "libzimg.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4349972480,
+    "size" : 2105344,
+    "uuid" : "aa43c217-931c-33f5-af9d-ef29fae796b8",
+    "path" : "\/Users\/USER\/*\/libvapoursynthfilters.dylib",
+    "name" : "libvapoursynthfilters.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4341985280,
+    "size" : 53248,
+    "uuid" : "e5e53b9f-1762-32fc-8510-65e540fc9504",
+    "path" : "\/Users\/USER\/*\/libretinex.dylib",
+    "name" : "libretinex.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4342079488,
+    "size" : 57344,
+    "uuid" : "255ebc05-ecb7-3a5a-a7cd-b5f090670837",
+    "path" : "\/Users\/USER\/*\/libdescale.dylib",
+    "name" : "libdescale.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4343926784,
+    "size" : 180224,
+    "uuid" : "b02c6923-77c1-355c-af87-91d6229d06f7",
+    "path" : "\/Users\/USER\/*\/libtcanny.dylib",
+    "name" : "libtcanny.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4383481856,
+    "size" : 5922968,
+    "uuid" : "bcd5de2f-fbbc-3ebb-b57d-a5683d8a9b07",
+    "path" : "\/Users\/USER\/*\/libvszip.dylib",
+    "name" : "libvszip.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4341932032,
+    "size" : 12288,
+    "uuid" : "84a99117-c4d0-3f24-a275-50aa8140d754",
+    "path" : "\/Users\/USER\/*\/libfillborders.dylib",
+    "name" : "libfillborders.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4342611968,
+    "size" : 24576,
+    "uuid" : "50c66c7e-7462-3953-aeb1-091629b2290d",
+    "path" : "\/Users\/USER\/*\/libttempsmooth.dylib",
+    "name" : "libttempsmooth.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4343697408,
+    "size" : 45056,
+    "uuid" : "50ffbf95-5733-37f9-b648-c8087df29822",
+    "path" : "\/Users\/USER\/*\/libvivtc.dylib",
+    "name" : "libvivtc.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4347281408,
+    "size" : 200704,
+    "uuid" : "5bd57db3-1ac8-346d-9a7e-71c2911d9a9a",
+    "path" : "\/Users\/USER\/*\/libfft3dfilter.dylib",
+    "name" : "libfft3dfilter.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4348530688,
+    "size" : 897024,
+    "uuid" : "233cf32a-e3a5-3ee1-828a-331cfe27f296",
+    "path" : "\/Users\/USER\/*\/libfftw3f.3.dylib",
+    "name" : "libfftw3f.3.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4342677504,
+    "size" : 16384,
+    "uuid" : "11cb3ac8-9cb9-3af1-8c81-4179126365d2",
+    "path" : "\/Users\/USER\/*\/libfftw3f_threads.3.dylib",
+    "name" : "libfftw3f_threads.3.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4377432064,
+    "size" : 3715072,
+    "uuid" : "c52639c6-22e5-3394-ac31-2ddfe1444568",
+    "path" : "\/Users\/USER\/*\/libmvtools.dylib",
+    "name" : "libmvtools.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4347518976,
+    "size" : 151552,
+    "uuid" : "94317916-c344-35a2-8969-a246dc3e675e",
+    "path" : "\/Users\/USER\/*\/libeedi3m.dylib",
+    "name" : "libeedi3m.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4347707392,
+    "size" : 126976,
+    "uuid" : "aea09249-1d91-38fc-90e7-6ce31dccbb88",
+    "path" : "\/Users\/USER\/*\/libznedi3.dylib",
+    "name" : "libznedi3.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4354695168,
+    "size" : 1867776,
+    "uuid" : "0753e844-1af6-3171-bf0f-2704c1514d6e",
+    "path" : "\/Users\/USER\/*\/libneo-f3kdb.dylib",
+    "name" : "libneo-f3kdb.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4344156160,
+    "size" : 65536,
+    "uuid" : "dfbef04d-014c-3f3b-99dc-4cf35afc531d",
+    "path" : "\/Users\/USER\/*\/libbwdif.dylib",
+    "name" : "libbwdif.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4352675840,
+    "size" : 491520,
+    "uuid" : "636f2264-648a-3fd2-aa1d-3ca0f44174ef",
+    "path" : "\/Users\/USER\/*\/libremovegrain.dylib",
+    "name" : "libremovegrain.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4344262656,
+    "size" : 65536,
+    "uuid" : "96fee3f2-5ee5-36c3-b69e-587c21f555c8",
+    "path" : "\/Users\/USER\/*\/libawarpsharp2.dylib",
+    "name" : "libawarpsharp2.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4348203008,
+    "size" : 237568,
+    "uuid" : "ffe6c193-4398-3f4b-8770-dc0fcbbbc298",
+    "path" : "\/Users\/USER\/*\/libbm3d.dylib",
+    "name" : "libbm3d.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4343783424,
+    "size" : 32768,
+    "uuid" : "ae21ad0a-2731-34a4-a698-b7e06f1c399e",
+    "path" : "\/Users\/USER\/*\/libaddgrain.dylib",
+    "name" : "libaddgrain.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4349554688,
+    "size" : 98304,
+    "uuid" : "3b489926-855f-362e-939d-0c5916b87416",
+    "path" : "\/Users\/USER\/*\/libremovedirt.dylib",
+    "name" : "libremovedirt.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4389797888,
+    "size" : 1687552,
+    "uuid" : "4830a686-d709-359d-a9c6-b1fb9dd453d9",
+    "path" : "\/Users\/USER\/*\/libdctfilter.dylib",
+    "name" : "libdctfilter.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4349706240,
+    "size" : 147456,
+    "uuid" : "61d43e65-0115-3445-b51a-8656715f2c5c",
+    "path" : "\/Users\/USER\/*\/libctmf.dylib",
+    "name" : "libctmf.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4347908096,
+    "size" : 32768,
+    "uuid" : "1241ac33-910a-33b8-8cde-ec69a030b535",
+    "path" : "\/Users\/USER\/*\/libbifrost.dylib",
+    "name" : "libbifrost.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4343865344,
+    "size" : 16384,
+    "uuid" : "41b6fdfc-2ea5-396d-8b6b-72a971057914",
+    "path" : "\/Users\/USER\/*\/libdeblock.dylib",
+    "name" : "libdeblock.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4348076032,
+    "size" : 49152,
+    "uuid" : "5227e604-9baa-31e9-89a1-c98483cf5b4a",
+    "path" : "\/Users\/USER\/*\/liblghost.dylib",
+    "name" : "liblghost.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4347981824,
+    "size" : 32768,
+    "uuid" : "c6a6e1cb-b404-312e-b35b-529dd77d0f0a",
+    "path" : "\/Users\/USER\/*\/libcas.dylib",
+    "name" : "libcas.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4353323008,
+    "size" : 57344,
+    "uuid" : "414d1258-310a-3b8a-9ba7-3a3d9328de15",
+    "path" : "\/Users\/USER\/*\/libsangnom.dylib",
+    "name" : "libsangnom.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4391632896,
+    "size" : 1835008,
+    "uuid" : "7c105fa1-62b6-3bbb-acac-42baeae1b8b4",
+    "path" : "\/Users\/USER\/*\/libdfttest.dylib",
+    "name" : "libdfttest.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4342173696,
+    "size" : 8192,
+    "uuid" : "2a0f3ed9-9f93-3ac7-8ee2-3add7c008595",
+    "path" : "\/Users\/USER\/*\/libfluxsmooth.dylib",
+    "name" : "libfluxsmooth.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4353662976,
+    "size" : 167936,
+    "uuid" : "334893fc-860b-375f-bb29-412c9ca4430e",
+    "path" : "\/Users\/USER\/*\/libnnedi3cl.dylib",
+    "name" : "libnnedi3cl.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4353904640,
+    "size" : 94208,
+    "uuid" : "34c2cb2c-a841-3c4d-af5b-7fa4f7a74d2a",
+    "path" : "\/Users\/USER\/*\/libboost_filesystem.dylib",
+    "name" : "libboost_filesystem.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4353421312,
+    "size" : 8192,
+    "uuid" : "9e1f8e51-c851-3d93-b0d0-783f3b727ad1",
+    "path" : "\/Users\/USER\/*\/libboost_atomic.dylib",
+    "name" : "libboost_atomic.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4354088960,
+    "size" : 106496,
+    "uuid" : "a1bc5517-087c-3b12-bec3-7b149e445b3f",
+    "path" : "\/Users\/USER\/*\/libknlmeanscl.dylib",
+    "name" : "libknlmeanscl.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4353232896,
+    "size" : 36864,
+    "uuid" : "38b61d83-a433-3ac4-b88a-73c4353b1673",
+    "path" : "\/Users\/USER\/*\/libdescratch.dylib",
+    "name" : "libdescratch.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4353576960,
+    "size" : 32768,
+    "uuid" : "2128669a-46ab-3bb2-83d2-ce8b44720d70",
+    "path" : "\/Users\/USER\/*\/libtmedian.dylib",
+    "name" : "libtmedian.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4342734848,
+    "size" : 8192,
+    "uuid" : "3912abcd-779b-30ed-8c02-c10d51a7d21d",
+    "path" : "\/Users\/USER\/*\/libdedot.dylib",
+    "name" : "libdedot.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4399112192,
+    "size" : 3960832,
+    "uuid" : "140aa1dc-89c3-36f5-adbb-a5929e40dc60",
+    "path" : "\/Users\/USER\/*\/libfmtconv.dylib",
+    "name" : "libfmtconv.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4349902848,
+    "size" : 16384,
+    "uuid" : "791320ac-8f98-3edc-83b8-fa05620aaafd",
+    "path" : "\/Users\/USER\/*\/libmiscfilters.dylib",
+    "name" : "libmiscfilters.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4414377984,
+    "size" : 9504744,
+    "uuid" : "bcf1ac41-11e1-3a2b-8316-4f4193fe0fed",
+    "path" : "\/Users\/USER\/*\/libzsmooth.dylib",
+    "name" : "libzsmooth.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4424146944,
+    "size" : 6176768,
+    "uuid" : "a661158a-1f88-3036-980c-720c7a2555a7",
+    "path" : "\/Users\/USER\/*\/_multiarray_umath.cpython-312-darwin.so",
+    "name" : "_multiarray_umath.cpython-312-darwin.so"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4456534016,
+    "size" : 23613440,
+    "uuid" : "b63a3802-b255-3112-bd40-8b127609769e",
+    "path" : "\/Users\/USER\/*\/libscipy_openblas64_.dylib",
+    "name" : "libscipy_openblas64_.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4431196160,
+    "size" : 6565888,
+    "uuid" : "ae37c55e-f850-3cf7-86e4-bbd86809bc1d",
+    "path" : "\/Users\/USER\/*\/libgfortran.5.dylib",
+    "name" : "libgfortran.5.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4356722688,
+    "size" : 319488,
+    "uuid" : "a1783d23-d187-3d92-ade7-2a80619e7485",
+    "path" : "\/Users\/USER\/*\/libquadmath.0.dylib",
+    "name" : "libquadmath.0.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4354375680,
+    "size" : 69632,
+    "uuid" : "6d59656e-a224-3642-80b9-ca07ca06e7c1",
+    "path" : "\/Users\/USER\/*\/libgcc_s.1.1.dylib",
+    "name" : "libgcc_s.1.1.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4357079040,
+    "size" : 147456,
+    "uuid" : "a267a8fd-329b-3378-b7c7-99333347a546",
+    "path" : "\/Users\/USER\/*\/_umath_linalg.cpython-312-darwin.so",
+    "name" : "_umath_linalg.cpython-312-darwin.so"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4686675968,
+    "size" : 23097344,
+    "uuid" : "e83d8234-8c59-3a20-a71e-2cf600dd3907",
+    "path" : "\/Users\/USER\/*\/onnxruntime_pybind11_state.so",
+    "name" : "onnxruntime_pybind11_state.so"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 4398309376,
+    "CFBundleShortVersionString" : "40.7.1",
+    "CFBundleIdentifier" : "com.apple.driver.AppleParavirtGPUMetal",
+    "size" : 241664,
+    "uuid" : "e87724e7-2657-35ec-8e62-f0b154c0b087",
+    "path" : "\/System\/Library\/Extensions\/AppleParavirtGPUMetal.bundle\/Contents\/MacOS\/AppleParavirtGPUMetal",
+    "name" : "AppleParavirtGPUMetal",
+    "CFBundleVersion" : "40.7.1"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703431008256,
+    "size" : 248608,
+    "uuid" : "7e438d0a-ac23-3ada-bae3-99fb51f2d898",
+    "path" : "\/usr\/lib\/system\/libsystem_kernel.dylib",
+    "name" : "libsystem_kernel.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703431258112,
+    "size" : 49112,
+    "uuid" : "fa0539b0-b910-38ec-9406-18f7fb96ab75",
+    "path" : "\/usr\/lib\/system\/libsystem_pthread.dylib",
+    "name" : "libsystem_pthread.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703430393856,
+    "size" : 520192,
+    "uuid" : "1ba8415d-93c3-301f-80aa-c2d396c32dd7",
+    "path" : "\/usr\/lib\/libc++.1.dylib",
+    "name" : "libc++.1.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703427432448,
+    "size" : 632520,
+    "uuid" : "ba070062-52cf-31dd-9a27-d3ab5e4401cd",
+    "path" : "\/usr\/lib\/dyld",
+    "name" : "dyld"
+  },
+  {
+    "size" : 0,
+    "source" : "A",
+    "base" : 0,
+    "uuid" : "00000000-0000-0000-0000-000000000000"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703429832704,
+    "size" : 559624,
+    "uuid" : "065490dc-bbdb-3311-898d-77232fb7409f",
+    "path" : "\/usr\/lib\/system\/libsystem_c.dylib",
+    "name" : "libsystem_c.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703620481024,
+    "CFBundleShortVersionString" : "368.53",
+    "CFBundleIdentifier" : "com.apple.Metal",
+    "size" : 2632765,
+    "uuid" : "ad660f07-b96d-3c9a-80ce-097a5d91a474",
+    "path" : "\/System\/Library\/Frameworks\/Metal.framework\/Versions\/A\/Metal",
+    "name" : "Metal",
+    "CFBundleVersion" : "368.53"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703638986752,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.MetalPerformanceShaders.MPSCore",
+    "size" : 762835,
+    "uuid" : "10a466a0-40c5-3821-a5d0-f538a685301b",
+    "path" : "\/System\/Library\/Frameworks\/MetalPerformanceShaders.framework\/Versions\/A\/Frameworks\/MPSCore.framework\/Versions\/A\/MPSCore",
+    "name" : "MPSCore",
+    "CFBundleVersion" : "1"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703664386048,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.MetalPerformanceShaders.MPSNDArray",
+    "size" : 1631162,
+    "uuid" : "9f26f8f9-d939-3b47-99bf-2a0cce51ab6b",
+    "path" : "\/System\/Library\/Frameworks\/MetalPerformanceShaders.framework\/Versions\/A\/Frameworks\/MPSNDArray.framework\/Versions\/A\/MPSNDArray",
+    "name" : "MPSNDArray",
+    "CFBundleVersion" : "1"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140716487237632,
+    "CFBundleShortVersionString" : "5.6.2",
+    "CFBundleIdentifier" : "com.apple.MetalPerformanceShadersGraph",
+    "size" : 19156687,
+    "uuid" : "b70391b1-0310-382d-b1ab-839e1296871d",
+    "path" : "\/System\/Library\/Frameworks\/MetalPerformanceShadersGraph.framework\/Versions\/A\/MetalPerformanceShadersGraph",
+    "name" : "MetalPerformanceShadersGraph",
+    "CFBundleVersion" : "5.6.2"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703882526720,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.vision.EspressoFramework",
+    "size" : 16666640,
+    "uuid" : "e6f9150f-99ad-3ada-a649-adb0a5ff9d40",
+    "path" : "\/System\/Library\/PrivateFrameworks\/Espresso.framework\/Versions\/A\/Espresso",
+    "name" : "Espresso",
+    "CFBundleVersion" : "3406.3.1"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703599431680,
+    "CFBundleShortVersionString" : "1.0",
+    "CFBundleIdentifier" : "com.apple.CoreML",
+    "size" : 6132767,
+    "uuid" : "f7b1104b-e4a5-3654-aa11-8c6d99ad142c",
+    "path" : "\/System\/Library\/Frameworks\/CoreML.framework\/Versions\/A\/CoreML",
+    "name" : "CoreML",
+    "CFBundleVersion" : "3405.2.1"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703431499776,
+    "size" : 39232,
+    "uuid" : "78c9dcc0-2fba-3be4-a1dd-da618362ae68",
+    "path" : "\/usr\/lib\/system\/libsystem_platform.dylib",
+    "name" : "libsystem_platform.dylib"
+  },
+  {
+    "source" : "P",
+    "arch" : "x86_64",
+    "base" : 140703429525504,
+    "size" : 291642,
+    "uuid" : "6ca6112a-70c8-39a2-8cfa-da2139709d3c",
+    "path" : "\/usr\/lib\/system\/libdispatch.dylib",
+    "name" : "libdispatch.dylib"
+  }
+],
+  "sharedCache" : {
+  "base" : 140703398957056,
+  "size" : 30064771072,
+  "uuid" : "fdd97301-9818-3865-a1d2-fec1d3914796"
+},
+  "vmSummary" : "ReadOnly portion of Libraries: Total=551.7M resident=0K(0%) swapped_out_or_unallocated=551.7M(100%)\nWritable regions: Total=1.2G written=0K(0%) resident=0K(0%) swapped_out=0K(0%) unallocated=1.2G(100%)\n\n                                VIRTUAL   REGION \nREGION TYPE                        SIZE    COUNT (non-coalesced) \n===========                     =======  ======= \nActivity Tracing                   256K        1 \nKernel Alloc Once                    8K        1 \nMALLOC                             1.0G      392 \nMALLOC guard page                   16K        4 \nSTACK GUARD                       56.0M       12 \nStack                             13.6M       12 \nVM_ALLOCATE                       43.1M       19 \nVM_ALLOCATE (reserved)           128.0M        1         reserved VM address space (unallocated)\n__DATA                            10.2M      416 \n__DATA_CONST                      41.9M      416 \n__DATA_DIRTY                       677K      115 \n__FONT_DATA                        2352        1 \n__LINKEDIT                       183.5M       55 \n__OBJC_RO                         61.3M        1 \n__OBJC_RW                         2396K        2 \n__TEXT                           368.2M      401 \n__TEXT (graphics)                 98.5M       50 \n__TPRO_CONST                         16        2 \nmapped file                       34.3M       19 \nshared memory                      660K       13 \n===========                     =======  ======= \nTOTAL                              2.0G     1933 \nTOTAL, minus reserved VM space     1.9G     1933 \n",
+  "legacyInfo" : {
+  "threadTriggered" : {
+
+  }
+},
+  "logWritingSignature" : "395e163f27fb5a9e283652e5e5fef0ea9fc25a9c",
+  "trialInfo" : {
+  "rollouts" : [
+    {
+      "rolloutId" : "67648e5334a82511f4acf879",
+      "factorPackIds" : {
+
+      },
+      "deploymentId" : 240000008
+    },
+    {
+      "rolloutId" : "65a8173205d942272410674b",
+      "factorPackIds" : {
+        "SIRI_HOME_AUTOMATION_SERVER_FLOW_DEPRECATION" : "65d39fa4cb0e2417d11ce5f6"
+      },
+      "deploymentId" : 240000001
+    }
+  ],
+  "experiments" : [
+
+  ]
+}
+}

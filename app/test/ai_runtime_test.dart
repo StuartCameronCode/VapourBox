@@ -96,6 +96,20 @@ void main() {
       expect(AiRuntimeStatus.providerLabel('DmlExecutionProvider'), 'DirectML');
     });
 
+    test('reads an Intel Mac\'s probe: the CPU, and why (task #94)', () {
+      final s = AiRuntimeStatus.fromJson({
+        'available': true,
+        'version': '1.23.2',
+        'providers': ['CoreMLExecutionProvider', 'CPUExecutionProvider'],
+        'provider': 'CPUExecutionProvider',
+        'cpuReason': 'Core ML is not used on Intel Macs',
+      });
+      expect(s.onGpu, isFalse);
+      expect(s.cpuReason, contains('Intel Macs'));
+      expect(AiRuntimeStatus.fromJson({'available': true, 'provider': 'CoreMLExecutionProvider'}).cpuReason,
+          isNull);
+    });
+
     test('a failure carries the worker\'s message; an unreadable one asks for a restart', () {
       final s = AiRuntimeStatus.fromJson(
           {'available': false, 'reason': 'notInstalled', 'message': 'Install it in Settings → Add-ons.'});
