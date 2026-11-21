@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Per-thread buffer maps</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  ul.notes { font-size: 14px; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>DFTTest, LGhost, CTMF, TCanny and EEDI3m: unlocked per-thread buffer maps</h1>
+<p class="meta">2026-11-22 · task #98 (found by task #96) · measured on an Apple M1 (macOS arm64 deps 1.18.0-rc2 as
+published, and the macOS x64 deps 1.10.0 bundle under Rosetta) · every number below is in <code>data/</code>,
+produced by <code>scripts/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: fixed in the deps (1.18.0-rc3).</strong> Five bundled plugins keep scratch buffers per worker
+thread in <code>std::unordered_map&lt;std::thread::id, …&gt;</code> members of the filter instance and fill or check
+them with no lock: <strong>DFTTest, LGhost, CTMF and TCanny</strong> in every published build, and
+<strong>EEDI3m r10</strong> (macOS arm64 and Linux only) in one check. Two threads starting an instance together lose
+an insert; the kernel's <code>.at()</code> throws <code>std::out_of_range</code> inside <code>noexcept</code> code and
+vspipe aborts (<code>unordered_map::at: key not found</code>; exit <code>0xC0000409</code> on Windows). This is the
+class of bug task #96 fixed in DCTFilter. DFTTest's is the nightly <em>knlmeanscl denoiser never crashes</em> flake.
+Each plugin is now built from a pinned commit on every platform with a patch of ours that locks the map. Nothing else
+changes: output is the same, sample for sample, on macOS arm64 and x64. Windows can only be checked in CI.</p>
+</div>
+
+<h2>1. The fault</h2>
+<p>Every one of them does this, with DFTTest's four maps, LGhost's one, CTMF's two and TCanny's four:</p>
+<pre>// getFrame (arAllFramesReady), no lock:
+if (!d-&gt;buffer.count(threadId))
+    d-&gt;buffer.emplace(threadId, …);           // inserting can rehash the table
+…
+// the kernel, declared noexcept, in the C, SSE2, AVX2 and AVX-512 files:
+auto buffer = d-&gt;buffer.at(threadId).get();   // no lock</pre>
+<p>Each filter is <code>fmParallel</code>, so VapourSynth runs frames of one instance on several threads at once. Two
+threads that start their first frame of an instance together insert into the same table concurrently. One insert is
+lost, or a lookup runs during the other thread's rehash. The lookup then fails, and <code>.at()</code> throws inside a
+<code>noexcept</code> function, which is <code>std::terminate</code>. EEDI3m r8 held one mutex across the check, insert
+and lookup. r9.1's <code>61e14ab</code> ("Use shared_mutex for unordered_map") locks the insert and the lookup but runs
+the first <code>count()</code> outside the lock.</p>
+<p>Upstream DFTTest issue #12 (2021) reported exactly this abort and was closed as not reproducible. No release of any
+of the five fixes it.</p>
+
+<h2>2. The audit</h2>
+<p>Every plugin dylib in the macOS arm64 bundle was scanned with <code>nm -C</code> for
+<code>unordered_map&lt;std::__1::__thread_id</code>. That found BM3D, CTMF, DFTTest, EEDI3m, LGhost and TCanny. Every
+source repository the four platforms take was searched at the shipped tag and at HEAD for <code>thread::id</code>,
+<code>get_id</code> and <code>thread_local</code>.</p>
+<table>
+<tr><th>Plugin</th><th>Shipped before (Windows / macOS x64 / macOS arm64 / Linux)</th><th>Map access</th><th>Verdict</th></tr>
+<tr><td>DFTTest</td><td>r7 DLL / Stefan-Olt git-89034df / yuygfgg prebuilt (fork e6f580a) / unpinned HEAD bc5e018</td><td>4 maps, no lock</td><td class="bad">race, everywhere</td></tr>
+<tr><td>LGhost</td><td>r1 DLL / Stefan-Olt r1 / Stefan-Olt r1 / Stefan-Olt r1 (x64), r1 from source (arm64)</td><td>1 map, no lock</td><td class="bad">race, everywhere</td></tr>
+<tr><td>CTMF</td><td>r5 DLL / Stefan-Olt r5 / HEAD (= r5) / HEAD</td><td>2 maps, no lock (every radius but 2)</td><td class="bad">race, everywhere</td></tr>
+<tr><td>TCanny</td><td>r14 DLL / Stefan-Olt r14 / HEAD (= 14ac2ce) / HEAD</td><td>4 maps, no lock</td><td class="bad">race, everywhere; templates never call it (task #52)</td></tr>
+<tr><td>EEDI3m</td><td>r8 / r8 / HEAD (= r10) / HEAD (= r10)</td><td>r8 locked; r10's first <code>count()</code> unlocked</td><td class="bad">narrow race on arm64 and Linux</td></tr>
+<tr><td>BM3D r12</td><td>all</td><td>find under a shared lock, emplace under a unique lock</td><td class="ok">safe</td></tr>
+<tr><td>DCTFilter</td><td>r3.2 + c924a7a (task #96)</td><td>a buffer per call</td><td class="ok">fixed</td></tr>
+<tr><td>AddGrain, CAS, Deblock, NNEDI3CL, Retinex, TTempSmooth, neo_f3kdb, KNLMeansCL v1.3, MVTools v24, RemoveDirt, VIVTC, DeScratch</td><td>—</td><td>no per-thread state</td><td class="ok">not affected</td></tr>
+</table>
+<p>What reaches them: <strong>DFTTest</strong> through QTGMC's <code>dfttest</code> denoiser, which is also what its
+<code>knlmeanscl</code> denoiser falls back to without an OpenCL device; the prefilters of havsfunc's SMDegrain and
+MCTemporalDenoise; TemporalDegrain2's <code>postFFT=3</code>; and the Noise Reduction DFTTest method.
+<strong>CTMF</strong> through the Noise Reduction CTMF method and havsfunc's <code>MinBlur(r=3)</code>
+(<code>radius=2</code> has a kernel without the map). <strong>LGhost</strong> through the Ghost Reduction pass.
+<strong>EEDI3m</strong> through QTGMC's EEDI3 modes and santiag. <strong>TCanny</strong>: nothing in VapourBox, only a
+user's own VapourSynth code.</p>
+
+<h2>3. Reproduction and the fix, measured</h2>
+<p><code>scripts/many_instances.vpy</code> splices N instances of one call end to end on a 96x64 clip at 8 threads.
+Each instance has its own maps, so each instance's first frames are a chance for the race. It runs in a fresh vspipe
+each time, against the <strong>published 1.18.0-rc2 macOS arm64 bundle</strong> ("unpatched") and against a copy of it
+with the five plugins rebuilt by <code>scripts/build_task98.sh</code>. That script runs the deps script's own
+<code>build_task98_plugin</code> code ("patched"). <code>scripts/run.sh</code> drives both.</p>
+<table>
+<tr><th>Plugin, shape</th><th>Unpatched (rc2)</th><th>Patched</th></tr>
+<tr><td>dfttest, 1000 instances</td><td class="bad">14 / 20</td><td class="ok">0 / 40</td></tr>
+<tr><td>lghost, 1000 instances</td><td class="bad">20 / 20</td><td class="ok">0 / 40</td></tr>
+<tr><td>ctmf radius 3, 1000 instances</td><td class="bad">18 / 20</td><td class="ok">0 / 40</td></tr>
+<tr><td>tcanny, 1000 instances</td><td class="bad">20 / 20</td><td class="ok">0 / 40</td></tr>
+<tr><td>eedi3m, 1000 instances</td><td class="">0 / 10</td><td class="ok">0 / 10</td></tr>
+<tr><td>dfttest, 1 instance, 40 frames</td><td class="bad">5 / 200</td><td class="ok">0 / 200</td></tr>
+<tr><td>ctmf radius 3, 1 instance, 40 frames</td><td class="bad">8 / 200</td><td class="ok">0 / 200</td></tr>
+<tr><td>tcanny, 1 instance, 40 frames</td><td class="bad">2 / 200</td><td class="ok">0 / 200</td></tr>
+</table>
+<p class="muted">Every unpatched abort printed <code>libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found</code> (<code>data/stress.txt</code>).</p>
+<p class="muted">The EEDI3m row is the only one for which the patch is hardening and not a measured fix: its unlocked
+<code>count()</code> can only fail during another thread's rehash or insert, and <code>reserve(numThreads)</code> makes
+that rare.</p>
+
+<h3>Same output</h3>
+<p><code>scripts/same_output.vpy</code>: one call on a grain-noised 720x480 clip, 30 frames, 8 threads, md5 of the raw
+output, two processes per bundle.</p>
+<table>
+<tr><th>Plugin</th><th>Unpatched, 2 processes</th><th>Patched, 2 processes</th><th></th></tr>
+<tr><td>dfttest</td><td><code>da499448</code></td><td><code>da499448</code></td><td class="ok">identical</td></tr>
+<tr><td>lghost</td><td><code>ebeb3a92</code></td><td><code>ebeb3a92</code></td><td class="ok">identical</td></tr>
+<tr><td>ctmf</td><td><code>00ef573d</code></td><td><code>00ef573d</code></td><td class="ok">identical</td></tr>
+<tr><td>tcanny</td><td><code>3bb575a3</code></td><td><code>3bb575a3</code></td><td class="ok">identical</td></tr>
+<tr><td>eedi3</td><td><code>31d1d80c</code></td><td><code>31d1d80c</code></td><td class="ok">identical</td></tr>
+</table>
+
+<h3>macOS x64 (under Rosetta)</h3>
+<p>The x64 path of <code>build_task98_plugin</code> was built on the M1 through a <code>c++</code> shim
+(<code>-arch x86_64</code>, minos 12.0). It was dropped into the deps 1.10.0 macOS x64 bundle, which holds
+Stefan-Olt's builds, and compared under Rosetta (<code>scripts/x64_parity.sh</code>,
+<code>data/macos-x64-rosetta.txt</code>). LGhost, CTMF and TCanny are byte-identical. DFTTest gives one of two
+pictures, chosen per process, with either build: 10 processes of the old build gave 4 + 6 (and one abort), the new one 2 + 8, and the
+two builds gave the same two pictures. Across the two parity runs the old x64 builds aborted 3 times in about
+50 single-instance runs (TCanny once, DFTTest twice); the patched ones never did. That variation is DFTTest's <code>FFTW_PATIENT</code> planning, which times plans
+per process, as FFT3DFilter's <code>FFTW_MEASURE</code> did in task #80. It is not this change. Task #101 follows it up.
+<code>Scripts/check-load-time-simd.py</code> finds no static initialisers in any of the four x64 builds.</p>
+
+<h3>Windows</h3>
+<p>The Windows block (<code>download-deps-windows.ps1</code>, 4b5) was run step for step on the M1 with the same Zig
+0.15.2. That built all four DLLs, each carrying the marker and exporting <code>VapourSynthPluginInit</code> (TCanny:
+<code>VapourSynthPluginInit2</code>), with no imports beyond the UCRT, KERNEL32 and (DFTTest) FFTW 3.3.5. Doing so found
+one fault before CI could: zig's <code>-mcpu</code> feature list must name <code>evex512</code> beside
+<code>avx512f</code>, or the AVX-512 files fail to compile. The DLLs have not been run: the deps CI run and the push
+gate's marker test on Windows are that check. <code>-ffp-contract=off</code> is passed because MSVC, which built the
+published DLLs, never fuses <code>a*b+c</code>, and clang does in the AVX2/AVX-512 files.</p>
+
+<h2>4. The patch</h2>
+<p>One shape for all five, generated by <code>scripts/make_patches.py</code> from a clean checkout at each pin, so
+re-running it reproduces <code>Scripts/patches/*-thread-safety.patch</code> byte for byte:</p>
+<ul class="notes">
+<li>the header gets <code>mutable std::shared_mutex bufferMutex</code> and <code>threadBuffer(map)</code>, which looks
+the calling thread's buffer up under a shared lock;</li>
+<li><code>getFrame</code> checks for the thread's buffers under the shared lock and allocates and inserts them under a
+unique lock. Only the calling thread ever inserts its own key, so nothing can insert it between the two;</li>
+<li>every kernel's <code>d-&gt;X.at(threadId).get()</code> becomes <code>d-&gt;threadBuffer(d-&gt;X)</code>;</li>
+<li>the plugin's name gains <code>(VapourBox: locked per-thread buffers, task #98)</code>. The API 3 plugins report no
+version and TCanny's did not change, so this marker is what the deps scripts and the test check;</li>
+<li>EEDI3m r10: only its first <code>count()</code> moves under the shared lock.</li>
+</ul>
+<p>Upstream fixed DCTFilter by allocating a buffer per call. That would be wrong here: DFTTest's <code>ebuff</code> is a
+whole padded float plane, and CTMF's <code>hFine</code> is up to <code>memsize</code> (16 MB from the template) per
+thread, so per-frame allocation would fault in fresh pages on every call. Locking keeps allocation and reuse exactly as
+they were.</p>
+
+<h2>5. Pins and builds</h2>
+<table>
+<tr><th>Plugin</th><th>Pin</th><th>Windows</th><th>macOS</th><th>Linux</th></tr>
+<tr><td>DFTTest</td><td><code>bc5e018</code> (r7 + 2; no later tag). macOS arm64: yuygfgg's fork <code>e6f580a</code> (bc5e018 + sse2neon SSE2 kernels, <code>-Ofast</code>), the source of the prebuilt it shipped, since upstream's scalar path gives a different picture there</td><td>Zig, replacing the r7 DLL</td><td>direct compile, replacing yuygfgg's / Stefan-Olt's prebuilts</td><td>meson (was unpinned HEAD, the same code)</td></tr>
+<tr><td>LGhost</td><td><code>r1</code></td><td>Zig, replacing the r1 DLL</td><td>direct compile, replacing Stefan-Olt's</td><td>meson on both arches (x64 was Stefan-Olt's)</td></tr>
+<tr><td>CTMF</td><td><code>r5</code></td><td>Zig, replacing the r5 DLL</td><td>direct compile (x64 was Stefan-Olt's)</td><td>meson (was unpinned HEAD = r5)</td></tr>
+<tr><td>TCanny</td><td><code>14ac2ce</code> (r14 + 1): r14 asks <code>aligned_alloc</code> for 4-byte alignment, which arm64 refuses, so a local r14 build failed every frame there with <code>malloc failure (blur)</code></td><td>Zig, replacing the r14 DLL</td><td>direct compile (x64 was Stefan-Olt's r14)</td><td>meson (was unpinned HEAD, the same code)</td></tr>
+<tr><td>EEDI3m</td><td><code>r10</code> on macOS arm64 and Linux; r8 elsewhere, unchanged</td><td>r8</td><td>arm64: meson; x64: Stefan-Olt r8</td><td>meson (was unpinned HEAD = r10)</td></tr>
+</table>
+<ul class="notes">
+<li>All four x86 plugins pick SSE2, AVX2 or AVX-512 at run time. The base files are compiled at the x86-64 baseline
+and each AVX level in its own file, so one build serves both CPU tiers and nothing is added to
+<code>_tierFiles</code>.</li>
+<li>macOS compiles with <strong>hidden visibility</strong>, as meson does. A first test build without it, loaded
+beside the bundle's own DFTTest, crashed inside the <em>bundle's</em> <code>unordered_map::find</code>. dyld merges
+exported template instantiations across images.</li>
+<li>Each script removes a build without the marker (from an older run, or a prebuilt) and fails if the marker is
+missing afterwards. A patch that stops applying fails the build.</li>
+</ul>
+
+<h2>6. What it explains in CI</h2>
+<p>Every failed nightly job from 2026-11-01 to 11-21 (33 runs, about 140 jobs) was searched for these aborts
+(<code>data/ci-nightly-aborts.txt</code>). The <em>knlmeanscl denoiser never crashes</em> failures on linux-x64-v2
+(11-03, 11-09) are DFTTest: those jobs log that KNLMeansCL has no OpenCL device, so QTGMC's denoiser falls back to
+DFTTest, and QTGMC Fast reaches no other plugin with such a map. This is inferred from the graph, since there is no
+backtrace. The other hits are TCanny (11-15, task #52, already avoided) and DCTFilter (task #96). No CI failure names
+CTMF, LGhost or EEDI3m.</p>
+
+<h2>7. Limits</h2>
+<ul class="notes">
+<li>Abort rates are from one machine (M1, 8 threads). The race depends on scheduling; other CPUs see other rates.</li>
+<li>The Windows DLLs were built but not run here (section 3).</li>
+<li>Output parity on Linux is not measured: Linux builds the same code with the same meson build as before, only
+pinned and patched.</li>
+<li>The EEDI3m race was not reproduced (section 3).</li>
+</ul>
+
+</main>
+</body>
+</html>

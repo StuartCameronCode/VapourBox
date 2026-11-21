@@ -1,0 +1,56 @@
+EEDI3m r10 (HomeOfVapourSynthEvolution/VapourSynth-EEDI3). VapourBox task #98,
+docs/reports/task-98-per-thread-buffer-maps.
+
+The filter is fmParallel and keeps scratch buffers per worker thread in
+std::unordered_map<std::thread::id, ...> members of the filter instance. r8
+held one mutex around the whole check-insert-lookup; r9.1's 61e14ab ("Use
+shared_mutex for unordered_map") locks the insert (unique) and the lookup
+(shared) but runs the first count() with no lock, so it can read the map while
+another thread inserts into it or rehashes it. Two threads starting their
+first frame of an instance together corrupt the map or lose an insert, and the
+kernel's .at() then throws std::out_of_range inside a noexcept function:
+std::terminate, so vspipe aborts ("unordered_map::at: key not found"; on
+Windows the UCRT's abort is a fail-fast, exit 0xC0000409). Not reproduced (0
+aborts in 10 graphs of 1000 instances on an M1): reserve(numThreads) makes a
+rehash rare. The patch moves that count() under the shared lock; nothing else
+changes. Windows and macOS x64 ship r8 and are not patched.
+
+The patch locks the map: getFrame checks for the thread's buffers under a
+shared lock and allocates them under a unique lock (only the calling thread
+inserts its own key), and the kernels look them up through threadBuffer(),
+under the shared lock. The buffers, their reuse and so the output are
+unchanged, sample for sample. It also appends "(VapourBox: locked per-thread
+buffers, task #98)" to the plugin's name, which is how a test and the deps
+scripts recognise a patched build. No upstream release fixes this.
+
+Made by docs/reports/task-98-per-thread-buffer-maps/scripts/make_patches.py
+and applied by download-deps-{macos,linux}.sh and download-deps-windows.ps1
+right after the clone; each build fails if it stops applying.
+
+diff --git a/EEDI3/EEDI3.cpp b/EEDI3/EEDI3.cpp
+index 2aa1c98..cf9afdd 100644
+--- a/EEDI3/EEDI3.cpp
++++ b/EEDI3/EEDI3.cpp
+@@ -334,7 +334,12 @@ static const VSFrame* VS_CC eedi3GetFrame(int n, int activationReason, void* ins
+         try {
+             auto threadID = std::this_thread::get_id();
+ 
+-            if (!d->srcVector.count(threadID)) {
++            bool known;
++            {
++                std::shared_lock<std::shared_mutex> lock(d->mutex);
++                known = d->srcVector.count(threadID);
++            }
++            if (!known) {
+                 std::unique_lock<std::shared_mutex> lock(d->mutex);
+ 
+                 if (d->vectorSize > 1) {
+@@ -763,7 +768,7 @@ static void VS_CC eedi3Create(const VSMap* in, VSMap* out, [[maybe_unused]] void
+ // Init
+ 
+ VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi) {
+-    vspapi->configPlugin("com.holywu.eedi3", "eedi3m", "Enhanced Edge Directed Interpolation 3", VS_MAKE_VERSION(10, 0), VAPOURSYNTH_API_VERSION, 0, plugin);
++    vspapi->configPlugin("com.holywu.eedi3", "eedi3m", "Enhanced Edge Directed Interpolation 3 (VapourBox: locked per-thread buffers, task #98)", VS_MAKE_VERSION(10, 0), VAPOURSYNTH_API_VERSION, 0, plugin);
+ 
+     vspapi->registerFunction("EEDI3",
+                              "clip:vnode;"
