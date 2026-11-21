@@ -143,6 +143,29 @@ MVTOOLS_MIN_COLS = 64
 # any size. Every Flow* call passes opt=mvtools_flow_opt(...) (test_260).
 MVTOOLS_RESIZE_MIN_BLOCKS = 8
 
+# havsfunc's QTGMC makes one call through MVTools' Mask itself, which no opt=
+# can reach: mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask) when InputType
+# is 2 or 3 and ProgSADMask > 0 (its default at Placebo..Medium; neither it nor
+# ShutterBlur, whose FlowBlur and kind=0 Mask go the same way, is exposed).
+# Mask has two faults of its own (task #79, docs/reports/task-79-qtgmc-mask-avx2):
+# - It builds its mask at Analyse's nBlkX = (W - o) // (b - o), not grown to
+#   the edge, and upsizes it with the 8-bit AVX2 tail (4 samples), so below 4
+#   block columns it writes before its row buffer on every x86 CPU with AVX2
+#   (64x96 at 32/16: nBlkX 3, 1 byte before a 5-byte block).
+# - It fills the rows under the block grid (from nHeightB = nBlkY (b - o) + o)
+#   with one vsh::bitblt from the row above, in the same frame. When the row
+#   is as wide as its stride, bitblt makes that one memcpy over overlapping
+#   memory, and every row after the first gets what the rows below held
+#   (uninitialised memory on Linux; 12 of 16 rows wrong at 128x96 and 32/8 on
+#   macOS arm64, 7 of 8 at 1920x1080 and 32/16). Every CPU.
+# mvtools_mask_cols() is the width the Deinterlace pass pads QTGMC's input to
+# through mvtools_blocks(min_cols=...) when the Mask runs: at least 4 block
+# columns, and, when the grid stops short of the bottom, a width that is not a
+# multiple of 32 bytes (no VapourSynth stride alignment divides it, so the
+# copy goes row by row).
+MVTOOLS_MASK_MIN_BLOCKS = 4
+MVTOOLS_MASK_STRIDE_STEP = 32
+
 _SS = {'420': (1, 1), '422': (1, 0), '444': (0, 0)}
 
 _akarin_expr = getattr(getattr(core, 'akarin', None), 'Expr', None)
@@ -423,7 +446,23 @@ def mvtools_flow_opt(width, blksize, overlap):
     return cols >= MVTOOLS_RESIZE_MIN_BLOCKS
 
 
-def mvtools_blocks(clip, fn, *, label=None):
+def mvtools_mask_cols(width, height, blksize, overlap):
+    """min_cols for mvtools_blocks() around havsfunc's QTGMC when it runs
+    MVTools' Mask on vectors analysed at [blksize] / [overlap] (task #79): at
+    least MVTOOLS_MASK_MIN_BLOCKS block columns, and 8 more columns when the
+    padded width is a multiple of MVTOOLS_MASK_STRIDE_STEP and the block grid
+    stops short of the padded height, so Mask's bottom-row fill never copies a
+    row over the next one. Returns [width] itself when neither applies, so a
+    picture that needs nothing gets no node."""
+    step = blksize - overlap
+    w = max(width, MVTOOLS_MIN_COLS, MVTOOLS_MASK_MIN_BLOCKS * step + overlap)
+    h = max(height, MVTOOLS_MIN_ROWS)
+    if (h - overlap) % step and w % MVTOOLS_MASK_STRIDE_STEP == 0:
+        w += 8
+    return w if w > max(width, MVTOOLS_MIN_COLS) else width
+
+
+def mvtools_blocks(clip, fn, *, min_cols=0, label=None):
     """fn(clip), where fn runs MVTools Compensate / Degrain / BlockFPS with an
     overlap (directly or inside havsfunc), on a copy padded right and bottom to
     at least MVTOOLS_MIN_COLS x MVTOOLS_MIN_ROWS when it is smaller, cropped
@@ -431,6 +470,7 @@ def mvtools_blocks(clip, fn, *, label=None):
     block column wide, is blended with the wrong overlap windows, and two rows
     divide by zero). The rows repeat with period 2, so a field-flagged clip
     keeps its fields; a clip at least that big gets no node. fn may retime
-    but must keep the frame size."""
-    return pad_around(clip, fn, min_rows=MVTOOLS_MIN_ROWS, min_cols=MVTOOLS_MIN_COLS,
+    but must keep the frame size. min_cols raises the width minimum
+    (mvtools_mask_cols() for QTGMC's internal Mask, task #79)."""
+    return pad_around(clip, fn, min_rows=MVTOOLS_MIN_ROWS, min_cols=max(MVTOOLS_MIN_COLS, min_cols),
                       label=label or 'mvtools_blocks')

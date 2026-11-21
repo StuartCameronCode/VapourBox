@@ -451,7 +451,14 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   MVTools' AVX2 vector upsizer writes before its buffer with fewer than 8
   block columns (64x48 at 16/8, QCIF at 32/8), corrupting the heap on every
   x86 CPU with AVX2; the helper selects the C upsizer there and leaves
-  MVTools' default everywhere else (task #69). Check on a fixture with real low
+  MVTools' default everywhere else (task #69). A call havsfunc makes itself
+  can't take `opt`: QTGMC's `mv.Mask` (InputType 2/3, ProgSADMask at
+  Placebo..Medium) needs 4 block columns, and garbles the rows under its
+  block grid when a row fills its stride (an overlapping `memcpy`, every
+  CPU), so `_deinterlace_qtgmc_rows` pads with
+  `mvtools_blocks(min_cols=_pf.mvtools_mask_cols(w, h, b, o))`, b/o from
+  `QTGMCParameters::prog_sad_mask_blocks` (havsfunc's effective values),
+  for those jobs only (task #79, test_263). Check on a fixture with real low
   bits that the plugin leaves the samples it doesn't change exact — see
   "High Bit Depth Sources"
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**

@@ -963,6 +963,13 @@ impl ScriptGenerator {
                         "{{QTGMC_HALVES_SEARCH}}",
                         if params.effective_srch_clip_pp() == 1 { "True" } else { "False" },
                     );
+                    script = script.replace(
+                        "{{QTGMC_MASK_COLS}}",
+                        &params
+                            .prog_sad_mask_blocks()
+                            .map(|(b, o)| format!("min_cols=_pf.mvtools_mask_cols(clip.width, clip.height, {b}, {o}), "))
+                            .unwrap_or_default(),
+                    );
 
                     // Noise processing
                     // When noise reduction is set to QTGMC built-in, use the noise
