@@ -56,7 +56,8 @@ MODELS = ("ddcolor", "deoldify")
 # 2r+1 frames (0.8 s each on the CPU at 512). DeOldify compiles in about 5 s
 # and is 6x slower on the CPU, so it keeps the preferred provider. The two
 # providers' outputs differ by under 0.001 of a CIELAB unit. Measured in
-# docs/reports/2026-11-colourisation.
+# docs/reports/2026-11-colourisation. This decides only on Apple Silicon:
+# Intel Macs run every model on the CPU (ai_runtime.cpu_reason, task #94).
 PREVIEW_ON_CPU = {"ddcolor": True, "deoldify": False}
 
 # Temporal smoothing: neighbours are compared on the render-size luma,
@@ -192,14 +193,14 @@ def colorize(
     strength = max(0.0, float(strength))
 
     force_cpu = bool(preview) and PREVIEW_ON_CPU[model]
-    if not force_cpu:
+    if ai_runtime.preferred_providers(force_cpu)[0] != ai_runtime.CPU_PROVIDER:
         sys.stderr.write("Colourisation: preparing %s (the first frame can take a minute or two while the "
                          "model is compiled for this machine)\n" % model)
     runner = ai_runtime.Runner(model_path, force_cpu=force_cpu, dims={"height": size, "width": size})
     last_runner = runner
     in_name = runner.get_inputs()[0].name
     sys.stderr.write("Colourisation: %s at %dx%d on %s%s\n" % (
-        model, size, size, runner.provider, "" if not runner.fallback else " (%s)" % runner.fallback))
+        model, size, size, runner.provider, runner.provider_note()))
 
     # The luma as a grey picture in [0, 1], and the model's square copy of it.
     luma = core.std.ShufflePlanes(clip, 0, vs.GRAY)

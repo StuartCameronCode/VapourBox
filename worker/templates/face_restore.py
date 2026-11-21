@@ -487,8 +487,7 @@ def restore_faces(
     import sys
 
     sys.stderr.write("Face restoration: %s on %s%s\n" % (
-        model, models.restore.provider,
-        "" if not models.restore.fallback else " (%s)" % models.restore.fallback))
+        model, models.restore.provider, models.restore.provider_note()))
 
     rgbs = ai_runtime.to_rgbs(clip, matrix, color_range)
     scale = min(1.0, DET_SIZE / max(clip.width, clip.height))

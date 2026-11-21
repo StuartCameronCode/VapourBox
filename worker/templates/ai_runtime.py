@@ -20,20 +20,37 @@ file fixes sys.path), and registers onnxruntime's DLL directory there.
 Execution providers are chosen in this order, from those the installed wheel
 offers: TensorRT, CUDA (neither is in today's wheels; a future NVIDIA add-on
 can add them by passing its own directory to setup() first), DirectML
-(Windows), Core ML (macOS), then the CPU. VAPOURBOX_AI_FORCE_CPU=1, or
-force_cpu=True, uses the CPU only. A session that fails to create on a GPU
-provider is retried on the CPU, and the reason is kept in last_fallback.
+(Windows), Core ML (macOS on Apple Silicon), then the CPU.
+VAPOURBOX_AI_FORCE_CPU=1, or force_cpu=True, uses the CPU only. A session
+that fails to create on a GPU provider is retried on the CPU, and the reason
+is kept in last_fallback.
+
+Intel Macs never use Core ML (task #94): there Core ML runs on the GPU
+through Metal Performance Shaders, which compiles its kernels at the first
+prediction and, when a compile fails, aborts the whole process (SIGABRT in
+MPSLibrary, "Compilation failed"). No Python exception is raised, so neither
+fallback above can catch it. cpu_reason() says why, for the probe and the
+passes' logs. VAPOURBOX_AI_COREML_ON_INTEL=1 offers Core ML there again; it is
+a switch for measuring, not for users.
 
 `vapourbox-worker --probe-ai-runtime` calls self_test() through vspipe.
 """
 
 import base64
 import os
+import platform
 import sys
 import threading
 
 ADDON_ID = "ai-runtime"
 FORCE_CPU_ENV = "VAPOURBOX_AI_FORCE_CPU"
+COREML_ON_INTEL_ENV = "VAPOURBOX_AI_COREML_ON_INTEL"
+
+# What cpu_reason() says on an Intel Mac.
+INTEL_MAC_CPU_REASON = (
+    "Core ML is not used on Intel Macs: Metal Performance Shaders can abort the "
+    "process while compiling a model's kernels (task #94)"
+)
 
 # Most-preferred first. Only those the installed onnxruntime reports as
 # available are used; the CPU is always last.
@@ -100,8 +117,28 @@ def ort():
     return _ort
 
 
+def _env_flag(name):
+    return os.environ.get(name, "").strip().lower() in ("1", "true", "yes")
+
+
 def force_cpu_requested():
-    return os.environ.get(FORCE_CPU_ENV, "").strip().lower() in ("1", "true", "yes")
+    return _env_flag(FORCE_CPU_ENV)
+
+
+def is_intel_mac():
+    """macOS in an x86_64 process: an Intel Mac, or the x64 bundle under
+    Rosetta (where the CPU provider is fine too)."""
+    return sys.platform == "darwin" and platform.machine() == "x86_64"
+
+
+def coreml_supported():
+    """Whether Core ML may be offered here (see the module docstring)."""
+    return not is_intel_mac() or _env_flag(COREML_ON_INTEL_ENV)
+
+
+def cpu_reason():
+    """Why this machine leaves Core ML out, or None."""
+    return None if coreml_supported() else INTEL_MAC_CPU_REASON
 
 
 def available_providers():
@@ -113,6 +150,8 @@ def preferred_providers(force_cpu=False):
     if force_cpu or force_cpu_requested():
         return [CPU_PROVIDER]
     available = set(available_providers())
+    if not coreml_supported():
+        available.discard("CoreMLExecutionProvider")
     return [p for p in GPU_PROVIDERS if p in available] + [CPU_PROVIDER]
 
 
@@ -250,7 +289,8 @@ def frame_test(force_cpu=False):
 def self_test(force_cpu=False):
     """Create a session for the self-test model on the preferred provider,
     run it, and check the answer. Returns a dict for the probe:
-    {version, providers (available), requested, provider, fallback, maxError}.
+    {version, providers (available), requested, provider, fallback,
+    cpuReason, maxError}.
     Raises if the session can't be created or the answer is wrong."""
     import numpy as np
 
@@ -269,6 +309,7 @@ def self_test(force_cpu=False):
         "provider": session_provider(sess),
         "sessionProviders": list(sess.get_providers()),
         "fallback": last_fallback,
+        "cpuReason": None if force_cpu or force_cpu_requested() else cpu_reason(),
         "maxError": err,
     }
 
@@ -417,7 +458,12 @@ class Runner:
     an unsupported shape at run time) is retried on the CPU, which this
     runner then keeps using; `fallback` says why. It runs like an
     InferenceSession (`run(output_names, feeds)`, `get_inputs()`), so code
-    written against a session takes either."""
+    written against a session takes either.
+
+    The retry covers only failures that raise. Metal Performance Shaders
+    aborting the process while it compiles a kernel (Core ML on an Intel
+    Mac) cannot be caught here, which is why Intel Macs are never offered
+    Core ML (task #94)."""
 
     def __init__(self, model, force_cpu=False, lock=None, dims=None):
         """`lock`: share one between the runners of a pass to serialise all
@@ -427,11 +473,21 @@ class Runner:
         self.dims = dims
         self.session = session(model, force_cpu=force_cpu, dims=dims)
         self.fallback = last_fallback
+        self._reason = None if force_cpu or force_cpu_requested() else cpu_reason()
         self._lock = lock or threading.Lock()
 
     @property
     def provider(self):
         return session_provider(self.session)
+
+    def provider_note(self):
+        """" (why)" after the provider in a pass's log line: the run-time
+        fallback, or why this machine runs on the CPU; "" otherwise."""
+        if self.fallback:
+            return " (%s)" % self.fallback
+        if self.provider == CPU_PROVIDER and self._reason:
+            return " (%s)" % self._reason
+        return ""
 
     def get_inputs(self):
         return self.session.get_inputs()

@@ -46,13 +46,21 @@ void main() {
     expect(status.version, isNotNull);
     expect(status.providers, contains('CPUExecutionProvider'));
     final expected = switch (WorkerHarness.platform) {
-      'macos-arm64' || 'macos-x64' => {'CoreMLExecutionProvider', 'CPUExecutionProvider'},
+      'macos-arm64' => {'CoreMLExecutionProvider', 'CPUExecutionProvider'},
       'windows-x64' => {'DmlExecutionProvider', 'CPUExecutionProvider'},
       _ => {'CPUExecutionProvider'},
     };
     expect(expected, contains(status.provider));
     if (WorkerHarness.platform.startsWith('macos')) {
       expect(status.providers, contains('CoreMLExecutionProvider'));
+    }
+    // Intel Macs are not offered Core ML: Metal Performance Shaders can abort
+    // the process while compiling a model (task #94). The wheel still has it.
+    if (WorkerHarness.platform == 'macos-x64') {
+      expect(status.provider, 'CPUExecutionProvider');
+      expect(status.cpuReason, contains('Intel Macs'));
+    } else {
+      expect(status.cpuReason, isNull);
     }
   });
 
