@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>x264 at 720x486 interlaced</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>x264 cannot code a 720x486 4:2:0 picture as interlaced</h1>
+<p class="meta">Task #92, 2026-11-21. Measured on an Apple Silicon Mac (M1 Pro) with the ffmpeg of deps 1.18.0-rc2 (FFmpeg 9.0.2, martin-riedl build, <code>data/ffmpeg_version.txt</code>). Found by task #81 (<a href="../task-81-znedi3-odd-plane-rows/index.html">its report</a>). Every number below comes from <code>scripts/reproduce.sh</code>; the raw output is in <code>data/</code>. No screenshots: nothing here is a visual claim.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>The fault:</b> a job with Deinterlace off, a detected field order, H.264 (libx264, the default codec) and a 4:2:0 output 486 lines high (NTSC D1) failed at the encoder, before writing anything: <code>[libx264] height not divisible by 4 (720x486)</code>. Since task #12 x264 codes a still-interlaced picture as fields (MBAFF: <code>-flags +ildct -x264-params tff=1|bff=1</code>), and libx264 refuses interlaced 4:2:0 unless each field's chroma is whole, i.e. the height is a multiple of 4.</li>
+<li><b>H.264 itself cannot store it.</b> In an interlaced stream (<code>frame_mbs_only_flag=0</code>) the crop unit for 4:2:0 is 2 x 4 rows (<code>CropUnitY = SubHeightC × (2 − frame_mbs_only_flag)</code>), so padding to 488 and declaring a 2-row crop is refused (§2). An interlaced 4:2:0 H.264 stream is never 486 lines high.</li>
+<li><b>Decision:</b> x264 codes such a picture <b>progressive, unflagged</b>, as x265 already is, and the job log says how to keep the fields: crop 2 lines with Crop &amp; Resize, choose Color Format 4:2:2, or choose ProRes, v210 or FFV1. One decision, <code>VideoJob::field_order_signal</code> (with <code>VideoJob::h264_cannot_code_fields_at</code>), read by <code>pipeline_executor::field_order_args</code> and <code>field_order_note</code>. The note of the codecs that can't flag at all (x265, AV1, the hardware encoders) no longer suggests H.264 at such a size.</li>
+<li><b>Only x264 is affected</b> (§4): ProRes, v210, FFV1, HuffYUV, FFVHuff, x265, SVT-AV1 and VideoToolbox all encode 720x486.</li>
+</ul>
+
+<h2>1. What libx264 refuses</h2>
+<p>As the worker runs it: the picture on a Y4M pipe, <code>-top 1</code> on the encoder's input, the field-order arguments. VHS fixture, 720x486, in the format named (<code>scripts/refusals.sh</code>, <code>data/refusals.txt</code>).</p>
+<table>
+<tr><th>Output format</th><th>MBAFF at 720x486</th></tr>
+<tr><td>yuv420p</td><td class="no">height not divisible by 4</td></tr>
+<tr><td>yuv420p10le</td><td class="no">height not divisible by 4</td></tr>
+<tr><td>yuv422p</td><td class="ok">ok, High 4:2:2</td></tr>
+<tr><td>yuv444p</td><td class="ok">ok, High 4:4:4 Predictive</td></tr>
+<tr><td>yuv420p, progressive (no <code>+ildct</code>)</td><td class="ok">ok, High</td></tr>
+</table>
+<p>So the decision reads the <b>output</b> format (<code>encoder_input_pix_fmt</code>): a 4:2:2 source with Color Format 4:2:0 is refused too, a 4:2:0 source with Color Format 4:2:2 is not. And the output <b>height</b> (<code>estimated_output_size</code>): a crop to 484 or 480 fits; a still-interlaced 4:2:0 resize is already rounded to 4 (task #56); Add Borders to a 486-line canvas does not fit.</p>
+
+<h2>2. Pad and declare a crop: impossible</h2>
+<table>
+<tr><th>Pad to 488, then <code>crop-rect</code> (left,top,right,bottom)</th><th>Result</th></tr>
+<tr><td>0,0,0,2</td><td class="no">crop-rect 0,0,0,2 not divisible by 2x4</td></tr>
+<tr><td>0,2,0,0</td><td class="no">crop-rect 0,2,0,0 not divisible by 2x4</td></tr>
+<tr><td>0,0,0,4</td><td class="ok">ok, decodes as 720x484</td></tr>
+</table>
+
+<h2>3. What progressive coding costs</h2>
+<p>x264 at equal ABR bitrate (preset medium): progressive at 486 lines, against MBAFF on 2 rows cropped (484) or padded (488), the only interlaced options. PSNR per field, over the 484 rows all three keep, frame by frame (<code>scripts/quality.sh</code>, <code>data/quality.txt</code>). Fixtures: <code>interlaced_test.avi</code> (VHS, real motion, 75 frames) and the DVB-T clip (126 frames), each cropped to 720x486 at an even offset and made 4:2:0 field by field (<code>scripts/make_fixtures.sh</code>).</p>
+<table>
+<tr><th>Fixture</th><th>Bitrate</th><th>progressive 486, Y</th><th>MBAFF 484, Y</th><th>MBAFF 488, Y</th></tr>
+<tr><td>VHS</td><td class="num">1000k</td><td class="num">33.68 dB</td><td class="num">35.13</td><td class="num">35.09</td></tr>
+<tr><td>VHS</td><td class="num">2500k</td><td class="num">37.53</td><td class="num">38.60</td><td class="num">38.61</td></tr>
+<tr><td>VHS</td><td class="num">5000k</td><td class="num">40.23</td><td class="num">40.97</td><td class="num">40.99</td></tr>
+<tr><td>DVB-T</td><td class="num">1000k</td><td class="num">43.48</td><td class="num">43.47</td><td class="num">43.60</td></tr>
+<tr><td>DVB-T</td><td class="num">2500k</td><td class="num">47.80</td><td class="num">47.65</td><td class="num">47.93</td></tr>
+<tr><td>DVB-T</td><td class="num">5000k</td><td class="num">52.20</td><td class="num">52.10</td><td class="num">52.48</td></tr>
+</table>
+<p>MBAFF gains 0.7–1.5 dB on VHS and ties on DVB-T (whose motion is slight), as task #12 found (+0.33 to +1.00 dB, <a href="../2026-11-field-order-other-codecs/index.html">its report</a>). File sizes are within 2 % of each other.</p>
+<p class="box">Limits: two clips are not a population; PSNR rewards softness and says nothing about how a player shows combing; this is Apple Silicon's x264 build (libx264's height check is the same on every platform, its speed and output are not bit-identical across builds).</p>
+<p class="box"><b>Correction, left visible:</b> the first two runs of this measurement paired the wrong frames (an output <code>-t</code> on one side, then <code>setpts=N</code> in two different time bases) and read about 30 and 14 dB. The script now numbers both sides <code>setpts=N/(25*TB)</code> and prints the field count (150 and 252, one per field).</p>
+
+<h2>4. The other encoders at 720x486</h2>
+<p>Each run as the worker runs it, with the format the script delivers for it (<code>scripts/other_codecs.sh</code>, <code>data/other_codecs.txt</code>).</p>
+<table>
+<tr><th>Codec</th><th>Field-order arguments</th><th>720x486</th></tr>
+<tr><td>x264, 4:2:0 8 / 10-bit</td><td><code>-top</code>, <code>+ildct</code>, <code>-x264-params</code></td><td class="no">refused (before this task)</td></tr>
+<tr><td>x264, 4:2:2</td><td>same</td><td class="ok">ok, High 4:2:2</td></tr>
+<tr><td>ProRes 422 HQ, 4444</td><td><code>-top</code>, <code>+ildct</code></td><td class="ok">ok; HQ decodes at 57.7 dB over the frame, 58.4 dB over the last 8 rows, 53.9 dB over the last 2: no broken last field row</td></tr>
+<tr><td>v210, FFV1, HuffYUV, FFVHuff</td><td><code>-top</code></td><td class="ok">ok</td></tr>
+<tr><td>x265, SVT-AV1</td><td>none</td><td class="ok">ok</td></tr>
+<tr><td>VideoToolbox H.264 / HEVC</td><td>none (<code>+ildct</code> is ignored if given)</td><td class="ok">ok</td></tr>
+<tr><td>NVENC, Quick Sync, AMF</td><td>none</td><td>not tested (no hardware here). They get no field-order arguments, so this task changes nothing for them.</td></tr>
+</table>
+<p class="box"><b>Correction, left visible:</b> the plan quoted 43.9 / 43.8 dB for ProRes's last rows; that run compared against a reference with a different frame count. Against a frame-matched reference it is 58.4 / 53.9 dB.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><b>Progressive, not cropped or padded to fit.</b> The frame size is the user's (Crop &amp; Resize is the only thing that changes it), and a 2-row crop or pad would also shift the display aspect by 0.4 %. The user gets the interlaced option in one step: Crop &amp; Resize already crops a still-interlaced 4:2:0 picture in steps of 4 lines.</li>
+<li><b>Not refused.</b> H.264 is the default codec and 720x486 an ordinary capture size; elsewhere a field-order shortcoming is said in the job log, never refused.</li>
+<li><b>No container-only flag.</b> <code>-top</code> on a progressive x264 stream makes MKV say <code>tb</code> and MOV say <code>progressive</code>: the container and the stream disagreeing is why x265 isn't flagged either.</li>
+<li><b>Size unknown: as before.</b> With no input size the worker keeps MBAFF.</li>
+</ul>
+
+<h2>Tests</h2>
+<ul>
+<li><code>x264_codes_interlaced_only_where_4_2_0_fields_fit</code> and <code>the_field_order_note_suggests_h264_only_where_it_can_code_fields</code> (Rust, <code>pipeline_executor.rs</code>): source height × pipe format × Color Format × crop / resize / borders, and the arguments and note for each.</li>
+<li><code>integration_field_order_test.dart</code> (heavy), group <i>720x486 (task #92)</i>: H.264 at 4:2:0 8 and 10-bit encodes, progressive (<code>frame_mbs_only_flag</code> 1, no field order), with the note; cropped to 484 it is MBAFF with every <code>pic_struct</code> 3; at 4:2:2 MBAFF at 486; ProRes keeps <code>fiel</code> 0x0209 and its frame header's flag; x265's note doesn't suggest H.264.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>NVENC, Quick Sync and AMF (no hardware); x86 builds of libx264 (the height check is libx264's own and architecture-independent).</li>
+<li>How players display the progressive-coded result; it carries no field flag, so they show it as progressive, combing on motion, exactly as an x265 encode of the same picture.</li>
+</ul>
+</body>
+</html>

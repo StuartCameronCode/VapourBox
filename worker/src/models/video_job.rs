@@ -509,6 +509,44 @@ impl VideoJob {
             })
     }
 
+    /// The output frame size when H.264 could not code it as fields: a 4:2:0
+    /// output ([`encoder_input_pix_fmt`](Self::encoder_input_pix_fmt)) whose
+    /// height ([`estimated_output_size`](Self::estimated_output_size)) is not
+    /// a multiple of 4, such as NTSC D1's 720x486. `None` when it could, or
+    /// when the size is unknown. Whatever the codec: the job log uses it to
+    /// avoid suggesting H.264 for a picture H.264 can't keep interlaced.
+    ///
+    /// Interlaced 4:2:0 needs whole chroma rows in each field, so libx264
+    /// refuses such a height ("height not divisible by 4"), and an interlaced
+    /// H.264 stream crops in units of 4 rows, so padding 2 rows and declaring
+    /// a crop can't express it either (task #92,
+    /// docs/reports/task-92-x264-interlaced-height-2-mod-4).
+    pub fn h264_cannot_code_fields_at(&self) -> Option<(i32, i32)> {
+        let (class, _) = crate::pixel_format::chroma_and_depth(&self.encoder_input_pix_fmt());
+        if class != crate::pixel_format::ChromaClass::C420 {
+            return None;
+        }
+        self.estimated_output_size().filter(|&(_, h)| h % 4 != 0)
+    }
+
+    /// How this job's encode declares a still-interlaced picture's field
+    /// order: the codec's own ([`VideoCodec::field_order_signal`]), except
+    /// that x264 codes a picture it can't code as fields
+    /// ([`h264_cannot_code_fields_at`](Self::h264_cannot_code_fields_at)) as
+    /// progressive, unflagged, as x265 is (task #92). The ONE decision read by
+    /// `pipeline_executor::field_order_args` and `field_order_note`.
+    ///
+    /// Not cropped or padded to fit: the user's Crop controls are the only
+    /// thing that changes the frame size, and the job log says how to keep the
+    /// fields (crop 2 lines, Color Format 4:2:2, or ProRes / v210 / FFV1).
+    pub fn field_order_signal(&self) -> FieldOrderSignal {
+        let signal = self.encoding_settings.codec.field_order_signal();
+        if signal == FieldOrderSignal::X264Interlaced && self.h264_cannot_code_fields_at().is_some() {
+            return FieldOrderSignal::None;
+        }
+        signal
+    }
+
     /// The output colour format the script converts to: the one decision,
     /// read by the script generator (`CHROMA_CONVERT`, encode and preview) and
     /// by [`encoder_input_pix_fmt`](Self::encoder_input_pix_fmt).
@@ -1249,7 +1287,8 @@ pub enum FieldOrderSignal {
     /// sets its own frame header's field flag.
     ProResFields,
     /// `-top`, `-flags +ildct` and `-x264-params tff=1|bff=1`: libx264 codes
-    /// the picture interlaced (MBAFF).
+    /// the picture interlaced (MBAFF). Not at a 4:2:0 height that isn't a
+    /// multiple of 4: see `VideoJob::field_order_signal` (task #92).
     X264Interlaced,
 }
 
@@ -1412,7 +1451,9 @@ impl VideoCodec {
             | VideoCodec::ProRes4444
             | VideoCodec::ProRes4444Xq => FieldOrderSignal::ProResFields,
             // Real interlaced coding (MBAFF). At equal bitrate it beat coding
-            // the woven frame as progressive on every fixture.
+            // the woven frame as progressive on every fixture. A 4:2:0 picture
+            // whose height isn't a multiple of 4 can't be coded so, and the job
+            // downgrades it (`VideoJob::field_order_signal`, task #92).
             VideoCodec::H264 => FieldOrderSignal::X264Interlaced,
             // x265 has no interlaced coding: its `interlace` mode declares
             // every woven frame to be a single field (`field_seq_flag=1`), and

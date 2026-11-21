@@ -3025,6 +3025,17 @@ evidence for every rule here is docs/reports/2026-11-v210-field-order.
     `pic_struct` SEI saying top-first on most frames (libx264 starts from
     TFF). A Custom FFmpeg Argument `-x264-params` replaces ours. Apple's
     hardware decoder refuses MBAFF (AVFoundation decodes it in software).
+    **Except a 4:2:0 output whose height is not a multiple of 4** (720x486,
+    task #92): libx264 refuses it interlaced, and an interlaced H.264
+    stream crops in 4-row units, so no pad-and-crop expresses it either. It
+    is coded progressive and unflagged, as x265 is, and the job log says how
+    to keep the fields (crop 2 lines, Color Format 4:2:2, ProRes / v210 /
+    FFV1). Never crop or pad it to fit: the user's Crop is the only crop.
+    The one decision is `VideoJob::field_order_signal` (output format from
+    `encoder_input_pix_fmt`, height from `estimated_output_size`), which
+    `field_order_args` and `field_order_note` both read; the unflagged
+    codecs' note suggests H.264 only where it could keep the fields
+    (docs/reports/task-92-x264-interlaced-height-2-mod-4).
   - **x265 and every hardware encoder: nothing.** x265 has no interlaced
     coding (its `interlace` mode declares each woven frame one field,
     `field_seq_flag=1`); a container-only flag is read by AVFoundation but

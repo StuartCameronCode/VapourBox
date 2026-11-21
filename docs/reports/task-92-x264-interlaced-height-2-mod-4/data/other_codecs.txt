@@ -1,0 +1,18 @@
+x264 MBAFF 4:2:0: FAIL [libx264 @ 0x1530051f0] height not divisible by 4 (720x486)
+x264 MBAFF 4:2:0 10-bit: FAIL [libx264 @ 0x1520051f0] height not divisible by 4 (720x486)
+x264 MBAFF 4:2:2: ok h264|High 4:2:2|486|yuv422p
+x264 progressive 4:2:0: ok h264|High|486|yuv420p
+x265 4:2:0: ok hevc|Main|486|yuv420p
+ProRes 422 HQ +ildct: ok prores|HQ|486|yuv422p10le
+ProRes 4444 +ildct: ok prores|4444|486|yuv444p12le
+v210: ok v210|unknown|486|yuv422p10le
+FFV1 4:2:0: ok ffv1|unknown|486|yuv420p
+HuffYUV 4:2:2: ok huffyuv|unknown|486|yuv422p
+FFVHuff 4:2:0: ok ffvhuff|unknown|486|yuv420p
+AV1 (SVT-AV1) 4:2:0: ok av1|Main|486|yuv420p
+VideoToolbox H.264: ok h264|High|486|yuv420p
+VideoToolbox H.264 +ildct: ok h264|High|486|yuv420p
+VideoToolbox HEVC: ok hevc|Main|486|yuv420p
+ProRes HQ +ildct vs source, rows 720:486:0:0: PSNR average:57.733999
+ProRes HQ +ildct vs source, rows 720:8:0:478: PSNR average:58.421071
+ProRes HQ +ildct vs source, rows 720:2:0:484: PSNR average:53.934786
