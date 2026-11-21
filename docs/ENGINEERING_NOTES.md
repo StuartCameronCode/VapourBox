@@ -5825,7 +5825,7 @@ template can reach.
 A still-interlaced 4:2:0 picture 486 lines high (NTSC D1), Deinterlace off,
 failed every H.264 job at the encoder: `[libx264] height not divisible by 4`.
 x264 codes a still-interlaced picture as MBAFF (task #12), and libx264 needs
-whole chroma rows per field, so a 4:2:0 height that is a multiple of 4
+whole chroma rows per field, so a 4:2:0 height must be a multiple of 4
 (4:2:2 and 4:4:4 encode at 486). H.264 itself can't store it either: an
 interlaced stream crops in 2x4 units, so padding to 488 and declaring a
 2-row crop is refused (`crop-rect 0,0,0,2 not divisible by 2x4`).
