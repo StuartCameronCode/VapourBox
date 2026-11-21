@@ -785,6 +785,99 @@ flat.set_output()'''
     });
   });
 
+  // Task #96: DCTFilter up to r2.1 (the Windows release, Stefan-Olt's macOS
+  // x64 build) kept a scratch buffer per worker thread in an unordered_map it
+  // filled from getFrame with no lock. Two threads starting together lost an
+  // insert, .at() threw inside noexcept code and vspipe aborted (0xC0000409 on
+  // Windows): the Deblock pass's DCTFilter and QED methods, about one run in a
+  // hundred. download-deps-* build r3.2 with
+  // patches/dctfilter-r3.2-thread-safety.patch (upstream's c924a7a) on every
+  // platform. docs/reports/task-96-dctfilter-thread-race.
+  group('dctfilter thread safety', () {
+    // Version 3.2 is API 4: r2/r2.1 report no usable version (-1).
+    const versionCheck = r'''
+import vapoursynth as vs
+core = vs.core
+v = core.dctf.version
+print(f'DCTF_VERSION {v.major}.{v.minor}')
+if (v.major, v.minor) < (3, 2):
+    raise Exception(f'DCTFilter {v.major}.{v.minor} is older than r3.2 (task #96): '
+                    'r2/r2.1 abort under threads')
+print('dctfilter version OK')
+core.std.BlankClip().set_output()''';
+
+    test('the bundle has DCTFilter r3.2 or later (task #96)', () async {
+      if (_depsVersionBefore(depsDir, '1.18.0-rc3')) {
+        markTestSkipped('deps <= 1.18.0-rc2 ship DCTFilter r2/r2.1 on Windows '
+            'and macOS x64 (task #96); enforced from deps 1.18.0-rc3');
+        return;
+      }
+      final r = await _runVspipeScript(vspipePath, versionCheck, depsDir: depsDir);
+      expect(r.exitCode, 0, reason: 'stdout: ${r.stdout}\nstderr: ${r.stderr}');
+      expect(r.stdout.toString(), contains('dctfilter version OK'));
+    });
+
+    // The patch is upstream's c924a7a: no buffer map left, a buffer per call.
+    // No runtime property tells r3.2 from r3.2 + the patch, so read it.
+    test('the dctfilter patch drops the per-thread buffer map (task #96)', () {
+      final patch = File(path.join(Directory.current.path, '..', 'Scripts',
+              'patches', 'dctfilter-r3.2-thread-safety.patch'))
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
+      expect(patch, contains('\n-    std::unordered_map<std::thread::id, '));
+      expect(patch, contains(
+          '\n+        float *buffer = vsh::vsh_aligned_malloc<float>(64 * sizeof(float), 64);'));
+      for (final script in ['download-deps-macos.sh', 'download-deps-linux.sh',
+          'download-deps-windows.ps1']) {
+        final text = File(path.join(Directory.current.path, '..', 'Scripts', script))
+            .readAsStringSync();
+        expect(text, contains('dctfilter-r3.2-thread-safety.patch'),
+            reason: '$script does not apply the DCTFilter patch');
+        expect(text, isNot(contains('DctFilter-r2')),
+            reason: '$script still fetches DCTFilter r2');
+        expect(text, isNot(contains('com.holywu.dctfilter/r2')),
+            reason: '$script still fetches a prebuilt DCTFilter r2.x');
+      }
+    });
+
+    // Each filter instance has its own map, so the race fires on an instance's
+    // first frames: one graph of 1000 instances spliced end to end starts many
+    // of them under contention. With r2, half such runs aborted on an M1 (10 of
+    // 20), so ten miss it with a probability around 0.1%; with the patched
+    // build none of 20 did. Deblock_QED, which calls DCTFilter itself, runs
+    // the same way at the sweep row's size (96x64 4:2:2 12-bit, fields).
+    test('DCTFilter and Deblock_QED survive many instances starting together '
+        '(task #96)', () async {
+      if (_depsVersionBefore(depsDir, '1.18.0-rc3')) {
+        markTestSkipped('deps <= 1.18.0-rc2 ship DCTFilter r2/r2.1 on Windows '
+            'and macOS x64 (task #96); enforced from deps 1.18.0-rc3');
+        return;
+      }
+      String stress(String call, int instances, int length) => '''
+import vapoursynth as vs
+import havsfunc as haf
+core = vs.core
+core.num_threads = 8
+src = core.std.BlankClip(width=96, height=64, format=vs.YUV422P12, length=$length,
+                         color=[2048, 1500, 2500])
+src = core.std.SeparateFields(core.std.SetFieldBased(src, 2), tff=True)
+core.std.Splice([$call for _ in range($instances)]).set_output()''';
+      final runs = [
+        for (var i = 0; i < 10; i++)
+          ('DCTFilter', stress('core.dctf.DCTFilter(src, factors=[1, 1, 0, 0, 0, 0, 0, 0])', 1000, 20)),
+        for (var i = 0; i < 3; i++)
+          ('Deblock_QED', stress('haf.Deblock_QED(src)', 300, 8)),
+      ];
+      for (final (name, script) in runs) {
+        final r = await _runVspipeScript(vspipePath, script,
+            depsDir: depsDir, outputFrames: true);
+        expect(r.exitCode, 0,
+            reason: '$name aborted (exit ${r.exitCode}): an unlocked per-thread '
+                'buffer map, task #96?\nstderr: ${r.stderr}');
+      }
+    }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 5)));
+  });
+
   // Task #82: havsfunc patch 8 (download-deps-*) turns LUTDeCrawl's and
   // LUTDeRainbow's eight Lut2(function=lambda x, y: x & y) mask ANDs into
   // Expr 'x y min'. At 10 bits each of those tables was a million Python calls:
