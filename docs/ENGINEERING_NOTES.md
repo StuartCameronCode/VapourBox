@@ -6124,3 +6124,38 @@ Report: [docs/reports/task-91-sweep-ai-encode-budget](reports/task-91-sweep-ai-e
   stop running the Core ML path users run). If 10 frames is ever not enough,
   run the add-on encodes one at a time before raising the budget: it is per
   process.
+
+### Sources stored off the chroma grid (task #97, 2026-11-22)
+
+- **The fault.** A 4:2:0 frame with an odd width or height (or 4:2:2 /
+  4:1:1 with a width off its grid) is stored and decoded by FFmpeg, but
+  VapourSynth refuses a clip of that format and size (`BlankClip: invalid
+  height`), so every preview and encode of one failed; the HDR before frame
+  too (zimg 1027). Not only FFV1/rawvideo/Y4M: VP9, VP8, AV1, MJPEG, MPEG-4
+  ASP, MPEG-2, MagicYUV and ProRes (4:2:2 odd width) write such sizes, so a
+  screen recording of an odd-sized window is one. Gray and 4:4:0 at odd
+  sizes failed too, converted to 4:2:0 / 4:2:2 by the decoder.
+- **Fix.** `pipe_source` reads the frame at its stored size (FFmpeg's
+  rawvideo rounds chroma up: 63x33 4:2:0 carries 32x17, the padded frame's
+  chroma) and repeats the last luma column / row onto the grid
+  (`VideoJob::source_grid_pad`). `VideoJob::grid_output` gives the sizes for
+  a pipeline that keeps the geometry: the script pads to every grid the
+  picture must sit on (pipe, output format, encoder step) before the output
+  conversion and raises on any other size; the encoder's `crop` (first in its
+  `-vf`) and the preview's (after RGB) take it to the encoder's step. FFV1,
+  SVT-AV1 and ProRes keep the stored size; x264/x265 (4:2:0/4:2:2), HuffYUV,
+  v210, FFVHuff 8-bit subsampled and the hardware encoders get the next size
+  up (the user's option A), logged. FFV1 encodes are bit-exact. Never FFmpeg's
+  `pad` for this: it floors an odd width and blacks the last real column.
+- **Side effects.** A 63x33 4:4:4 source with Color Format 4:2:0 (which
+  failed) now encodes at 63x33. VideoToolbox silently wrote an odd-sized
+  source 1 px smaller each way; it now gets the padded size.
+- **Trap.** FFmpeg's own RGB conversion of an odd-height 4:2:0 frame spreads
+  17 chroma rows over 33 luma rows: 3.4 levels mean against the padded
+  conversion on a 64x33 testsrc2. The preview (padded) is the right one; a
+  test reference must be built on an on-grid twin.
+- **HDR before frame**: crop to the grid below before the tone map (model
+  `video.gridPad`, `SourceModel.gridCropBelow`): identical to the preview but
+  its last line; converting to 4:4:4 first moved the whole picture ~1.4 levels.
+
+Report: [docs/reports/task-97-off-grid-sources](reports/task-97-off-grid-sources/index.html).
