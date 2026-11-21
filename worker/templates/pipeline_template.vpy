@@ -51,6 +51,13 @@ clip = create_pipe_clip(
     fps_den={{INPUT_FPS_DEN}},
     pix_fmt="{{INPUT_PIX_FMT}}",
     cache_frames={{PIPE_CACHE_FRAMES}},
+{{#PIPE_GRID_PAD}}
+    # Stored off its chroma grid (task #97): read at that size, padded onto
+    # the grid with the last column / row repeated (VideoJob::source_grid_pad).
+    pad_right={{PIPE_PAD_RIGHT}},
+    pad_bottom={{PIPE_PAD_BOTTOM}},
+    pad_fields={{PIPE_PAD_FIELDS}},
+{{/PIPE_GRID_PAD}}
 )
 {{#PREVIEW_ONLY}}
 
@@ -2500,6 +2507,11 @@ clip = core.std.Crop(clip, left={{CROP_LEFT}}, right={{CROP_RIGHT}}, top={{CROP_
 # PASS 10: RESIZE / UPSCALE
 # ============================================================================
 {{#RESIZE}}
+{{#GRID_PAD_RESIZE}}
+# The frame carries pipe_source's repeated column / row (a source stored off
+# its chroma grid, task #97); the resize below reads only the real picture.
+_grid_pad_in = (clip.width, clip.height)
+{{/GRID_PAD_RESIZE}}
 
 {{#RESIZE_INTEGER_UPSCALE}}
 # Integer upscaling: repeated edge-directed 2x doubling (double the height,
@@ -2687,6 +2699,11 @@ clip = core.std.CopyFrameProps(clip, _ai_src)
 {{/RESIZE_INTEGER_UPSCALE}}
 
 {{#RESIZE_STANDARD}}
+{{#GRID_PAD_RESIZE}}
+# The real picture inside the padded frame, scaled by any integer upscale.
+_grid_real_w = clip.width - {{GRID_PAD_W}} * (clip.width // _grid_pad_in[0])
+_grid_real_h = clip.height - {{GRID_PAD_H}} * (clip.height // _grid_pad_in[1])
+{{/GRID_PAD_RESIZE}}
 # The shape the frame is meant to be *seen* at. On an anamorphic source the
 # stored frame is the wrong shape on purpose (720x576 shown as 16:9), so fitting
 # a target box by stored dimensions alone gets the geometry wrong — which is what
@@ -2695,7 +2712,7 @@ clip = core.std.CopyFrameProps(clip, _ai_src)
 _display_aspect = {{ASPECT_DAR}}
 {{/ASPECT_DAR_OVERRIDE}}
 {{#ASPECT_DAR_FROM_SOURCE}}
-_display_aspect = (clip.width * {{SOURCE_SAR}}) / clip.height
+_display_aspect = ({{RESIZE_SRC_W}} * {{SOURCE_SAR}}) / {{RESIZE_SRC_H}}
 {{/ASPECT_DAR_FROM_SOURCE}}
 
 
@@ -2722,7 +2739,7 @@ def _height(value):
 _fit_aspect = _display_aspect
 {{/ASPECT_SQUARE_PIXELS}}
 {{#ASPECT_KEEP_PIXELS}}
-_fit_aspect = clip.width / clip.height
+_fit_aspect = {{RESIZE_SRC_W}} / {{RESIZE_SRC_H}}
 {{/ASPECT_KEEP_PIXELS}}
 
 # Calculate target dimensions
@@ -2745,9 +2762,9 @@ elif target_h > 0 and target_w <= 0:
     target_w = _even(target_h * _fit_aspect)
 elif target_w > 0 and target_h > 0:
     # Both specified - fit within bounds while maintaining aspect
-    scale = min(target_w / (clip.height * _fit_aspect), target_h / clip.height)
-    target_w = _even(clip.height * _fit_aspect * scale)
-    target_h = _height(clip.height * scale)
+    scale = min(target_w / ({{RESIZE_SRC_H}} * _fit_aspect), target_h / {{RESIZE_SRC_H}})
+    target_w = _even({{RESIZE_SRC_H}} * _fit_aspect * scale)
+    target_h = _height({{RESIZE_SRC_H}} * scale)
 {{/MAINTAIN_ASPECT}}
 
 # filter_param_a/b carry the kernel's own tuning: b and c for Bicubic, taps
@@ -2758,6 +2775,9 @@ elif target_w > 0 and target_h > 0:
 # padded copy instead, with the source window set to the real frame (task
 # #57). Any other frame is read as it is.
 def _resize(src, **window):
+{{#GRID_PAD_RESIZE}}
+    window.update(src_width=_grid_real_w, src_height=_grid_real_h)
+{{/GRID_PAD_RESIZE}}
     return core.resize.{{RESIZE_KERNEL}}(
         src,
         width=target_w,
@@ -3101,6 +3121,19 @@ if len(clip) != _custom_vs_frames_before:
 # ============================================================================
 # OUTPUT FORMAT CONVERSION
 # ============================================================================
+{{#GRID_PAD_TO}}
+# A picture off a chroma grid on its way out (task #97, VideoJob::grid_output):
+# the source's, padded by pipe_source, or the output format's or the encoder's
+# (a 63x33 picture as 4:2:0, or into an encoder that takes only even sizes).
+# The clip is padded here to every grid it must sit on, repeating its last
+# column / row, so the conversion below runs on a size it accepts; the
+# encoder's crop takes it back to {{GRID_ENCODED_W}}x{{GRID_ENCODED_H}}. The sizes are the worker's,
+# so a clip of any other size raises rather than being cropped wrong.
+if (clip.width, clip.height) != ({{GRID_IN_W}}, {{GRID_IN_H}}):
+    raise vs.Error('VapourBox: the picture is %dx%d where the worker expected {{GRID_IN_W}}x{{GRID_IN_H}} '
+                   '(VideoJob::grid_output, task #97)' % (clip.width, clip.height))
+clip = _pf.pad_to(clip, {{GRID_SCRIPT_W}}, {{GRID_SCRIPT_H}}, fields={{GRID_PAD_FIELDS}}, label='Chroma grid')
+{{/GRID_PAD_TO}}
 {{#CHROMA_CONVERT}}
 # Convert to the requested output colour format.
 #

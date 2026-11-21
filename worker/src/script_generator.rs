@@ -751,6 +751,62 @@ impl ScriptGenerator {
         self.substitute_parameters_on(&script, job, pipeline, stab)
     }
 
+    /// The chroma-grid blocks of the template (task #97); see the call site.
+    fn substitute_grid(mut script: String, job: &VideoJob, pipeline: &ProcessingPipeline) -> String {
+        let py = |b: bool| if b { "True" } else { "False" };
+        let (pw, ph) = job.source_grid_pad();
+        if pw > 0 || ph > 0 {
+            script = keep_block_lines("PIPE_GRID_PAD", script);
+            script = script.replace("{{PIPE_PAD_RIGHT}}", &pw.to_string());
+            script = script.replace("{{PIPE_PAD_BOTTOM}}", &ph.to_string());
+            script = script.replace(
+                "{{PIPE_PAD_FIELDS}}",
+                py(Self::field_based_for(job, pipeline).is_some()),
+            );
+        } else {
+            script = remove_block("{{#PIPE_GRID_PAD}}", "{{/PIPE_GRID_PAD}}", script);
+        }
+
+        // The repeated column / row is still where pipe_source put it when the
+        // standard resize runs: no Rotate / Flip, and no crop on that side.
+        let cr = &pipeline.crop_resize;
+        let crops = cr.enabled && cr.crop_enabled;
+        let live = (
+            if crops && cr.crop_right > 0 { 0 } else { pw },
+            if crops && cr.crop_bottom > 0 { 0 } else { ph },
+        );
+        let standard_resize = cr.enabled && (cr.resize_enabled || cr.squares_pixels());
+        if standard_resize && !pipeline.geometry.has_effect() && (live.0 > 0 || live.1 > 0) {
+            script = keep_block_lines("GRID_PAD_RESIZE", script);
+            script = script.replace("{{GRID_PAD_W}}", &live.0.to_string());
+            script = script.replace("{{GRID_PAD_H}}", &live.1.to_string());
+            script = script.replace("{{RESIZE_SRC_W}}", "_grid_real_w");
+            script = script.replace("{{RESIZE_SRC_H}}", "_grid_real_h");
+        } else {
+            script = remove_block("{{#GRID_PAD_RESIZE}}", "{{/GRID_PAD_RESIZE}}", script);
+            script = script.replace("{{RESIZE_SRC_W}}", "clip.width");
+            script = script.replace("{{RESIZE_SRC_H}}", "clip.height");
+        }
+
+        match job.grid_output() {
+            Some(g) => {
+                script = keep_block_lines("GRID_PAD_TO", script);
+                for (key, (w, h)) in [("IN", g.script_in), ("SCRIPT", g.script), ("ENCODED", g.encoded)] {
+                    script = script.replace(&format!("{{{{GRID_{key}_W}}}}"), &w.to_string());
+                    script = script.replace(&format!("{{{{GRID_{key}_H}}}}"), &h.to_string());
+                }
+                script = script.replace(
+                    "{{GRID_PAD_FIELDS}}",
+                    py(Self::output_field_order(job, pipeline).is_some()),
+                );
+            }
+            None => {
+                script = remove_block("{{#GRID_PAD_TO}}", "{{/GRID_PAD_TO}}", script);
+            }
+        }
+        script
+    }
+
     /// Get the directory where pipe_source.py lives (same search as templates).
     pub fn pipe_source_dir() -> Result<PathBuf> {
         let exe_path = env::current_exe()?;
@@ -819,6 +875,16 @@ impl ScriptGenerator {
                 script = remove_block("{{#VFR_TIMELINE}}", "{{/VFR_TIMELINE}}", script);
             }
         }
+
+        // ====================================================================
+        // A SOURCE OFF ITS CHROMA GRID (task #97)
+        // ====================================================================
+        // pipe_source pads it onto the grid (VideoJob::source_grid_pad); a
+        // standard resize reads only the real picture; GRID_PAD_TO pads the
+        // delivered picture to every grid it must sit on, for the encoder's
+        // crop (VideoJob::grid_output). Every block goes when the sizes are
+        // on their grids, so those scripts are unchanged.
+        script = Self::substitute_grid(script, job, pipeline);
 
         // ====================================================================
         // CROP PASS (its block sits after Stabilize and Rotate / Flip, directly
