@@ -842,9 +842,9 @@ core.std.BlankClip().set_output()''';
 
     // Each filter instance has its own map, so the race fires on an instance's
     // first frames: one graph of 1000 instances spliced end to end starts many
-    // of them under contention. With r2, half such runs aborted on an M1 (10 of
-    // 20), so ten miss it with a probability around 0.1%; with the patched
-    // build none of 20 did. Deblock_QED, which calls DCTFilter itself, runs
+    // of them under contention. With r2, 14 of 20 such runs aborted on an M1
+    // (the macOS x64 r2.1 under Rosetta 11 of 20), so ten all miss it with a
+    // probability under 0.1%; with the patched build none of 20 did. Deblock_QED, which calls DCTFilter itself, runs
     // the same way at the sweep row's size (96x64 4:2:2 12-bit, fields).
     test('DCTFilter and Deblock_QED survive many instances starting together '
         '(task #96)', () async {
