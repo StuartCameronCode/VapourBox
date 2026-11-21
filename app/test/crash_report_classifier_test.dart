@@ -56,6 +56,15 @@ void main() {
     expect(verdict, 'image:AppleParavirtGPUMetalIOGPUFamily');
   });
 
+  test('Core ML\'s Metal kernel compile abort on an Intel Mac is named (task #94)', () async {
+    final out = await classify(['macos-x64-coreml-mps-compile-sigabrt.ips']);
+    expect(out['macos-x64-coreml-mps-compile-sigabrt.ips']![0], 'coreml-mps-compile');
+    expect(out['macos-x64-coreml-mps-compile-sigabrt.ips']![1], contains('Espresso'));
+    // The race is not mistaken for it, nor it for the race.
+    final race = await classify(['macos-x64-vspipe-teardown-sigill.ips', 'macos-arm64-moltenvk-sigsegv.ips']);
+    expect(race.values.map((v) => v[0]), isNot(contains('coreml-mps-compile')));
+  });
+
   test('an unreadable file is reported, never a failed step', () async {
     final missing = p.join(fixtures, 'does-not-exist.ips');
     final r = await Process.run(python, ['-I', script, '--classify', missing]);
