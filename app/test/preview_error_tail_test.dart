@@ -38,4 +38,31 @@ void main() {
   test('no logs: the error', () {
     expect(previewErrorTail('\n  \n', 'timed out'), 'timed out');
   });
+
+  // Task #93: the worker's message carries the traceback after its first
+  // line; four lines cut it short.
+  test('previewWorkerError keeps the whole multi-line worker error', () {
+    final logs = [
+      'Generated preview script: "/tmp/x_preview.vpy"',
+      'Error generating preview: The VapourSynth script failed: boom',
+      '',
+      'Traceback (most recent call last):',
+      '  File "/tmp/x_preview.vpy", line 9, in <module>',
+      '    raise ValueError("boom")',
+      'ValueError: boom',
+      '(vspipe exited with exit code 1)',
+    ].join('\n');
+    final e = previewWorkerError(logs, 'preview exited with 1');
+    expect(e.split('\n').first, startsWith('Error generating preview:'));
+    expect(e, contains('  File "/tmp/x_preview.vpy", line 9, in <module>'));
+    expect(e, endsWith('(vspipe exited with exit code 1)'));
+    expect(e, isNot(contains('Generated preview script')));
+  });
+
+  test('previewWorkerError is bounded, and falls back to the tail', () {
+    final long = ['Error generating preview: x', for (var i = 0; i < 60; i++) 'line $i'].join('\n');
+    expect(previewWorkerError(long, null, maxLines: 5).split('\n'),
+        ['Error generating preview: x', 'line 0', 'line 1', 'line 2', 'line 3', '…']);
+    expect(previewWorkerError('a\nb', 'timed out'), previewErrorTail('a\nb', 'timed out'));
+  });
 }

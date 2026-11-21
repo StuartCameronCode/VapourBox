@@ -752,6 +752,8 @@ class WorkerHarness {
   /// The preview path is a separate script + separate ffmpeg invocation from the
   /// encode path, so a filter can render fine and still fail the preview (or
   /// vice versa). Anything asserted about one should be asserted about both.
+  static int _previewCalls = 0;
+
   static Future<PreviewResult> runPreview(
     Map<String, dynamic> jobJson, {
     required int frame,
@@ -761,7 +763,11 @@ class WorkerHarness {
     Map<String, String> extraEnv = const {},
   }) async {
     final id = jobJson['id']?.toString() ?? 'preview';
-    final configFile = File(p.join(Directory.systemTemp.path, 'vb_pv_$id.json'));
+    // One file per call: a test may run several previews of one job at once
+    // (the IVTC repeat test), and they wrote, read and deleted one file
+    // (task #93).
+    final configFile = File(p.join(Directory.systemTemp.path,
+        'vb_pv_${id}_${pid}_${DateTime.now().microsecondsSinceEpoch}_${_previewCalls++}.json'));
     await configFile.writeAsString(jsonEncode(jobJson));
     try {
       final process = await Process.start(
@@ -1377,6 +1383,20 @@ String previewErrorTail(String logs, String? error) {
   return [lines[head], '…', ...tail].join(' | ');
 }
 
+/// The worker's whole error for a failed preview: its `Error generating
+/// preview:` line and everything after it (the message's traceback and
+/// vspipe's exit status; in preview mode the worker prints nothing after
+/// it), at most [maxLines] lines. Without that line, [previewErrorTail].
+/// [previewErrorTail] keeps four lines, which cut a traceback short (task
+/// #93).
+String previewWorkerError(String logs, String? error, {int maxLines = 40}) {
+  final lines = logs.split('\n').map((l) => l.trimRight()).toList();
+  final head = lines.lastIndexWhere((l) => l.contains('Error generating preview:'));
+  if (head < 0) return previewErrorTail(logs, error);
+  final block = lines.sublist(head).where((l) => l.trim().isNotEmpty).toList();
+  return (block.length > maxLines ? [...block.take(maxLines), '…'] : block).join('\n');
+}
+
 /// Outcome of a `--preview` run: the PNG bytes, or an error plus the worker's
 /// stderr (which carries the VapourSynth traceback for a failed pass).
 class PreviewResult {
@@ -1392,8 +1412,11 @@ class PreviewResult {
   /// [previewErrorTail].
   String get errorTail => previewErrorTail(logs, error);
 
+  /// The worker's whole error, multi-line: see [previewWorkerError].
+  String get workerError => previewWorkerError(logs, error);
+
   @override
-  String toString() => success ? 'SUCCESS (${png!.length} bytes)' : 'FAILED: $error\n$errorTail';
+  String toString() => success ? 'SUCCESS (${png!.length} bytes)' : 'FAILED: $error\n$workerError';
 }
 
 /// [AddonManager] over dart:io, for [WorkerHarness.ensureAddon]: the app's

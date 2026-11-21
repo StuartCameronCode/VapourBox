@@ -92,6 +92,7 @@ pub fn vspipe_failure_message(status: &str, crashed: bool, tail: &str) -> String
             .filter(|r| !r.is_empty())
             .map(str::to_string)
             .or_else(|| last_exception_line(&lines))
+            .or_else(|| evaluation_error_text(&lines))
             .unwrap_or_else(|| "see the traceback below".to_string());
         return with_traceback(format!("The VapourSynth script failed: {}", reason), &lines, &exited);
     }
@@ -161,6 +162,30 @@ fn last_exception_line(lines: &[&str]) -> Option<String> {
         .rev()
         .find(|l| !l.trim().is_empty() && !l.starts_with(' ') && !l.starts_with('\t') && !is_progress_trailer(l))
         .map(|l| l.trim().to_string())
+}
+
+/// What vsscript said after `Script evaluation failed:` when it is not a
+/// Python exception (no traceback): a script file it could not read prints
+/// `File reading exception:` and the OS error (task #93: a preview whose
+/// script another preview had deleted). Joined into one line, bounded.
+fn evaluation_error_text(lines: &[&str]) -> Option<String> {
+    if lines.iter().any(|l| l.trim_start().starts_with("Traceback (most recent call last)")) {
+        return None;
+    }
+    let start = lines
+        .iter()
+        .rposition(|l| l.trim_start().starts_with("Script evaluation failed"))?;
+    let text: Vec<&str> = lines[start + 1..]
+        .iter()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty() && !is_progress_trailer(l))
+        .take(4)
+        .collect();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.join(" "))
+    }
 }
 
 /// `summary`, then the last traceback (bounded), then the exit status.
@@ -287,6 +312,25 @@ Output 97 frames in 0.06 seconds (1646.73 fps)
         assert!(encoder_got_no_header("[in#0 @ 0x1] Header too large."));
         assert!(encoder_got_no_header("Error opening input file -."));
         assert!(!encoder_got_no_header("Unknown encoder 'h264_qsv'"));
+    }
+
+    /// vspipe on a script file that is not there (bundle 1.16.0, R78): not a
+    /// Python exception, so no traceback. Task #93's previews deleted each
+    /// other's script; the job error read only "see the traceback below".
+    const FILE_READING: &str = "Script evaluation failed:\n\
+        File reading exception:\n\
+        [Errno 2] No such file or directory: '/tmp/vb_job_preview.vpy'\n";
+
+    #[test]
+    fn a_script_file_that_cannot_be_read_says_why() {
+        let m = vspipe_failure_message("exit code 1", false, FILE_READING);
+        assert_eq!(
+            first_line(&m),
+            "The VapourSynth script failed: File reading exception: \
+             [Errno 2] No such file or directory: '/tmp/vb_job_preview.vpy'"
+        );
+        assert!(!m.contains("see the traceback below"));
+        assert!(m.ends_with("(vspipe exited with exit code 1)"));
     }
 
     #[test]

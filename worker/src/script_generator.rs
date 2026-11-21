@@ -117,6 +117,12 @@ pub struct ScriptGenerator {
     /// frames fall on the grid (see `source_timing`). `None` for a
     /// constant-rate source, whose script is unchanged.
     timeline: Option<TimelineWindow>,
+    /// Where a preview's own files (its script, a Stabilize file-mode job's
+    /// pitch factors) are written. The worker's preview gives each run a
+    /// directory of its own (task #93): keyed by `job.id` alone, three
+    /// previews of one job at once deleted and rewrote each other's script.
+    /// `None` is the system temp directory.
+    scratch_dir: Option<PathBuf>,
 }
 
 /// Parameters for preview script generation.
@@ -209,7 +215,22 @@ impl ScriptGenerator {
             animejanai: Err("AnimeJaNai was not checked for this job.".to_string()),
             addons: None,
             timeline: None,
+            scratch_dir: None,
         })
+    }
+
+    /// Write the preview's script and pitch factors into `dir`, a directory
+    /// private to this preview (task #93), instead of the system temp
+    /// directory.
+    pub fn with_scratch_dir(mut self, dir: PathBuf) -> Self {
+        self.scratch_dir = Some(dir);
+        self
+    }
+
+    /// The directory a preview's files go in: its scratch directory, else the
+    /// system temp directory.
+    fn preview_dir(&self) -> PathBuf {
+        self.scratch_dir.clone().unwrap_or_else(env::temp_dir)
     }
 
     /// Set the add-ons directory and platform id the job's add-ons are
@@ -399,7 +420,7 @@ impl ScriptGenerator {
 
         // A trimmed encode seeks the decoder, so clip frame 0 is start_frame.
         let offset = job.start_frame.unwrap_or(0).max(0) as i64;
-        let stab = Self::stabilize_context(job, &pipeline, offset, "encode")?;
+        let stab = Self::stabilize_context(job, &pipeline, offset, "encode", &env::temp_dir())?;
         let script = self.substitute_parameters(&self.template, job, &pipeline, &stab);
 
         // Write to temp file
@@ -418,7 +439,8 @@ impl ScriptGenerator {
         let pipeline = job.effective_pipeline();
         self.ensure_methods_ready(&pipeline)?;
         let stab = Self::stabilize_context(
-            job, &pipeline, preview_params.source_frame_offset.max(0) as i64, "preview")?;
+            job, &pipeline, preview_params.source_frame_offset.max(0) as i64, "preview",
+            &self.preview_dir())?;
 
         // Start with preview template and substitute preview-specific params
         let mut script = self.preview_template.clone();
@@ -457,9 +479,10 @@ impl ScriptGenerator {
         // Now apply the same pipeline substitutions
         script = self.substitute_parameters_on(&script, job, &pipeline, &stab);
 
-        // Write to temp file
-        let temp_dir = env::temp_dir();
-        let script_path = temp_dir.join(format!("{}_preview.vpy", job.id));
+        // Write to the preview's own directory: named by the job alone, the
+        // file is shared by every preview of that job running at once (task
+        // #93). The encode's `<id>.vpy` is one worker's per job.
+        let script_path = self.preview_dir().join(format!("{}_preview.vpy", job.id));
 
         fs::write(&script_path, &script)
             .with_context(|| format!("Failed to write preview script to {:?}", script_path))?;
@@ -647,6 +670,7 @@ impl ScriptGenerator {
         pipeline: &ProcessingPipeline,
         frame_offset: i64,
         purpose: &str,
+        dir: &Path,
     ) -> Result<StabilizeContext> {
         let stab = &pipeline.stabilize;
         if !(stab.pitch_active() && stab.pitch_mode == PitchMode::File) {
@@ -668,7 +692,7 @@ impl ScriptGenerator {
         for f in &factors {
             normalised.push_str(&format!("{:.8}\n", f));
         }
-        let path = env::temp_dir().join(format!("{}_{}_pitch_factors.txt", job.id, purpose));
+        let path = dir.join(format!("{}_{}_pitch_factors.txt", job.id, purpose));
         fs::write(&path, normalised)
             .with_context(|| format!("Failed to write pitch factors to {:?}", path))?;
         Ok(StabilizeContext { frame_offset, factors_path: Some(path) })

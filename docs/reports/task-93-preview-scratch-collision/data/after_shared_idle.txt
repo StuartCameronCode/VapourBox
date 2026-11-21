@@ -1,0 +1,2 @@
+mode=shared rounds=10 busy=0 ok=360 wrong_picture=0 failed=0
+failed previews' messages:
