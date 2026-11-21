@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sweep AI encode budget</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+</style>
+</head>
+<body>
+<h1>The format sweep's AI-model encodes: 10 frames, not 30</h1>
+<p class="meta">Task #91, 2026-11-22. Nightly format-sweep legs on GitHub's <code>macos-15-intel</code> runners (Intel Core i7-8700B, 4 vCPUs; both x64 CPU tiers), deps 1.18.0-rc2, the ai-runtime add-on's onnxruntime 1.23.2; the other platforms' legs of the same runs for comparison. Wall times of whole test groups and rows as the sweep logs them. No screenshots: no picture is compared here, only times.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>The fault:</b> on macOS x64, the sweep's delta-only check (an FFV1 encode whose untouched samples must be bit-exact) timed out at the 300 s job budget on most Colourisation rows and one Face Restoration row, every nightly.</li>
+<li><b>Most of it was Core ML</b>, and task #94 (<a href="../task-94-coreml-intel-mps-abort/index.html">report</a>) has removed it: Intel Macs now run the ai-runtime models on the CPU, which was faster on these runners in every comparison. That is also the user-facing fix: the minutes of Core ML start-up before an Intel Mac's first frame are gone. Nothing more is needed in the worker.</li>
+<li><b>What was left is the test's budget:</b> on #94's verification run (CPU), DeOldify's 30-frame encodes still timed out on all four rows of the x64 (v3) leg; every other add-on variant passed. DeOldify costs ~3.3 s a frame there (#94's measurement), and the sweep runs two rows at once on 4 vCPUs, each ONNX Runtime session wanting every core.</li>
+<li><b>Fix (test only):</b> a delta-only encode of an add-on (AI-model) variant covers the fixture's first 10 frames (<code>sweepAddonEncodeFrames</code>), as a trim from frame 0, and the comparison takes the same frames. The check needs both temporal edges (DDColor reads two frames either side, Face Restoration's landmarks two) and some full windows, not 30 frames. Every other variant still encodes all 30.</li>
+<li><b>Rejected:</b> forcing the CPU in the test (moot on Intel after #94; on arm64 it would stop the sweep running the Core ML path users run), a longer timeout alone (minutes of CI per row for no extra coverage, and a real slowdown hides longer). If 10 frames is ever not enough, run the add-on encodes one at a time (the budget is per process) before raising the timeout.</li>
+</ul>
+
+<h2>Before #94: Core ML on Intel (run 44562921675, 2026-11-19)</h2>
+<p>Each delta-only group's wall time, from the previous group's finish to its own (five rows, two at a time on x64, one at a time on the 3-core arm64 runner), and its rows that hit the 300 s budget (<a href="data/delta_groups.tsv">data/delta_groups.tsv</a>). The 96x66 TFF rows failed separately with Resize error 1027 everywhere (task #87, fixed since).</p>
+<table>
+<tr><th>Variant</th><th>macOS x64</th><th>macOS x64 v2</th><th>macOS arm64</th><th>Linux x64</th><th>Windows x64</th></tr>
+<tr><td>colorize/ddcolor</td><td class="num no">847 s, 4 timeouts</td><td class="num no">696 s, 2</td><td class="num">496 s</td><td class="num">84 s</td><td class="num">90 s</td></tr>
+<tr><td>colorize/deoldify</td><td class="num no">600 s, 2</td><td class="num no">669 s, 2</td><td class="num">478 s</td><td class="num">148 s</td><td class="num">148 s</td></tr>
+<tr><td>face_restore</td><td class="num">222 s</td><td class="num">258 s</td><td class="num">129 s</td><td class="num">32 s</td><td class="num">34 s</td></tr>
+<tr><td>face_restore/model=gfpgan</td><td class="num">174 s</td><td class="num">505 s</td><td class="num">127 s</td><td class="num">33 s</td><td class="num">34 s</td></tr>
+<tr><td>face_restore/model=codeFormer</td><td class="num no">805 s, 1</td><td class="num no">570 s, 1</td><td class="num">222 s</td><td class="num">27 s</td><td class="num">28 s</td></tr>
+</table>
+<p>The add-on variants' preview rows (one frame each) showed the same split (<a href="data/preview_rows.tsv">data/preview_rows.tsv</a>): DeOldify on Core ML took a median 148 s a row on x64 (93 s on v2) against 14 s on Linux; DDColor, whose preview already ran on the CPU (<code>colorize.PREVIEW_ON_CPU</code>), 20 s; CodeFormer 60 s against 3 s.</p>
+
+<h2>After #94: the CPU on Intel (run 44869849455, 2026-11-21)</h2>
+<table>
+<tr><th>Variant</th><th>macOS x64</th><th>macOS x64 v2</th><th>macOS arm64 (Core ML)</th></tr>
+<tr><td>colorize/ddcolor</td><td class="num ok">357 s</td><td class="num ok">200 s</td><td class="num">471 s</td></tr>
+<tr><td>colorize/deoldify</td><td class="num no">668 s, 4 timeouts</td><td class="num ok">391 s</td><td class="num">471 s</td></tr>
+<tr><td>face_restore</td><td class="num ok">122 s</td><td class="num ok">90 s</td><td class="num">130 s</td></tr>
+<tr><td>face_restore/model=gfpgan</td><td class="num ok">162 s</td><td class="num ok">67 s</td><td class="num">116 s</td></tr>
+<tr><td>face_restore/model=codeFormer</td><td class="num ok">151 s</td><td class="num ok">69 s</td><td class="num">190 s</td></tr>
+</table>
+<p>(The 96x66 TFF row of each group still failed with Resize error 1027 in this run; it ran before #87 reached main.) DeOldify's preview rows on x64 fell from 148 s to 53 s (median), CodeFormer's from 60 s to 10 s.</p>
+<p><b>Arithmetic:</b> DeOldify at its default render size runs the model once per frame (temporal radius 1, memoised): 30 runs × ~3.3 s (#94: 3.2–3.5 s a frame on these runners, single process) + ~10 s start-up ≈ 110 s alone. Two encodes sharing 4 vCPUs roughly double it, ≈ 220–250 s, and a slower runner draw passes 300 s: v2 passed at about 150–190 s a row, v3 did not. At 10 frames: ≈ 45 s alone, ≈ 100–130 s two at once, a 2.3–3× margin.</p>
+
+<h2>With 10 frames (macOS arm64, local)</h2>
+<p>The five add-on delta-only groups with this change, on an M1 Pro (8 cores, so four rows at a time; Core ML, deps 1.18.0-rc2), every row passing, the 96x66 TFF rows included (#87 is on main). The outputs hold 10 frames (checked with ffprobe); a non-add-on group's (DeScratch) still hold 30, and all 14 non-add-on groups passed unchanged.</p>
+<table>
+<tr><th>Variant</th><th>Group wall time</th><th>Rows</th></tr>
+<tr><td>colorize/ddcolor</td><td class="num">192 s</td><td class="ok">5 ok</td></tr>
+<tr><td>colorize/deoldify</td><td class="num">57 s</td><td class="ok">5 ok</td></tr>
+<tr><td>face_restore</td><td class="num">15 s</td><td class="ok">5 ok</td></tr>
+<tr><td>face_restore/model=gfpgan</td><td class="num">14 s</td><td class="ok">5 ok</td></tr>
+<tr><td>face_restore/model=codeFormer</td><td class="num">180 s</td><td class="ok">5 ok</td></tr>
+</table>
+<p>This says the change works, not what it saves on x64: on Apple Silicon each process's Core ML compile (DDColor's ~1–3 min, CodeFormer's) dominates, and frames are cheap. The saving on the Intel runners, where the CPU runs every frame, is the arithmetic above until a nightly measures it.</p>
+
+<h2>Limits</h2>
+<ul>
+<li>The x64 numbers are GitHub's Intel VMs (4 vCPUs, paravirtual GPU); runner draws differ by about 2× (DeOldify's group: 391 s on one, 668 s on the other, same code). No real Intel Mac was measured; #94's report covers what that leaves open about the provider choice.</li>
+<li>Group wall time includes the comparison and the fixtures' decodes, not only the encodes; it is an upper bound on the encodes' share.</li>
+<li>The 10-frame margin is an estimate from #94's per-frame times; the first nightly with this change is the measurement, and is added below when it has run.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>CACHE=&lt;dir&gt; scripts/fetch.sh 44562921675 44869849455     # needs gh
+CACHE=&lt;dir&gt; python3 -I scripts/sweep_timings.py           # writes data/*.tsv</pre>
+<p>Locally, the delta-only groups alone: <code>flutter test --tags sweep test/integration_format_sweep_test.dart --plain-name 'bit-exact outside a delta-only pass'</code> (installs the add-ons; <code>VAPOURBOX_ADDONS_DIR</code> points it at installed ones).</p>
+</body>
+</html>

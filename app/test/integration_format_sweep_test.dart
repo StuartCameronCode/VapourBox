@@ -23,7 +23,8 @@
 ///  4. **acts** — on at least one row the variant differs from the
 ///     passthrough preview, or the parity check proves nothing.
 /// And, for the passes declared in [deltaOnly], an FFV1 encode whose
-/// untouched samples must be bit-exact.
+/// untouched samples must be bit-exact (an add-on variant's encode covers
+/// the first [sweepAddonEncodeFrames] frames only, task #91).
 ///
 /// Groups and tags:
 ///  * `format sweep (smoke)` — tag `sweep-smoke` (task #84): one rotating
@@ -338,13 +339,15 @@ List<List<int>> _plane(List<int> samples, SweepFormat f, int w, int h, int n, in
   ];
 }
 
-/// An FFV1 encode of [row]: its path, or `encode failed: …`.
-Future<String> _encode(String label, ProcessingPipelineFor pipelineFor, SweepRow row) =>
+/// An FFV1 encode of [row] (its first [frames] frames if given): its path, or
+/// `encode failed: …`.
+Future<String> _encode(String label, ProcessingPipelineFor pipelineFor, SweepRow row,
+        {int? frames}) =>
     _pool.run(() async {
       final out = p.join(sweepOutDir, 'delta', '${label}_${row.key.replaceAll('/', '_')}.mkv');
       await Directory(p.dirname(out)).create(recursive: true);
       final job = sweepJob(pipelineFor(row.size.width, row.size.height), row,
-          await sweepFixture(row), outputPath: out);
+          await sweepFixture(row), outputPath: out, frames: frames);
       final r = await WorkerHarness.runJob(job.toJson(), label: label);
       return r.success ? out : 'encode failed: ${r.error}';
     });
@@ -352,7 +355,11 @@ Future<String> _encode(String label, ProcessingPipelineFor pipelineFor, SweepRow
 Future<List<String>> _deltaCheck(SweepVariant v, DeltaOnly decl, SweepRow row) async {
   final w = row.size.width, h = row.size.height;
   final f = row.format;
-  final outPath = await _encode(v.id.replaceAll('/', '_'), v.pipelineFor, row);
+  // An add-on (AI-model) variant encodes the first sweepAddonEncodeFrames
+  // only (task #91); every other variant the whole fixture.
+  final window = v.addons.isEmpty ? null : sweepAddonEncodeFrames;
+  final outPath =
+      await _encode(v.id.replaceAll('/', '_'), v.pipelineFor, row, frames: window);
   if (outPath.startsWith('encode failed')) return ['${row.key}: $outPath'];
   final probe = await WorkerHarness.firstStream(outPath,
       selector: 'v:0', entries: ['pix_fmt', 'width', 'height']);
@@ -370,7 +377,8 @@ Future<List<String>> _deltaCheck(SweepVariant v, DeltaOnly decl, SweepRow row) a
   final srcS = samplesOf(src, f.bytesPerSample);
   final outS = samplesOf(await decodeRaw(outPath, f.pipedName), f.bytesPerSample);
   final dims = planeDims(f, w, h);
-  final frames = srcS.length ~/ (dims.lw * dims.lh + 2 * dims.cw * dims.ch);
+  final srcFrames = srcS.length ~/ (dims.lw * dims.lh + 2 * dims.cw * dims.ch);
+  final frames = window ?? srcFrames;
   final odims = planeDims(f, ow, oh);
   final oframes = outS.length ~/ (odims.lw * odims.lh + 2 * odims.cw * odims.ch);
   if (oframes != frames) return ['${row.key}: $oframes frames out of $frames'];
@@ -407,6 +415,9 @@ Future<List<String>> _deltaCheck(SweepVariant v, DeltaOnly decl, SweepRow row) a
       compare('planes $planes not bit-exact', srcAt, only: (plane, x, y) => planes.contains(plane));
     case WorkDepth(:final workDepth):
       if (f.pipedDepth <= workDepth) return []; // the plugin runs natively
+      // Whole sample arrays are compared below: no WorkDepth variant needs
+      // an add-on, so its encodes are never windowed.
+      if (window != null) return ['${row.key}: a WorkDepth variant with an add-on needs a windowed comparison'];
       final low = row.at(SweepFormat.of(f.subsampling, workDepth));
       final lowOut = await _encode('${v.id.replaceAll('/', '_')}_w$workDepth', v.pipelineFor, low);
       if (lowOut.startsWith('encode failed')) return ['${low.key}: $lowOut'];
