@@ -2093,7 +2093,7 @@ clip = _colorize.colorize(
     render_size={{CZ_RENDER_SIZE}},
     strength={{CZ_STRENGTH}},
     temporal_radius={{CZ_RADIUS}},
-    matrix="{{CZ_MATRIX}}",
+    matrix={{CZ_MATRIX}},
     color_range="{{CZ_RANGE}}",
 {{#PREVIEW_ONLY}}
     preview=True,
@@ -2621,7 +2621,7 @@ if not hasattr(core, "ncnn"):
 _ai_src = clip
 _ai_fmt = clip.format
 if _ai_fmt.color_family == vs.YUV:
-    _ai_rgb = core.resize.Spline36(clip, format=vs.RGBS, matrix_in_s="{{AI_MATRIX}}", range_in_s="{{AI_RANGE}}")
+    _ai_rgb = core.resize.Spline36(clip, format=vs.RGBS, {{AI_MATRIX_IN_ARGS}}, range_in_s="{{AI_RANGE}}")
 elif _ai_fmt.color_family == vs.GRAY:
     _ai_rgb = core.std.ShufflePlanes(
         core.resize.Point(clip, format=vs.GRAYS, range_in_s="{{AI_RANGE}}"), [0, 0, 0], vs.RGB)
@@ -2653,7 +2653,7 @@ if _ai_pad_w or _ai_pad_h:
 _ai_rgb = core.resize.Spline36(_ai_rgb, width=_ai_rgb.width * {{AI_FACTOR}} // _ai_scale, height=_ai_rgb.height * {{AI_FACTOR}} // _ai_scale)
 {{/AI_RESAMPLE}}
 if _ai_fmt.color_family == vs.YUV:
-    clip = core.resize.Spline36(_ai_rgb, format=_ai_fmt.id, matrix_s="{{AI_MATRIX}}", range_s="{{AI_RANGE}}", dither_type="error_diffusion")
+    clip = core.resize.Spline36(_ai_rgb, format=_ai_fmt.id, {{AI_MATRIX_ARGS}}, range_s="{{AI_RANGE}}", dither_type="error_diffusion")
 elif _ai_fmt.color_family == vs.GRAY:
     clip = core.resize.Point(core.std.ShufflePlanes(_ai_rgb, 1, vs.GRAY), format=_ai_fmt.id, range_s="{{AI_RANGE}}", dither_type="error_diffusion")
 else:
@@ -2827,7 +2827,7 @@ clip = _face_restore.restore_faces(
     min_face={{FR_MIN_FACE}},
     max_faces={{FR_MAX_FACES}},
     temporal_radius={{FR_RADIUS}},
-    matrix="{{FR_MATRIX}}",
+    matrix={{FR_MATRIX}},
     color_range="{{FR_RANGE}}",
 )
 {{/FACE_RESTORE}}
@@ -3020,7 +3020,7 @@ _rife_num, _rife_den = _rife_ratio.numerator, _rife_ratio.denominator
 # a ghost frame; it reads _SceneChangeNext, which survives the RGB conversion.
 _rife_in = core.misc.SCDetect(clip, threshold=0.1)
 if clip.format.color_family == vs.YUV:
-    _rife_rgb = core.resize.Bicubic(_rife_in, format=vs.RGBS, matrix_in_s="{{RIFE_MATRIX}}", range_in_s="{{RIFE_RANGE}}")
+    _rife_rgb = core.resize.Bicubic(_rife_in, format=vs.RGBS, {{RIFE_MATRIX_IN_ARGS}}, range_in_s="{{RIFE_RANGE}}")
 elif clip.format.color_family == vs.GRAY:
     _rife_rgb = core.std.ShufflePlanes(core.resize.Point(_rife_in, format=vs.GRAYS), [0, 0, 0], vs.RGB)
 else:
@@ -3029,7 +3029,7 @@ _rife_out = core.rife.RIFE(_rife_rgb, model_path={{RIFE_MODEL_DIR}}, fps_num={{F
 # Back to the source format. Rounding, not dither: these frames sit between
 # photographed ones, and dither noise that the real frames lack would flicker.
 if clip.format.color_family == vs.YUV:
-    _rife_out = core.resize.Bicubic(_rife_out, format=clip.format.id, matrix_s="{{RIFE_MATRIX}}", range_s="{{RIFE_RANGE}}", dither_type="none")
+    _rife_out = core.resize.Bicubic(_rife_out, format=clip.format.id, {{RIFE_MATRIX_ARGS}}, range_s="{{RIFE_RANGE}}", dither_type="none")
 elif clip.format.color_family == vs.GRAY:
     _rife_out = core.resize.Point(core.std.ShufflePlanes(_rife_out, 0, vs.GRAY), format=clip.format.id, dither_type="none")
 else:
@@ -3146,7 +3146,7 @@ def _border_color(c):
     if fmt.color_family == vs.RGB:
         swatch = core.resize.Point(swatch, format=fmt.id)
     else:
-        swatch = core.resize.Point(swatch, format=fmt.id, matrix_s="{{BORDER_MATRIX}}", range_s="{{BORDER_RANGE}}")
+        swatch = core.resize.Point(swatch, format=fmt.id, {{BORDER_MATRIX_ARGS}}, range_s="{{BORDER_RANGE}}")
     frame = swatch.get_frame(0)
     return [frame[p][0, 0] for p in range(fmt.num_planes)]
 

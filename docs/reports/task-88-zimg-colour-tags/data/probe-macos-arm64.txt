@@ -1,0 +1,52 @@
+Core R78
+== 1. acceptance (rgb->yuv / yuv->rgb), 10-bit limited 4:4:4
+-- transfer/primaries on the converted side only
+709        converts both ways with 1/54 transfer/primaries: None/None
+170m       converts both ways with 1/54 transfer/primaries: None/None
+2020ncl    converts both ways with 1/54 transfer/primaries: None/None
+ycgco      converts both ways with 1/54 transfer/primaries: None/None
+2020cl     converts both ways with 0/54 transfer/primaries: 
+chromancl  converts both ways with 0/54 transfer/primaries: 
+chromacl   converts both ways with 0/54 transfer/primaries: 
+ictcp      converts both ways with 0/54 transfer/primaries: 
+-- transfer/primaries on both sides
+709        converts both ways with 54/54 transfer/primaries: (all but 0)
+170m       converts both ways with 54/54 transfer/primaries: (all but 0)
+2020ncl    converts both ways with 54/54 transfer/primaries: (all but 0)
+ycgco      converts both ways with 54/54 transfer/primaries: (all but 0)
+2020cl     converts both ways with 18/54 transfer/primaries: 709/None, 709/709, 709/170m, 709/470bg, 709/2020, 709/st432-1, 601/None, 601/709, 601/170m, 601/470bg, 601/2020, 601/st432-1, 2020_10/None, 2020_10/709, 2020_10/170m, 2020_10/470bg, 2020_10/2020, 2020_10/st432-1
+chromancl  converts both ways with 45/54 transfer/primaries: (all but 9)
+chromacl   converts both ways with 35/54 transfer/primaries: (all but 19)
+ictcp      converts both ways with 2/54 transfer/primaries: st2084/2020, std-b67/2020
+== 2. exact vs stand-in (random 8-bit RGB -> 10-bit limited 4:4:4 with the exact parameters)
+2020cl t709 p2020        round trip max 1.0 code(s); vs 2020ncl: max 61.9, mean 14.90 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 69, 434, 940]
+2020cl t2020_10 p2020    round trip max 1.0 code(s); vs 2020ncl: max 61.9, mean 14.90 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 69, 434, 940]
+chromancl p709           round trip max 0 code(s); vs 709: max 0.0, mean 0.00 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 119, 504, 940]
+chromancl p2020          round trip max 0 code(s); vs 2020ncl: max 0.0, mean 0.00 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 119, 504, 940]
+chromancl p170m          round trip max 0 code(s); vs 170m: max 36.8, mean 6.78 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 119, 504, 940]
+chromancl p470bg         round trip max 0 code(s); vs 470bg: max 39.0, mean 7.12 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 119, 504, 940]
+chromacl t709 p709       round trip max 1.0 code(s); vs 709: max 61.3, mean 14.84 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 69, 434, 940]
+chromacl t709 p170m      round trip max 1.0 code(s); vs 170m: max 81.5, mean 15.20 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 69, 434, 940]
+ictcp tPQ p2020          round trip max 1.0 code(s); vs 2020ncl: max 215.9, mean 50.29 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 119, 504, 940]
+ictcp tHLG p2020         round trip max 1.0 code(s); vs 2020ncl: max 198.4, mean 32.50 (8-bit RGB); grey 0/16/128/255 -> Y' [64, 119, 504, 940]
+== 3. BT.2020 CL keeps grey: Y' = R' for R=G=B; 10-bit limited 64 + 876 * v/255: [64, 119, 504, 940]
+   zimg's 434 for 128 = BT.709 OETF of (128/255)^2.4 (display EOTF in, OETF out): 434.6
+== 4. against the standards' closed forms (10-bit limited codes), 300 random colours each
+chromancl 470bg (H.273 eq. 39-40)      zimg exact: max 0, mean 0.00; stand-in: max 93, mean 31.9
+chromancl 170m (H.273 eq. 39-40)       zimg exact: max 0, mean 0.00; stand-in: max 89, mean 31.1
+ictcp PQ (BT.2100)                     zimg exact: max 1, mean 0.18; stand-in: max 475, mean 178.3
+ictcp HLG (BT.2100, scene-referred)    zimg exact: max 84, mean 22.52; stand-in: max 377, mean 109.9
+== 5. primaries names for chromancl
+709        ok
+470m       ok
+470bg      ok
+170m       ok
+240m       ok
+film       ok
+2020       ok
+st428      FAIL
+xyz        FAIL
+st431-2    ok
+st432-1    ok
+jedec-p22  FAIL
+ebu3213    FAIL

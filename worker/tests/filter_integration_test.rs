@@ -10235,3 +10235,86 @@ fn test_263_qtgmc_input_type_2_3_pads_for_mvtools_mask() {
     let o = schema["parameters"]["overlap"]["min"].as_i64().unwrap();
     assert_eq!((b, o), (32, 0), "BlockSize/Overlap range changed: re-check task #79's valgrind cells");
 }
+
+/// Task #88: every script conversion between YUV and RGB names the colour
+/// space zimg needs, from `ColorMetadata::zimg_colorspace`. zimg refuses
+/// `2020cl`, `chromancl`, `chromacl` and `ictcp` from the matrix alone
+/// ("Resize error 3074"), which failed every Borders, RIFE, AI upscale, Face
+/// Restoration and Colourisation job on such a source. A tag that already
+/// converted renders the text it always did. `zimg_colorspace_test.rs` runs
+/// each colour space through the bundled VapourSynth.
+#[test]
+fn test_264_yuv_rgb_conversions_name_the_whole_colour_space() {
+    create_output_dir();
+    fn tag(job: &mut VideoJob, m: &str, p: Option<&str>, t: Option<&str>) {
+        job.input_color_matrix = Some(m.to_string());
+        job.input_color_primaries = p.map(str::to_string);
+        job.input_color_transfer = t.map(str::to_string);
+    }
+    const ICTCP_OUT: &str = r#"matrix_s="ictcp", transfer_in_s="st2084", transfer_s="st2084", primaries_in_s="2020", primaries_s="2020""#;
+    const ICTCP_IN: &str = r#"matrix_in_s="ictcp", transfer_in_s="st2084", transfer_s="st2084", primaries_in_s="2020", primaries_s="2020""#;
+    const ICTCP_PY: &str = r#"{"matrix": "ictcp", "transfer": "st2084", "primaries": "2020"}"#;
+
+    // Borders: one row per decision.
+    for (m, p, t, want) in [
+        ("ictcp", Some("bt2020"), Some("smpte2084"), ICTCP_OUT),
+        ("ictcp", Some("bt2020"), Some("bt709"), r#"matrix_s="2020ncl""#),
+        ("bt2020c", Some("bt2020"), Some("bt709"), r#"matrix_s="2020ncl""#),
+        ("chroma-derived-nc", Some("bt470bg"), None,
+            r#"matrix_s="chromancl", primaries_in_s="470bg", primaries_s="470bg""#),
+        ("chroma-derived-c", Some("bt709"), Some("bt709"), r#"matrix_s="709""#),
+        // Unchanged for a tag that always worked.
+        ("bt709", Some("bt709"), Some("bt709"), r#"matrix_s="709""#),
+    ] {
+        let mut job = borders_job("test_264_borders", canvas_720x576());
+        tag(&mut job, m, p, t);
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(
+                script.contains(&format!("swatch = core.resize.Point(swatch, format=fmt.id, {want}, range_s=\"limited\")")),
+                "{m}/{p:?}/{t:?} {name}: border swatch should name {want}"
+            );
+            assert_no_border_tags(name, script);
+        }
+    }
+
+    // RIFE and AI upscaling: both directions.
+    let root = model_addons();
+    let generator = ScriptGenerator::new()
+        .unwrap()
+        .with_rife(Ok(rife_files()))
+        .with_upscale(Ok(upscale_files()))
+        .with_addons(root.clone(), "macos-arm64");
+    let mut rife = rife_job("test_264_rife");
+    tag(&mut rife, "ictcp", Some("bt2020"), Some("smpte2084"));
+    let mut ai = ai_upscale_job("test_264_ai", UpscaleMethod::RealEsrgan, 2, "");
+    tag(&mut ai, "ictcp", Some("bt2020"), Some("smpte2084"));
+    for (job, pass) in [(&rife, "RIFE"), (&ai, "AI upscale")] {
+        let (encode, preview) = both_scripts_with(&generator, job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(&format!("format=vs.RGBS, {ICTCP_IN}, range_in_s=\"limited\"")),
+                "{pass} {name}: YUV -> RGB");
+            assert!(script.contains(&format!("{ICTCP_OUT}, range_s=\"limited\", dither_type=")),
+                "{pass} {name}: RGB -> YUV");
+            assert!(!script.contains("_MATRIX"), "{pass} {name}: placeholder left");
+        }
+    }
+
+    // Face Restoration and Colourisation take a Python literal.
+    let platform = "macos-arm64";
+    let root = fake_addons_with_requirements("263", &["face-restoration", "colorize-ddcolor"], platform);
+    let generator = ScriptGenerator::new().unwrap().with_addons(root, platform);
+    let mut fr = face_restore_job("test_264_fr", FaceRestoreParameters::default());
+    tag(&mut fr, "ictcp", Some("bt2020"), Some("smpte2084"));
+    let mut cz = colorize_job("test_264_cz", ColorizeParameters::default());
+    tag(&mut cz, "ictcp", Some("bt2020"), Some("smpte2084"));
+    let mut plain = colorize_job("test_264_cz_709", ColorizeParameters::default());
+    tag(&mut plain, "bt709", None, None);
+    for (job, want) in [(&fr, ICTCP_PY), (&cz, ICTCP_PY), (&plain, r#""709""#)] {
+        let (encode, preview) = both_scripts_with(&generator, job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            assert!(script.contains(&format!("matrix={want},")), "{name}: matrix={want}");
+            assert!(!script.contains("_MATRIX"), "{name}: placeholder left");
+        }
+    }
+}

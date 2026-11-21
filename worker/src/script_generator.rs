@@ -362,7 +362,7 @@ impl ScriptGenerator {
             .replace("{{FR_MIN_FACE}}", &fr.clamped_min_face().to_string())
             .replace("{{FR_MAX_FACES}}", &fr.clamped_max_faces().to_string())
             .replace("{{FR_RADIUS}}", &fr.temporal_radius().to_string())
-            .replace("{{FR_MATRIX}}", color.zimg_matrix(job.input_height))
+            .replace("{{FR_MATRIX}}", &color.zimg_colorspace(job.input_height).py_literal())
             .replace("{{FR_RANGE}}", if color.is_full_range() { "full" } else { "limited" })
     }
 
@@ -388,7 +388,7 @@ impl ScriptGenerator {
             .replace("{{CZ_RENDER_SIZE}}", &cz.render_size().to_string())
             .replace("{{CZ_STRENGTH}}", &format!("{:.3}", cz.clamped_strength()))
             .replace("{{CZ_RADIUS}}", &cz.temporal_radius().to_string())
-            .replace("{{CZ_MATRIX}}", color.zimg_matrix(job.input_height))
+            .replace("{{CZ_MATRIX}}", &color.zimg_colorspace(job.input_height).py_literal())
             .replace("{{CZ_RANGE}}", if color.is_full_range() { "full" } else { "limited" })
     }
 
@@ -2425,7 +2425,9 @@ impl ScriptGenerator {
                     script = script.replace("{{RIFE_PRELOAD}}", &preload);
                     // Frame Rate runs after Crop & Resize: the output's colour.
                     let color = job.output_color_metadata();
-                    script = script.replace("{{RIFE_MATRIX}}", color.zimg_matrix(job.input_height));
+                    let cs = color.zimg_colorspace(job.input_height);
+                    script = script.replace("{{RIFE_MATRIX_IN_ARGS}}", &cs.from_yuv_args());
+                    script = script.replace("{{RIFE_MATRIX_ARGS}}", &cs.to_yuv_args());
                     script = script.replace(
                         "{{RIFE_RANGE}}",
                         if color.is_full_range() { "full" } else { "limited" },
@@ -2672,7 +2674,9 @@ impl ScriptGenerator {
                         None => script = remove_block("{{#AI_STRENGTH}}", "{{/AI_STRENGTH}}", script),
                     }
                     let color = job.color_metadata();
-                    script = script.replace("{{AI_MATRIX}}", color.zimg_matrix(job.input_height));
+                    let cs = color.zimg_colorspace(job.input_height);
+                    script = script.replace("{{AI_MATRIX_IN_ARGS}}", &cs.from_yuv_args());
+                    script = script.replace("{{AI_MATRIX_ARGS}}", &cs.to_yuv_args());
                     script = script.replace(
                         "{{AI_RANGE}}",
                         if color.is_full_range() { "full" } else { "limited" },
@@ -2890,7 +2894,10 @@ impl ScriptGenerator {
             script = script.replace("{{BORDER_RGB}}", &format!("({r}, {g}, {b})"));
             // The bars go on last, in the colour the samples are delivered in.
             let color = job.output_color_metadata();
-            script = script.replace("{{BORDER_MATRIX}}", color.zimg_matrix(job.input_height));
+            script = script.replace(
+                "{{BORDER_MATRIX_ARGS}}",
+                &color.zimg_colorspace(job.input_height).to_yuv_args(),
+            );
             script = script.replace(
                 "{{BORDER_RANGE}}",
                 if color.is_full_range() { "full" } else { "limited" },

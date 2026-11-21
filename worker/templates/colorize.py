@@ -168,7 +168,8 @@ def colorize(
     multiple of 16). `strength` scales the predicted chroma (0 grey, 1 as
     predicted, above 1 more saturated). `temporal_radius` is how many frames
     either side each frame's colour is averaged with (0: none). `matrix` /
-    `color_range` are the source's (zimg names). `preview`: the preview
+    `color_range` are the source's (zimg names; `matrix` may be a dict with
+    the transfer and primaries, see `ai_runtime.zimg_args`). `preview`: the preview
     script's call, which runs the models in PREVIEW_ON_CPU on the CPU.
     `motion_limit`: the neighbour-blend cut-off (the report compares it).
     """
@@ -259,11 +260,11 @@ def colorize(
     else:
         rgb = core.resize.Bilinear(pred, width=clip.width, height=clip.height)
 
-    yuv = core.resize.Bilinear(rgb, format=vs.YUV444PS, matrix_in_s="rgb", matrix_s=matrix)
+    yuv = core.resize.Bilinear(rgb, format=vs.YUV444PS, matrix_in_s="rgb", **ai_runtime.zimg_args(matrix, "out"))
     s = "%.6f" % strength
     yuv = _expr(yuv, ["", "x %s *" % s, "x %s *" % s])
     yuv = core.std.ShufflePlanes([yf, yuv, yuv], [0, 1, 2], vs.YUV)
-    out = core.resize.Bicubic(yuv, format=fmt.id, matrix_in_s=matrix, matrix_s=matrix, range_s=color_range,
-                              dither_type="error_diffusion")
+    out = core.resize.Bicubic(yuv, format=fmt.id, range_s=color_range, dither_type="error_diffusion",
+                              **ai_runtime.zimg_args(matrix, "both"))
     out = core.std.ShufflePlanes([clip, out, out], [0, 1, 2], vs.YUV)
     return core.std.CopyFrameProps(out, clip)

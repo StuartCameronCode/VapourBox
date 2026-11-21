@@ -458,8 +458,9 @@ def restore_faces(
     `threshold` is the detector score a face needs, `min_face` the size (in
     pixels, the larger side of its box) below which a face is left alone,
     `max_faces` how many of the largest are restored per frame. `matrix` /
-    `color_range` are the source's (zimg names), for the conversion to RGB and
-    back.
+    `color_range` are the source's (zimg names; `matrix` may be a dict with
+    the transfer and primaries, see `ai_runtime.zimg_args`), for the
+    conversion to RGB and back.
 
     `temporal_radius` r > 0 stabilises the faces over time, in two steps: each
     face's landmarks are smoothed over the detections r frames either side

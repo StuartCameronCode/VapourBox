@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zimg colour tags</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --mut:#5f6368; --line:#d9dce1; --head:#f3f4f6; --good:#1a7f37; --bad:#c62828; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#16181c; --fg:#e6e6e6; --mut:#9aa0a6; --line:#33373d; --head:#1f2227; --good:#57c26a; --bad:#ef6b6b; }
+}
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; margin:0; padding:0 16px; }
+main { max-width:960px; margin:32px auto 64px; }
+h1 { font-size:1.6em; margin-bottom:4px; } h2 { margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--mut); margin-top:0; }
+table { border-collapse:collapse; margin:12px 0; font-size:.92em; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:4px 8px; text-align:left; vertical-align:top; }
+th { background:var(--head); }
+.good { color:var(--good); font-weight:600; } .bad { color:var(--bad); font-weight:600; }
+code { font:.9em ui-monospace, Menlo, monospace; }
+.note { border-left:3px solid var(--line); padding:4px 12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+<h1>Task #88: the script's YUV ↔ RGB on bt2020c, chroma-derived-* and ictcp</h1>
+<p class="sub">2026-11-21 · macOS arm64 (M1 Pro) · VapourSynth R78, deps 1.18.0-rc2 · branch <code>stuart/88-script-side-yuv-rgb-borders-rife-ai-upsc</code></p>
+
+<h2>Summary</h2>
+<p>Five parts of the script convert between YUV and RGB through zimg: the border fill (every job with Add Borders or Pad to Fill, whatever the colour), RIFE, AI upscaling, Face Restoration and Colourisation. Each passed only the matrix (<code>ColorMetadata::zimg_matrix</code>). zimg refuses four matrices that way: <code>2020cl</code>, <code>chromancl</code>, <code>chromacl</code> and <code>ictcp</code> ("Resize error 3074: invalid colorspace definition … May need to specify additional colorspace parameters"). So a source tagged <code>bt2020c</code>, <code>chroma-derived-nc</code>, <code>chroma-derived-c</code> or <code>ictcp</code> failed its whole job, encode and preview, as soon as one of those was on. Found by task #76.</p>
+<p><span class="good">Fixed</span>: <code>ColorMetadata::zimg_colorspace</code> names the whole colour space (<code>ZimgColorspace</code>), and every conversion takes its arguments from it. Per tag:</p>
+<table>
+<tr><th>Tag</th><th>zimg reading</th><th>Why</th></tr>
+<tr><td>bt709, fcc, bt470bg, smpte170m, smpte240m, bt2020nc, ycgco; rgb, smpte2085, untagged</td><td>unchanged (matrix only; the height guess)</td><td>already converted; scripts byte-identical</td></tr>
+<tr><td>bt2020c</td><td><code>2020ncl</code></td><td>zimg's CL does not keep grey (§3) and refuses PQ/HLG (§1); same Kr/Kb; the preview's reading (#73)</td></tr>
+<tr><td>chroma-derived-nc</td><td><code>709</code> / <code>2020ncl</code> for those primaries; else <code>chromancl</code> + the primaries</td><td>exact against H.273 (§4), lossless</td></tr>
+<tr><td>chroma-derived-c</td><td>as chroma-derived-nc with its primaries</td><td>the CL problem of bt2020c; NCL with the derived coefficients is the nearest</td></tr>
+<tr><td>chroma-derived-*, primaries untagged or <code>smpte428</code>/<code>jedec-p22</code>/<code>ebu3213</code></td><td>the height guess</td><td>nothing to derive from; VapourSynth has no name for those (§5)</td></tr>
+<tr><td>ictcp + PQ / HLG</td><td><code>ictcp</code>, transfer <code>st2084</code>/<code>std-b67</code>, primaries <code>2020</code> (forced)</td><td>PQ exact against BT.2100 (§4); HLG ~5x closer than the stand-in</td></tr>
+<tr><td>ictcp + any other transfer</td><td><code>2020ncl</code></td><td>zimg cannot convert it; the preview's reading</td></tr>
+</table>
+<p>The transfer and primaries go on <strong>both</strong> sides of every call (§1). Every conversion round-trips within 1 code (§2), so RIFE's real frames, Face Restoration outside its mask and Colourisation's luma stay bit-exact. Black and white bars are the same under every reading. This is the mixed approach, chosen over "the stand-in for every tag" (which would keep the preview matching the file, at the cost of passes seeing ICtCp pictures 50 levels off on average).</p>
+<p>Every number below comes from <a href="scripts/probe_zimg.py">scripts/probe_zimg.py</a>, run by <a href="scripts/run.sh">scripts/run.sh</a> (the bundle's own Python). Raw output: <a href="data/probe-macos-arm64.txt">data/probe-macos-arm64.txt</a>.</p>
+
+<h2>1. What zimg accepts</h2>
+<p>Each matrix × transfer {none, 709, 601, 470bg, 2020_10, st2084, std-b67, srgb, linear} × primaries {none, 709, 170m, 470bg, 2020, st432-1}: an RGB24 swatch to 10-bit YUV, and 10-bit YUV to RGBS.</p>
+<table>
+<tr><th>Matrix</th><th>Transfer/primaries on the converted side only</th><th>On both sides</th><th>Refuses</th></tr>
+<tr><td>709, 170m, 2020ncl, ycgco</td><td>matrix alone only</td><td class="good">54/54</td><td>—</td></tr>
+<tr><td>2020cl</td><td class="bad">0/54</td><td>18/54: transfer 709, 601 or 2020_10</td><td><strong>PQ, HLG</strong>, sRGB, linear, 470bg, none</td></tr>
+<tr><td>chromancl</td><td class="bad">0/54</td><td>45/54: any primaries</td><td>no primaries</td></tr>
+<tr><td>chromacl</td><td class="bad">0/54</td><td>35/54: transfer + primaries</td><td>either missing; linear</td></tr>
+<tr><td>ictcp</td><td class="bad">0/54</td><td>2/54: st2084/2020, std-b67/2020</td><td>every SDR transfer; any other primaries</td></tr>
+</table>
+<p><strong>The transfer and primaries must be named on both sides.</strong> With them on the output only, even 709 fails RGB → YUV: the RGB swatch is untagged, and R78's resize copies an unset output colour space from the input, not the reverse. <code>ZimgColorspace::to_yuv_args</code> / <code>from_yuv_args</code> and <code>ai_runtime.zimg_args</code> always give both.</p>
+
+<h2>2. Exact vs the stand-in</h2>
+<p>Random 8-bit RGB, converted to 10-bit limited 4:4:4 with the exact parameters, then read back both ways.</p>
+<table>
+<tr><th>Case</th><th>YUV → RGBS → YUV</th><th>Exact vs stand-in (8-bit RGB)</th><th>Grey 0/16/128/255 → Y′</th></tr>
+<tr><td>2020cl, 709 or 2020_10 transfer</td><td>≤ 1 code</td><td>max 62, mean 15 (vs 2020ncl)</td><td class="bad">64, 69, 434, 940</td></tr>
+<tr><td>chromacl, 709 transfer</td><td>≤ 1</td><td>max 61–82, mean 15</td><td class="bad">64, 69, 434, 940</td></tr>
+<tr><td>chromancl, 709 / 2020 primaries</td><td>0</td><td><strong>0</strong> (identical to 709 / 2020ncl)</td><td>64, 119, 504, 940</td></tr>
+<tr><td>chromancl, 170m / 470bg primaries</td><td>0</td><td>max 37–39, mean 7 (vs 601)</td><td>64, 119, 504, 940</td></tr>
+<tr><td>ictcp, PQ / HLG</td><td>≤ 1</td><td>max 198–216, mean 33–50</td><td>64, 119, 504, 940</td></tr>
+</table>
+<p class="note">Correction, kept visible: the first draft of this probe filled its random picture from a <code>random</code> stream shared across calls, so a frame VapourSynth regenerated was a different picture, and the round trip read as off by up to 880 codes. Seeded per call, every round trip is within 1 code.</p>
+
+<h2>3. zimg's constant luminance does not keep grey</h2>
+<p>BT.2020's CL computes Y<sub>c</sub> from scene-linear RGB and encodes it with the OETF, so for R = G = B, Y′ = R′: grey 128 is 504 at 10-bit limited. zimg gives <strong>434</strong>, and 16 gives 69 instead of 119. 434.6 is (128/255)<sup>2.4</sup> put through the BT.709 OETF: zimg linearises R′G′B′ with the display EOTF (BT.1886) and encodes Y′<sub>c</sub> with the OETF. Its own round trip is consistent, but a decoder that follows the spec shows zimg's grey-128 bar at about 108. NCL keeps every neutral exact for any decoder, CL included (Cb = Cr = 0 decodes to R′ = G′ = B′ = Y′ either way). This, and the PQ/HLG refusal, is why <code>bt2020c</code> and <code>chroma-derived-c</code> are read as NCL rather than converted "exactly".</p>
+
+<h2>4. Against the standards</h2>
+<p>300 random RGB colours, each converted by zimg and by the standard's closed form (in the script), 10-bit limited codes:</p>
+<table>
+<tr><th>Conversion</th><th>zimg exact vs standard</th><th>Stand-in vs standard</th></tr>
+<tr><td>chromancl, BT.470BG primaries (H.273 eq. 39–40)</td><td class="good">max 0</td><td>max 93, mean 32 (BT.601)</td></tr>
+<tr><td>chromancl, SMPTE 170M primaries</td><td class="good">max 0</td><td>max 89, mean 31 (BT.601)</td></tr>
+<tr><td>ICtCp, PQ (BT.2100)</td><td class="good">max 1, mean 0.18</td><td>max 475, mean 178 (2020ncl)</td></tr>
+<tr><td>ICtCp, HLG (BT.2100, scene-referred)</td><td>max 84, mean 22.5</td><td>max 377, mean 110 (2020ncl)</td></tr>
+</table>
+<p><strong>zimg's HLG ICtCp is not BT.2100's</strong>: it is display-referred (an OOTF on the way to linear), where BT.2100 defines ICtCp on scene light. Neutrals are kept and it round-trips, and it is about five times closer to the standard than the stand-in, so it is used. An ICtCp HLG file is vanishingly rare.</p>
+
+<h2>5. Primaries names</h2>
+<p>VapourSynth's resize names every primaries value FFmpeg reports except <code>smpte428</code> (zimg: "unrecognized primaries"; <code>xyz</code> too) and <code>jedec-p22</code> / <code>ebu3213</code> (reachable only by number 22). A chroma-derived source with one of those is read as untagged.</p>
+
+<h2>Tests</h2>
+<ul>
+<li><code>worker/tests/zimg_colorspace_test.rs</code> (push gate): every recognised matrix × primaries × transfer (and untagged) at 480 and 1080 lines, reduced to the 16 distinct colour spaces, run through the bundle's vspipe with the argument text the template receives: swatches at 4:2:0/4:2:2/4:4:4, 8–16 bits; round trip within 1 code (a quarter of an 8-bit level at 16 bits, where float32 through PQ moves up to 34 codes); black, white and (NCL) grey equal to the BT.709 reading; <code>ai_runtime</code>'s helpers and Colourisation's float path. With <code>bt2020c</code> mapped back to <code>2020cl</code> it fails with error 3074.</li>
+<li><code>test_264</code> (script generation): each site's arguments, and byte-identical text for an ordinary tag.</li>
+<li><code>app/test/integration_zimg_colour_tags_test.dart</code> (heavy): Add Borders on a 10-bit 4:2:0 fixture per tag, black and a custom colour, encode and preview. NCL readings equal a twin tagged with the matrix, bit for bit; exact readings match the H.273 / BT.2100 closed forms within 1 code, the picture inside untouched. Colourisation keeps luma bit-exact and Face Restoration (no faces) every sample on bt2020c and ictcp PQ. RIFE (real frames bit-exact) and AI upscale run on them (<code>gpu</code>).</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>One platform measured; zimg is the same source in every bundle, and the push-gate test runs on all four.</li>
+<li>Synthetic content (random colours, testsrc2).</li>
+<li>The preview still misreads these tags where #73's swscale reading is the stand-in (chroma-derived with other primaries, ictcp): a custom bar colour or a pass's output shows in the preview as the source picture does. The encode is right.</li>
+<li>ICtCp HLG is zimg's display-referred form (§4).</li>
+</ul>
+</main>
+</body>
+</html>
