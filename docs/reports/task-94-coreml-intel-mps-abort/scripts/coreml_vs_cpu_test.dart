@@ -4,7 +4,10 @@
 // Copy into app/test/ and run from app/ (probe-coreml-intel.yml does):
 //
 //   cp docs/reports/task-94-coreml-intel-mps-abort/scripts/coreml_vs_cpu_test.dart app/test/
-//   cd app && flutter test test/coreml_vs_cpu_test.dart
+//   cd app && flutter test test/coreml_vs_cpu_test.dart --plain-name "120 frames"
+//
+// (PROBE_NAME in probe-coreml-intel.yml picks the group: "(cold, warm)" for
+// the short runs, "120 frames" for the long ones.)
 //
 // For each model (DDColor 512, DeOldify Video, RestoreFormer++), in fresh
 // worker processes and in this order:
@@ -76,7 +79,10 @@ final _models = [
           faceRestore: FaceRestoreParameters(enabled: true))),
 ];
 
-Map<String, dynamic> _job(_Model m, String name, int frames) => VideoJob(
+// A 120-frame run starts at frame 0: colorize_test.mp4 has 120 frames.
+Map<String, dynamic> _job(_Model m, String name, int frames) {
+  final start = frames >= 120 ? 0 : m.start;
+  return VideoJob(
       id: const Uuid().v4(),
       inputPath: p.join(WorkerHarness.repoRoot, 'Tests', 'TestResources', m.fixture),
       outputPath: p.join(_dir, '$name.mkv'),
@@ -88,9 +94,10 @@ Map<String, dynamic> _job(_Model m, String name, int frames) => VideoJob(
       inputPixelFormat: 'yuv420p',
       inputFrameRate: m.fps,
       totalFrames: frames,
-      startFrame: m.start,
-      endFrame: m.start + frames - 1,
+      startFrame: start,
+      endFrame: start + frames - 1,
     ).toJson();
+}
 
 final _results = <Map<String, dynamic>>[];
 
@@ -196,6 +203,21 @@ void main() {
       await _run(m, 'coreml', 16, 'warm2');
       await _run(m, 'cpu', 16, 'cpu2');
       await _compare(m, warm, cpu);
+    });
+  }
+
+  // Long encodes (run separately: --plain-name "120 frames"). The 4- and
+  // 16-frame runs above can't separate Core ML's per-frame time from its
+  // start-up on these VMs (it varies by minutes), so this times what a user's
+  // longer job sees: 120 frames, alternating providers, twice each. Core ML
+  // first, so its first run includes the first compile on the machine.
+  for (final m in _models) {
+    test('${m.name}: 120 frames: Core ML against the CPU', () async {
+      final a = await _run(m, 'coreml', 120, 'long1');
+      final b = await _run(m, 'cpu', 120, 'long1');
+      await _run(m, 'coreml', 120, 'long2');
+      await _run(m, 'cpu', 120, 'long2');
+      await _compare(m, a, b);
     });
   }
 }

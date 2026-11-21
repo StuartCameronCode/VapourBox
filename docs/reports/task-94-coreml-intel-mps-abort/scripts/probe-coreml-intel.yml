@@ -22,10 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {asset: macos-x64, n: 1}
-          - {asset: macos-x64, n: 2}
-          - {asset: macos-x64-v2, n: 1}
-          - {asset: macos-x64-v2, n: 2}
+          - {asset: macos-x64, n: 3}
+          - {asset: macos-x64-v2, n: 3}
     name: probe (${{ matrix.asset }} #${{ matrix.n }})
     runs-on: macos-15-intel
     timeout-minutes: 330
@@ -33,6 +31,9 @@ jobs:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-x64
       VAPOURBOX_PROBE_ASSET: ${{ matrix.asset }}
       VAPOURBOX_PROBE_RUNNER: ${{ matrix.asset }}-${{ matrix.n }}
+      # Which tests: "(cold, warm)" (run 44869508189, four runners) or
+      # "120 frames" (the long encodes, one runner per tier).
+      PROBE_NAME: '120 frames'
     steps:
       - uses: actions/checkout@v5
 
@@ -77,7 +78,7 @@ jobs:
           VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
         run: |
           cp docs/reports/task-94-coreml-intel-mps-abort/scripts/coreml_vs_cpu_test.dart app/test/
-          cd app && flutter test test/coreml_vs_cpu_test.dart --reporter expanded
+          cd app && flutter test test/coreml_vs_cpu_test.dart --reporter expanded --plain-name "$PROBE_NAME"
 
       - name: Crash reports
         if: always()
@@ -93,7 +94,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: coreml-probe-${{ matrix.asset }}-${{ matrix.n }}
+          name: coreml-probe-${{ matrix.asset }}-${{ matrix.n }}-${{ github.run_id }}
           path: |
             Tests/TestOutput/coreml_probe/results.json
             Tests/TestOutput/coreml_probe/ips/*.ips
