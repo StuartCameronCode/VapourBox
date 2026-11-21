@@ -1127,11 +1127,21 @@ build_plugin "cas" \
     "libcas.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
-# DCTFilter
+# DCTFilter (the Deblock pass's DCTFilter method, havsfunc's Deblock_QED),
+# pinned to r3.2 and patched with patches/dctfilter-r3.2-thread-safety.patch,
+# upstream's c924a7a, which no tag contains (task #96). Up to r2.1 the filter
+# filled a per-thread buffer map with no lock, and r3.x still reads it
+# unlocked: two threads starting together made .at() throw inside noexcept
+# code and vspipe aborted, about one run in a hundred. Upstream HEAD, which
+# this used to build unpinned, is the patched code. A patch that stops
+# applying exits the script. Keep DCTFILTER_TAG in step with
+# download-deps-macos.sh and download-deps-windows.ps1.
+DCTFILTER_TAG="r3.2"
 build_plugin "dctfilter" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter.git" \
     "libdctfilter.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "{ git apply \"$SCRIPT_DIR/patches/dctfilter-r3.2-thread-safety.patch\" || { echo '  ERROR: patches/dctfilter-r3.2-thread-safety.patch did not apply to DCTFilter $DCTFILTER_TAG.' >&2; exit 1; }; } && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$DCTFILTER_TAG"
 
 # Deblock
 build_plugin "deblock" \

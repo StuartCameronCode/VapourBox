@@ -1201,7 +1201,8 @@ if [ "$ARCH" = "x86_64" ]; then
     download_prebuilt_plugin "RemoveGrain"   "libremovegrain.dylib" "$STEFANOLT/com.vapoursynth.removegrainvs/git-89ca38a/darwin-x86_64/2024-10-09T22.52.26%2B00.00Z/RemoveGrain-git-89ca38a-darwin-x86_64.zip"
     download_prebuilt_plugin "AddGrain"      "libaddgrain.dylib"    "$STEFANOLT/com.holywu.addgrain/r10/darwin-x86_64/2024-09-30T20.56.34%2B00.00Z/AddGrain-r10-darwin-x86_64.zip"
     download_prebuilt_plugin "CAS"           "libcas.dylib"         "$STEFANOLT/com.holywu.cas/r2/darwin-x86_64/2024-10-01T19.44.56%2B00.00Z/CAS-r2-darwin-x86_64.zip"
-    download_prebuilt_plugin "DCTFilter"     "libdctfilter.dylib"   "$STEFANOLT/com.holywu.dctfilter/r2.1/darwin-x86_64/2024-10-09T17.32.30%2B00.00Z/DCTFilter-r2.1-darwin-x86_64.zip"
+    # DCTFilter is not taken from here: r2.1 has task #96's thread race. It is
+    # built from source on both arches below, after FFT3DFilter.
     download_prebuilt_plugin "Deblock"       "libdeblock.dylib"     "$STEFANOLT/com.holywu.deblock/r7.1/darwin-x86_64/2026-01-06T23.51.04%2B00.00Z/Deblock-r7.1-darwin-x86_64.zip"
     download_prebuilt_plugin "AWarpSharp2"   "libawarpsharp2.dylib" "$STEFANOLT/com.nodame.awarpsharp2/v4/darwin-x86_64/2024-07-22T18.51.03Z/AWarpSharp2-v4-darwin-x86_64.zip"
     download_prebuilt_plugin "CTMF"          "libctmf.dylib"        "$STEFANOLT/com.holywu.ctmf/r5/darwin-x86_64/2024-09-30T20.54.04%2B00.00Z/CTMF-r5-darwin-x86_64.zip"
@@ -1516,11 +1517,7 @@ build_plugin "cas" \
     "libcas.dylib" \
     "meson setup build --buildtype=release && ninja -C build"
 
-# DCTFilter
-build_plugin "dctfilter" \
-    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter.git" \
-    "libdctfilter.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+# DCTFilter: built on both arches below, after FFT3DFilter (task #96).
 
 # Deblock
 build_plugin "deblock" \
@@ -1748,6 +1745,59 @@ if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfft3dfilter.dylib" ]; then
     fi
 else
     echo "  FFT3DFilter already exists, skipping"
+fi
+
+# DCTFilter (core.dctf - the Deblock pass's DCTFilter method, and havsfunc's
+# Deblock_QED), built from source on BOTH arches at tag r3.2 with
+# patches/dctfilter-r3.2-thread-safety.patch, upstream's c924a7a, which no tag
+# contains (task #96). Up to r2.1 (Stefan-Olt's x64 build, and the Windows
+# release) the filter kept a scratch buffer per worker thread in an
+# unordered_map filled with no lock, and r3.x still reads it unlocked: two
+# threads starting together made .at() throw inside noexcept code and vspipe
+# aborted, about one run in a hundred. The patch allocates a buffer per call.
+# Keep DCTFILTER_TAG in step with download-deps-linux.sh and
+# download-deps-windows.ps1.
+#
+# One .cpp file, compiled directly the way FFT3DFilter is above: FFTW's header
+# from Homebrew, linked against the bundle's own lib/libfftw3f.3.dylib and
+# repointed at it through @loader_path. No intrinsics, so one build serves both
+# x64 tiers (no _tierFiles entry); MACOSX_DEPLOYMENT_TARGET sets its minos
+# (12.0 on x64: PyPI's x86_64 wheel needs 15.0). r3.2 is API 4 and exports
+# VapourSynthPluginInit2 where r2.1 exported VapourSynthPluginInit, which is
+# how an older build left in the plugin directory is recognised and replaced.
+DCTFILTER_TAG="r3.2"
+cd "$BUILD_DIR"
+if [ "$FORCE" = true ] || ! nm -gU "$PLUGINS_DIR/libdctfilter.dylib" 2>/dev/null | grep -q '_VapourSynthPluginInit2$'; then
+    echo ""
+    echo "=== Building DCTFilter ($DCTFILTER_TAG, patched) ==="
+    rm -rf dctfilter "$PLUGINS_DIR/libdctfilter.dylib"
+    git clone --depth 1 --branch "$DCTFILTER_TAG" -q \
+        https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter.git dctfilter
+    (cd dctfilter && git apply "$SCRIPT_DIR/patches/dctfilter-r3.2-thread-safety.patch") || {
+        echo "  ERROR: patches/dctfilter-r3.2-thread-safety.patch did not apply." >&2
+        echo "  DCTFilter $DCTFILTER_TAG may have changed upstream - re-check the patch." >&2
+        exit 1
+    }
+    FFTW_INC="$(brew --prefix fftw)/include"
+    if c++ -std=c++17 -O3 -fPIC -fvisibility=hidden -dynamiclib \
+            -I"$VS_INC_DIR" -I"$FFTW_INC" \
+            dctfilter/DCTFilter/DCTFilter.cpp \
+            "$LIB_DIR/libfftw3f.3.dylib" \
+            -install_name "@loader_path/libdctfilter.dylib" -headerpad_max_install_names \
+            -o "$PLUGINS_DIR/libdctfilter.dylib"; then
+        for ref in $(otool -L "$PLUGINS_DIR/libdctfilter.dylib" | awk 'NR > 1 && /libfftw3f/ {print $1}'); do
+            install_name_tool -change "$ref" "@loader_path/../../lib/$(basename "$ref")" \
+                "$PLUGINS_DIR/libdctfilter.dylib"
+        done
+        codesign -s - -f "$PLUGINS_DIR/libdctfilter.dylib" 2>/dev/null || true
+        echo "  Built DCTFilter -> libdctfilter.dylib"
+        BUILT_PLUGINS+=("dctfilter")
+    else
+        echo "  Failed to build DCTFilter"
+        FAILED_PLUGINS+=("dctfilter")
+    fi
+else
+    echo "  DCTFilter ($DCTFILTER_TAG) already exists, skipping"
 fi
 
 # The three plugins below sit outside the arch split above, on BOTH arches.
