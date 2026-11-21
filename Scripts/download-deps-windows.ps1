@@ -303,11 +303,6 @@ $Plugins7z = @(
         Check = "CAS.dll"
     },
     @{
-        Name = "dctfilter"
-        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter/releases/download/r2/DctFilter-r2.7z"
-        Check = "DCTFilter.dll"
-    },
-    @{
         Name = "deblock"
         Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Deblock/releases/download/r6/Deblock-r6.7z"
         Check = "Deblock.dll"
@@ -841,6 +836,87 @@ if (Test-FileContainsAscii $VSPipeOut $VSPipeMarker) {
 }
 if (-not (Test-FileContainsAscii $VSPipeOut $VSPipeMarker)) {
     throw "vspipe.exe is not the patched build (task #68)"
+}
+
+# =============================================================================
+# 4b4. DCTFilter, built from r3.2 with upstream's thread-safety fix (task #96)
+# =============================================================================
+# DCTFilter's published Windows build (r2, 2017) keeps a scratch buffer per
+# worker thread in an unordered_map filled from getFrame with no lock. Two
+# threads starting together lose an insert, .at() throws inside noexcept code,
+# and vspipe aborts: exit 0xC0000409, about one run in a hundred of anything
+# that reaches DCTFilter (the Deblock pass's DCTFilter and QED methods).
+# patches/dctfilter-r3.2-thread-safety.patch is upstream's c924a7a, which no
+# tag contains: a buffer per call. download-deps-{macos,linux}.sh build the
+# same tag with the same patch. Keep $DctTag in step with their DCTFILTER_TAG.
+#
+# The recipe is FFT3DFilter's (4b2): Zig ($ZigVersion), FFTW 3.3.5's DLL through
+# an import library from its .def, VapourSynth's API4 headers from $VSRelease.
+# One C++ file with no intrinsics, at the x86-64 baseline, so one build serves
+# both tiers (no _tierFiles entry). r3.2 is API 4 and exports
+# VapourSynthPluginInit2 where r2 (API 3) exported VapourSynthPluginInit, which
+# is how a DCTFilter.dll from an older run of this script is recognised and
+# replaced. Any failure throws: shipping r2 again would bring the abort back.
+Write-Host ""
+Write-Host "[4b4/8] Building DCTFilter (r3.2, patched)..." -ForegroundColor Yellow
+
+$DctTag = "r3.2"
+$DctOut = "$PluginsDir\DCTFilter.dll"
+if (Test-FileContainsAscii $DctOut "VapourSynthPluginInit2") {
+    Write-Host "  DCTFilter.dll ($DctTag) already installed" -ForegroundColor Gray
+} else {
+    $DctWork = Join-Path $TempDir "dctfilter-build"
+    Remove-Item $DctWork -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $DctWork -Force | Out-Null
+    Push-Location $DctWork
+    try {
+        $ZigZip = Join-Path $DctWork "zig.zip"
+        Download-File -Url "https://ziglang.org/download/$ZigVersion/zig-x86_64-windows-$ZigVersion.zip" -OutFile $ZigZip
+        Expand-Archive -Path $ZigZip -DestinationPath (Join-Path $DctWork "zig") -Force
+        $ZigExe = (Get-ChildItem -Path (Join-Path $DctWork "zig") -Recurse -Filter "zig.exe" | Select-Object -First 1).FullName
+        if (-not $ZigExe) { throw "zig.exe not found in the toolchain archive" }
+
+        $FftwZip = Join-Path $DctWork "fftw.zip"
+        Download-File -Url "https://fftw.org/pub/fftw/fftw-3.3.5-dll64.zip" -OutFile $FftwZip
+        $FftwDir = Join-Path $DctWork "fftw"
+        Expand-Archive -Path $FftwZip -DestinationPath $FftwDir -Force
+
+        $VsInc = Join-Path $DctWork "vsinc"
+        New-Item -ItemType Directory -Path $VsInc -Force | Out-Null
+        foreach ($Hdr in @("VapourSynth4.h", "VSHelper4.h", "VSConstants4.h")) {
+            Download-File -Url "https://raw.githubusercontent.com/vapoursynth/vapoursynth/$VSRelease/include/$Hdr" -OutFile (Join-Path $VsInc $Hdr)
+        }
+
+        # LF on both sides, as for FFT3DFilter.
+        $Src = Join-Path $DctWork "src"
+        & git -c advice.detachedHead=false -c core.autocrlf=false clone --quiet --depth 1 --branch $DctTag https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter.git $Src
+        if ($LASTEXITCODE -ne 0) { throw "git clone of DCTFilter failed (exit $LASTEXITCODE)" }
+        $Patch = Join-Path $DctWork "dctfilter.patch"
+        $PatchText = [IO.File]::ReadAllText((Join-Path $ScriptDir "patches\dctfilter-r3.2-thread-safety.patch")).Replace("`r`n", "`n")
+        [IO.File]::WriteAllText($Patch, $PatchText, (New-Object System.Text.UTF8Encoding($false)))
+        & git -C $Src apply $Patch
+        if ($LASTEXITCODE -ne 0) {
+            throw "patches/dctfilter-r3.2-thread-safety.patch did not apply to DCTFilter $DctTag - re-check the patch (a release containing c924a7a makes it unnecessary)"
+        }
+
+        & $ZigExe dlltool -m i386:x86-64 -d (Join-Path $FftwDir "libfftw3f-3.def") -D libfftw3f-3.dll -l (Join-Path $DctWork "libfftw3f-3.lib")
+        if ($LASTEXITCODE -ne 0) { throw "zig dlltool failed (exit $LASTEXITCODE)" }
+
+        $Built = Join-Path $DctWork "DCTFilter.dll"
+        & $ZigExe c++ -target x86_64-windows-gnu -mcpu=x86_64 -shared -O3 -std=c++17 -fvisibility=hidden `
+            "-I$VsInc" "-I$FftwDir" (Join-Path $Src "DCTFilter\DCTFilter.cpp") (Join-Path $DctWork "libfftw3f-3.lib") -o $Built
+        if ($LASTEXITCODE -ne 0) { throw "zig c++ failed building DCTFilter.dll (exit $LASTEXITCODE)" }
+        if (-not (Test-FileContainsAscii $Built "VapourSynthPluginInit2")) { throw "the built DCTFilter.dll does not export VapourSynthPluginInit2" }
+
+        Copy-Item $Built $DctOut -Force
+        Write-Host "    Built: DCTFilter.dll ($DctTag, patched)" -ForegroundColor Gray
+    } finally {
+        Pop-Location
+        Remove-Item $DctWork -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+if (-not (Test-FileContainsAscii $DctOut "VapourSynthPluginInit2")) {
+    throw "DCTFilter.dll is not the r3.2 build (task #96)"
 }
 
 # =============================================================================

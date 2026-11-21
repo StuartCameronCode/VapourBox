@@ -1,0 +1,102 @@
+DCTFilter r3.2 (HomeOfVapourSynthEvolution/VapourSynth-DCTFilter, tag r3.2 =
+45bc72a): upstream's own thread-safety fix, commit c924a7a ("Remove locks, use
+vsh_aligned_malloc", 2026-05-10), which no tag contains yet (VapourBox task
+#96, docs/reports/task-96-dctfilter-thread-race).
+
+The filter is fmParallel and kept one 64-float scratch buffer per worker
+thread in an std::unordered_map on the filter instance. Up to r2.1 (what the
+Windows and macOS x64 bundles shipped) the map was filled from getFrame with
+no lock at all; r3.0-r3.2 lock the insert and the lookup but still call
+count() outside the lock. Two threads starting their first frame together
+corrupt the map or lose an insert, and the lookup's .at() then throws
+std::out_of_range inside a noexcept function: std::terminate, so vspipe
+aborts ("unordered_map::at: key not found"; on Windows the UCRT's abort is a
+fail-fast, exit 0xC0000409). Measured with r2: about 1 vspipe run in 100.
+
+c924a7a drops the map: each getFrame allocates its own 64-byte-aligned
+buffer and frees it, and the planning buffer is aligned the same way, which
+FFTW's new-array execute requires. The output is unchanged (same plans, same
+arithmetic). Planning stays FFTW_PATIENT, as upstream has it.
+
+Applied by download-deps-{macos,linux}.sh and download-deps-windows.ps1 right
+after the clone; each build fails if it stops applying.
+
+diff --git a/DCTFilter/DCTFilter.cpp b/DCTFilter/DCTFilter.cpp
+index db5506a..a37ddaf 100644
+--- a/DCTFilter/DCTFilter.cpp
++++ b/DCTFilter/DCTFilter.cpp
+@@ -47,8 +47,6 @@ struct DCTFilterData final {
+     bool process[3];
+     fftwf_plan dct, idct;
+     int peak;
+-    std::shared_mutex mapMutex;
+-    std::unordered_map<std::thread::id, std::unique_ptr<float[], decltype(&fftwf_free)>> buffer;
+     void (*filter)(const VSFrame* src, VSFrame* dst, float* VS_RESTRICT buffer, const DCTFilterData* VS_RESTRICT d, const VSAPI* vsapi) noexcept;
+ };
+ 
+@@ -106,25 +104,7 @@ static const VSFrame* VS_CC dctFilterGetFrame(int n, int activationReason, void*
+     if (activationReason == arInitial) {
+         vsapi->requestFrameFilter(n, d->node, frameCtx);
+     } else if (activationReason == arAllFramesReady) {
+-        float* buffer;
+-
+-        try {
+-            auto threadID = std::this_thread::get_id();
+-
+-            if (!d->buffer.count(threadID)) {
+-                std::unique_lock<std::shared_mutex> lock(d->mapMutex);
+-                buffer = fftwf_alloc_real(64);
+-                if (!buffer)
+-                    throw "malloc failure (buffer)"s;
+-                d->buffer.emplace(threadID, std::unique_ptr<float[], decltype(&fftwf_free)>(buffer, &fftwf_free));
+-            } else {
+-                std::shared_lock<std::shared_mutex> lock(d->mapMutex);
+-                buffer = d->buffer.at(threadID).get();
+-            }
+-        } catch (const std::string& error) {
+-            vsapi->setFilterError(("DCTFilter: " + error).c_str(), frameCtx);
+-            return nullptr;
+-        }
++        float *buffer = vsh::vsh_aligned_malloc<float>(64 * sizeof(float), 64);
+ 
+         const VSFrame* src = vsapi->getFrameFilter(n, d->node, frameCtx);
+         const VSFrame* fr[] = { d->process[0] ? nullptr : src, d->process[1] ? nullptr : src, d->process[2] ? nullptr : src };
+@@ -133,6 +113,7 @@ static const VSFrame* VS_CC dctFilterGetFrame(int n, int activationReason, void*
+ 
+         d->filter(src, dst, buffer, d, vsapi);
+ 
++        vsh::vsh_aligned_free(buffer);
+         vsapi->freeFrame(src);
+         return dst;
+     }
+@@ -201,14 +182,16 @@ static void VS_CC dctFilterCreate(const VSMap* in, VSMap* out, [[maybe_unused]]
+                 d->factors[8 * y + x] = static_cast<float>(factors[y] * factors[x]);
+         }
+ 
+-        std::unique_ptr<float[], decltype(&fftwf_free)> buffer(fftwf_alloc_real(64), &fftwf_free);
++        float* buffer = vsh::vsh_aligned_malloc<float>(64 * sizeof(float), 64);
+ 
+         {
+             std::lock_guard<std::mutex> lock(planMutex);
+-            d->dct = fftwf_plan_r2r_2d(8, 8, buffer.get(), buffer.get(), FFTW_REDFT10, FFTW_REDFT10, FFTW_PATIENT);
+-            d->idct = fftwf_plan_r2r_2d(8, 8, buffer.get(), buffer.get(), FFTW_REDFT01, FFTW_REDFT01, FFTW_PATIENT);
++            d->dct = fftwf_plan_r2r_2d(8, 8, buffer, buffer, FFTW_REDFT10, FFTW_REDFT10, FFTW_PATIENT);
++            d->idct = fftwf_plan_r2r_2d(8, 8, buffer, buffer, FFTW_REDFT01, FFTW_REDFT01, FFTW_PATIENT);
+         }
+ 
++        vsh::vsh_aligned_free(buffer);
++
+         if (d->vi->format.sampleType == stInteger)
+             d->peak = (1 << d->vi->format.bitsPerSample) - 1;
+ 
+@@ -219,10 +202,6 @@ static void VS_CC dctFilterCreate(const VSMap* in, VSMap* out, [[maybe_unused]]
+         else
+             d->filter = filter<float>;
+ 
+-        VSCoreInfo info;
+-        vsapi->getCoreInfo(core, &info);
+-        d->buffer.reserve(info.numThreads);
+-
+         if (padWidth || padHeight) {
+             VSMap* args = vsapi->createMap();
+             vsapi->mapConsumeNode(args, "clip", d->node, maReplace);

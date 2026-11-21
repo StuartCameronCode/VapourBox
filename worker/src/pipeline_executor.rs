@@ -110,7 +110,15 @@ fn windows_crash_explanation(code: i32) -> Option<&'static str> {
              Run the worker with --probe-cpu to see what it has",
         ),
         0xC000_00FD => Some("stack overflow inside vspipe or a plugin"),
-        0xC000_0409 => Some("fail-fast: a plugin detected memory corruption and aborted"),
+        // __fastfail: the UCRT's abort() raises it too, so an uncaught C++
+        // exception (std::terminate) reads this way, not only detected heap
+        // or stack corruption. Task #96's DCTFilter race was the former; on
+        // macOS and Linux the same abort prints "terminate called after
+        // throwing ...", so reproduce it there.
+        0xC000_0409 => Some(
+            "fail-fast: vspipe or a plugin aborted (an uncaught C++ exception, \
+             or memory corruption it detected)",
+        ),
         0xC000_0094 => Some("integer divide by zero inside vspipe or a plugin"),
         _ => None,
     }
@@ -2260,6 +2268,16 @@ mod tests {
         let violation = windows_crash_explanation(0xC000_0005_u32 as i32)
             .expect("0xC0000005 must be explained");
         assert!(violation.contains("access violation"), "got: {violation}");
+
+        // Task #96: 0xC0000409 was DCTFilter's uncaught std::out_of_range
+        // (abort), not corruption; the text must not send anyone hunting for
+        // a heap overrun only.
+        let fail_fast = windows_crash_explanation(0xC000_0409_u32 as i32)
+            .expect("0xC0000409 must be explained");
+        assert!(
+            fail_fast.contains("aborted") && fail_fast.contains("uncaught C++ exception"),
+            "got: {fail_fast}"
+        );
 
         // Not fault codes: a real exit status from a tool that ran and failed.
         for ordinary in [0, 1, 2, 130, 141, 255, -1] {

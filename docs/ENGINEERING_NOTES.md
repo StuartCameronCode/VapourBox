@@ -5921,3 +5921,44 @@ preview row failed once locally with a bare "exit code 1" under 4 concurrent
 previews and passed on rerun.
 
 Report: [docs/reports/task-87-height-2-mod-4-sweep](reports/task-87-height-2-mod-4-sweep/index.html).
+
+### DCTFilter r2 aborts under threads: an unlocked per-thread buffer map (task #96, 2026-11-21)
+
+The nightly format sweep's Deblock rows died on Windows x64 now and then with
+exit 0xC0000409 (`deblock/deblock_qed` 96x64 4:2:2 12-bit TFF on the v2 tier,
+run 44767156916; `deblock/dctfilter` 98x64 TFF on v3, run 44562921675, task
+#90), passing on every other platform and run. The frame size was a red
+herring.
+
+- **Cause.** DCTFilter r2 (the Windows release DLL; Stefan-Olt's macOS x64
+  r2.1 is the same code) keeps one scratch buffer per worker thread in an
+  `std::unordered_map<std::thread::id, float*>` on the filter instance,
+  `fmParallel`, filled from `getFrame` with no lock. Two threads starting an
+  instance together lose an insert; `process()` (declared `noexcept`) then
+  calls `.at()`, which throws `std::out_of_range`, so `std::terminate`. The
+  UCRT's `abort()` is a fail-fast: 0xC0000409, which the worker had worded as
+  "a plugin detected memory corruption". Deblock_QED calls DCTFilter itself,
+  so #90 and #96 are one bug. macOS arm64 and Linux built upstream HEAD
+  unpinned, which is `c924a7a` (a buffer per call), so they never failed.
+- **Measured** on an M1 with r2 built under another namespace beside the
+  bundle's: about 1% of fresh vspipe runs aborted (2-3 of 200 at 96x64, 0-2
+  of 200 at 720x480), every one with `unordered_map::at: key not found`; HEAD
+  and r3.2 + the patch, none in 300. One graph of 1000 spliced instances
+  aborted in 14 of 20 runs with r2, 9 and 11 of 20 with the macOS x64
+  bundle's own r2.1 under Rosetta, and never with the fix: the heavy test's shape. Output
+  of r2, HEAD and the patched r3.2 is identical, sample for sample.
+- **Fix.** DCTFilter is built from tag r3.2 with
+  `patches/dctfilter-r3.2-thread-safety.patch` (upstream's untagged
+  `c924a7a`) on every platform: Zig on Windows (FFT3DFilter's recipe, FFTW
+  3.3.5's DLL), a direct compile on both macOS arches, meson on Linux. r3.2
+  alone is not enough: its `count()` still runs outside the lock. Planning
+  stays `FFTW_PATIENT` (the user's decision): one picture across processes
+  on arm64 and on the x64 bundle under Rosetta; Windows and Linux runners not
+  measured yet.
+- **Same class elsewhere:** DFTTest (every bundled version, HEAD included)
+  and LGhost r1 keep the same unlocked maps (task #98), a likely cause of the
+  nightly "knlmeanscl denoiser never crashes" `std::out_of_range` flake.
+- The worker's 0xC0000409 text now says "vspipe or a plugin aborted (an
+  uncaught C++ exception, or memory corruption it detected)".
+
+Report: [docs/reports/task-96-dctfilter-thread-race](reports/task-96-dctfilter-thread-race/index.html).

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DCTFilter thread race</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  ul.notes { font-size: 14px; }
+  details summary { cursor: pointer; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>DCTFilter r2 aborts under threads: an unlocked per-thread buffer map</h1>
+<p class="meta">2026-11-21 · task #96 (and #90) · found by the nightly format sweep on Windows x64 · measured on an Apple
+M1 Pro (macOS arm64 deps 1.16.0, and the macOS x64 deps 1.10.0 bundle under Rosetta) · every number below is in
+<code>data/</code>, produced by <code>scripts/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: fixed in the deps (1.18.0-rc3).</strong> DCTFilter up to r2.1 keeps one scratch buffer per worker
+thread in an <code>std::unordered_map</code> that <code>getFrame</code> fills with no lock. When two threads start an
+instance together, an insert is lost, <code>.at()</code> throws <code>std::out_of_range</code> inside a
+<code>noexcept</code> function, and vspipe aborts. On Windows an abort is a fail-fast, exit <code>0xC0000409</code>,
+the code in both nightly failures. The Deblock pass's DCTFilter method and havsfunc's Deblock_QED (which calls
+DCTFilter) were exposed on <strong>Windows</strong> (the r2 release DLL) and <strong>macOS x64</strong> (Stefan-Olt's
+r2.1), at <strong>any frame size</strong>. macOS arm64 and Linux built upstream HEAD, which already has the fix.</p>
+<p>Every platform now builds tag r3.2 with <code>Scripts/patches/dctfilter-r3.2-thread-safety.patch</code>, upstream's
+own untagged commit <code>c924a7a</code> (a buffer per call). Its output is the same as r2's, sample for sample.</p>
+</div>
+
+<h2>1. What the sweep saw</h2>
+<ul class="notes">
+<li>Run 44767156916 (main <code>9190d08d</code>, deps 1.18.0-rc2), job <strong>windows (windows-x64-v2, sweep)</strong>:
+<code>deblock/deblock_qed</code> <code>96x64/yuv422p12le/tff</code>: "vspipe exited with exit code -1073740791 —
+fail-fast: a plugin detected memory corruption and aborted". 1 of 69 rows; every other platform and tier passed.</li>
+<li>Run 44562921675 (deps 1.18.0-rc1), <strong>windows (windows-x64, sweep)</strong>: <code>deblock/dctfilter</code>
+<code>98x64/yuv420p10le/tff</code> and <code>98x64/yuv422p12le/tff</code>, the same exit code (task #90).</li>
+</ul>
+<p>The two failures had different sizes, depths and tiers, and both passed in other runs. Their common element is
+DCTFilter, and the only DCTFilter binaries that differ between platforms are Windows' and macOS x64's.</p>
+
+<h2>2. The fault, in the source</h2>
+<p>r2's <code>DCTFilter.cpp</code> (2017; r2.1 changes only the build files):</p>
+<pre>struct DCTFilterData {
+    ...
+    std::unordered_map&lt;std::thread::id, float *&gt; buffer;      // shared by every thread
+};
+
+static void process(...) noexcept {
+    float * buffer = d-&gt;buffer.at(threadId);                 // throws if the insert was lost
+    ...
+}
+
+dctfilterGetFrame(...) {                                      // fmParallel: many threads at once
+    if (!d-&gt;buffer.count(threadId))                          // no lock
+        d-&gt;buffer.emplace(threadId, fftwf_alloc_real(64));   // no lock
+    ...
+    process&lt;T&gt;(src, dst, d, vsapi);
+}</pre>
+<p>Upstream fixed it twice. r3.0 (<code>48ac5572</code>) took a <code>shared_mutex</code> for the insert and the
+lookup, but r3.2 still calls <code>count()</code> before taking it, which is still a race. <code>c924a7a</code>
+("Remove locks, use vsh_aligned_malloc", 2026-05-10) drops the map: each <code>getFrame</code> allocates a 64-byte
+aligned buffer and frees it. FFTW's new-array execute needs the same alignment as the planning buffer, and the commit
+aligns both the same way. No tag contains <code>c924a7a</code> yet, so the patch carries it over r3.2, and the result
+is byte-for-byte HEAD's source. The same class of bug was TCanny r14's (task #52).</p>
+
+<h2>3. Reproduction</h2>
+<p><code>scripts/build.sh</code> builds r2, and r3.2 with the patch, for macOS against the bundle's FFTW, each under its
+own namespace so it loads beside the bundle's <code>dctf</code>. <code>scripts/run.sh</code> runs:</p>
+<ul class="notes">
+<li><code>fresh_process.vpy</code>: one DCTFilter at the failing row's per-field size (96x64 4:2:2 12-bit, TFF, split
+into 96x32 fields), 8 threads, a fresh vspipe each run;</li>
+<li><code>many_instances.vpy</code>: 1000 DCTFilter instances spliced end to end in one graph. Each instance has its
+own map, so each one's first frames are another chance for the race. The heavy test runs this shape.</li>
+</ul>
+<table><thead><tr><th>build</th><th>shape</th><th>aborted</th><th>message</th></tr></thead><tbody>
+<tr><td>bundle (upstream HEAD = <code>c924a7a</code>)</td><td>fresh process, 96x64</td><td class="ok">0 / 200, 0 / 300</td><td></td></tr>
+<tr><td>r2</td><td>fresh process, 96x64</td><td class="bad">3 / 200</td><td rowspan="2"><code>libc++abi: terminating due to uncaught exception of type std::out_of_range: unordered_map::at: key not found</code></td></tr>
+<tr><td>r2</td><td>fresh process, 720x480, 10 frames</td><td class="bad">0 / 200 (2 / 200 in a first run)</td></tr>
+<tr><td>r3.2 + patch</td><td>fresh process, 96x64</td><td class="ok">0 / 300 (see note)</td><td></td></tr>
+<tr><td>bundle (HEAD)</td><td>1000 instances</td><td class="ok">0 / 20</td><td></td></tr>
+<tr><td>r2</td><td>1000 instances</td><td class="bad">14 / 20</td><td>the same</td></tr>
+<tr><td>r3.2 + patch</td><td>1000 instances</td><td class="ok">0 / 20</td><td></td></tr>
+<tr><td>macOS x64 bundle's own r2.1, under Rosetta</td><td>1000 instances</td><td class="bad">11 / 20 (9 / 20 in a first run)</td><td>the same</td></tr>
+</tbody></table>
+<p class="muted">Note, left as measured: the first fresh-process trial of r3.2 + patch failed 2 / 300, with no exception
+text. Both crash reports show a worker thread in vspipe's <code>frameDoneCallback</code>/<code>outputFrame</code>
+while the main thread was in <code>vpy4_freeScript</code>: vspipe R78's teardown race (task #68). The 1.16.0 bundle
+used here still has it; deps 1.18.0 carries the fix. A second run gave 0 / 300 for both the patched build and the
+bundle's (<code>data/stress.txt</code>). Earlier, during planning, the same scripts gave r2 2 / 200 and 1 / 300 at 16
+threads, and the bundle's build 0 / 200.</p>
+<p>So r2 aborts in about one fresh process in a hundred, whatever the frame size. Each preview is a fresh process, and
+the sweep runs thousands of them, which is why only the sweep saw it. Real jobs on Windows and macOS x64 had the same
+odds per preview and per encode.</p>
+
+<h2>4. The picture does not change</h2>
+<p><code>same_output.vpy</code> (720x480 10-bit noise, a falling factor curve), three processes per build on macOS
+arm64:</p>
+<table><thead><tr><th>build</th><th>md5 of the output, 3 processes</th></tr></thead><tbody>
+<tr><td>bundle (HEAD)</td><td class="ok"><code>117837e3afca6140d23305f35b93acfd</code> ×3</td></tr>
+<tr><td>r2</td><td class="ok"><code>117837e3afca6140d23305f35b93acfd</code> ×3</td></tr>
+<tr><td>r3.2 + patch</td><td class="ok"><code>117837e3afca6140d23305f35b93acfd</code> ×3</td></tr>
+</tbody></table>
+<p>So Windows and macOS x64 output does not change with the new build. The arithmetic is the same.</p>
+
+<h2>5. FFTW_PATIENT, kept</h2>
+<p>DCTFilter plans its 8x8 DCT with <code>FFTW_PATIENT</code>, which times candidate plans in each process. Task #80
+found that FFTW_MEASURE timing gave different FFT3DFilter pictures in different processes on x86, so a preview and
+its encode could differ. Switching DCTFilter to <code>FFTW_ESTIMATE</code> was offered and declined: this change is
+the thread safety only. What has been measured:</p>
+<ul class="notes">
+<li>macOS arm64: one hash in 12 processes (bundle), and in 3 per build above.</li>
+<li>macOS x64 bundle (r2.1, PATIENT) under Rosetta: one hash in 12 processes, twice (once while other jobs loaded
+the machine). Rosetta runs x86 code but is not an x86 CPU, so this is weaker evidence than a runner.</li>
+<li><strong>Not measured:</strong> Windows and Linux x64 on hosted runners, where task #80's FFT3DFilter differences
+showed. If those give more than one hash, the fix is the one task #80 made, in a follow-up task.</li>
+</ul>
+
+<h2>6. The fix and its checks</h2>
+<ul class="notes">
+<li><code>download-deps-windows.ps1</code>: the r2 7z is gone. Section 4b4 builds <code>DCTFilter.dll</code> from
+r3.2 with the patch using FFT3DFilter's Zig recipe (FFTW 3.3.5's DLL through an import library, API 4 headers from
+R78), at the x86-64 baseline for both tiers. A <code>DCTFilter.dll</code> without
+<code>VapourSynthPluginInit2</code> (r2 is API 3) is rebuilt.</li>
+<li><code>download-deps-macos.sh</code>: Stefan-Olt's r2.1 is gone from the x64 list. Both arches compile the one file
+against the bundle's <code>lib/libfftw3f.3.dylib</code>, as FFT3DFilter is built (x64 at its 12.0 floor; PyPI's x86_64
+wheel needs 15.0). Checked locally on arm64: it builds, links <code>@loader_path/../../lib/libfftw3f.3.dylib</code>,
+exports <code>_VapourSynthPluginInit2</code> and passes <code>check-macho-refs.py</code>.</li>
+<li><code>download-deps-linux.sh</code>: pinned to r3.2 with the patch. It used unpinned HEAD, which is the same code.</li>
+<li>Every script fails the build if the patch stops applying.</li>
+<li>Tests (<code>vapoursynth_integration_test.dart</code>, group <code>dctfilter thread safety</code>):
+<ul>
+<li>push gate: DCTFilter ≥ 3.2 (<code>core.dctf.version</code>; r2/r2.1 report -1), and the patch and scripts are in
+place;</li>
+<li>heavy: 10 graphs of 1000 instances and 3 graphs of 300 Deblock_QED calls.</li>
+</ul>
+The bundle checks run from deps 1.18.0-rc3. Run against a copy of the arm64 bundle with r2 swapped in, both bundle
+tests failed 3 runs out of 3. With the bundle's own build they passed.</li>
+<li>The worker's text for <code>0xC0000409</code> was "a plugin detected memory corruption and aborted". It now says
+"vspipe or a plugin aborted (an uncaught C++ exception, or memory corruption it detected)".</li>
+</ul>
+
+<h2>7. Not done, and limits</h2>
+<ul class="notes">
+<li><strong>Not yet run on Windows CI.</strong> The Windows build block can only run on Windows. The before and after
+evidence there is the deps build plus the nightly run (<code>deps_run_id</code>) of this branch.</li>
+<li>A race rate is a probability: 0 aborts in N runs bounds it, it does not prove it zero. The 1000-instance shape is
+used because it turns a 1% event into a better-than-even one per run.</li>
+<li>The sweep row is not listed in <code>knownFailures</code>: that list requires a listed row to fail, and this one
+fails only sometimes. It stays intermittent on Windows and macOS x64 until 1.18.0-rc3 is the pinned bundle.</li>
+<li>The same unlocked map is in DFTTest (every bundled version, upstream HEAD included) and LGhost r1: task #98.</li>
+</ul>
+
+</main>
+</body>
+</html>
