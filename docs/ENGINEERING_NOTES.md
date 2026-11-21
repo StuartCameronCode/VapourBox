@@ -5873,3 +5873,51 @@ factors by `job.id` alone, so previews deleted and rewrote each other's files.
   frame previewed alone. The app was never affected (a fresh id per preview).
 
 Report: [docs/reports/task-93-preview-scratch-collision](reports/task-93-preview-scratch-collision/index.html).
+
+### The 96x66 sweep rows: four faults at a 4:2:0 height 2 mod 4 (task #87, 2026-11-21)
+
+Every nightly sweep leg since the first (2026-11-17, when #47, #56, #57 and
+#60 merged the same day) failed the same six rows plus the bit-exact group,
+on every platform. Nothing to bisect: the 96x66 rows were new, and they
+exposed faults older than them. Four causes, all real, none a tolerance:
+
+- **Resize error 1027, unpadded** (Deband 8/10/12-bit, Colourisation,
+  Face Restoration; TFF). Three zimg conversions of a field-flagged 4:2:0
+  picture missed task #57's padding: `{{#DEPTH_RESTORE}}` (Deband's 16-bit
+  working depth dithered back), `colorize.py`'s final conversion, and
+  `ai_runtime.to_rgbs` / `from_rgbs`. Each now runs through
+  `pad_around(..., field_based_only=True)`.
+- **The last row is never written, and nothing says so** (Bwdif, Chroma
+  Shift, Auto Chroma parity, 2.4-5.7 levels; LUTDeRainbow bit-exact). zimg
+  resizing a field-flagged plane to an odd number of rows, and Bwdif on a
+  plane with an odd number of rows (`field` decides, not the flag), leave
+  the last row as the frame buffer held it. With `MallocScribble` it reads
+  0xAA. That is why the parity numbers changed from run to run and why Linux
+  sometimes passed. Padded: Bwdif (`height_step=CHROMA`), each chroma plane
+  of Chroma Shift and `autochromafix._shift_chroma` (2 GRAY rows,
+  `field_based_only`), and the `havsfunc.LUTDeRainbow` contract (it scales
+  its luma 66 -> 33 rows per field). A 720x486 job through any of them had a
+  garbage bottom chroma row. Frames that fit are unchanged; at 96x66 TFF the
+  bottom 2-4 chroma rows change (edges now at the real field height).
+- **`run_within` padded a depth change** (DeScratch, Dedot, LUTDeCrawl at
+  16-bit TFF). The depth conversion to the plugin's 8/10 bits refused a
+  field-flagged 96x66, so the frame was padded to 96x68 and the plugin ran on
+  a taller picture than at its native depth (DeScratch's blur clamp follows
+  the height). An undithered depth change is per sample: measured
+  byte-identical with and without `_FieldBased` at 96x64 and 720x480. So
+  `_change` converts a copy without the flag and copies the props back, and
+  `run_within` pads only a subsampling change. Output changes only on
+  field-flagged 720x486 4:2:0 above those plugins' depth, where it now
+  matches the native-depth run.
+- **A stale sweep table entry** (Bifrost bit-exact, every row above 8 bits).
+  Since Bifrost v4.0 (task #60) runs at every depth, `WorkDepth(8)` compared a
+  native 10-bit run with an 8-bit one. It is `UntouchedPlanes([0])` now: v4.0
+  never touches luma (measured at 8-16 bits, every subsampling).
+
+Also found: task #81's new sweep variant shifted every variant's index, so
+the gate rows moved and the bit-exact group no longer ran most of the failing
+formats. They were checked with the nightly's original rows. A DeOldify
+preview row failed once locally with a bare "exit code 1" under 4 concurrent
+previews and passed on rerun.
+
+Report: [docs/reports/task-87-height-2-mod-4-sweep](reports/task-87-height-2-mod-4-sweep/index.html).

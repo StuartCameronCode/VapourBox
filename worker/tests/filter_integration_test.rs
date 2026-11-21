@@ -9635,6 +9635,13 @@ fn test_255_original_color_format_restores_the_source_depth() {
                 assert!(at > script.find("core.neo_f3kdb.Deband(").unwrap(), "{name}: restore before Deband");
                 assert!(script.find("_source_format = clip.format").unwrap() < script.find("core.neo_f3kdb.Deband(").unwrap());
                 assert!(script[at..].contains("dither_type=\"error_diffusion\""), "{name}: undithered");
+                // Task #87: padded to whole field chroma rows (zimg refuses a
+                // field-flagged 4:2:0 frame 2 mod 4 high, even a depth change).
+                let block = &script[at..at + script[at..].find("\n\n").unwrap_or(script.len() - at)];
+                assert!(block.contains("clip = _pf.pad_around(\n        clip, lambda c: core.resize.Bicubic(c, format=_restore_format"),
+                    "{name} {cs:?}: the depth restore is not padded:\n{block}");
+                assert!(block.contains("height_step=2 << clip.format.subsampling_h, field_based_only=True"),
+                    "{name} {cs:?}: the depth restore pads the wrong frames:\n{block}");
             }
         }
     }
@@ -10363,4 +10370,116 @@ fn test_265_preview_files_go_in_the_previews_own_scratch_directory() {
     // as before.
     let script = ScriptGenerator::new().unwrap().generate_preview(&job, &params).unwrap();
     assert_eq!(script, std::env::temp_dir().join(format!("{}_preview.vpy", job.id)));
+}
+
+/// Task #87: the AI passes' YUV <-> RGB conversions resize a field-flagged
+/// 4:2:0 clip, which zimg refuses ("Resize error 1027") when its height is
+/// 2 mod 4 (720x486). Every conversion to or from a subsampled format in
+/// colorize.py and ai_runtime.py runs in a lambda handed to
+/// plugin_formats.pad_around(..., field_based_only=True).
+#[test]
+fn test_266_ai_yuv_rgb_conversions_are_padded() {
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let read = |name: &str| std::fs::read_to_string(templates_dir.join(name)).unwrap().replace("\r\n", "\n");
+    let mut sites = 0;
+    for (file, conversions) in [
+        ("colorize.py", vec!["core.resize.Bicubic(c, format=fmt.id"]),
+        ("ai_runtime.py", vec!["core.resize.Spline36(c, format=vs.RGBS", "core.resize.Spline36(c, format=fmt.id"]),
+    ] {
+        let body = read(file);
+        for conv in conversions {
+            let at = body.find(conv).unwrap_or_else(|| panic!("{file}: no `{conv}`"));
+            let start = body[..at].rfind("pad_around(").unwrap_or_else(|| panic!("{file}: `{conv}` not padded"));
+            let call = &body[start..start + body[start..].find(")\n").unwrap() + 1];
+            assert!(call.contains(conv) && call.contains("lambda c:"), "{file}: `{conv}` outside pad_around:\n{call}");
+            assert!(call.contains("field_based_only=True"), "{file}: `{conv}` pads progressive frames too:\n{call}");
+            assert!(call.contains("height_step="), "{file}: `{conv}` has no height step:\n{call}");
+            sites += 1;
+        }
+        // No unpadded conversion to a clip's own (possibly subsampled) format is left.
+        for (i, line) in body.lines().enumerate() {
+            let t = line.trim_start();
+            if t.starts_with('#') {
+                continue;
+            }
+            for bare in ["core.resize.Bicubic(yuv, format=fmt.id", "core.resize.Spline36(clip, format=vs.RGBS",
+                         "core.resize.Spline36(rgbs, format=fmt.id"] {
+                assert!(!t.contains(bare), "{file}:{}: unpadded conversion `{bare}`", i + 1);
+            }
+        }
+    }
+    assert_eq!(sites, 3);
+}
+
+/// Task #87: on a plane with an odd number of rows (the chroma of a 4:2:0
+/// frame 2 mod 4 high, 720x486), Bwdif and zimg's resize of a field-flagged
+/// GRAY plane leave the last row unwritten and raise nothing, so the bottom
+/// chroma row was whatever the frame buffer held. Bwdif runs inside
+/// pad_around(height_step=CHROMA) (not field_based_only: it splits by
+/// `field`, not by the flag), and every per-plane chroma shift (the Chroma
+/// Shift block, autochromafix's _shift_chroma) inside pad_around with whole
+/// field rows of the plane.
+#[test]
+fn test_267_odd_plane_rows_are_padded_for_bwdif_and_chroma_shifts() {
+    create_output_dir();
+    for edeint in [false, true] {
+        let mut job = create_base_job("test_264_bwdif");
+        let deinterlace = QTGMCParameters {
+            enabled: true,
+            method: DeinterlaceMethod::Bwdif,
+            bwdif_edeint: edeint,
+            tff: Some(true),
+            ..Default::default()
+        };
+        job.qtgmc_parameters = deinterlace.clone();
+        job.processing_pipeline = Some(ProcessingPipeline { deinterlace, ..ProcessingPipeline::default() });
+        let (encode, preview) = generate_both_scripts(&job);
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            let def = script.find("def _deint_bwdif(clip):").unwrap_or_else(|| panic!("{name}: no _deint_bwdif"));
+            let call = script.find("core.bwdif.Bwdif(").unwrap();
+            let pad = script
+                .find("clip = _pf.pad_around(clip, _deint_bwdif, height_step=_pf.CHROMA, label='Deinterlace')")
+                .unwrap_or_else(|| panic!("{name} edeint={edeint}: Bwdif is not padded"));
+            assert!(def < call && call < pad, "{name} edeint={edeint}: Bwdif outside _deint_bwdif");
+            assert_eq!(script.matches("core.bwdif.Bwdif(").count(), 1, "{name}: one Bwdif call");
+        }
+    }
+
+    let mut job = create_base_job("test_264_chroma_shift");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..job.qtgmc_parameters.clone() },
+        chroma_fixes: ChromaFixParameters {
+            enabled: true,
+            apply_chroma_shift: true,
+            chroma_shift_v: 1.0,
+            ..ChromaFixParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let (encode, preview) = generate_both_scripts(&job);
+    for (name, script) in [("encode", &encode), ("preview", &preview)] {
+        for plane in ["_u", "_v"] {
+            assert!(
+                script.contains(&format!(
+                    "{plane} = _pf.pad_around({plane}, lambda c: core.resize.Spline36(c, src_left=_chroma_h, src_top=_chroma_v),\n                    height_step=2, field_based_only=True, label='Chroma Shift')"
+                )),
+                "{name}: Chroma Shift's {plane} is not padded"
+            );
+            assert!(!script.contains(&format!("{plane} = core.resize.Spline36({plane},")), "{name}: unpadded {plane}");
+        }
+    }
+
+    let templates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("templates");
+    let auto = std::fs::read_to_string(templates_dir.join("autochromafix.py")).unwrap().replace("\r\n", "\n");
+    let start = auto.find("def _shift_chroma(").unwrap();
+    let body = &auto[start..start + auto[start..].find("\n\n\n").unwrap()];
+    assert_eq!(body.matches("core.resize.").count(), 1, "_shift_chroma: one resize:\n{body}");
+    assert!(body.contains("planes[i] = plugin_formats.pad_around(\n            planes[i], lambda c: core.resize.Bicubic(c, src_left=cx, src_top=cy),\n            height_step=2, field_based_only=True"),
+        "_shift_chroma's resize is not padded:\n{body}");
+
+    // LUTDeRainbow resizes its luma to the chroma size per field: its contract
+    // pads a field-flagged 4:2:0 frame 2 mod 4 high.
+    let formats = std::fs::read_to_string(templates_dir.join("plugin_formats.py")).unwrap().replace("\r\n", "\n");
+    assert!(formats.contains("'havsfunc.LUTDeRainbow': Contract(depths=(8, 10), height_step=CHROMA, field_based_only=True),"));
 }

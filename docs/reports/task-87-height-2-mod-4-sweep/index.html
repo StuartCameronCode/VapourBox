@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task #87: the 96x66 sweep rows</title>
+<style>
+:root { --bg:#fff; --fg:#1d1d1f; --muted:#6e6e73; --line:#d2d2d7; --code:#f5f5f7; --bad:#b3261e; --good:#1b7f3b; }
+@media (prefers-color-scheme: dark) { :root { --bg:#161618; --fg:#ececf0; --muted:#a1a1a6; --line:#3a3a3e; --code:#232326; --bad:#ff8a80; --good:#7ee2a0; } }
+body { background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, "Segoe UI", sans-serif; max-width:960px; margin:0 auto; padding:24px 16px 64px; }
+h1 { font-size:26px; margin-bottom:4px; } h2 { margin-top:36px; border-bottom:1px solid var(--line); padding-bottom:4px; }
+.sub { color:var(--muted); margin-top:0; }
+code, pre { background:var(--code); border-radius:4px; font:13px/1.45 ui-monospace, Menlo, monospace; }
+code { padding:1px 4px; } pre { padding:10px 12px; overflow-x:auto; }
+table { border-collapse:collapse; width:100%; margin:12px 0; font-size:14px; display:block; overflow-x:auto; }
+th, td { border:1px solid var(--line); padding:5px 8px; text-align:left; vertical-align:top; }
+th { background:var(--code); }
+.bad { color:var(--bad); font-weight:600; } .good { color:var(--good); font-weight:600; }
+.note { border-left:3px solid var(--line); padding:2px 12px; color:var(--muted); }
+</style>
+</head>
+<body>
+<h1>Task #87: the 96x66 sweep rows</h1>
+<p class="sub">Four faults at a field-flagged 4:2:0 frame whose height is 2 mod 4 (720x486; the sweep's 96x66). Measured 2026-11-21 on macOS arm64 (M1 Pro), deps 1.18.0-rc2.</p>
+
+<h2>Summary</h2>
+<p>Every nightly format-sweep leg since the first (run 44127090331, 2026-11-17) failed the same rows on every platform: <code>6792 rows, 6 failed</code> plus the bit-exact group. The 96x66 rows (task #57) merged the same day as the sweep (#47), #56 and Bifrost v4.0 (#60), so there is no earlier nightly to bisect: the rows exposed faults that are older than them. There are four causes. All four are real faults, so no tolerance or <code>knownFailures</code> entry was added.</p>
+<table>
+<tr><th>#</th><th>Rows (nightly)</th><th>Cause</th><th>Fix</th></tr>
+<tr><td>A</td><td><code>deband</code> 96x66 p8/p10/p12 TFF; <code>colorize/ddcolor</code>, <code>colorize/deoldify</code>, <code>face_restore/model=codeFormer</code> 96x66 TFF: <em>Resize error 1027</em></td><td>Three zimg conversions of a field-flagged 4:2:0 clip with no whole field chroma rows, none of them padded: <code>{{#DEPTH_RESTORE}}</code>, <code>colorize.py</code>'s final <code>YUV444PS → fmt</code>, and <code>ai_runtime.to_rgbs</code> / <code>from_rgbs</code></td><td><code>pad_around(…, field_based_only=True)</code>, as <code>{{#CHROMA_CONVERT}}</code> already did</td></tr>
+<tr><td>B</td><td>Parity 2.4–5.7 levels: <code>deinterlace/bwdif</code>, <code>chroma_fixes/applyAutoChroma=true</code>, <code>…applyChromaShift=true</code> 96x66 TFF; bit-exact <code>applyDeRainbow</code> 96x66 p16 TFF</td><td><strong>The last row is never written, and no error is raised.</strong> zimg resizing a field-flagged plane to an odd number of rows, and Bwdif on a plane with an odd number of rows, leave that row as the frame buffer held it</td><td>Pad Bwdif (<code>height_step=CHROMA</code>), each chroma plane of Chroma Shift and <code>autochromafix._shift_chroma</code> (2 GRAY rows, <code>field_based_only</code>), and the <code>havsfunc.LUTDeRainbow</code> contract</td></tr>
+<tr><td>C</td><td>Bit-exact <code>descratch</code>, <code>applyDeCrawl</code> (and <code>applyDedot</code>) 96x66 p16 TFF</td><td><code>run_within</code> padded the frame to 96x68 for a depth-only conversion, so the plugin ran on a taller picture than at its native depth</td><td>A depth change alone is converted without <code>_FieldBased</code> (per sample, so the flag cannot change it) and pads nothing</td></tr>
+<tr><td>D</td><td>Bit-exact <code>applyBifrost</code>, every row above 8 bits</td><td>The sweep still declared <code>WorkDepth(8)</code>, but Bifrost v4.0 runs at every depth (task #60)</td><td><code>UntouchedPlanes([0])</code>: v4.0 never touches luma</td></tr>
+</table>
+
+<h2>A: unpadded conversions (Resize error 1027)</h2>
+<p>zimg converts a field-flagged clip per field. On a 4:2:0 frame 66 rows high the chroma has 33 rows, so a field has no whole chroma height, and zimg refuses even a pure depth change (<code>depth.py</code>, flagged rows):</p>
+<pre>66 16 -> 8  {0: ('0f34219a', …), 2: ('ERR Resize error 1027 …'), 'strip': ('0f34219a', …)}</pre>
+<p>Deband's 16-bit rows passed because nothing is restored there. The fix pads the frame to whole field chroma rows by repeating each field's own last row, and crops the result back (<code>plugin_formats.pad_around</code>, task #57). With <code>field_based_only</code>, a progressive frame or one that already fits takes the same path as before, so its output does not change. Error diffusion still runs per field. <code>colorize.py</code>'s source clip is 4:4:4, so its step is given in luma rows (<code>2 &lt;&lt; fmt.subsampling_h</code>). <code>ai_runtime</code> imports <code>plugin_formats</code> lazily, which leaves the runtime's self-test unchanged.</p>
+
+<h2>B: the unwritten last row</h2>
+<p><code>zfield.py</code>: a 48x33 GRAY8 plane shifted with <code>resize.Spline36(src_top=-0.5, src_left=1)</code>. Unflagged, the last row is computed. Flagged, it is never written:</p>
+<pre>0 shift (33, 48) rows-1.. [47, 97, 177, 101, 146, 33, 83, 163]
+2 shift (33, 48) rows-1.. [0, 0, 0, 0, 0, 0, 0, 0]</pre>
+<p>Bwdif behaves the same on any plane with an odd number of rows, whether or not the clip is flagged (<code>lastrow.py</code>). The source's chroma lies in [peak/4, 3peak/4] over a BlankClip whose chroma is 0, so a row nobody wrote reads 0 or leftovers from another frame:</p>
+<pre> 8-bit 96x66 fb=0 bwdif field=3   before NOT WRITTEN [0, 0, 0, 0, 0, 0]
+ 8-bit 96x66 fb=2 bwdif field=1   before NOT WRITTEN [130, 155, 179, 74, 98, 123]   (another frame's row)
+16-bit 96x66 fb=0 bwdif field=1   before NOT WRITTEN [0, 0, 0, 0, 0, 0]
+                                  after  written   (every case, 8/10/16-bit, both flags)</pre>
+<p>Under <code>MallocScribble=1 MallocPreScribble=1</code>, LUTDeRainbow's internal luma-to-chroma resize (66 → 33 rows, field-flagged) leaves its last row at <code>170</code> (0xAA), which is the scribble pattern.</p>
+<p>That explains the parity numbers changing from run to run (arm64 12-bit Bwdif: 5.72 on 11-17, 3.42 on 11-19) and Linux sometimes passing. A 720x486 job through Bwdif, Chroma Shift, Auto Chroma or LUTDeRainbow got a garbage bottom chroma row.</p>
+<p><strong>What else changes.</strong> Against the unpadded call (<code>lastrow.py</code>, <code>compare()</code>), every row agrees exactly at 96x64, at 8, 10 and 16 bits, flagged or not. At 96x66 the bottom 2–4 chroma rows differ, because the edge is now handled at the real field height:</p>
+<table>
+<tr><th>8-bit, plane U, 96x66</th><th>rows that differ (max diff)</th></tr>
+<tr><td>Bwdif field=3, unflagged</td><td>29 (16), 31 (38), 32 (190: the unwritten row)</td></tr>
+<tr><td>Chroma Shift, flagged</td><td>28 (3), 30 (13), 31 (3), 32 (169: the unwritten row)</td></tr>
+<tr><td>Chroma Shift, unflagged</td><td>none (progressive frames take the old path)</td></tr>
+</table>
+
+<h2>C: run_within's depth-only conversion</h2>
+<p><code>depth.py</code>: a 4:2:0 depth change (Bilinear down, Point back) gives the same md5 with <code>_FieldBased</code> 0, 2 or stripped, at 96x64 and 720x480, for 16→8, 10→8 and 16→10. An undithered depth change is per sample. So <code>_change</code> converts a copy without the flag and copies the clip's props back (the plugin still sees <code>_FieldBased</code>), and <code>run_within</code> pads only for a subsampling change. Output changes only for field-flagged 720x486 4:2:0 above DeScratch's, Dedot's or LUTDeCrawl's depth, where the plugin now sees the real 486 rows, as it does at its native depth.</p>
+
+<h2>D: Bifrost</h2>
+<p><code>bifrost_luma.py</code> on deps 1.18.0-rc2 (v4.0): Y is unchanged at 8, 10, 12 and 16 bits, at every subsampling, with <code>interlaced</code> both on and off. On the sweep fixture the new <code>UntouchedPlanes([0])</code> check passes the four rows that failed before (98x64 422p10 TFF, 98x64 444p12 prog, 96x64 420p16 TFF, 96x66 420p12 prog). The synthetic picture never triggers Bifrost, so luma being exact comes from the fixture rows, not from that script.</p>
+
+<h2>Before and after, on the nightly's rows</h2>
+<p>These checks use the sweep test itself. The preview rows are the nightly group's full product. The delta and add-on rows use a local copy of the test that forces the nightly's failing formats, because task #81 added a variant, which shifted every variant's index and moved the gate rows off them. "Before" means main's templates (<code>bbf1927c</code>) with the same worker binary. Every run used <code>MallocScribble=1 MallocPreScribble=1</code>.</p>
+<table>
+<tr><th>Variant</th><th>Before</th><th>After</th></tr>
+<tr><td><code>deband</code> (69 rows)</td><td class="bad">3 failed: 96x66 p8/p10/p12 TFF, Resize error 1027</td><td class="good">69 ok</td></tr>
+<tr><td><code>deinterlace/bwdif</code>, <code>…+bwdifEdeint=true</code></td><td class="bad">parity 2.69–2.80 at 96x66 p10/p12 TFF (both)</td><td class="good">138 ok</td></tr>
+<tr><td><code>chroma_fixes/applyAutoChroma=true</code></td><td class="bad">parity 2.36–2.39</td><td class="good">69 ok</td></tr>
+<tr><td><code>…applyAutoChroma=false+applyChromaShift=true</code></td><td class="bad">parity 2.39–2.42</td><td class="good">69 ok</td></tr>
+<tr><td>bit-exact <code>applyDedot</code> / <code>applyDeCrawl</code> / <code>applyDeRainbow</code>, 96x66 p16 TFF</td><td class="bad">352 / 4367 / 8937 samples off</td><td class="good">ok (DeRainbow after its contract was padded)</td></tr>
+<tr><td>bit-exact <code>descratch</code> 96x66 p16 TFF</td><td>(nightly: ~7,900 samples)</td><td class="good">ok</td></tr>
+<tr><td>bit-exact <code>applyBifrost</code> (4 nightly rows)</td><td>(nightly: failed)</td><td class="good">4 ok</td></tr>
+<tr><td>add-on <code>colorize/ddcolor</code>, <code>face_restore/model=codeFormer</code>; bit-exact for both and for <code>colorize/deoldify</code></td><td>(nightly: Resize error 1027)</td><td class="good">ok</td></tr>
+<tr><td>add-on <code>colorize/deoldify</code> previews</td><td>(nightly: Resize error 1027)</td><td>ok on rerun; one earlier run failed all 4 rows (progressive too) with a bare "vspipe exited with exit code 1" under 4 concurrent previews</td></tr>
+</table>
+<p class="note">Limits: measured on macOS arm64 only. The x86 platforms are covered by the nightly dispatch that follows this change. The unwritten row holds whatever the allocator hands back, so a "before" run can pass by chance. That is why every run used malloc scribbling. The DeOldify failure wasn't reproduced; it is not a format fault, since its progressive row failed as well.</p>
+
+<h2>Scripts</h2>
+<p>Run with the deps bundle's Python and <code>worker/templates</code> on <code>PYTHONPATH</code>. <code>vsutil_np.py</code> is a helper.</p>
+<ul>
+<li><code>zfield.py &lt;bits&gt;</code>: zimg on a field-flagged 33-row plane (B)</li>
+<li><code>bwdif.py &lt;bits&gt; &lt;height&gt; &lt;field&gt;</code>: Bwdif's last chroma row (B)</li>
+<li><code>lastrow.py</code>: before and after for Bwdif, Chroma Shift and <code>_shift_chroma</code>, plus the row-by-row comparison (B)</li>
+<li><code>depth.py</code>: a depth change with the flag set, unset and stripped (A, C)</li>
+<li><code>bifrost_luma.py</code>: Bifrost v4.0's luma (D)</li>
+</ul>
+</body>
+</html>

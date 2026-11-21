@@ -27,6 +27,8 @@ import math
 
 import vapoursynth as vs
 
+import plugin_formats
+
 core = vs.core
 
 
@@ -78,8 +80,14 @@ def _shift_chroma(clip, dx, dy):
     cx = dx / float(1 << clip.format.subsampling_w)
     cy = dy / float(1 << clip.format.subsampling_h)
     planes = [core.std.ShufflePlanes(clip, i, vs.GRAY) for i in range(3)]
-    planes[1] = core.resize.Bicubic(planes[1], src_left=cx, src_top=cy)
-    planes[2] = core.resize.Bicubic(planes[2], src_left=cx, src_top=cy)
+    # A field-flagged plane is resized per field, and zimg leaves the last row
+    # of a plane with an odd number of rows unwritten, raising nothing (4:2:0
+    # chroma of a frame 2 mod 4 high, 720x486; task #87). Padded to whole rows
+    # per field and cropped back, as the template's Chroma Shift does.
+    for i in (1, 2):
+        planes[i] = plugin_formats.pad_around(
+            planes[i], lambda c: core.resize.Bicubic(c, src_left=cx, src_top=cy),
+            height_step=2, field_based_only=True, label='Auto Chroma')
     return core.std.ShufflePlanes(planes, [0, 0, 0], vs.YUV)
 
 

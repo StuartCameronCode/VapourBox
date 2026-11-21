@@ -59,7 +59,13 @@ CONTRACTS = {
     'dedot.Dedot': Contract(depths=(8,)),
     'descratch.DeScratch': Contract(depths=(8,)),
     'havsfunc.LUTDeCrawl': Contract(depths=(8, 10)),
-    'havsfunc.LUTDeRainbow': Contract(depths=(8, 10)),
+    # LUTDeRainbow resizes its luma to the chroma plane's size (66 -> 33 rows
+    # at 96x66 4:2:0), per field on a field-flagged clip, and zimg leaves the
+    # last row of such an odd-height output unwritten, raising nothing: the
+    # mask's bottom row was garbage, different from run to run (task #87).
+    # So a field-flagged 4:2:0 frame 2 mod 4 high (720x486) is padded to
+    # whole field chroma rows; nothing refuses it, so the probe has no row.
+    'havsfunc.LUTDeRainbow': Contract(depths=(8, 10), height_step=CHROMA, field_based_only=True),
     # Whole field chroma rows (task #57): a 4:2:0 frame whose height is 2 mod
     # 4 (720x486) has an odd number of chroma rows. QTGMC and MCTD split it
     # into fields (SeparateFields) whatever the flag; the rest resample a
@@ -338,16 +344,18 @@ def run_within(clip, plugin, fn, *, delta_only=True, label=None):
 
     - The frame is first padded to the contract's width_step / height_step
       (pad_around; only field-flagged frames when field_based_only), and,
-      when it must be converted, to whole field chroma rows: the conversion
-      is a zimg resize, which refuses a field-flagged 4:2:0 clip whose height
-      is 2 mod 4 (and only a field-flagged one). Padding is outside the
-      conversion, and a clip that already fits gets no padding node.
+      when the subsampling must change, to whole field chroma rows: that
+      conversion resamples chroma per field, which zimg refuses for a
+      field-flagged 4:2:0 clip whose height is 2 mod 4 (and only a
+      field-flagged one). Padding is outside the conversion, and a clip that
+      already fits gets no padding node. A depth change alone pads nothing
+      (see _change), so the plugin sees the real frame, as it does at its
+      native depth (task #87: DeScratch's blur clamp follows the height).
     - A clip the plugin already accepts is handed to fn unchanged and fn's
       result returned as it is: no node is added.
-    - Otherwise the work copy is converted with zimg, keeping _FieldBased, so
-      a field-flagged clip's chroma is resampled per field: Bilinear down and
-      Point back for a depth change alone, Bicubic both ways when the
-      subsampling changes too.
+    - Otherwise the work copy is converted with zimg: Bilinear down and Point
+      back for a depth change alone, Bicubic both ways, per field on a
+      field-flagged clip, when the subsampling changes too.
     - delta_only (the default): the result is clip + back(fn(work)) -
       back(work), so every sample fn left alone is the source's, bit for
       bit, and a changed one keeps the source's low bits. fn must keep the
@@ -367,9 +375,11 @@ def run_within(clip, plugin, fn, *, delta_only=True, label=None):
     width_step, height_step = contract.width_step, contract.height_step
     field_based_only = contract.field_based_only
     fmt = clip.format
-    if fmt.color_family == vs.YUV and work_format(fmt, contract).id != fmt.id:
-        # The conversion to the work format is a zimg resize, per field on a
-        # field-flagged clip, so it needs whole field chroma rows as well.
+    work = work_format(fmt, contract) if fmt.color_family == vs.YUV else fmt
+    if (work.subsampling_w, work.subsampling_h) != (fmt.subsampling_w, fmt.subsampling_h):
+        # A subsampling change is a chroma resample, per field on a
+        # field-flagged clip, so it needs whole field chroma rows as well. A
+        # depth change alone needs none (_change converts it unflagged).
         hs = _step(height_step, fmt.subsampling_h)
         cs = _step(CHROMA, fmt.subsampling_h)
         if (contract.width_step, contract.height_step) == (1, 1):
@@ -399,19 +409,32 @@ def change_at(clip, fmt, fn, *, label=None):
     return _change(clip, fmt, fn, True, label or 'change_at', 'change_at needs fn')
 
 
+def _depth_only(resize, c, fmt_id):
+    """[c] at [fmt_id] (same subsampling, another depth), converted without
+    _FieldBased and given [c]'s props back. An undithered depth change is per
+    sample, so the flag cannot change a sample (measured byte-identical at
+    96x64 and 720x480, 16->8, 10->8, 16->10: task #87), but with it zimg
+    refuses a 4:2:0 frame 2 mod 4 high ("Resize error 1027")."""
+    plain = core.std.RemoveFrameProps(c, '_FieldBased')
+    return core.std.CopyFrameProps(resize(plain, format=fmt_id), c)
+
+
 def _change(clip, target, fn, delta_only, name, needs):
-    """fn on [clip] converted to [target] with zimg (keeping _FieldBased:
-    Bilinear down / Point back for a depth change alone, Bicubic both ways
-    when the subsampling changes too), brought back: whole (delta_only=False)
-    or as clip + back(out) - back(work)."""
+    """fn on [clip] converted to [target] with zimg, brought back: whole
+    (delta_only=False) or as clip + back(out) - back(work).
+
+    A depth change alone is Bilinear down / Point back without _FieldBased,
+    which it cannot use (_depth_only; fn still sees the clip's props); with a
+    subsampling change too, Bicubic both ways, keeping _FieldBased so chroma
+    is resampled per field."""
     fmt = clip.format
     if target.id == fmt.id:
         return fn(clip)
     if (target.subsampling_w, target.subsampling_h) == (fmt.subsampling_w, fmt.subsampling_h):
-        work = core.resize.Bilinear(clip, format=target.id)
+        work = _depth_only(core.resize.Bilinear, clip, target.id)
 
         def back(c):
-            return core.resize.Point(c, format=fmt.id)
+            return _depth_only(core.resize.Point, c, fmt.id)
     else:
         work = core.resize.Bicubic(clip, format=target.id)
 

@@ -317,7 +317,15 @@ def to_rgbs(clip, matrix, range_):
     core = vs.core
     family = clip.format.color_family
     if family == vs.YUV:
-        return core.resize.Spline36(clip, format=vs.RGBS, range_in_s=range_, **zimg_args(matrix, "in"))
+        # A field-flagged clip is converted per field, which zimg refuses for a
+        # 4:2:0 frame 2 mod 4 high (720x486, "Resize error 1027"): padded to
+        # whole field chroma rows (task #87). Imported here so the runtime's
+        # self-test, which loads only this module, needs nothing more.
+        import plugin_formats
+
+        return plugin_formats.pad_around(
+            clip, lambda c: core.resize.Spline36(c, format=vs.RGBS, range_in_s=range_, **zimg_args(matrix, "in")),
+            height_step=plugin_formats.CHROMA, field_based_only=True, label="AI runtime")
     if family == vs.GRAY:
         gray = core.resize.Point(clip, format=vs.GRAYS, range_in_s=range_)
         return core.std.ShufflePlanes(gray, [0, 0, 0], vs.RGB)
@@ -331,8 +339,12 @@ def from_rgbs(rgbs, fmt, matrix, range_):
 
     core = vs.core
     if fmt.color_family == vs.YUV:
-        return core.resize.Spline36(rgbs, format=fmt.id, range_s=range_,
-                                    dither_type="error_diffusion", **zimg_args(matrix, "out"))
+        import plugin_formats  # padded as in to_rgbs, to whole field chroma rows of fmt
+
+        return plugin_formats.pad_around(
+            rgbs, lambda c: core.resize.Spline36(c, format=fmt.id, range_s=range_,
+                                                 dither_type="error_diffusion", **zimg_args(matrix, "out")),
+            height_step=2 << fmt.subsampling_h, field_based_only=True, label="AI runtime")
     if fmt.color_family == vs.GRAY:
         return core.resize.Point(core.std.ShufflePlanes(rgbs, 1, vs.GRAY), format=fmt.id, range_s=range_,
                                  dither_type="error_diffusion")
