@@ -1,0 +1,18 @@
+== small_clip.mp4: 300 runs, 1 at once
+    300 3151
+probe failure lines: 0
+== small_clip.mp4: 300 runs, 8 at once
+    300 3151
+probe failure lines: 0
+== small_clip.mp4: 300 runs, 16 at once
+    300 3151
+probe failure lines: 0
+== raw tail probe: 300 runs, 8 at once
+    300 status=0 lines=94
+== raw tail probe: 300 runs, 32 at once
+    300 status=0 lines=94
+== raw tail probe: 600 runs, 8 at once
+    600 status=0 lines=94
+== raw tail probe: 300 runs, 8 at once
+    300 status=0 lines=3154
+== cargo test x30: 30 passed, 0 failed

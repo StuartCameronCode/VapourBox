@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MP4 tail probe flake</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>small_clip.mp4 counts 3154 instead of 3151 now and then: the tail probe comes back empty</h1>
+<p class="meta">Task #83, 2026-11-21. Measured on GitHub's <code>windows-latest</code>, <code>ubuntu-24.04</code> and <code>macos-15</code> runners with deps 1.18.0 (FFmpeg 9.0 series: BtbN on Windows/Linux, martin-riedl on macOS), through the temporary workflow <code>.github/workflows/repro-probe-source.yml</code> (runs 44755463322 and 44763118568). Locally: macOS arm64 with Homebrew's FFmpeg 9.0.2.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>Cause:</b> the tail probe task #54 added (<code>ffprobe -show_entries packet=pts_time,flags -read_intervals 102.119%</code>, the last 3 s of the video packets) sometimes <b>exits 0 with no output at all</b>. On Windows this happened in 50 of 1,800 raw ffprobe runs (2.8%), on macOS in 5 of 1,800, and on Linux in none of 1,800. The worker read an empty listing as "no last kept picture" and counted <code>nb_frames</code> (3154, the edit list's three discarded pre-roll pictures included), with no retry and nothing logged. In 1,800 worker runs per platform, the old code would have counted 3154 in <b>41 on Windows</b> (2.3%), 5 on macOS and none on Linux.</li>
+<li><b>Where it goes wrong:</b> inside ffprobe's seek. A run that comes back empty logs, at <code>-v debug</code>, exactly what a good run logs, the read-interval seek included, except for its last line: it read 137,094 bytes instead of 333,702. All 19 empty Windows logs are identical. Nothing is reported, so no exit status or stderr can tell it apart. The same command without the seek (every packet listed) was never empty, in 900 runs.</li>
+<li><b>Fix (worker):</b> the count-deciding probes now run through <code>ffprobe_run</code>. It keeps stderr, names the exit status (for example <code>0xC0000142, STATUS_DLL_INIT_FAILED</code>), treats an empty stdout as a failure, retries up to 3 times (100 ms, 300 ms) and logs every failed attempt on <code>--probe-source</code>'s stderr. A tail window that still fails, or keeps no picture, falls back to listing every video packet, with no seek (<code>mov_last_kept</code>). If an MP4/MOV's head probe or that listing still fails, <code>--probe-source</code> returns an error. It never returns the stored count.</li>
+<li><b>Measured with the fix:</b> 2,700 of 2,700 runs on each platform counted 3151. Every empty window on Windows was answered by its first retry, except one, which took the second. 30 runs of the push gate's two probing test binaries passed on every platform, in both rounds.</li>
+</ul>
+
+<h2>The CI failure</h2>
+<p>Run 44518323107, attempt 1, Windows job 135540066866 (PR #229, which does not touch this code). It failed <code>continuity_integration_test.rs:124</code>, <code>a_deferred_scan_completes_to_the_same_model</code>, with "small_clip.mp4: nothing to defer". Attempt 2 passed.</p>
+<p class="box">Correction to the task's description: for an MP4 the test never runs <code>--complete-source</code>. It compares two <code>--probe-source</code> runs, with and without <code>--defer-scan</code>. The flag changes nothing for an MP4 (<code>continuity_deferred</code> requires a TS/PS), so this was two runs of the same probe giving different answers.</p>
+<p>The two models from the log differ only in <code>video.frameCount</code>: 3151 in one, 3154 in the other. Both have <code>sourceGrid {2997/100, origin 0}</code> and <code>storedFrames</code> 3154. Because the grid is present, the head probe (<code>VIDEO_START_PROBE_ARGS</code>) answered, and its first three packets are flagged <code>D</code>, so discards were seen. A count of 3154 with discards seen can only come from the tail closure returning no picture. That points at the tail probe, which the repro confirmed.</p>
+
+<h2>Repro: rounds 1 and 2</h2>
+<p>The runs used the worker with the fix, so its stderr shows each failure of a first attempt. Without the fix, every such run would have counted 3154. Each loop is 300 <code>--probe-source</code> runs (data: <code>data/round{1,2}-&lt;platform&gt;.txt</code>).</p>
+<table>
+<tr><th>Platform</th><th>Loop</th><th>Round 1: runs with an empty window</th><th>Round 2</th><th>frameCount</th></tr>
+<tr><td rowspan="3">Windows x64</td><td>serial</td><td class="num">8 (one twice)</td><td class="num">16</td><td rowspan="3" class="ok">3151 &times; 1800</td></tr>
+<tr><td>8 at once</td><td class="num">11</td><td class="num">4</td></tr>
+<tr><td>16 at once</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td rowspan="3">macOS arm64</td><td>serial</td><td class="num">1</td><td class="num">0</td><td rowspan="3" class="ok">3151 &times; 1800</td></tr>
+<tr><td>8 at once</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td>16 at once</td><td class="num">1</td><td class="num">1</td></tr>
+<tr><td>Linux x64</td><td>all three</td><td class="num">0</td><td class="num">0</td><td class="ok">3151 &times; 1800</td></tr>
+</table>
+<p>The raw ffprobe, without the worker (<code>scripts/ffprobe_tail_loop.sh</code>):</p>
+<table>
+<tr><th>Platform</th><th>Tail window, 8 at once</th><th>32 at once</th><th>8 at once, <code>-v debug</code></th><th>Every packet (no seek), 8 at once</th></tr>
+<tr><td>Windows x64</td><td class="num no">2/300, 16/300</td><td class="num no">1/300, 12/300</td><td class="num no">19/600</td><td class="num ok">0/300</td></tr>
+<tr><td>macOS arm64</td><td class="num">0/300, 1/300</td><td class="num">0/300, 3/300</td><td class="num">1/600</td><td class="num ok">0/300</td></tr>
+<tr><td>Linux x64</td><td class="num ok">0/600</td><td class="num ok">0/600</td><td class="num ok">0/600</td><td class="num ok">0/300</td></tr>
+</table>
+<p>Every failure was exit 0 with empty stdout and empty stderr. Not one ffprobe exited non-zero or failed to start, on any platform.</p>
+
+<h2>What the hypotheses predicted</h2>
+<ul>
+<li><b>H1, processes failing to start or initialise in bursts (e.g. <code>0xC0000142</code>): refuted.</b> No run exited non-zero. Serial runs failed as often as parallel ones on Windows (8 and 16 of 300), and 16 or 32 at once failed no more than 8 at once.</li>
+<li><b>H2, ffprobe exits 0 with no output after the <code>-read_intervals</code> seek: confirmed.</b> This is the one path the old code never retried.</li>
+<li><b>H3, a sharing violation or scanner holding the file: refuted.</b> Stderr was always empty, and the whole-stream listing reads the same file without ever failing.</li>
+</ul>
+
+<h2>Inside the empty run</h2>
+<p>Here are <code>data/windows-tail-probe-normal.log</code> and <code>data/windows-tail-probe-empty.log</code>, with pointers replaced by <code>P</code>. They agree line for line, edit-list processing included ("drop a frame at curr_cts: 0/100/200"), as do <code>Processing read interval id:0 start:102.119</code>, <code>Seeking to read interval start point 102.119</code> and the decoder's SPS/PPS after the seek. Only the last line differs:</p>
+<pre>normal: [AVIOContext @ P] Statistics: 333702 bytes read, 3 seeks
+empty:  [AVIOContext @ P] Statistics: 137094 bytes read, 3 seeks</pre>
+<p>So the seek succeeds and the reads that follow find no video packet to list. All 19 empty logs are identical. 1,500 runs of Homebrew's 9.0.2 on an M1 Pro were all good, so the fault varies with the build or the machine, which points at something like an uninitialised value in the MOV demuxer's seek. It was not chased into FFmpeg's source: the worker's fix does not depend on the cause, and the whole-stream listing avoids the seek altogether.</p>
+
+<h2>The fix</h2>
+<table>
+<tr><th>Probe</th><th>Before</th><th>Now</th></tr>
+<tr><td>Stream probe (<code>-show_streams -show_format</code>)</td><td>one run, stderr discarded</td><td>3 attempts, logged. Still an error when every attempt fails</td></tr>
+<tr><td>Video-start (head) probe</td><td>one run, failure &rarr; no grid, no discards</td><td>3 attempts. An answer with no packets counts as a failure. For an MP4/MOV with <code>nb_frames</code>, failing every attempt is an <b>error</b>: it is the probe that sees the edit list</td></tr>
+<tr><td>Tail window (MP4/MOV)</td><td>one run, empty &rarr; <code>nb_frames</code>; a run that failed outright was tried once more</td><td>3 attempts; then, if it failed or kept no picture, every packet listed (3 attempts); then an <b>error</b></td></tr>
+<tr><td>Tail window (Matroska)</td><td>one run, failure &rarr; the duration's count</td><td>3 attempts, then the duration's count as before</td></tr>
+<tr><td>Untimed last picture (TS/PS)</td><td>one run</td><td>3 attempts, then as before (it can only raise the count)</td></tr>
+</table>
+<p>The error reads <i>"could not count the frames of &lt;file&gt;: its edit list discards pictures, and ffprobe's packet listing failed (&lt;reason&gt;)"</i>. A timeline 3 frames longer than the decode is worse than a failed analysis: the last trim asks for a frame past the end. For the CLI this was decided in the plan. The app currently drops a <code>--probe-source</code> error without showing it, which is filed as task #85.</p>
+<p>With three empty windows needed before the listing runs, and Windows' measured rate of about 2.8% per run, the listing is reached about once in 45,000 probes, if failures are independent. The listing was never empty in 900 runs. Neither number proves the failure rate is zero.</p>
+
+<h2>Tests</h2>
+<ul>
+<li><code>ffprobe_run</code> unit tests cover: retry stops at the first answer and logs each failure, gives up after 3 attempts with the last reason, names a Windows status, and keeps the end of stderr.</li>
+<li><code>source_model</code> unit tests drive the chain with a scripted ffprobe: a failure then an answer is retried and logged, an empty or discard-only window falls back to the whole listing, a chain that fails throughout is an error and never the stored count, the window's arguments, and a head answer must list packets.</li>
+<li><code>worker/tests/source_model_integration_test.rs</code> (push gate) runs <code>--probe-source</code> 24 times, 8 at once, on <code>small_clip.mp4</code> (3151) and <code>edit_list_bframes.mp4</code> (128). It prints any retried probe's stderr.</li>
+<li><code>continuity_integration_test.rs</code> now puts both runs' stderr in its "nothing to defer" message, so another flake says which probe failed and why.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul>
+<li><code>scripts/probe_loop.sh &lt;worker&gt; &lt;file&gt; &lt;runs&gt; &lt;parallel&gt; &lt;out&gt;</code> tallies <code>frameCount</code> and the worker's "failed (attempt" lines.</li>
+<li><code>scripts/ffprobe_tail_loop.sh &lt;ffprobe&gt; &lt;file&gt; &lt;runs&gt; &lt;parallel&gt; &lt;out&gt; [interval|none]</code> runs the raw probe and tallies exit status and line count. With <code>LOGLEVEL=debug</code> it keeps each empty run's log.</li>
+<li><code>scripts/cargo_test_loop.sh &lt;runs&gt; &lt;out&gt;</code>, run from <code>worker/</code>, runs the push gate's two probing test binaries repeatedly.</li>
+</ul>
+<p>All three run under Git Bash on Windows. <code>.github/workflows/repro-probe-source.yml</code> was removed before merge; to re-run, restore it from this task's branch history.</p>
+
+<h2>Not tested, and limits</h2>
+<ul>
+<li>One file (<code>small_clip.mp4</code>). Other MP4/MOV files were not looped, and neither was the TS/PS untimed-tail probe, which also seeks with <code>-read_intervals</code> and now has the same retry.</li>
+<li>Hosted runners only, with one FFmpeg build per platform. Whether a user's machine sees the empty seek more or less often is unknown.</li>
+<li>FFmpeg's cause was not found or reported upstream.</li>
+<li>The Windows-only flakes in memory ("preview exited with 1", the rapid-seek stray process) are not explained by this: H1 was refuted here, so nothing links them.</li>
+</ul>
+</body>
+</html>

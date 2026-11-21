@@ -38,6 +38,7 @@ mod dvd_reader;
 mod pipeline_executor;
 mod vspipe_failure;
 mod pixel_format;
+mod ffprobe_run;
 mod source_continuity;
 mod source_decode;
 mod source_timing;

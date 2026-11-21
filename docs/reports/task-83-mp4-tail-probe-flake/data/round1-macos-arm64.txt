@@ -1,0 +1,17 @@
+== small_clip.mp4: 300 runs, 1 at once
+ 300 3151
+probe failure lines:        1
+run 122: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+== small_clip.mp4: 300 runs, 8 at once
+ 300 3151
+probe failure lines:        1
+run 254: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+== small_clip.mp4: 300 runs, 16 at once
+ 300 3151
+probe failure lines:        1
+run 176: the tail probe failed (attempt 1 of 3): ffprobe exited 0 with no usable output
+== raw tail probe: 300 runs, 8 at once
+ 300 status=0 lines=94 stderr_bytes=0
+== raw tail probe: 300 runs, 32 at once
+ 300 status=0 lines=94 stderr_bytes=0
+== cargo test x30: 30 passed, 0 failed
