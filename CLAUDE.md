@@ -2381,8 +2381,8 @@ keeps chroma and the source size. Rules:
   each of the scan's 2160 candidates, so splicing fewer at once saves
   nothing). Each stage's time is printed on stderr (`NATIVE_RES_STAGE:`), and
   the heavy test's per-detect budget (20 min, killed past it) is set by the
-  slowest platform, not by arm64 (task #95). **The luma is the source's own Y plane**: decoded in the
-  pipe format and scaled by `native_res::luma_gray16` (limited expanded to
+  slowest platform, not by arm64 (task #95). **The luma is the source's own
+  Y plane**: decoded in the pipe format and scaled by `native_res::luma_gray16` (limited expanded to
   full-range GRAY16, full scaled), never a decode to gray — swscale makes
   that with the matrix tag, and a BT.709-tagged copy of a master lost its dip
   entirely. The thresholds are calibrated on this scaling. A fixture for

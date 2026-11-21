@@ -340,15 +340,24 @@ pub fn detect(deps: &DependencyLocator, job: &VideoJob) -> Result<NativeResRepor
 }
 
 /// All of the analysis's stderr, calling `on_stage` with each progress line
-/// (marker included) as it is read.
-fn read_analysis_stderr(reader: impl BufRead, mut on_stage: impl FnMut(&str)) -> String {
+/// (marker included) as it is read. Bytes that are not UTF-8 are replaced, not
+/// a reason to stop: vspipe must be read to the end, or it can block on a full
+/// pipe while `detect` waits for it.
+fn read_analysis_stderr(mut reader: impl BufRead, mut on_stage: impl FnMut(&str)) -> String {
     let mut all = String::new();
-    for line in reader.lines() {
-        let Ok(line) = line else { break };
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match reader.read_until(b'\n', &mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = String::from_utf8_lossy(&buf);
+        let line = line.trim_end_matches(['\n', '\r']);
         if line.trim_start().starts_with(STAGE_MARKER) {
             on_stage(line.trim());
         }
-        all.push_str(&line);
+        all.push_str(line);
         all.push('\n');
     }
     all
@@ -493,10 +502,12 @@ mod tests {
     #[test]
     fn stage_lines_are_passed_on_and_the_result_line_kept() {
         let text = format!(
-            "Script evaluation\n{STAGE_MARKER} scan Bilinear 540-1079 37.4s\nsome warning\n  {STAGE_MARKER} rank 12 kernels x 4 frames 3.8s\n{RESULT_MARKER}{{\"dip\": 0.1}}\nOutput 1 frames\n"
+            "Script evaluation\n{STAGE_MARKER} scan Bilinear 540-1079 37.4s\r\nsome warning @\n  {STAGE_MARKER} rank 12 kernels x 4 frames 3.8s\n{RESULT_MARKER}{{\"dip\": 0.1}}\nOutput 1 frames\n"
         );
         let mut stages = Vec::new();
-        let all = read_analysis_stderr(text.as_bytes(), |s| stages.push(s.to_string()));
+        // A line that is not UTF-8 (0xFF) mustn't stop the reading.
+        let bytes: Vec<u8> = text.bytes().map(|b| if b == b'@' { 0xFF } else { b }).collect();
+        let all = read_analysis_stderr(bytes.as_slice(), |s| stages.push(s.to_string()));
         assert_eq!(
             stages,
             vec![
