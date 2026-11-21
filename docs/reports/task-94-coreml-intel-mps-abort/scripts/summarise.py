@@ -4,7 +4,10 @@
   python3 scripts/summarise.py            (run from the report's directory)
 
 data/probe/*.json   coreml_vs_cpu_test.dart's results, one file per runner
+                    (coreml-probe-*: run 44869508189, short runs; long-*: run
+                    44875877643, 120-frame encodes)
 data/nightly_*.tsv  nightly_aborts.sh / nightly_timings.sh
+data/verify_*.tsv   the same, for the verification nightly on the fix (44869849455)
 Prints Markdown-ish rows; the report's tables are these numbers.
 """
 import csv
@@ -63,10 +66,32 @@ for runner in sorted({r["runner"] for r in runs}):
 for (m, prov), v in sorted(slope.items()):
     print(f"{m:13} {prov:6} {st.median(x for x, _ in v):6.2f} s/frame  start-up {st.median(y for _, y in v):6.1f} s")
 
-print("\n## Probe: Core ML against the CPU, the same 16 frames")
+print("\n## Probe: 120-frame encodes (seconds), and per frame from 16 to 120 frames")
+for runner in sorted({r["runner"] for r in runs if r.get("frames") == 120}):
+    for m in ("ddcolor", "deoldify", "restoreformer"):
+        row = {}
+        for prov in ("coreml", "cpu"):
+            row[prov] = [r["seconds"] for r in runs if r.get("runner") == runner and r.get("model") == m
+                         and r.get("provider") == prov and r.get("frames") == 120 and r["success"]]
+        if not row["coreml"]:
+            continue
+        print(f"{runner:16} {m:13} coreml {', '.join(f'{x:.0f}' for x in row['coreml']):12} "
+              f"cpu {', '.join(f'{x:.0f}' for x in row['cpu']):12} "
+              f"cpu faster {st.median(row['coreml']) / st.median(row['cpu']):.2f}x")
+for m in ("ddcolor", "deoldify", "restoreformer"):
+    for prov, kinds in (("coreml", ("warm",)), ("cpu", ("cpu",))):
+        short = [r["seconds"] for r in runs if r.get("model") == m and r.get("provider") == prov
+                 and r.get("frames") == 16 and r["label"] != "cold" and r["success"]]
+        long_ = [r["seconds"] for r in runs if r.get("model") == m and r.get("provider") == prov
+                 and r.get("frames") == 120 and r["success"]]
+        if short and long_:
+            print(f"{m:13} {prov:6} median 16: {st.median(short):6.1f}  median 120: {st.median(long_):6.1f}  "
+                  f"=> {(st.median(long_) - st.median(short)) / 104:.2f} s/frame")
+
+print("\n## Probe: Core ML against the CPU, the same frames")
 for r in runs:
     if "compare" in r:
-        print(f"{r['runner']:16} {r['compare']:13} luma samples changed {r['lumaSamplesChanged']:6} "
+        print(f"{r['runner']:16} {r['compare']:13} {r['frames']:3} frames  luma samples changed {r['lumaSamplesChanged']:6} "
               f"luma MAD {r['lumaMeanAbsDiff']:.4f} chroma MAD {r['chromaMeanAbsDiff']:.4f}")
 
 print("\n## Probe: aborts")
@@ -93,3 +118,17 @@ for r in csv.DictReader(open("data/nightly_timings.tsv"), delimiter="\t"):
     d[(r["encode"], arch)].append(float(r["seconds"]))
 for (enc, arch), v in sorted(d.items()):
     print(f"{enc:20} {arch:7} n={len(v):2} {min(v):7.1f} {st.median(v):7.1f} {max(v):7.1f}")
+
+print("\n## The heavy suite on the CPU (verification run 44869849455) against Core ML (the nightlies above)")
+vnames = {r["job"]: r["name"] for r in csv.DictReader(open("data/verify_aborts.tsv"), delimiter="\t")}
+v = defaultdict(list)
+seen = defaultdict(int)
+for r in csv.DictReader(open("data/verify_timings.tsv"), delimiter="\t"):
+    n = vnames.get(r["job"], "?")
+    arch = "arm64" if "arm64" in n else ("x64-v2" if "v2" in n else "x64")
+    v[(r["encode"], arch)].append(float(r["seconds"]))
+for (enc, arch), x in sorted(v.items()):
+    if arch == "arm64" or (enc, arch) not in d:
+        continue
+    print(f"{enc:20} {arch:7} Core ML median {st.median(d[(enc, arch)]):7.1f} (n={len(d[(enc, arch)])})  "
+          f"CPU {', '.join(f'{y:.1f}' for y in x)}")

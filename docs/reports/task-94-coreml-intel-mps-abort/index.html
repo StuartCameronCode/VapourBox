@@ -29,7 +29,7 @@ pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .
 <li><b>The fault:</b> on macOS x64, Core ML runs the ai-runtime models on the GPU through Metal Performance Shaders. MPS compiles its kernels at the first prediction; when a compile fails it asserts (<code>MTLReportFailure</code> in <code>MPSLibrary::MPSKey_Compile</code>, "Compilation failed: (null)") and the whole vspipe process dies with SIGABRT. No Python exception is raised, so <code>ai_runtime.Runner</code>'s CPU retry and <code>session()</code>'s creation fallback never run.</li>
 <li><b>How often:</b> 8 nightly jobs in four days (2026-11-17 to 2026-11-20): 6 of the 12 x64 heavy jobs that ran since the nightly split into heavy and sweep legs, and 2 of the 12 x64 sweep jobs; both CPU tiers; DDColor (heavy) and DeOldify (sweep previews); two different kernels; <b>never arm64</b>. It is intermittent on one machine: in the probe below, 12 cold first-compiles on fresh runners all passed.</li>
 <li><b>Fix:</b> Intel Macs are no longer offered Core ML. <code>ai_runtime.preferred_providers()</code> leaves it out on darwin/x86_64 and every ai-runtime model (Colourisation, Face Restoration) runs on ONNX Runtime's CPU provider there; <code>cpu_reason()</code> says why in the probe (<code>cpuReason</code>) and in the passes' log lines. <code>VAPOURBOX_AI_COREML_ON_INTEL=1</code> offers Core ML again, for measuring only. Apple Silicon is unchanged.</li>
-<li><b>Cost on the runner: none; it is faster.</b> On four fresh runners, a 16-frame encode on the CPU took a median 35 s for DDColor against 179 s on warm Core ML (5×), 64 s against 102 s for DeOldify (1.6×) and 98 s against 188 s for RestoreFormer++ (1.9×). Core ML's start-up (its compile, every process) is 34–134 s on these VMs; the CPU's 2–10 s. <span id="long-summary">The 120-frame encodes are in the table further down.</span></li>
+<li><b>Cost on the runner: none; it is faster.</b> On four fresh runners, a 16-frame encode on the CPU took a median 35 s for DDColor against 179 s on warm Core ML (5×), 64 s against 102 s for DeOldify (1.6×) and 98 s against 188 s for RestoreFormer++ (1.9×). Core ML's start-up (its compile, every process) is 34–134 s on these VMs; the CPU's 2–10 s. At 120 frames (two more runners) the CPU was still ahead, 1.6–1.8× for DDColor and 1.05–1.4× for the others: per frame the two providers are equal within noise, and Core ML never earns its start-up back. The CPU was not slower in any of the 108 runs' comparisons.</li>
 <li><b>The picture is the same:</b> Colourisation's output on the CPU is identical to Core ML's, sample for sample, for both models (the providers differ by less than one 8-bit level, and the conversion rounds both to the same samples). Face Restoration's differs in 0.4% of luma samples, by 0.004 levels on average.</li>
 <li><b>Rejected:</b> a probe before the job (the failure is intermittent, and the self-test model uses neither failing kernel), a canary prediction in a child process (doubles the compile and the job's own compile can still fail), re-running the job on the CPU after the abort (more machinery for a slower provider on a frozen runtime: 1.23.2 is the last Intel wheel), and a retry in the test.</li>
 </ul>
@@ -82,7 +82,32 @@ pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .
 <p><b>Per frame and start-up.</b> (16-frame − 4-frame) / 12, median over runners: CPU 2.2 s a frame for DDColor (start-up 2 s), 3.5 s for DeOldify (10 s), 5.9 s for RestoreFormer++ (3 s), each consistent across runners (DDColor 1.8–2.5). Core ML's estimates ranged from −5 to +10 s a frame for DDColor across runners and repeats: its start-up varied by minutes from one process to the next, so the short runs cannot say whether warm Core ML is faster per frame. That is what the 120-frame encodes below measure.</p>
 
 <h2 id="long">120-frame encodes</h2>
-<p id="long-body">Pending (run 44875877643).</p>
+<p>The same script's <code>120 frames</code> tests (run 44875877643, one runner per tier): 120 frames from frame 0, Core ML first (so its first run includes the runner's first compile), then the CPU, then each again.</p>
+<table>
+<tr><th>Runner</th><th>Model</th><th>Core ML (s)</th><th>CPU (s)</th><th>CPU faster by</th></tr>
+<tr><td rowspan="3">macos-x64</td><td>DDColor 512</td><td class="num">367, 345</td><td class="num">216, 220</td><td class="num">1.63×</td></tr>
+<tr><td>DeOldify Video 336</td><td class="num">444, 441</td><td class="num">419, 424</td><td class="num">1.05×</td></tr>
+<tr><td>RestoreFormer++</td><td class="num">845, 825</td><td class="num">775, 789</td><td class="num">1.07×</td></tr>
+<tr><td rowspan="3">macos-x64-v2</td><td>DDColor 512</td><td class="num">430, 291</td><td class="num">223, 181</td><td class="num">1.79×</td></tr>
+<tr><td>DeOldify Video 336</td><td class="num">382, 595</td><td class="num">349, 365</td><td class="num">1.37×</td></tr>
+<tr><td>RestoreFormer++</td><td class="num">781, 717</td><td class="num">649, 672</td><td class="num">1.13×</td></tr>
+</table>
+<p>Per frame, from the median 16-frame run to the median 120-frame run ((t<sub>120</sub> − t<sub>16</sub>) / 104, all runners): DDColor 1.70 s on Core ML, 1.76 s on the CPU; DeOldify 3.27 and 3.16 s; RestoreFormer++ 5.92 and 6.02 s. <b>Equal within noise.</b> What separates the providers on these VMs is Core ML's start-up, paid by every process (encode and preview alike): the CPU wins short jobs by minutes and is never behind on long ones. An encode much longer than 120 frames converges to equal speed; nothing here suggests Core ML would overtake.</p>
+<p>The outputs again: DeOldify identical, DDColor chroma within 0.012 levels on average (luma bit-exact), RestoreFormer++ luma within 0.004 levels.</p>
+
+<h2>The heavy suite after the fix</h2>
+<p>A nightly dispatch on the fix (run 44869849455, macOS legs): <b>both x64 heavy legs passed every Colourisation and Face Restoration test, with no MPS line in any log</b>, and the probe reported <code>CPUExecutionProvider</code> with its <code>cpuReason</code>. The encodes' times against the Core ML medians of the nightlies above (seconds for 16 frames; <code>strength0</code> and <code>preview_ref</code> are one Colourisation and one Face Restoration encode each; <a href="data/verify_timings.tsv">data</a>):</p>
+<table>
+<tr><th>Encode</th><th>x64: Core ML median</th><th>x64: CPU</th><th>v2: Core ML median</th><th>v2: CPU</th></tr>
+<tr><td>DDColor, the job's first</td><td class="num">593</td><td class="num">79</td><td class="num">414</td><td class="num">85</td></tr>
+<tr><td>DDColor 10-bit</td><td class="num">269</td><td class="num">57</td><td class="num">223</td><td class="num">67</td></tr>
+<tr><td>DDColor, colour source</td><td class="num">286</td><td class="num">43</td><td class="num">233</td><td class="num">50</td></tr>
+<tr><td>DeOldify Video</td><td class="num">206</td><td class="num">124</td><td class="num">200</td><td class="num">151</td></tr>
+<tr><td>RestoreFormer++</td><td class="num">384</td><td class="num">140</td><td class="num">294</td><td class="num">126</td></tr>
+<tr><td>RestoreFormer++ 10-bit</td><td class="num">338</td><td class="num">163</td><td class="num">299</td><td class="num">119</td></tr>
+<tr><td>GFPGAN (smoothing)</td><td class="num">282</td><td class="num">140</td><td class="num">295</td><td class="num">114</td></tr>
+</table>
+<p>The other failures of that run are not this pass's: the IVTC preview repeat (task #93) and one AV1 output-conformance case (task #99) in the v2 heavy leg, both seen on main before; and in the sweep legs the 96x66 rows (task #87). The macOS x64 sweep's DeOldify delta-only encodes still time out at 300 s on the CPU (four rows; task #91, whose DDColor and Face Restoration rows passed this time).</p>
 
 <h2>Is the picture the same?</h2>
 <table>
@@ -97,7 +122,7 @@ pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .
 <ul>
 <li><b>A real Intel Mac's GPU was not measured.</b> The runners' GPU is Apple's paravirtualized device (64 MB VRAM), not Intel UHD/Iris or an AMD Radeon Pro. On a real Intel Mac, Core ML might be faster than the CPU, and the MPS compile might never fail. What such a machine loses by running on the CPU is unknown. The choice can be revisited if a user with real hardware reports it, by measuring with <code>VAPOURBOX_AI_COREML_ON_INTEL=1</code> and this script.</li>
 <li>Four vCPUs. A Mac with more cores runs the CPU provider faster; Core ML would not scale the same way.</li>
-<li>The probe never reproduced the abort (0 of 12 cold runs, 0 of 84 runs), so it does not confirm that the cold compile is the trigger; the nightlies are the evidence for the fault, the probe for the cost of the fix.</li>
+<li>The probe never reproduced the abort (0 of 12 cold runs, 0 of 108 runs), so it does not confirm that the cold compile is the trigger; the nightlies are the evidence for the fault, the probe for the cost of the fix.</li>
 <li>One clip per pass, at 640×480. DDColor's render size is fixed (512) whatever the source size; DeOldify's and the faces' work grow with it.</li>
 </ul>
 

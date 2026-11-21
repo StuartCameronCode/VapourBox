@@ -6042,8 +6042,13 @@ Report: [docs/reports/task-94-coreml-intel-mps-abort](reports/task-94-coreml-int
   Core ML out on darwin/x86_64. On four Intel runners the CPU was faster for
   every model (16 frames: DDColor 35 s vs 179 s warm Core ML, DeOldify 64 vs
   102, RestoreFormer++ 98 vs 188), mostly because Core ML's per-process
-  compile is 34–134 s there; Colourisation's output is identical, Face
-  Restoration's within 0.004 levels. `PREVIEW_ON_CPU` now decides only on
+  compile is 34–134 s there. At 120 frames the CPU was still 1.05–1.8×
+  ahead: per frame the two are equal within noise, so Core ML never earns
+  its start-up back. Colourisation's output is identical (DDColor within
+  0.012 levels at 120 frames), Face Restoration's within 0.004 levels. A
+  nightly dispatch on the fix passed every x64 Colourisation and Face
+  Restoration heavy test; the first DDColor encode took 79–85 s, not a
+  median 414–593 s. `PREVIEW_ON_CPU` now decides only on
   Apple Silicon.
 - **Unmeasured: a real Intel Mac GPU** (Intel UHD/Iris, AMD Radeon Pro).
   It might make Core ML worth having and might never abort. Revisit with
