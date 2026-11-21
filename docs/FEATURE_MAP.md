@@ -340,7 +340,8 @@ archival workflow:
   1.8.0, a broadcast capture whose picture starts after its sound keeps the two
   in sync and counts frames from the first picture, and a picture left
   interlaced is written with its field order flagged (ProRes, v210, FFV1,
-  HuffYUV, FFVHuff) or coded as interlaced (H.264).
+  HuffYUV, FFVHuff) or coded as interlaced (H.264; in 4:2:0 only at a
+  height that is a multiple of 4, so 720x486 is coded progressive).
 - **A preview that matches the encode.** The before/after preview is
   frame-accurate and shows every generated frame of a rate conversion, at 1:1
   if you want. The presets are named after the source, not the technique.

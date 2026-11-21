@@ -1,0 +1,10 @@
+# 1. MBAFF at 720x486, by output format
+yuv420p: [libx264 @ 0x107f05060] height not divisible by 4 (720x486)
+yuv420p10le: [libx264 @ 0x10ee04d00] height not divisible by 4 (720x486)
+yuv422p: ok profile=High 4:2:2|width=720|height=486|pix_fmt=yuv422p
+yuv444p: ok profile=High 4:4:4 Predictive|width=720|height=486|pix_fmt=yuv444p
+yuv420p progressive: ok profile=High|width=720|height=486|pix_fmt=yuv420p
+# 2. pad to 488, then crop-rect (left,top,right,bottom)
+crop-rect 0,0,0,2: [libx264 @ 0x124f04080] crop-rect 0,0,0,2 not divisible by 2x4
+crop-rect 0,2,0,0: [libx264 @ 0x1116051f0] crop-rect 0,2,0,0 not divisible by 2x4
+crop-rect 0,0,0,4: ok profile=High|width=720|height=484|pix_fmt=yuv420p

@@ -5819,3 +5819,31 @@ template can reach.
 - **Not fixed: Mask is 8-bit only**, so these jobs fail outright on any
   source above 8 bits (or with High Precision on). Task #89 (a havsfunc
   patch, needs a deps release).
+
+### x264 cannot code a 720x486 4:2:0 picture as interlaced (task #92, 2026-11-21)
+
+A still-interlaced 4:2:0 picture 486 lines high (NTSC D1), Deinterlace off,
+failed every H.264 job at the encoder: `[libx264] height not divisible by 4`.
+x264 codes a still-interlaced picture as MBAFF (task #12), and libx264 needs
+whole chroma rows per field, so a 4:2:0 height that is a multiple of 4
+(4:2:2 and 4:4:4 encode at 486). H.264 itself can't store it either: an
+interlaced stream crops in 2x4 units, so padding to 488 and declaring a
+2-row crop is refused (`crop-rect 0,0,0,2 not divisible by 2x4`).
+
+- **Decision: progressive, unflagged, said.** `VideoJob::field_order_signal`
+  drops x264 to no field-order arguments when the output
+  (`encoder_input_pix_fmt`) is 4:2:0 and `estimated_output_size`'s height
+  isn't a multiple of 4; the job log names the size and the ways to keep the
+  fields (crop 2 lines, Color Format 4:2:2, ProRes / v210 / FFV1). Not
+  cropped or padded to fit (the user's Crop is the only crop; the display
+  aspect would move 0.4 %), not refused (the default codec on an ordinary
+  capture size), no container-only flag (MKV `tb`, MOV progressive, as with
+  x265).
+- **Cost.** MBAFF at 484 or 488 beat progressive at 486 by 0.7–1.5 dB per
+  field on the VHS clip at equal bitrate, and tied on the DVB-T clip.
+- **The others are fine at 720x486**: ProRes (`+ildct`, last field row
+  intact), v210, FFV1, HuffYUV, FFVHuff, x265, SVT-AV1, VideoToolbox.
+  NVENC / QSV / AMF get no field-order arguments and weren't tested.
+- The unflagged codecs' note no longer suggests H.264 at such a size.
+
+Report: [docs/reports/task-92-x264-interlaced-height-2-mod-4](reports/task-92-x264-interlaced-height-2-mod-4/index.html).

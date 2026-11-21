@@ -1,0 +1,24 @@
+== vhs420.mkv 1000k
+prog486    75 frames    381410 bytes  per-field PSNR Y 33.68 dB, avg 34.78 dB (150 fields)
+mbaff484   75 frames    385246 bytes  per-field PSNR Y 35.13 dB, avg 36.30 dB (150 fields)
+mbaff488   75 frames    382631 bytes  per-field PSNR Y 35.09 dB, avg 36.26 dB (150 fields)
+== vhs420.mkv 2500k
+prog486    75 frames    987782 bytes  per-field PSNR Y 37.53 dB, avg 38.46 dB (150 fields)
+mbaff484   75 frames    986884 bytes  per-field PSNR Y 38.60 dB, avg 39.66 dB (150 fields)
+mbaff488   75 frames    976350 bytes  per-field PSNR Y 38.61 dB, avg 39.67 dB (150 fields)
+== vhs420.mkv 5000k
+prog486    75 frames   2067896 bytes  per-field PSNR Y 40.23 dB, avg 41.12 dB (150 fields)
+mbaff484   75 frames   2072329 bytes  per-field PSNR Y 40.97 dB, avg 42.00 dB (150 fields)
+mbaff488   75 frames   2038395 bytes  per-field PSNR Y 40.99 dB, avg 42.02 dB (150 fields)
+== dvb420.mkv 1000k
+prog486   126 frames    598716 bytes  per-field PSNR Y 43.48 dB, avg 44.72 dB (252 fields)
+mbaff484  126 frames    597598 bytes  per-field PSNR Y 43.47 dB, avg 44.68 dB (252 fields)
+mbaff488  126 frames    595197 bytes  per-field PSNR Y 43.60 dB, avg 44.82 dB (252 fields)
+== dvb420.mkv 2500k
+prog486   126 frames   1496710 bytes  per-field PSNR Y 47.80 dB, avg 48.83 dB (252 fields)
+mbaff484  126 frames   1494097 bytes  per-field PSNR Y 47.65 dB, avg 48.66 dB (252 fields)
+mbaff488  126 frames   1483640 bytes  per-field PSNR Y 47.93 dB, avg 48.94 dB (252 fields)
+== dvb420.mkv 5000k
+prog486   126 frames   2922233 bytes  per-field PSNR Y 52.20 dB, avg 52.90 dB (252 fields)
+mbaff484  126 frames   2957018 bytes  per-field PSNR Y 52.10 dB, avg 52.77 dB (252 fields)
+mbaff488  126 frames   2893701 bytes  per-field PSNR Y 52.48 dB, avg 53.16 dB (252 fields)
