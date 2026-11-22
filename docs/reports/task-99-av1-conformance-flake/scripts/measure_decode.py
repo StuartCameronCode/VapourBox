@@ -85,7 +85,7 @@ def main():
                 for r in rs:
                     tsv.write(f"{name}\t{kind}\t{r[1]}\t{r[2]}\t{bool(r[3])}\n")
                 for k, r in enumerate([r for r in rs if r[3] or r[1] != 0][:3]):
-                    with open(os.path.join(o.out, f"bad_{name.replace(' ', '_')}_{kind}_{k}.txt"),
+                    with open(os.path.join(o.out, f"bad_{name.replace(' ', '_').replace(':', '-')}_{kind}_{k}.txt"),
                               "w") as fh:
                         fh.write(f"rc {r[1]} pictures {r[2]}\n{r[4]}\n{r[3]}")
 
