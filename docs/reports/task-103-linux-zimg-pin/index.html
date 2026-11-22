@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Linux zimg pin</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  td.warn { background: var(--warn-bg); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Linux deps: VapourSynth's zimg came from master at build time</h1>
+<p class="meta">2026-11-22 · task #103 (found by task #90) · measured in GitHub Actions on the linux-x64 (v3, v2)
+runners against <code>build-deps-linux</code> artifacts · every number below comes from <code>scripts/</code> run
+against the run IDs given.</p>
+
+<div class="card">
+<p><strong>Outcome: fixed in the deps (1.18.0-rc3's Linux assets replaced).</strong> R78's
+<code>subprojects/zimg.wrap</code> says <code>revision = HEAD</code>, and the Linux build makes meson use it (it never
+passes <code>PKG_CONFIG_PATH</code> to <code>meson setup</code>, task #111). So every Linux build linked whatever zimg
+master was that day, statically, into <code>libvapoursynth.so.4</code>. Master moved to <code>e2e43d09</code>
+("Update graphengine") on 2026-11-21 01:32Z. Every rc3 Linux build after that aborted in VapourSynth's own resize
+(<code>double free or corruption (!prev)</code> at <code>free()</code> ← <code>vszimg::real_get_frame</code>), which
+meant 617 of 6861 sweep rows. The wrap is now pinned to <code>67e06032</code> (graphengine <code>cb5b2ce1</code>),
+which rc2's build had cloned. The rebuilt <code>libvapoursynth.so.4</code> is <strong>byte-identical to rc2's</strong>,
+and every resize failure is gone.</p>
+</div>
+
+<h2>Symptom</h2>
+<p>From task #90's runs of the rc3 candidate bundle (build-deps-linux 44931836464 from main 478a7397; ci-test
+44940677617, nightly 44940674293). It reproduced on linux-x64 at both CPU tiers; no plugin is involved:</p>
+<pre>vspipe failed (signal: 6 (SIGABRT)): double free or corruption (!prev)
+  #7  free () from libc.so.6
+  #8  (anonymous namespace)::vszimg::real_get_frame(VSFrame const*, VSCore*, VSAPI const*) () from libvapoursynth.so.4
+  #9  (anonymous namespace)::vszimg::static_get_frame(...) () from libvapoursynth.so.4
+  #10 VSNode::getFrameInternal(int, int, VSFrameContext*) () from libvapoursynth.so.4
+  #11 VSThreadPool::runTasks(bool&amp;) () from libvapoursynth.so.4</pre>
+<p>Some sweep rows died with SIGSEGV instead: the same heap corruption, caught elsewhere.</p>
+
+<h2>What zimg master changed</h2>
+<table>
+<tr><th>zimg commit</th><th>date (UTC)</th><th>what</th></tr>
+<tr><td><code>e2e43d09</code></td><td>2026-11-21 01:32</td><td>Update graphengine: the submodule <code>cb5b2ce1</code> → <code>91c6af4c</code> and nothing else</td></tr>
+<tr><td><code>67e06032</code></td><td>2026-09-04 03:27</td><td>Add missing includes for libcxx-23 ← what the rc2 build (2026-11-19) cloned</td></tr>
+</table>
+<p>The graphengine range is 13 commits from 2026-07-30 to 08-01. Most of them rework buffer sizing and live-range
+tracking ("Exclude fused nodes from buffer sizing calculation", "Ignore cursor alignment during planar simulation",
+"Fix live range tracking with subsampled sink node", …). That fits a buffer sized too small, but it is
+<strong>inferred and not bisected</strong>; task #109 has the upstream repro and bisect.</p>
+
+<h2>Where the zimg came from: a correction</h2>
+<p>The task, and its plan, blamed <code>download-deps-linux.sh</code>'s <code>git clone</code> of zimg master, and the
+first fix pinned that clone. <strong>That build (B1) crashed exactly as before.</strong> The clone builds a standalone
+<code>libzimg.so</code> that nothing in the bundle loads (no binary names it). B1's <code>libzimg.so</code> was already
+byte-identical to rc2's. The VapourSynth build log shows where the real one comes from:</p>
+<pre>Run-time dependency zimg found: NO  (tried pkg-config and cmake)
+Looking for a fallback subproject for the dependency zimg
+Executing subproject zimg for machine: host</pre>
+<p>The script does set <code>PKG_CONFIG_PATH</code> for meson, but the line continuation before
+<code>meson setup</code> ends on a comment line. So the variables (and <code>CC=clang-18</code>) go to a bare
+<code>env</code>, and meson runs without them. Meson then falls back to R78's <code>subprojects/zimg.wrap</code>
+(<code>revision = HEAD</code>, <code>depth = 1</code>). Every Linux bundle since <code>0c805a7b</code> was built that
+way, with gcc 13 and a static zimg from the day's master; task #111 owns the line. The second fix (B2) rewrites the
+wrap to <code>ZIMG_COMMIT</code>, refuses a wrap that no longer says <code>HEAD</code>, and checks both commits after
+setup.</p>
+
+<h2>A/B</h2>
+<table>
+<tr><th>bundle (build-deps-linux run)</th><th>VapourSynth's zimg</th><th><code>libvapoursynth.so.4</code> vs rc2</th>
+<th>ci-test (linux-x64)</th><th>nightly sweep, failing rows (v3 / v2)</th><th>nightly heavy, failing (v3 / v2)</th></tr>
+<tr><td>rc2 as published (44621408062)</td><td>67e06032 (master on 11-19)</td><td class="ok">reference</td><td class="ok">passes (rc2 CI)</td><td class="ok">—</td><td class="ok">—</td></tr>
+<tr><td>A: task #90's candidate (44931836464)</td><td>e2e43d09 (master)</td><td class="bad">differs</td>
+<td class="bad">44940677617: <code>zimg_colorspace_test</code> SIGABRT; 10 smoke rows</td>
+<td class="bad">44940674293: 617 / 618, all native crashes</td><td class="bad">18 / 18 (17 resize + #104)</td></tr>
+<tr><td>A2: rc3 as published (44965649537)</td><td>e2e43d09 (master)</td><td class="bad">differs</td>
+<td class="bad">44979490734: the same 11 failures</td><td class="muted">not run</td><td class="muted">not run</td></tr>
+<tr><td>B1: standalone clone pinned (44979455787)</td><td>e2e43d09 (master, via the wrap)</td><td class="bad">1,277,082 of 1,502,489 bytes differ</td>
+<td class="bad">44980772369: the same 11 failures</td><td class="muted">cancelled (same bundle as A)</td><td class="muted">cancelled</td></tr>
+<tr><td>B2: wrap pinned (44982770125)</td><td>67e06032 / cb5b2ce1, verified</td><td class="ok">byte-identical (0 bytes)</td>
+<td class="ok">44983941521: <code>zimg_colorspace_test</code> ok, all 10 smoke rows pass, 0 aborts</td>
+<td class="ok">44983943673: 0 / 0 of 6861</td><td class="warn">3 / 1, none resizing, 0 aborts: the Lut2 memo (#104) on both; on v3 a Colourisation add-on download cut off ("Connection closed") and CTMF's AVX-512 kernel segfaulting in #98's 1000-instance test (#112; <code>libctmf.so</code> byte-identical to A's, where it passed)</td></tr>
+</table>
+<p class="muted">Not counted against the pin:</p>
+<ul class="muted">
+<li>the Lut2 memo test, which fails on every rc3 bundle (task #104)</li>
+<li>Windows rc3's FFTW-linked plugins failing to load (task #90)</li>
+<li>the macOS failures, which are the Lut2 memo test</li>
+</ul>
+<p class="muted">Every run used the same rc3 macOS/Windows bundles. Apart from VapourSynth, B2 differs from rc2 only
+where rc3 meant it to (havsfunc patch 8 and the #98 plugins), plus the rolling ffmpeg 9.0, fmtconv and VSNCNN builds
+that differ between any two builds.</p>
+
+<h2>Limits</h2>
+<ul>
+<li>The graphengine cause is inferred, not bisected (task #109).</li>
+<li>linux-arm64 builds with the same pin (its log says <code>VapourSynth links zimg 67e06032</code>), but no CI runner
+tests that bundle.</li>
+<li>macOS and Windows were never exposed: Windows uses the VapourSynth wheel's zimg; macOS builds against zimg
+releases (arm64 Homebrew's 3.0.6, x64 3.0.5 from source).</li>
+<li>The pin keeps Linux on an unreleased zimg, because R78 needs <code>ZIMG_API_VERSION</code> 2.5. Moving to a release
+or a newer commit changes every resize on Linux and needs the same A/B.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul>
+<li><code>scripts/linux_failures.sh &lt;run&gt;</code>: a ci-test or nightly run's Linux jobs, failing tests and abort count.</li>
+<li><code>scripts/sweep_failures.py results-*.json</code>: a nightly sweep artifact's failing rows by variant.</li>
+<li><code>scripts/compare_bundles.sh &lt;old.zip&gt; &lt;new.zip&gt;</code>: the file-by-file and
+<code>libvapoursynth.so.4</code> comparison.</li>
+<li><code>scripts/dispatch.sh</code>: the build and test dispatches behind every row.</li>
+</ul>
+
+</main>
+</body>
+</html>
