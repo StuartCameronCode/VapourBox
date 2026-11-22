@@ -17,6 +17,8 @@ def load(p):
 
 
 for p in sorted(glob.glob(os.path.join(d, 'probe-*.json'))):
+    if not os.path.getsize(p):
+        continue  # still being written
     r = load(p)
     split = r['keys_with_more_than_one']
     print('%s: %s, %d processes, %d keys, %d with more than one picture' % (
