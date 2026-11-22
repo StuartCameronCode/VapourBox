@@ -1093,7 +1093,8 @@ src8.set_output()''';
       final removed = lines.where((l) => l.startsWith('-') && !l.startsWith('---'));
       expect(removed.where((l) => l.contains('FFTW_PATIENT')), hasLength(4),
           reason: 'the patch replaces all four PATIENT plans');
-      for (final l in added) {
+      // Code lines only: the patch's comment names PATIENT to say why.
+      for (final l in added.where((l) => !l.substring(1).trimLeft().startsWith('//'))) {
         expect(l, isNot(contains('FFTW_PATIENT')), reason: l);
         expect(l, isNot(contains('FFTW_MEASURE')), reason: l);
       }

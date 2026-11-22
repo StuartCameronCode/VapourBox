@@ -1,9 +1,10 @@
 """One process: a hash per call x picture x depth, as JSON on stdout.
 FFTW plans once per process, so a second process is the only way to see a
 different plan: probe.py runs this in many fresh processes.
-argv: [dump_dir key ...] -- with a dump dir, also writes the named keys' raw
-output to <dump_dir>/<md5>.raw (once per distinct picture), so probe.py can
-measure how far two pictures are apart."""
+argv: [dump_dir key ... | dump_dir all] -- with a dump dir, also writes the
+named keys' (or every key's) raw output to <dump_dir>/<md5>.raw (once per
+distinct picture) and this process's key -> md5 to <dump_dir>/index-<pid>.json,
+so probe.py and compare.py can measure how far two pictures are apart."""
 import os
 import sys
 # Windows' embeddable Python (._pth) does not put the script's folder on sys.path.
@@ -20,7 +21,7 @@ pics = pictures()
 cases = dict(CASES, **INFO_CASES)
 out = {}
 for key, name, pname, depth in keys(cases):
-    if dump_dir is not None and key not in dump_keys:
+    if dump_dir is not None and 'all' not in dump_keys and key not in dump_keys:
         continue
     clip = cases[name](pics[pname][depth])
     if dump_dir is None:
@@ -33,4 +34,7 @@ for key, name, pname, depth in keys(cases):
         with open(path, 'wb') as fh:
             fh.write(data)
     out[key] = h
+if dump_dir is not None:
+    with open(os.path.join(dump_dir, 'index-%d.json' % os.getpid()), 'w') as fh:
+        json.dump(out, fh, sort_keys=True)
 print(json.dumps({'plugin': plugin_name(), 'hashes': out}, sort_keys=True))

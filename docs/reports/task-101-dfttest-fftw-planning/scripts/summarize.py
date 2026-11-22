@@ -27,6 +27,12 @@ for p in sorted(glob.glob(os.path.join(d, 'wisdom-*.json'))):
     r = load(p)
     print('%s: shared problems %d, FFT3DFilter differs after DFTTest: %s' % (
         os.path.basename(p), len(r['shared_problems']), r['fft3d_mixed_differs_from_fresh']))
+mp = os.path.join(d, 'move.json')
+if os.path.exists(mp):
+    for k, v in load(mp).items():
+        worst = max(v['vs_patient'], key=lambda x: x['max_abs'], default=None)
+        print('move %-28s estimate %d vs patient %d pictures, worst %s' % (
+            k, v['estimate_pictures'], v['patient_pictures'], worst))
 sp = os.path.join(d, 'speed.jsonl')
 if os.path.exists(sp):
     runs = {}

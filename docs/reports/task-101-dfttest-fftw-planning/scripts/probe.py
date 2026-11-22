@@ -37,17 +37,26 @@ for i in range(procs):
         seen[k][h] += 1
 
 split = {k: v for k, v in seen.items() if len(v) > 1}
+top = {k: sorted(v, key=v.get, reverse=True)[:2] for k, v in split.items()}
+
+
+def missing():
+    return sorted(k for k, hs in top.items()
+                  if not all(os.path.exists(os.path.join(dump, h + '.raw')) for h in hs))
+
+
+# Fresh processes until both pictures of every split key have been written
+# out (each process may plan either way; give up after as many tries as the
+# probe ran).
+for i in range(procs):
+    keys = missing()
+    if not keys:
+        break
+    print('dump %d keys, try %d' % (len(keys), i + 1), file=sys.stderr, flush=True)
+    run(dump, *keys)
 diffs = {}
-for k, v in sorted(split.items()):
-    top = sorted(v, key=v.get, reverse=True)[:2]
-    # Fresh processes until both pictures have been written out (each process
-    # may plan either way; give up after as many tries as the probe ran).
-    for i in range(procs * 2):
-        if all(os.path.exists(os.path.join(dump, h + '.raw')) for h in top):
-            break
-        print('dump %s try %d' % (k, i + 1), file=sys.stderr, flush=True)
-        run(dump, k)
-    paths = [os.path.join(dump, h + '.raw') for h in top]
+for k, hs in sorted(top.items()):
+    paths = [os.path.join(dump, h + '.raw') for h in hs]
     if not all(os.path.exists(p) for p in paths):
         diffs[k] = None
         continue

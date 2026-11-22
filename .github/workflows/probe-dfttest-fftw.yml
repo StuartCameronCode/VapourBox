@@ -82,6 +82,10 @@ jobs:
             bash $S/run.sh deps/$b wisdom_probe.py 3 > out/wisdom-$b.json
           done
           bash $S/speed_runs.sh deps/patient deps/estimate "$SPEED_RUNS" > out/speed.jsonl
+          mkdir -p "$RUNNER_TEMP/all-patient" "$RUNNER_TEMP/all-estimate"
+          for i in 1 2 3 4 5; do bash $S/run.sh deps/patient xproc.py "$RUNNER_TEMP/all-patient" all > /dev/null; done
+          bash $S/run.sh deps/estimate xproc.py "$RUNNER_TEMP/all-estimate" all > /dev/null
+          python3 $S/compare.py "$RUNNER_TEMP/all-patient" "$RUNNER_TEMP/all-estimate" > out/move.json
 
       - name: Probe (Windows)
         if: runner.os == 'Windows'
@@ -104,6 +108,15 @@ jobs:
             }
           }
           $lines | Out-File -Encoding utf8 out/speed.jsonl
+          $ap = Join-Path $env:RUNNER_TEMP 'all-patient'; $ae = Join-Path $env:RUNNER_TEMP 'all-estimate'
+          New-Item -ItemType Directory -Force -Path $ap, $ae | Out-Null
+          for ($i = 1; $i -le 5; $i++) {
+            & "$env:S/run.ps1" deps/patient xproc.py $ap all | Out-Null
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          & "$env:S/run.ps1" deps/estimate xproc.py $ae all | Out-Null
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python "$env:S/compare.py" $ap $ae | Out-File -Encoding utf8 out/move.json
 
       - name: Summary
         if: always()
