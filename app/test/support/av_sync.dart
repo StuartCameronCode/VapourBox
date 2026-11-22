@@ -10,6 +10,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'bounded_process.dart';
 import 'worker_harness.dart';
 
 /// Width x height of the first video stream.
@@ -40,11 +41,12 @@ Future<({List<double> flashes, List<double> beeps, double videoStart})> events(
       pts.add(pts.isEmpty ? 0 : pts.last);
     }
   }
-  final luma = await Process.run(
+  final luma = await runBounded(
     WorkerHarness.ffmpegPath,
     ['-v', 'quiet', '-i', path, '-map', '0:v:0', '-fps_mode', 'passthrough',
      '-f', 'rawvideo', '-pix_fmt', 'gray', '-'],
-    stdoutEncoding: null,
+    label: 'the luma decode',
+    binaryStdout: true,
     environment: WorkerHarness.ffmpegEnv,
   );
   final y = luma.stdout as List<int>;
@@ -72,10 +74,11 @@ Future<List<double>> beepOnsets(String path) async {
     'frame=pts_time,nb_samples:stream=sample_rate', '-of', 'json', path,
   ]);
   final rate = int.parse('${(af['streams'] as List).first['sample_rate']}');
-  final pcm = await Process.run(
+  final pcm = await runBounded(
     WorkerHarness.ffmpegPath,
     ['-v', 'quiet', '-i', path, '-map', '0:a:0', '-ac', '1', '-f', 'f32le', '-'],
-    stdoutEncoding: null,
+    label: 'the sound decode',
+    binaryStdout: true,
     environment: WorkerHarness.ffmpegEnv,
   );
   final bytes = Uint8List.fromList(pcm.stdout as List<int>);
