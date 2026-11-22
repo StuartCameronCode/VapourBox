@@ -274,6 +274,44 @@ def _padding(clip, width_step, height_step, label, min_rows=0, min_cols=0):
     return core.std.CopyFrameProps(out, clip), pw, ph
 
 
+def pad_to(clip, width, height, *, fields=False, label=None):
+    """[clip] padded right and bottom to [width] x [height], repeating its
+    last column and its last row (each field's own last row with [fields],
+    as _pad_rows does), built per plane like pad_around() (task #97: a
+    picture off a chroma grid on its way out, which the encoder crops back).
+    The pad must be whole chroma samples of the clip's format. A clip
+    already that size is returned as it is."""
+    pw, ph = width - clip.width, height - clip.height
+    if pw < 0 or ph < 0:
+        raise vs.Error('%s: pad_to can only grow a %dx%d frame, not to %dx%d'
+                       % (label or 'pad_to', clip.width, clip.height, width, height))
+    if pw == 0 and ph == 0:
+        return clip
+    fmt = clip.format
+    sw = fmt.subsampling_w if fmt.color_family == vs.YUV else 0
+    sh = fmt.subsampling_h if fmt.color_family == vs.YUV else 0
+    if pw % (1 << sw) or ph % (1 << sh) or clip.width % (1 << sw) or clip.height % (1 << sh):
+        raise vs.Error('%s: pad_to can only pad whole chroma samples (%dx%d %s to %dx%d)'
+                       % (label or 'pad_to', clip.width, clip.height, fmt.name, width, height))
+
+    def rows(plane, n):
+        if fields or n <= 0:
+            return _pad_rows(plane, n)
+        last = core.std.Crop(plane, top=plane.height - 1)
+        return core.std.StackVertical([plane] + [last] * n)
+
+    planes = []
+    for i in range(fmt.num_planes):
+        plane = core.std.ShufflePlanes(clip, i, vs.GRAY)
+        xs, ys = (sw, sh) if i else (0, 0)
+        planes.append(rows(_pad_cols(plane, pw >> xs), ph >> ys))
+    if fmt.num_planes == 1:
+        out = planes[0]
+    else:
+        out = core.std.ShufflePlanes(planes, [0, 0, 0], fmt.color_family)
+    return core.std.CopyFrameProps(out, clip)
+
+
 def by_field_flag(flag_src, flagged, plain):
     """Per frame, [flagged] where [flag_src]'s frame has _FieldBased 1 or 2,
     else [plain]. Only the chosen clip's frame is requested, so [plain] may

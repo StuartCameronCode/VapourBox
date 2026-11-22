@@ -379,6 +379,18 @@ pub fn preview_scale_filter(input_opts: &[String]) -> String {
     format!("scale={}", opts.join(":"))
 }
 
+/// The encoder's and the preview's `crop` from the size the script delivers
+/// to the size the encoder can store (task #97, `VideoJob::grid_output`):
+/// the repeated column / row that brought the picture onto a chroma grid.
+/// `None` when nothing was added, so every other job's arguments are as they
+/// were. `exact=1`: FFmpeg keeps a 63x33 4:2:0 frame's chroma at 32x17, the
+/// samples pipe_source read, so this is a pointer move.
+pub fn grid_crop_filter(job: &VideoJob) -> Option<String> {
+    let g = job.grid_output()?;
+    (g.encoded != g.script)
+        .then(|| format!("crop={}:{}:0:0:exact=1", g.encoded.0, g.encoded.1))
+}
+
 /// The job-log line for a picture left interlaced that the output cannot
 /// declare as such, or `None` when it can (or the picture is progressive).
 ///
@@ -1340,6 +1352,9 @@ impl PipelineExecutor {
         if let Some(note) = field_order_note(job) {
             self.reporter.send_log(LogLevel::Info, &note);
         }
+        if let Some(note) = job.grid_note() {
+            self.reporter.send_log(LogLevel::Info, &note);
+        }
 
         // HDR10 mastering display / content light level (issue #133). The pipe
         // drops them with the rest of the side data; x265 is the one encoder
@@ -1389,6 +1404,12 @@ impl PipelineExecutor {
         // away the aspect stamp — which is exactly how burnt-in subtitles
         // would have broken issue #50's third leg.
         let mut vf: Vec<String> = Vec::new();
+
+        // First, the repeated column / row that put the picture on a chroma
+        // grid comes off again (task #97), so everything after sees the
+        // picture's own size.
+        let grid_crop = grid_crop_filter(job);
+        vf.extend(grid_crop.clone());
 
         // A source whose video starts after its sound keeps that layout: the
         // picture is delayed by the gap (first, so burn-in draws each cue at
@@ -1440,6 +1461,13 @@ impl PipelineExecutor {
                 LogLevel::Warning,
                 "A Custom FFmpeg Argument replaces the video filter chain, which also drops the delay that keeps \
                  this source's picture in sync with its sound (its video starts after its audio).",
+            );
+        }
+        if grid_crop.is_some() && custom_vf {
+            self.reporter.send_log(
+                LogLevel::Warning,
+                "A Custom FFmpeg Argument replaces the video filter chain, which also drops the crop that \
+                 takes this picture back to its own size; the output keeps the repeated column or row.",
             );
         }
         if bridge.is_some() && custom_vf {
@@ -1939,9 +1967,14 @@ impl PipelineExecutor {
         // BT.601 source to BT.709, the pipe carries 709 samples, and reading
         // them as 601 would show a colour shift the encode does not have.
         let color = job.output_color_metadata();
-        let scale_filter = color
+        let mut scale_filter = color
             .display_tonemap_filter()
             .unwrap_or_else(|| preview_scale_filter(&color.swscale_input_opts()));
+        // The encoder's grid crop (task #97), after the conversion to RGB,
+        // which has no chroma grid (the tone map's zscale needs one).
+        if let Some(crop) = grid_crop_filter(job) {
+            scale_filter = format!("{scale_filter},{}", crop.trim_end_matches(":exact=1"));
+        }
         let ffmpeg_enc = Command::new(&ffmpeg_path)
             .args([
                 "-f", "yuv4mpegpipe",
@@ -3209,9 +3242,10 @@ mod tests {
         // Progress output to temp file
         args.extend(["-progress".to_string(), "/tmp/test_progress.txt".to_string()]);
 
-        // A late video's delay and the matrix bridge (mirrors
+        // The grid crop, a late video's delay and the matrix bridge (mirrors
         // build_ffmpeg_args; the rest of its -vf chain is not mirrored here).
-        let mut delay = video_delay_filters(job);
+        let mut delay: Vec<String> = grid_crop_filter(job).into_iter().collect();
+        delay.extend(video_delay_filters(job));
         delay.extend(job.output_color_metadata().encoder_matrix_bridge());
         if !delay.is_empty() {
             args.extend(["-vf".to_string(), delay.join(",")]);
@@ -3377,6 +3411,45 @@ mod tests {
             source_has_audio: None,
             source: None,
         }
+    }
+
+    /// Task #97: the repeated column / row that put the picture on a chroma
+    /// grid comes off first in the encoder's one `-vf`, and only when the
+    /// encoder can store the picture's size; every other job has no crop.
+    #[test]
+    fn the_grid_crop_leads_the_encoders_filter_chain() {
+        let job_at = |w: i32, h: i32, fmt: &str, codec: VideoCodec| {
+            let mut job = create_test_job("out.mkv");
+            job.input_width = Some(w);
+            job.input_height = Some(h);
+            job.input_pixel_format = Some(fmt.to_string());
+            job.encoding_settings.codec = codec;
+            job.encoding_settings.container = ContainerFormat::Mkv;
+            job.detected_field_order = None;
+            job
+        };
+        let vf = |job: &VideoJob| {
+            let args = build_ffmpeg_args_for_test(job);
+            args.iter().position(|a| a == "-vf").map(|i| args[i + 1].clone())
+        };
+        let job = job_at(1279, 719, "yuv420p", VideoCodec::FFV1);
+        assert_eq!(grid_crop_filter(&job).as_deref(), Some("crop=1279:719:0:0:exact=1"));
+        assert!(vf(&job).unwrap().starts_with("crop=1279:719:0:0:exact=1"), "{:?}", vf(&job));
+        // H.264 can't store it: the padded size goes through, no crop.
+        assert_eq!(grid_crop_filter(&job_at(1279, 719, "yuv420p", VideoCodec::H264)), None);
+        // On the grid: nothing.
+        for (w, h, fmt) in [(1280, 720, "yuv420p"), (720, 486, "yuv420p"), (63, 33, "yuv444p")] {
+            let job = job_at(w, h, fmt, VideoCodec::FFV1);
+            assert_eq!(grid_crop_filter(&job), None, "{w}x{h} {fmt}");
+            assert!(!build_ffmpeg_args_for_test(&job).iter().any(|a| a.contains("crop=")), "{w}x{h} {fmt}");
+        }
+        // The real builder puts it first too (the test twin mirrors it).
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let body = &src[start..];
+        let crop = body.find("vf.extend(grid_crop.clone());").expect("the grid crop");
+        let delay = body.find("vf.extend(video_delay_filters(job));").expect("the delay");
+        assert!(crop < delay, "the grid crop must lead the -vf");
     }
 
     /// Colour tags survive the pipe and reach the encoder.

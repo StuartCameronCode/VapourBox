@@ -317,8 +317,8 @@ Full licence texts, copyright holders and every bundled component are listed in 
 
 Components taken pre-built rather than compiled from source come unmodified from:
 
-- **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — ARM64 VapourSynth plugins for macOS
-- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins: most of the Intel Mac build's plugins, TemporalMedian and RemoveDirt on Apple Silicon, and RemoveDirt and LGhost on Linux x64
+- **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — ARM64 VapourSynth plugins for macOS, and the sse2neon port of DFTTest ([yuygfgg/VapourSynth-DFTTest](https://github.com/yuygfgg/VapourSynth-DFTTest)) the Apple Silicon build compiles
+- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins: most of the Intel Mac build's plugins, TemporalMedian and RemoveDirt on Apple Silicon, and RemoveDirt on Linux x64
 - **[ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de)** — static FFmpeg for Apple Silicon and Intel Macs
 - **[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)** — static FFmpeg for Windows and Linux
 - **[python-build-standalone](https://github.com/astral-sh/python-build-standalone)** — the relocatable Python used on macOS and Linux

@@ -878,6 +878,134 @@ core.std.Splice([$call for _ in range($instances)]).set_output()''';
     }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 5)));
   });
 
+  // Task #98: DFTTest, LGhost, CTMF and TCanny (every published build) and
+  // EEDI3m r10 keep scratch buffers per worker thread in an unordered_map that
+  // getFrame fills (EEDI3m: checks) with no lock: two threads starting an
+  // instance together abort vspipe ("unordered_map::at: key not found",
+  // 0xC0000409 on Windows). download-deps-* build each at a pinned commit with
+  // patches/<plugin>-<ver>-thread-safety.patch, which locks the map and adds a
+  // marker to the plugin's name. Windows and macOS x64 keep EEDI3m r8, which
+  // locks correctly. docs/reports/task-98-per-thread-buffer-maps.
+  group('per-thread buffer maps (task #98)', () {
+    const marker = 'locked per-thread buffers, task #98';
+    const skipReason = 'deps <= 1.18.0-rc2 ship DFTTest, LGhost, CTMF and TCanny '
+        'with unlocked buffer maps (task #98); enforced from deps 1.18.0-rc3';
+
+    test('the bundle\'s DFTTest, LGhost, CTMF, TCanny (and EEDI3m r10) are '
+        'patched (task #98)', () async {
+      if (_depsVersionBefore(depsDir, '1.18.0-rc3')) {
+        markTestSkipped(skipReason);
+        return;
+      }
+      const script = r'''
+import vapoursynth as vs
+core = vs.core
+for ns in ('dfttest', 'lghost', 'ctmf', 'tcanny', 'eedi3m'):
+    p = getattr(core, ns)
+    print(f'PLUGIN {ns}|{p.version.major}|{p.name}')
+core.std.BlankClip().set_output()''';
+      final r = await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(r.exitCode, 0, reason: 'stdout: ${r.stdout}\nstderr: ${r.stderr}');
+      final plugins = {
+        for (final m in RegExp(r'^PLUGIN (\w+)\|(-?\d+)\|(.*)$', multiLine: true)
+            .allMatches(r.stdout.toString()))
+          m.group(1)!: (int.parse(m.group(2)!), m.group(3)!.trim()),
+      };
+      for (final ns in ['dfttest', 'lghost', 'ctmf', 'tcanny']) {
+        expect(plugins[ns]?.$2, contains(marker),
+            reason: '$ns is not the task #98 build: its buffer map is unlocked');
+      }
+      final (eedi3Version, eedi3Name) = plugins['eedi3m']!;
+      if (eedi3Version >= 9) {
+        expect(eedi3Name, contains(marker),
+            reason: 'EEDI3m r$eedi3Version checks its buffer map outside the lock');
+      }
+    });
+
+    test('the patches lock every buffer lookup, and every deps script applies '
+        'them (task #98)', () {
+      String read(String rel) => File(path.join(Directory.current.path, '..', rel))
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
+      const patches = {
+        'dfttest': 'dfttest-bc5e018-thread-safety.patch',
+        'lghost': 'lghost-r1-thread-safety.patch',
+        'ctmf': 'ctmf-r5-thread-safety.patch',
+        'tcanny': 'tcanny-14ac2ce-thread-safety.patch',
+        'eedi3m': 'eedi3m-r10-thread-safety.patch',
+      };
+      for (final name in patches.values) {
+        final patch = read('Scripts/patches/$name');
+        final added = patch.split('\n').where((l) => l.startsWith('+')).join('\n');
+        expect(added, isNot(contains('.at(threadId)')), reason: name);
+        expect(added, contains(marker), reason: '$name adds no marker');
+        expect(added, contains('std::shared_lock<std::shared_mutex>'), reason: name);
+        // The unlocked existence check is what each patch replaces.
+        expect(patch, contains('\n-            if (!d->'), reason: name);
+      }
+      final scripts = {
+        for (final s in ['download-deps-macos.sh', 'download-deps-linux.sh',
+            'download-deps-windows.ps1'])
+          s: read('Scripts/$s'),
+      };
+      for (final MapEntry(key: script, value: text) in scripts.entries) {
+        for (final MapEntry(key: ns, value: name) in patches.entries) {
+          if (ns == 'eedi3m' && script.endsWith('.ps1')) continue; // r8 there
+          expect(text, contains(name), reason: '$script does not apply $name');
+        }
+        // The pins, in step.
+        expect(text, contains('bc5e0186a7f309556f20a8e9502f2238e39179b8'), reason: script);
+        expect(text, contains('14ac2ceeb59afc7089974d0ae233fe8d0ea183c8'), reason: script);
+        expect(text, contains(marker), reason: script);
+        for (final old in [
+          'DFTTest-r7.7z', 'LGhost-r1.7z', 'CTMF-r5.7z', 'TCanny-r14-win64.7z',
+          'com.holywu.dfttest/', 'com.holywu.lghost/', 'com.holywu.ctmf/',
+          'com.holywu.tcanny/', 'YUYGFGG_BASE/lib/libdfttest.dylib',
+        ]) {
+          expect(text, isNot(contains(old)),
+              reason: '$script still fetches an unpatched build ($old)');
+        }
+      }
+    });
+
+    // Each instance has its own maps, so the race fires on an instance's
+    // first frames: one graph of 1000 instances spliced end to end starts many
+    // of them under contention. Unpatched, on an M1: DFTTest aborted in 14 of
+    // 20 such graphs, LGhost 20 of 20, CTMF (radius 3) 18 of 20, TCanny 20 of
+    // 20; patched, none in 40 each. havsfunc's MinBlur(r=3), which CTMF's
+    // radius-3 kernel serves, runs the same way.
+    test('DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances '
+        'starting together (task #98)', () async {
+      if (_depsVersionBefore(depsDir, '1.18.0-rc3')) {
+        markTestSkipped(skipReason);
+        return;
+      }
+      String stress(String call, int instances) => '''
+import vapoursynth as vs
+import havsfunc as haf
+core = vs.core
+core.num_threads = 8
+src = core.std.BlankClip(width=96, height=64, format=vs.YUV420P8, length=20,
+                         color=[100, 120, 140])
+core.std.Splice([$call for _ in range($instances)]).set_output()''';
+      final runs = [
+        for (var i = 0; i < 4; i++) ('DFTTest', stress('core.dfttest.DFTTest(src)', 1000)),
+        for (var i = 0; i < 8; i++)
+          ('LGhost', stress('core.lghost.LGhost(src, mode=[1], shift=[3], intensity=[30])', 1000)),
+        for (var i = 0; i < 8; i++) ('CTMF', stress('core.ctmf.CTMF(src, radius=3)', 1000)),
+        for (var i = 0; i < 8; i++) ('TCanny', stress('core.tcanny.TCanny(src)', 1000)),
+        for (var i = 0; i < 3; i++) ('MinBlur(r=3)', stress('haf.MinBlur(src, 3)', 300)),
+      ];
+      for (final (name, script) in runs) {
+        final r = await _runVspipeScript(vspipePath, script,
+            depsDir: depsDir, outputFrames: true);
+        expect(r.exitCode, 0,
+            reason: '$name aborted (exit ${r.exitCode}): an unlocked per-thread '
+                'buffer map, task #98?\nstderr: ${r.stderr}');
+      }
+    }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 10)));
+  });
+
   // Task #82: havsfunc patch 8 (download-deps-*) turns LUTDeCrawl's and
   // LUTDeRainbow's eight Lut2(function=lambda x, y: x & y) mask ANDs into
   // Expr 'x y min'. At 10 bits each of those tables was a million Python calls:

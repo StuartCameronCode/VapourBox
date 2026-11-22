@@ -739,7 +739,7 @@ build_plugin() {
     local repo="$2"
     local output_lib="$3"
     local build_cmd="$4"
-    local tag="${5:-}"   # optional git tag; empty builds the default branch
+    local tag="${5:-}"   # optional git tag or full commit SHA; empty builds the default branch
 
     if [ "$FORCE" = false ] && [ -f "$PLUGINS_DIR/$output_lib" ]; then
         echo "  $name already exists, skipping"
@@ -750,7 +750,14 @@ build_plugin() {
     echo "=== Building $name ==="
 
     rm -rf "$name"
-    if ! git clone --depth 1 ${tag:+--branch "$tag"} "$repo" "$name" 2>/dev/null; then
+    if [[ "$tag" =~ ^[0-9a-f]{40}$ ]]; then
+        # A commit no tag contains (task #98): --branch takes only a name.
+        if ! { git clone -q "$repo" "$name" 2>/dev/null && git -C "$name" checkout -q "$tag"; }; then
+            echo "  Failed to clone $name at $tag"
+            FAILED_PLUGINS+=("$name")
+            return 1
+        fi
+    elif ! git clone --depth 1 ${tag:+--branch "$tag"} "$repo" "$name" 2>/dev/null; then
         echo "  Failed to clone $name"
         FAILED_PLUGINS+=("$name")
         return 1
@@ -780,6 +787,38 @@ build_plugin() {
 
     cd "$BUILD_DIR"
 }
+
+# Task #98: DFTTest, LGhost, CTMF, TCanny and EEDI3m keep scratch buffers per
+# worker thread in an unordered_map that upstream fills (or, EEDI3m r10, checks)
+# with no lock; two threads starting together abort vspipe with
+# "unordered_map::at: key not found". Each is built at a pinned commit with
+# patches/<plugin>-<ver>-thread-safety.patch, which locks the map and adds
+# TASK98_MARKER to the plugin's name. A build without the marker (an older run
+# of this script) is removed so build_plugin builds it again, and the script
+# fails if the marker is missing afterwards. Keep the pins in step with
+# download-deps-macos.sh and download-deps-windows.ps1.
+TASK98_MARKER="locked per-thread buffers, task #98"
+drop_unpatched() {  # <plugin file>
+    if [ -f "$PLUGINS_DIR/$1" ] && ! grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/$1"; then
+        echo "  $1 predates task #98's thread-safety patch; rebuilding it"
+        rm -f "$PLUGINS_DIR/$1"
+    fi
+}
+require_patched() {  # <plugin file>
+    if ! grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/$1" 2>/dev/null; then
+        echo "  ERROR: $1 is missing or lacks task #98's thread-safety patch" >&2
+        exit 1
+    fi
+}
+# The build_plugin command prefix that applies a task #98 patch, or exits.
+task98_patch() {  # <patch file name>
+    echo "{ git apply \"$SCRIPT_DIR/patches/$1\" || { echo '  ERROR: patches/$1 did not apply.' >&2; exit 1; }; }"
+}
+DFTTEST_COMMIT="bc5e0186a7f309556f20a8e9502f2238e39179b8"   # r7 + 2; no later tag
+LGHOST_TAG="r1"
+CTMF_TAG="r5"
+TCANNY_COMMIT="14ac2ceeb59afc7089974d0ae233fe8d0ea183c8"    # r14 + 1 (r14 fails on arm64)
+EEDI3_TAG="r10"
 
 # Common build environment for meson plugins
 PLUGIN_PKG_CONFIG="$BUILD_DIR/pkgconfig:$BUILD_PREFIX/lib/pkgconfig"
@@ -884,12 +923,16 @@ build_plugin "nnedi3cl" \
     "libnnedi3cl.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
-# EEDI3m (edge-directed interpolation)
+# EEDI3m (edge-directed interpolation), pinned to r10 with task #98's patch
+# (its first count() ran outside the lock).
 # Patch: add missing <cstddef> include for std::max_align_t (GCC 13+)
+drop_unpatched "libeedi3m.so"
 build_plugin "eedi3m" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3.git" \
     "libeedi3m.so" \
-    "sed -i '1i #include <cstddef>' EEDI3/EEDI3.cpp && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$(task98_patch eedi3m-r10-thread-safety.patch) && sed -i '1i #include <cstddef>' EEDI3/EEDI3.cpp && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$EEDI3_TAG"
+require_patched "libeedi3m.so"
 
 # fmtconv (format conversion)
 # Upstream moved to GitLab in Aug 2023; the GitHub repo is an abandoned mirror
@@ -937,11 +980,14 @@ else
     echo "  fmtconv already exists, skipping"
 fi
 
-# DFTTest (FFT-based denoising)
+# DFTTest (FFT-based denoising), pinned with task #98's patch.
+drop_unpatched "libdfttest.so"
 build_plugin "dfttest" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest.git" \
     "libdfttest.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$(task98_patch dfttest-bc5e018-thread-safety.patch) && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$DFTTEST_COMMIT"
+require_patched "libdfttest.so"
 
 # TTempSmooth (core.ttmpsm.TTempSmooth - used by havsfunc MCTemporalDenoise)
 build_plugin "ttempsmooth" \
@@ -1155,17 +1201,24 @@ build_plugin "awarpsharp2" \
     "libawarpsharp2.so" \
     "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
 
-# CTMF (Constant Time Median Filter)
+# CTMF (Constant Time Median Filter), pinned with task #98's patch.
+drop_unpatched "libctmf.so"
 build_plugin "ctmf" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF.git" \
     "libctmf.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$(task98_patch ctmf-r5-thread-safety.patch) && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$CTMF_TAG"
+require_patched "libctmf.so"
 
-# TCanny (edge detection)
+# TCanny (edge detection), pinned with task #98's patch. The templates never
+# call it (task #52, test_250); the patch protects a user's own script.
+drop_unpatched "libtcanny.so"
 build_plugin "tcanny" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny.git" \
     "libtcanny.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$(task98_patch tcanny-14ac2ce-thread-safety.patch) && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$TCANNY_COMMIT"
+require_patched "libtcanny.so"
 
 # BM3D (core.bm3d - Noise Reduction's BM3D method). Pinned: keep BM3D_TAG in
 # step with download-deps-macos.sh and the wheel version in
@@ -1513,53 +1566,26 @@ else
 fi
 
 # LGhost (core.lghost.LGhost) — luminance-ghost / edge-ghost (ringing)
-# reduction, the classic fix for RF and long-cable analogue captures. Pinned to
-# r1, the only tag upstream has published.
+# reduction, the classic fix for RF and long-cable analogue captures. r1 is the
+# only tag upstream has published (LGHOST_TAG, set with the task #98 pins).
 #
-# x86_64 takes the pre-built Stefan-Olt binary; aarch64 builds from source,
-# where its meson skips the whole VCL2 x86 SIMD stack (`host_machine
-# .cpu_family().startswith('x86')`) and compiles the scalar path only. It is
-# cloned by tag rather than through build_plugin, which can only clone a default
-# branch — pinning matters because Windows can only get r1. It resolves
-# VapourSynth through pkg-config and reads `libdir` out of the .pc file, so the
-# $PLUGIN_BUILD_ENV prefix is required (dropping it is how retinex once failed
-# with 'Dependency "vapoursynth" not found').
-LGHOST_TAG="r1"
-echo ""
-if [ "$ARCH" = "x86_64" ]; then
-    echo "=== Downloading LGhost $LGHOST_TAG ==="
-    download_prebuilt_plugin_linux "LGhost" "liblghost.so" \
-        "https://github.com/Stefan-Olt/vs-plugin-build/releases/download/vsplugin/com.holywu.lghost/r1/linux-glibc-x86_64/2024-09-30T20.53.59%2B00.00Z/LGhost-r1-linux-glibc-x86_64.zip"
-elif [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/liblghost.so" ]; then
-    echo "=== Building LGhost $LGHOST_TAG ==="
-    rm -rf lghost
-    if git clone --depth 1 --branch "$LGHOST_TAG" -q \
-        https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost.git lghost 2>/dev/null; then
-        cd lghost
-        if env $PLUGIN_BUILD_ENV meson setup build --buildtype=release \
-           && ninja -C build; then
-            so_path=$(find build -name "*.so" -type f 2>/dev/null | head -1)
-            if [ -n "$so_path" ]; then
-                cp "$so_path" "$PLUGINS_DIR/liblghost.so"
-                patchelf --set-rpath '$ORIGIN:$ORIGIN/../../lib' "$PLUGINS_DIR/liblghost.so" 2>/dev/null || true
-                echo "  Built LGhost -> liblghost.so"
-                BUILT_PLUGINS+=("lghost")
-            else
-                echo "  Warning: no .so found after building LGhost"
-                FAILED_PLUGINS+=("lghost")
-            fi
-        else
-            echo "  Failed to build LGhost"
-            FAILED_PLUGINS+=("lghost")
-        fi
-        cd "$BUILD_DIR"
-    else
-        echo "  Failed to clone LGhost"
-        FAILED_PLUGINS+=("lghost")
-    fi
-else
-    echo "  LGhost already exists, skipping"
-fi
+# Built from source on both arches with patches/lghost-r1-thread-safety.patch
+# (task #98: its per-thread buffer map had no lock). x86_64 used to take
+# Stefan-Olt's prebuilt, which has the race; its meson build picks the SSE2 /
+# AVX2 / AVX-512 kernels at run time, so one build serves both CPU tiers. On
+# aarch64 meson skips the whole VCL2 x86 SIMD stack (`host_machine
+# .cpu_family().startswith('x86')`) and compiles the scalar path only. It
+# resolves VapourSynth through pkg-config and reads `libdir` out of the .pc
+# file, so the $PLUGIN_BUILD_ENV prefix is required (dropping it is how retinex
+# once failed with 'Dependency "vapoursynth" not found').
+cd "$BUILD_DIR"
+drop_unpatched "liblghost.so"
+build_plugin "lghost" \
+    "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost.git" \
+    "liblghost.so" \
+    "$(task98_patch lghost-r1-thread-safety.patch) && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$LGHOST_TAG"
+require_patched "liblghost.so"
 
 # ============================================================================
 # akarin — LLVM JIT for std.Expr

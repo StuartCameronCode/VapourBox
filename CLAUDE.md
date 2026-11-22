@@ -135,7 +135,7 @@ VapourBox/
 | `worker/src/models/processing_pipeline.rs` | Pipeline passes + `FrameMap` (source↔output frame mapping: `output_count` drives the progress total, `invert`/`total_radius`/`preview_output_in` drive frame-accurate preview, including a decimation's phase) |
 | `worker/src/script_generator.rs` | Template substitution for .vpy |
 | `worker/src/pipeline_executor.rs` | vspipe \| ffmpeg execution |
-| `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats") |
+| `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats"); a format's chroma grid and a size's pad onto it (`chroma_grid`, `grid_pad`, task #97) |
 | `worker/templates/stabilize.py` | Stabilize pass: the weave (`Stab` measured at 16-bit) and the vertical pitch correction (see "Stabilize") |
 | `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
 | `worker/templates/plugin_formats.py` | Each limited plugin's format `Contract` and `run_within()`, the one way a pass runs a plugin outside its formats; `pad_around()` / `read_padded()` for a frame size it refuses (see "High Bit Depth Sources"); `mvtools_blocks()` and `mvtools_flow_opt()` for MVTools' small-picture faults |
@@ -1148,6 +1148,9 @@ tone-mapped.
   when the tags are PQ/HLG. Probed by the executor (stream side data, else
   the first frame's SEI). Any other encoder keeps the tags only; never hand
   it another encoder's options.
+- **A source stored off its chroma grid** (63x33 4:2:0) can't reach zscale
+  as it is (zimg 1027): the app's before frame crops to the grid below first
+  (task #97); the worker's preview tone-maps the padded frame and crops after.
 - **Dolby Vision RPU is not carried.** Profiles 7/8/9 decode as their HDR10 /
   HLG / SDR base layer and come out as that. **Profile 5** (IPTPQc2,
   `ipt-c2`) can't be decoded correctly — no bundled FFmpeg on macOS has
@@ -1191,6 +1194,10 @@ it — if they disagree, the byte stream desyncs from the frame geometry
   contra. So the Noise Reduction CTMF block has no 9-bit guard of its own
   (docs/reports/2026-11-9-bit-sources). `test_no_native_format_is_9_or_14_bit`
   keeps both depths out of `NATIVE_FORMATS` and `native_name`.
+
+`pipe_source` sizes each chroma plane rounded **up** (`-(-w // ss)`), as
+FFmpeg's rawvideo writes it: the plain quotient on the grid, the stored
+samples off it (task #97, "Source Frame Size").
 
 `NATIVE_FORMATS` (Rust) and `_FORMAT_MAP` (Python) must stay in step —
 `test_native_formats_match_pipe_source` parses the Python file and fails if they
@@ -1569,6 +1576,36 @@ the **single** builder of both decoders' arguments (encode + preview):
   beep on its flash (the copied case too, since task #43); `_expectAacTimedOnce` also guards the other AVI Convert tests
   (docs/reports/issue-41-aac-avi-block-align).
 
+- **A size off the chroma grid is padded by `pipe_source`, never by the
+  decoder (task #97).** A 4:2:0 frame with an odd width or height (4:2:2 /
+  4:1:1 with a width off its grid) is stored by VP9, AV1, MJPEG, MPEG-4,
+  MPEG-2, FFV1, ProRes and others, and VapourSynth refuses a clip of that
+  format and size. FFmpeg's rawvideo already rounds chroma up (63x33 4:2:0
+  carries 32x17), so the reader copies every plane and repeats the last luma
+  column / row onto the grid (each field's own row when interlaced;
+  `VideoJob::source_grid_pad`, the model's `video.gridPad`). Never FFmpeg's
+  `pad`: it floors an odd width and blacks the last real column.
+  `VideoJob::grid_output` is the one decision of the output sizes, for a
+  pipeline that keeps the geometry (a crop is fine): the script pads to every
+  grid the picture must sit on (pipe, output format, `VideoCodec::size_step`)
+  in `{{#GRID_PAD_TO}}` and raises on any other size; the encoder's
+  `grid_crop_filter`, first in its one `-vf` (and in the test twin), and the
+  preview's, after RGB, take it to the encoder's step. FFV1, SVT-AV1 and
+  ProRes keep the stored size, bit-exact; an encoder that can't (x264/x265 in
+  4:2:0/4:2:2, HuffYUV, v210, FFVHuff 8-bit subsampled, every hardware
+  encoder; VideoToolbox silently drops a row and column otherwise) gets the
+  next size up, said in the job log (`grid_note`), never refused. Reshaping
+  passes keep their sizes: a right/bottom crop takes the repeated line (one
+  real line more than asked), a standard resize reads the real window
+  (`{{#GRID_PAD_RESIZE}}`), Rotate / Flip and borders keep it, logged. The
+  app's HDR before frame crops to the grid below before the tone map
+  (`SourceModel.gridCropBelow`). **Never compare a preview with FFmpeg's own
+  RGB of an off-grid frame**: its scaler spreads 17 chroma rows over 33 luma
+  rows (3.4 levels); build the reference from an on-grid twin
+  (`integration_off_grid_source_test.dart`, heavy;
+  `encoder_size_step_test.rs` holds `size_step` to the bundle;
+  docs/reports/task-97-off-grid-sources).
+
 `integration_clean_aperture_test.dart` (heavy) asserts a clean-aperture MOV and
 MKV come through bit-exact at full size. See docs/ENGINEERING_NOTES.md,
 "Clean aperture" and "Seek alignment".
@@ -1831,10 +1868,12 @@ that havsfunc's QTGMC takes none of them (setting one failed every encode).
   The Rust suite only inspects the generated text, and a default leaves most
   optional arguments out, so nothing else catches a wrong name.
 - **Never call `tcanny.TCanny` from a template or its modules** (task #52).
-  TCanny r14, in every bundle, fills shared per-thread maps with no lock, and
-  two threads starting together abort vspipe with an uncaught
-  `std::out_of_range` ("unordered_map::at: key not found"). For its Gaussian
-  (`mode=-1`) use `gauss_blur.gaussian_blur`, within 1 level of it;
+  TCanny r14 filled shared per-thread maps with no lock, and two threads
+  starting together aborted vspipe with an uncaught `std::out_of_range`
+  ("unordered_map::at: key not found"). The bundle's TCanny is patched from
+  deps 1.18.0-rc3 (task #98, "Per-thread buffer maps" below), but older
+  bundles are not, and the replacement is measured and in place: for its
+  Gaussian (`mode=-1`) use `gauss_blur.gaussian_blur`, within 1 level of it;
   `test_250` enforces this. `std.Convolution` repeats the edge sample when it
   mirrors, which TCanny doesn't: that helper pads each plane first
   (docs/reports/task-52-tcanny-race).
@@ -3278,6 +3317,8 @@ cd worker && cargo test --test subtitle_integration_test -- --ignored --nocaptur
   `Tests/TestResources/small_clip.mp4`; needs the whisper add-on + ffmpeg.
   `#[ignore]`d (40–170 s of CPU): nightly runs it with `--ignored`, the push
   gate leaves it out (task #84).
+- `encoder_size_step_test.rs` — `VideoCodec::size_step` against the bundled
+  FFmpeg's software encoders (task #97); push gate.
 - `zimg_colorspace_test.rs` — runs every colour space
   `ColorMetadata::zimg_colorspace` can name through the bundled
   VapourSynth (task #88), like `vspipe_environment_test.rs`; push gate.
@@ -3789,9 +3830,65 @@ Deblock_QED calls it), at any frame size; the format sweep is what saw it.
   Deblock_QEDs (heavy; r2 aborted half such graphs). Both bundle checks run
   from deps 1.18.0-rc3.
 - **The class of bug:** any `fmParallel` plugin that keeps per-thread
-  buffers in an unlocked map aborts intermittently. TCanny r14 is avoided
-  (task #52); DFTTest and LGhost r1 have it too (task #98)
-  (docs/reports/task-96-dctfilter-thread-race).
+  buffers in an unlocked map aborts intermittently
+  (docs/reports/task-96-dctfilter-thread-race). Five more are patched
+  (task #98, next section).
+
+### Per-thread buffer maps: DFTTest, LGhost, CTMF, TCanny, EEDI3m (task #98)
+
+HolyWu's DFTTest, LGhost, CTMF and TCanny (every published build) keep
+scratch buffers per worker thread in `unordered_map<std::thread::id, …>`
+members, filled from `getFrame` and read by the kernels with **no lock**;
+EEDI3m r9.1+ (r10) locks the insert and lookup but runs its first
+`count()` outside the lock. Same abort as DCTFilter's. Measured on an M1, 8
+threads, one graph of 1000 spliced instances: DFTTest aborted 14/20,
+LGhost 20/20, CTMF (radius 3) 18/20, TCanny 20/20; one instance in a fresh
+vspipe 5/200, 8/200 (CTMF), 2/200 (TCanny); patched, none. It is the nightly
+`knlmeanscl denoiser never crashes` flake on Linux: with no OpenCL device
+QTGMC's denoiser falls back to DFTTest.
+
+- **Each is built at a pinned commit with
+  `Scripts/patches/<plugin>-<ver>-thread-safety.patch` on every platform**
+  (EEDI3m only where it is r10: macOS arm64 and Linux; Windows and macOS x64
+  ship r8, which locks correctly). The patches lock the map (lookups under a
+  shared lock, the insert under a unique lock), so buffers, their reuse and
+  the output are unchanged, sample for sample. They are generated by
+  `docs/reports/task-98-per-thread-buffer-maps/scripts/make_patches.py`;
+  change that, not the patch files. No upstream release fixes any of them.
+- **Pins, in step across the three scripts:** DFTTest `bc5e018` (r7 + 2),
+  LGhost `r1`, CTMF `r5`, TCanny `14ac2ce` (r14 + 1: r14 asks for 4-byte
+  alignment, which arm64's `aligned_alloc` refuses, so it fails every frame
+  there), EEDI3m `r10`. **macOS arm64 builds DFTTest from yuygfgg's fork
+  (`e6f580a` = bc5e018 + sse2neon SSE2 kernels, `-Ofast`)**, the source of
+  the prebuilt it shipped before: upstream's scalar path gives a different
+  picture there. The same patch applies to both.
+- **The marker.** Each patch appends `(VapourBox: locked per-thread
+  buffers, task #98)` to the plugin's name. API 3 plugins report no version
+  and TCanny's did not change, so the marker is how the scripts (a byte
+  search of the binary) replace an older build and fail when it is missing,
+  and how the test (`core.<ns>.name`) tells patched from unpatched.
+- **Builds.** Windows: DCTFilter's Zig recipe with each plugin's
+  translation units (C/SSE2/`instrset_detect` at the baseline, AVX2 and
+  AVX-512 in files of their own, `-ffp-contract=off` as MSVC never fused);
+  zig's `-mcpu` list needs `evex512` beside `avx512f`. macOS: compiled
+  directly by `build_task98_plugin`, the same units, **hidden visibility**
+  (exported template code is merged by dyld with any other image's copy: a
+  test build loaded beside the bundle's crashed inside the bundle's
+  `find`). Linux: meson through `build_plugin`, which now takes a full
+  commit SHA. Runtime SIMD dispatch, so one build per x64 platform (no
+  `_tierFiles` entry).
+- **Verified:** macOS arm64 and x64 (Rosetta) builds give the old builds'
+  output byte for byte; the Windows DLLs build and export the init symbol
+  but can only be run in CI. DFTTest's own output varies between processes
+  (its `FFTW_PATIENT` planning, both builds alike; task #101).
+- `vapoursynth_integration_test.dart`'s `per-thread buffer maps (task #98)`
+  group checks the markers (from deps 1.18.0-rc3) and the patches and
+  scripts (push gate), and runs graphs of 1000 instances of each plus
+  `MinBlur(r=3)` (heavy).
+- **Before adding a plugin, look for the pattern:** `nm -C <plugin> | grep
+  'unordered_map<std::__1::__thread_id'` on a macOS build, or grep its source
+  for `thread::id`. A locked map (BM3D r12's `GetThreadBuffer`) is fine
+  (docs/reports/task-98-per-thread-buffer-maps).
 
 ## Debugging Tips
 
@@ -3836,7 +3933,8 @@ Deblock_QED calls it), at any frame size; the format sweep is what saw it.
     `0xC0000409` (fail-fast) is also **every `abort()`** on Windows, so an
     uncaught C++ exception reads that way, not only detected corruption:
     reproduce it on macOS/Linux, where the same abort prints `terminate …
-    what(): …` (task #96: DCTFilter's `unordered_map::at`).
+    what(): …` (task #96: DCTFilter's `unordered_map::at`; task #98:
+    DFTTest, LGhost, CTMF, TCanny, EEDI3m r10).
     The preview reports a failure the same way (task #56 F9b: it used to quote
     vspipe's first stderr line, a plugin warning, instead of the crash).
     `Header too large` in a job error now means vspipe exited cleanly (or by
@@ -4308,4 +4406,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |
 | 1.16.0 | 2026-11-09 | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Published as the tested `deps-v1.16.0-rc2` bundles with only the version changed (`Scripts/promote-deps-rc.py`) |
 | 1.17.0 | rc1 2026-11-15, rc2 2026-11-16, rc3 2026-11-17 | **Task #36**: macOS arm64 libdvdread built from 6.1.3 source (patched to find a user's libdvdcss in `/opt/homebrew/lib`, `/usr/local/lib`, `/opt/local/lib`) instead of Homebrew's bottle, which linked `/opt/homebrew/opt/libdvdcss/…` and failed to load on Macs without it; macOS x64 gets the same patched build. Absolute build-machine rpaths stripped from libvapoursynth, vapoursynth.abi3.so, libfftw3f*, libboost_charconv, bm3d, dctfilter and mvtools (inert: nothing used `@rpath`). Windows and Linux binaries unchanged; libdvdread is now a required file on every platform. **rc2** (task #45): macOS x64 FFmpeg evermeet 9.0.1 → martin-riedl 9.0.2 (build 1789931006, pinned by SHA-256), which has SVT-AV1, so AV1 output works on Intel Macs; x264/x265/MP3 bitstreams change there, native codecs byte-identical. **rc3** (task #60): **Bifrost** v3.0 → **4.0** from its PyPI wheels on every platform (was the v3.0 tag's `bifrost.c` built from source on macOS/Linux, v3.0's 7z on Windows), under the same file names; v3.0 left chroma past the last whole 4x4 block uninitialised (different output run to run at width 98, 720x486), v4.0 initialises it and runs at 8–16 bits natively. No AVX, so `_tierFiles` unchanged |
-| 1.18.0 | rc1 2026-11-19, rc2 2026-11-20, rc3 (pending) | **Task #62**: FFT3DFilter built from source at R2 with `patches/fft3dfilter-r2-determinism.patch` on every platform (Windows: Zig cross-compile replacing the R2 release DLL; macOS arm64: replacing yuygfgg's prebuilt), so its output no longer differs from run to run. One build for both x64 tiers; file names unchanged. **Task #68**: vspipe R78 with upstream's frame-done count fix (`patches/vapoursynth-r78-vspipe-frame-done-count.patch`, 4ff3f8a0) on every platform (Windows: Zig build replacing the wheel's `vspipe.exe`), so a one-frame preview can no longer be torn down under its last frame's callback (SIGSEGV). VapourSynth stays R78: R80 dropped API 3, which 12 bundled plugins need. **rc2** (task #80): the FFT3DFilter patch also makes `measure=0` (FFTW_ESTIMATE) the default; FFTW_MEASURE timed its plans per process, so on x86 two processes (a preview and its encode) could filter differently. File names unchanged. **rc3** (task #82): havsfunc patch 8, LUTDeCrawl/LUTDeRainbow's mask ANDs as `Expr 'x y min'` instead of Python Lut2 tables, bit-identical (10-bit preview with both on: ~18 s → 0.33 s on an M1). Also **task #96**: DCTFilter built from source at r3.2 with `patches/dctfilter-r3.2-thread-safety.patch` (upstream's c924a7a) on every platform (Windows: Zig build replacing the r2 release DLL; macOS x64: replacing Stefan-Olt's r2.1; macOS arm64/Linux: pinned, were unpinned HEAD, the same code). r2/r2.1 aborted about one run in a hundred under threads (0xC0000409 on Windows). Same output sample for sample; file names unchanged |
+| 1.18.0 | rc1 2026-11-19, rc2 2026-11-20, rc3 (pending) | **Task #62**: FFT3DFilter built from source at R2 with `patches/fft3dfilter-r2-determinism.patch` on every platform (Windows: Zig cross-compile replacing the R2 release DLL; macOS arm64: replacing yuygfgg's prebuilt), so its output no longer differs from run to run. One build for both x64 tiers; file names unchanged. **Task #68**: vspipe R78 with upstream's frame-done count fix (`patches/vapoursynth-r78-vspipe-frame-done-count.patch`, 4ff3f8a0) on every platform (Windows: Zig build replacing the wheel's `vspipe.exe`), so a one-frame preview can no longer be torn down under its last frame's callback (SIGSEGV). VapourSynth stays R78: R80 dropped API 3, which 12 bundled plugins need. **rc2** (task #80): the FFT3DFilter patch also makes `measure=0` (FFTW_ESTIMATE) the default; FFTW_MEASURE timed its plans per process, so on x86 two processes (a preview and its encode) could filter differently. File names unchanged. **rc3** (task #82): havsfunc patch 8, LUTDeCrawl/LUTDeRainbow's mask ANDs as `Expr 'x y min'` instead of Python Lut2 tables, bit-identical (10-bit preview with both on: ~18 s → 0.33 s on an M1). Also **task #96**: DCTFilter built from source at r3.2 with `patches/dctfilter-r3.2-thread-safety.patch` (upstream's c924a7a) on every platform (Windows: Zig build replacing the r2 release DLL; macOS x64: replacing Stefan-Olt's r2.1; macOS arm64/Linux: pinned, were unpinned HEAD, the same code). r2/r2.1 aborted about one run in a hundred under threads (0xC0000409 on Windows). Same output sample for sample; file names unchanged. Also **task #98**: DFTTest (bc5e018; macOS arm64 yuygfgg's fork e6f580a), LGhost r1, CTMF r5, TCanny 14ac2ce and (macOS arm64, Linux) EEDI3m r10 built from source with `patches/<plugin>-<ver>-thread-safety.patch`, which locks their per-thread buffer maps (aborts with `unordered_map::at` / 0xC0000409) and marks the plugin's name; replaces the Windows release DLLs, Stefan-Olt's macOS prebuilts, yuygfgg's arm64 DFTTest and Stefan-Olt's Linux x64 LGhost. Same output (macOS measured); file names unchanged |

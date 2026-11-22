@@ -5956,9 +5956,10 @@ herring.
   stays `FFTW_PATIENT` (the user's decision): one picture across processes
   on arm64 and on the x64 bundle under Rosetta; Windows and Linux runners not
   measured yet.
-- **Same class elsewhere:** DFTTest (every bundled version, HEAD included)
-  and LGhost r1 keep the same unlocked maps (task #98), a likely cause of the
-  nightly "knlmeanscl denoiser never crashes" `std::out_of_range` flake.
+- **Same class elsewhere:** DFTTest, LGhost, CTMF and TCanny (every
+  bundled build) and EEDI3m r10 keep the same kind of map; task #98 patches
+  them (next entry). DFTTest's is the nightly "knlmeanscl denoiser never
+  crashes" `std::out_of_range` flake.
 - The worker's 0xC0000409 text now says "vspipe or a plugin aborted (an
   uncaught C++ exception, or memory corruption it detected)".
 
@@ -6094,7 +6095,8 @@ the chroma grid. The before frame tone-maps the full stored frame; it fails
 only on a source stored off the chroma grid (odd-height or odd-width 4:2:0,
 odd-width 4:2:2, from FFV1/rawvideo/Y4M), which VapourSynth refuses outright
 (`BlankClip: invalid height`), so no preview or encode of it works either:
-task #97.
+task #97. (Since fixed by task #97, below: the before frame crops to the grid
+below before the tone map.)
 
 `hdr_thumbnail_test.dart` (push gate) pins the arguments and runs them through
 the bundled ffmpeg on 96x40 and 72x48 4:2:0 PQ/HLG sources, checking that
@@ -6124,6 +6126,82 @@ Report: [docs/reports/task-91-sweep-ai-encode-budget](reports/task-91-sweep-ai-e
   stop running the Core ML path users run). If 10 frames is ever not enough,
   run the add-on encodes one at a time before raising the budget: it is per
   process.
+
+### Sources stored off the chroma grid (task #97, 2026-11-22)
+
+- **The fault.** A 4:2:0 frame with an odd width or height (or 4:2:2 /
+  4:1:1 with a width off its grid) is stored and decoded by FFmpeg, but
+  VapourSynth refuses a clip of that format and size (`BlankClip: invalid
+  height`), so every preview and encode of one failed; the HDR before frame
+  too (zimg 1027). Not only FFV1/rawvideo/Y4M: VP9, VP8, AV1, MJPEG, MPEG-4
+  ASP, MPEG-2, MagicYUV and ProRes (4:2:2 odd width) write such sizes, so a
+  screen recording of an odd-sized window is one. Gray and 4:4:0 at odd
+  sizes failed too, converted to 4:2:0 / 4:2:2 by the decoder.
+- **Fix.** `pipe_source` reads the frame at its stored size (FFmpeg's
+  rawvideo rounds chroma up: 63x33 4:2:0 carries 32x17, the padded frame's
+  chroma) and repeats the last luma column / row onto the grid
+  (`VideoJob::source_grid_pad`). `VideoJob::grid_output` gives the sizes for
+  a pipeline that keeps the geometry: the script pads to every grid the
+  picture must sit on (pipe, output format, encoder step) before the output
+  conversion and raises on any other size; the encoder's `crop` (first in its
+  `-vf`) and the preview's (after RGB) take it to the encoder's step. FFV1,
+  SVT-AV1 and ProRes keep the stored size; x264/x265 (4:2:0/4:2:2), HuffYUV,
+  v210, FFVHuff 8-bit subsampled and the hardware encoders get the next size
+  up (the user's option A), logged. FFV1 encodes are bit-exact. Never FFmpeg's
+  `pad` for this: it floors an odd width and blacks the last real column.
+- **Side effects.** A 63x33 4:4:4 source with Color Format 4:2:0 (which
+  failed) now encodes at 63x33. VideoToolbox silently wrote an odd-sized
+  source 1 px smaller each way; it now gets the padded size.
+- **Trap.** FFmpeg's own RGB conversion of an odd-height 4:2:0 frame spreads
+  17 chroma rows over 33 luma rows: 3.4 levels mean against the padded
+  conversion on a 64x33 testsrc2. The preview (padded) is the right one; a
+  test reference must be built on an on-grid twin.
+- **HDR before frame**: crop to the grid below before the tone map (model
+  `video.gridPad`, `SourceModel.gridCropBelow`): identical to the preview but
+  its last line; converting to 4:4:4 first moved the whole picture ~1.4 levels.
+
+Report: [docs/reports/task-97-off-grid-sources](reports/task-97-off-grid-sources/index.html).
+
+### DFTTest, LGhost, CTMF, TCanny, EEDI3m r10: unlocked per-thread buffer maps (task #98, 2026-11-22)
+
+Task #96's DCTFilter race, in five more plugins. Each keeps scratch buffers
+per worker thread in `unordered_map<std::thread::id, …>` members and fills
+them from `getFrame` with no lock (EEDI3m r9.1+: only its first `count()`
+is unlocked); the kernels' `.at()` then throws inside `noexcept` code and
+vspipe aborts (`unordered_map::at: key not found`, 0xC0000409 on Windows).
+
+- **Audit:** `nm -C` over the macOS arm64 bundle for
+  `unordered_map<std::__1::__thread_id`, and every plugin repo's source at
+  its shipped tag and HEAD. BM3D r12 locks its map correctly; twelve others
+  keep no per-thread state. TCanny's race is task #52's (templates still
+  never call it); CTMF and EEDI3m were new.
+- **Measured** on an M1, 8 threads, against the published 1.18.0-rc2 macOS
+  arm64 bundle: one graph of 1000 spliced instances aborted in 14/20 runs (DFTTest), 20/20 (LGhost), 18/20 (CTMF radius 3), 20/20 (TCanny), 0/10 (EEDI3m, not reproduced); one instance in a fresh vspipe in 5/200 (DFTTest), 8/200 (CTMF), 2/200 (TCanny). Patched (a copy of that bundle with the five
+  rebuilt by the deps script's own code): no abort in any run (40 graphs each, 200 single runs each). Output
+  identical, sample for sample, on arm64 and on the macOS x64 bundle under
+  Rosetta.
+- **CI:** the nightly "knlmeanscl denoiser never crashes" failures on
+  linux-x64-v2 (11-03, 11-09) are DFTTest: with no OpenCL device QTGMC's
+  denoiser falls back to it (inferred from the graph; no backtrace). The
+  memory note that blamed the CPU OpenCL runtime was wrong.
+- **Fix:** our own patches (no upstream release fixes any of them), made by
+  `make_patches.py`: lookups under a shared lock, the insert under a unique
+  lock, a marker in the plugin's name. Not upstream DCTFilter's buffer per
+  call: DFTTest's buffer is a whole float plane and CTMF's up to 16 MB a
+  thread. Pins: DFTTest bc5e018 (macOS arm64 yuygfgg's fork e6f580a, whose
+  sse2neon kernels give that platform's existing picture), LGhost r1, CTMF
+  r5, TCanny 14ac2ce (r14 fails every frame on arm64: 4-byte alignment for
+  `aligned_alloc`), EEDI3m r10 (arm64, Linux).
+- **Traps found on the way:** zig's `-mcpu` list needs `evex512` beside
+  `avx512f` (found by running the Windows recipe locally); a macOS test
+  build without hidden visibility, loaded beside the bundle's DFTTest,
+  crashed in the bundle's `unordered_map::find` (dyld merges exported
+  template code); the reference bundle vanished mid-run with another task's
+  worktree, so the numbers are against the published rc2 zip.
+- **Not this change:** DFTTest's output depends on the process (its
+  `FFTW_PATIENT` planning), with the old and new builds alike: task #101.
+
+Report: [docs/reports/task-98-per-thread-buffer-maps](reports/task-98-per-thread-buffer-maps/index.html).
 
 ### 4:4:0 sources are decoded as 4:4:4, not 4:2:2 (task #100, 2026-11-22)
 

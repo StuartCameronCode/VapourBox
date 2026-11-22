@@ -81,7 +81,8 @@ class _PipeReader:
     into the output (which this reader used to do).
     """
 
-    def __init__(self, width, height, vs_format, cache_frames=40):
+    def __init__(self, width, height, vs_format, cache_frames=40,
+                 pad_right=0, pad_bottom=0, pad_fields=False):
         self.width = width
         self.height = height
 
@@ -90,16 +91,36 @@ class _PipeReader:
         self.bps = bps
         ss_h = 1 << fmt.subsampling_w
         ss_v = 1 << fmt.subsampling_h
+        # FFmpeg's rawvideo rounds a chroma plane UP (av_image_get_buffer_size:
+        # AV_CEIL_RSHIFT), so a 63x33 4:2:0 frame carries 32x17 chroma samples
+        # (task #97). On a frame on its chroma grid this is the plain quotient.
+        cw = -(-width // ss_h)
+        ch = -(-height // ss_v)
         self.plane_sizes = [
             width * height * bps,                            # Y
-            (width // ss_h) * (height // ss_v) * bps,       # U
-            (width // ss_h) * (height // ss_v) * bps,       # V
+            cw * ch * bps,                                   # U
+            cw * ch * bps,                                   # V
         ]
         self.plane_dims = [
             (width, height),
-            (width // ss_h, height // ss_v),
-            (width // ss_h, height // ss_v),
+            (cw, ch),
+            (cw, ch),
         ]
+        # A frame off its chroma grid (task #97): VapourSynth can't hold
+        # it, so the clip is pad_right / pad_bottom larger. Its chroma is
+        # already that size (rounded up, above); luma repeats its last column
+        # into the new columns and, for the new rows, its last row, or on an
+        # interlaced clip (pad_fields) each field's own last row, the period-2
+        # repeat plugin_formats.pad_around uses.
+        self.pad_right = int(pad_right)
+        self.pad_bottom = int(pad_bottom)
+        self.pad_fields = bool(pad_fields)
+        if (width + self.pad_right) % ss_h or (height + self.pad_bottom) % ss_v \
+                or cw != (width + self.pad_right) // ss_h or ch != (height + self.pad_bottom) // ss_v:
+            raise vs.Error(
+                f"pipe_source: a {width}x{height} {fmt.name} frame padded by "
+                f"{self.pad_right}x{self.pad_bottom} is not on its chroma grid. "
+                "This is a VapourBox fault (VideoJob::source_grid_pad).")
         self.frame_size = sum(self.plane_sizes)
 
         self._pipe = sys.stdin.buffer
@@ -220,11 +241,27 @@ class _PipeReader:
                             plane_data, row * row_bytes),
                         row_bytes
                     )
+            if p == 0 and (self.pad_right or self.pad_bottom):
+                self._pad_luma(dst, stride, pw, ph)
         return fout
+
+    def _pad_luma(self, dst, stride, pw, ph):
+        """Fill the luma pad of a frame off its chroma grid (task #97)."""
+        bps = self.bps
+        if self.pad_right:
+            tail = self.pad_right * bps
+            for row in range(ph):
+                at = dst + row * stride
+                last = ctypes.string_at(at + (pw - 1) * bps, bps)
+                ctypes.memmove(at + pw * bps, last * self.pad_right, tail)
+        row_bytes = (pw + self.pad_right) * bps
+        for row in range(ph, ph + self.pad_bottom):
+            src = row - 2 if self.pad_fields and ph >= 2 else ph - 1
+            ctypes.memmove(dst + row * stride, dst + src * stride, row_bytes)
 
 
 def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt,
-                     cache_frames=40):
+                     cache_frames=40, pad_right=0, pad_bottom=0, pad_fields=False):
     """
     Create a VapourSynth clip that reads raw frames from stdin.
 
@@ -241,6 +278,14 @@ def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt,
             asked for after it was dropped raises rather than coming back as
             another picture. The worker sizes it from the pipeline's total
             radius.
+        pad_right, pad_bottom: columns and rows that bring a frame stored
+            off its chroma grid (a 4:2:0 frame with an odd width or height)
+            onto it, since VapourSynth can't hold it at its own size (task
+            #97). The clip is that much larger; every stored sample is
+            copied as it is, and the pad repeats the last column / row
+            (each field's own last row with pad_fields). 0 for every other
+            frame. The worker decides (VideoJob::source_grid_pad) and crops
+            the pad back in the encoder where it can (VideoJob::grid_output).
 
     Returns:
         vs.VideoNode backed by stdin pipe
@@ -250,10 +295,11 @@ def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt,
                          f"Supported: {', '.join(_FORMAT_MAP.keys())}")
 
     vs_format = _FORMAT_MAP[pix_fmt]
-    reader = _PipeReader(width, height, vs_format, cache_frames)
+    reader = _PipeReader(width, height, vs_format, cache_frames,
+                         pad_right, pad_bottom, pad_fields)
 
     blank = core.std.BlankClip(
-        width=width, height=height,
+        width=width + reader.pad_right, height=height + reader.pad_bottom,
         format=vs_format, length=num_frames,
         fpsnum=fps_num, fpsden=fps_den,
     )

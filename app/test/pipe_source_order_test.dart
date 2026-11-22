@@ -78,6 +78,64 @@ out['keptNearEnd'] = tag(r, 60)
 print(json.dumps(out))
 ''';
 
+// A frame stored off its chroma grid (task #97): FFmpeg's rawvideo carries
+// chroma rounded up (63x33 4:2:0 -> 32x17), and the reader pads luma onto
+// the grid by repeating its last column and row (each field's own last row
+// with pad_fields). Every stored sample must come through as it is.
+const _gridScript = r'''
+import io, json, random, sys
+sys.path.insert(0, sys.argv[1])
+import vapoursynth as vs
+import pipe_source
+
+core = vs.core
+out = {}
+cases = [
+    ('420h', 64, 33, vs.YUV420P8, 0, 1, False),
+    ('420w', 63, 32, vs.YUV420P8, 1, 0, False),
+    ('420wh10', 63, 33, vs.YUV420P10, 1, 1, False),
+    ('422w', 63, 32, vs.YUV422P8, 1, 0, False),
+    ('411w', 62, 32, vs.YUV411P8, 2, 0, False),
+    ('420fields', 64, 33, vs.YUV420P8, 0, 1, True),
+    ('ongrid', 64, 32, vs.YUV420P8, 0, 0, False),
+]
+for name, w, h, fmt_id, pr, pb, fields in cases:
+    fmt = core.get_video_format(fmt_id)
+    sw, sh = 1 << fmt.subsampling_w, 1 << fmt.subsampling_h
+    cw, ch = -(-w // sw), -(-h // sh)
+    peak = (1 << fmt.bits_per_sample) - 1
+    rnd = random.Random(name)
+    planes = [[[rnd.randint(0, peak) for _ in range(pw)] for _ in range(ph)]
+              for pw, ph in [(w, h), (cw, ch), (cw, ch)]]
+    data = b''.join(
+        b''.join(v.to_bytes(fmt.bytes_per_sample, 'little') for row in pl for v in row)
+        for pl in planes)
+    r = pipe_source._PipeReader(w, h, fmt_id, 40, pr, pb, fields)
+    r._pipe = io.BytesIO(data)
+    blank = core.std.BlankClip(width=w + pr, height=h + pb, format=fmt_id, length=1).get_frame(0)
+    f = r.fill_frame(0, blank)
+    bad = []
+    for p in range(3):
+        a = f[p]
+        pw, ph = (w + pr, h + pb) if p == 0 else (cw, ch)
+        if (a.shape[1], a.shape[0]) != (pw, ph):
+            bad.append('plane %d is %dx%d, not %dx%d' % (p, a.shape[1], a.shape[0], pw, ph))
+            continue
+        for y in range(ph):
+            for x in range(pw):
+                if p == 0:
+                    sy = y if y < h else ((y - 2) if fields else h - 1)
+                    while sy >= h:
+                        sy -= 2
+                    want = planes[0][sy][min(x, w - 1)]
+                else:
+                    want = planes[p][y][x]
+                if a[y, x] != want:
+                    bad.append('plane %d (%d,%d) %d != %d' % (p, x, y, a[y, x], want))
+    out[name] = bad[:3]
+print(json.dumps(out))
+''';
+
 void main() {
   setUpAll(() async {
     await WorkerHarness.ensureReady();
@@ -107,5 +165,22 @@ void main() {
     expect(out['pastEnd'], 99, reason: 'past the end of the stream: the last real frame');
     expect(out['abandoned'], 'raised', reason: 'a frame given up at the memory cap raises');
     expect(out['keptNearEnd'], 60);
+  });
+
+  test('pipe_source reads a frame off its chroma grid and pads it (task #97)', () async {
+    final script = File(p.join(Directory.systemTemp.path, 'vb_pipe_grid_$pid.py'));
+    await script.writeAsString(_gridScript);
+    addTearDown(() {
+      if (script.existsSync()) script.deleteSync();
+    });
+    final r = await Process.run(
+      WorkerHarness.pythonPath,
+      [script.path, p.join(WorkerHarness.repoRoot, 'worker', 'templates')],
+      environment: WorkerHarness.workerEnv,
+    );
+    expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
+    final out = jsonDecode((r.stdout as String).trim().split('\n').last) as Map<String, dynamic>;
+    expect(out.keys, containsAll(['420h', '420w', '420wh10', '422w', '411w', '420fields', 'ongrid']));
+    out.forEach((name, bad) => expect(bad, isEmpty, reason: name));
   });
 }

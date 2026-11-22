@@ -526,7 +526,12 @@ impl VideoJob {
         if class != crate::pixel_format::ChromaClass::C420 {
             return None;
         }
-        self.estimated_output_size().filter(|&(_, h)| h % 4 != 0)
+        // A picture off its chroma grid reaches the encoder at the size it can
+        // store (task #97), not at the source's.
+        self.grid_output()
+            .map(|g| g.encoded)
+            .or_else(|| self.estimated_output_size())
+            .filter(|&(_, h)| h % 4 != 0)
     }
 
     /// How this job's encode declares a still-interlaced picture's field
@@ -545,6 +550,177 @@ impl VideoJob {
             return FieldOrderSignal::None;
         }
         signal
+    }
+
+    /// The columns and rows `pipe_source` repeats to bring the stored frame
+    /// to its pipe format's chroma grid (task #97): `(0, 0)` for every source
+    /// VapourSynth can hold as it is. A 4:2:0 frame with an odd width or
+    /// height, or 4:2:2 / 4:1:1 with a width off its grid, is stored and
+    /// decoded by FFmpeg (VP9, AV1, MJPEG, FFV1, ProRes, …) but refused by
+    /// VapourSynth, so the reader pads it, copying every stored sample.
+    pub fn source_grid_pad(&self) -> (i32, i32) {
+        match (self.input_width, self.input_height) {
+            (Some(w), Some(h)) if w > 0 && h > 0 => {
+                let pipe = crate::pixel_format::decode_pixel_format(self.input_pixel_format.as_deref());
+                crate::pixel_format::grid_pad(&pipe.name, w, h)
+            }
+            _ => (0, 0),
+        }
+    }
+
+    /// The pixel format the encoder itself is given: the pipeline's output
+    /// ([`encoder_input_pix_fmt`](Self::encoder_input_pix_fmt)), or the one
+    /// the codec pins (`VideoCodec::forced_pix_fmt`).
+    pub fn encoder_pix_fmt(&self) -> String {
+        let input = self.encoder_input_pix_fmt();
+        self.encoding_settings
+            .codec
+            .forced_pix_fmt(&input)
+            .map(str::to_string)
+            .unwrap_or(input)
+    }
+
+    /// What the script and the encoder do about a picture whose size is off
+    /// a chroma grid on its way out (task #97): the source's (padded by
+    /// `pipe_source`), the output format's, or the encoder's
+    /// (`VideoCodec::size_step`). The ONE decision, read by the script
+    /// generator (`GRID_PAD_TO`), the encoder's and the preview's `crop`, and
+    /// the job log ([`grid_note`](Self::grid_note)).
+    ///
+    /// Only for a pipeline that leaves the frame's geometry alone (no Rotate
+    /// / Flip, resize, upscale, square-pixel resample or borders; a crop is
+    /// fine), whose picture size the worker knows exactly. `None` when there
+    /// is nothing to do, which is every job whose sizes are all on their
+    /// grids (its script and arguments are unchanged), and every reshaping
+    /// pipeline (the reshaping pass decides the size, as before).
+    pub fn grid_output(&self) -> Option<GridOutput> {
+        let (picture, script_in) = self.grid_picture()?;
+        use crate::pixel_format::{ceil_to, chroma_grid, lcm};
+        let pipe = crate::pixel_format::decode_pixel_format(self.input_pixel_format.as_deref());
+        let g_pipe = chroma_grid(&pipe.name);
+        let g_out = chroma_grid(&self.encoder_input_pix_fmt());
+        let g_enc = self.encoding_settings.codec.size_step(&self.encoder_pix_fmt());
+        let step = (
+            lcm(lcm(g_pipe.0, g_out.0), g_enc.0),
+            lcm(lcm(g_pipe.1, g_out.1), g_enc.1),
+        );
+        let script = (ceil_to(picture.0, step.0), ceil_to(picture.1, step.1));
+        let encoded = (ceil_to(picture.0, g_enc.0), ceil_to(picture.1, g_enc.1));
+        if script_in == picture && script == picture {
+            return None;
+        }
+        Some(GridOutput { picture, script_in, script, encoded })
+    }
+
+    /// The picture's size and the clip's size after the crop, for a
+    /// pipeline that keeps the frame's geometry ([`grid_output`](Self::grid_output));
+    /// `None` for a reshaping one or an unknown size.
+    fn grid_picture(&self) -> Option<((i32, i32), (i32, i32))> {
+        let (w, h) = match (self.input_width, self.input_height) {
+            (Some(w), Some(h)) if w > 0 && h > 0 => (w, h),
+            _ => return None,
+        };
+        let pipeline = self.effective_pipeline();
+        let cr = &pipeline.crop_resize;
+        if pipeline.geometry.has_effect()
+            || (cr.enabled && (cr.resize_enabled || cr.use_integer_upscale || cr.squares_pixels()))
+            || cr.adds_borders()
+        {
+            return None;
+        }
+        let (l, r, t, b) = self.grid_crop();
+        let (pw, ph) = self.source_grid_pad();
+        // What the script holds after the crop: the padded frame less the
+        // crop. A crop on the right (bottom) takes the repeated column (row)
+        // with it, so the picture keeps one more real line than asked.
+        let script_in = (w + pw - l - r, h + ph - t - b);
+        let picture = (
+            if r > 0 { script_in.0 } else { w - l },
+            if b > 0 { script_in.1 } else { h - t },
+        );
+        (picture.0 > 0 && picture.1 > 0).then_some((picture, script_in))
+    }
+
+    /// The crop the script applies (left, right, top, bottom).
+    fn grid_crop(&self) -> (i32, i32, i32, i32) {
+        let pipeline = self.effective_pipeline();
+        let cr = &pipeline.crop_resize;
+        if cr.enabled && cr.crop_enabled {
+            (cr.crop_left.max(0), cr.crop_right.max(0), cr.crop_top.max(0), cr.crop_bottom.max(0))
+        } else {
+            (0, 0, 0, 0)
+        }
+    }
+
+    /// The job log's account of an off-grid size (task #97), or `None` when
+    /// the source and the output are on their grids. Said, never refused.
+    pub fn grid_note(&self) -> Option<String> {
+        let (pw, ph) = self.source_grid_pad();
+        let lines = |cols: i32, rows: i32| match (cols > 0, rows > 0) {
+            (true, true) => "last column and row",
+            (true, false) => "last column",
+            _ => "last row",
+        };
+        let mut note = String::new();
+        if pw > 0 || ph > 0 {
+            let (w, h) = (self.input_width.unwrap_or(0), self.input_height.unwrap_or(0));
+            let pipe = crate::pixel_format::decode_pixel_format(self.input_pixel_format.as_deref());
+            note.push_str(&format!(
+                "This video is stored at {w}x{h} in {}, which isn't a whole number of chroma samples. \
+                 VapourSynth can't hold that size, so it is processed at {}x{} with its {} repeated.",
+                pipe.name, w + pw, h + ph, lines(pw, ph),
+            ));
+            match self.grid_picture() {
+                None => {
+                    let p = self.effective_pipeline();
+                    let cr = &p.crop_resize;
+                    note.push(' ');
+                    note.push_str(if p.geometry.has_effect() {
+                        "Rotate / Flip moves the repeated line to another edge, so it stays in the picture."
+                    } else if cr.adds_borders() {
+                        "The borders are added around it, so the repeated line stays in the picture."
+                    } else if cr.enabled && (cr.resize_enabled || cr.squares_pixels()) {
+                        "The resize reads only the real picture, so the repeated line is left out."
+                    } else {
+                        "Upscaling enlarges the repeated line with the picture."
+                    });
+                }
+                Some((picture, _)) => {
+                    let (l, r, t, b) = self.grid_crop();
+                    let asked = (w - l - r, h - t - b);
+                    if asked != picture {
+                        note.push_str(&format!(
+                            " The crop takes the repeated line with it, so the picture is {}x{}, \
+                             one real line more than the crop's {}x{}.",
+                            picture.0, picture.1, asked.0, asked.1,
+                        ));
+                    }
+                }
+            }
+        }
+        if let Some(g) = self.grid_output() {
+            let extra = (g.encoded.0 - g.picture.0, g.encoded.1 - g.picture.1);
+            if extra == (0, 0) {
+                if g.script != g.picture {
+                    if !note.is_empty() {
+                        note.push(' ');
+                    }
+                    note.push_str(&format!("The encoder crops it back to {}x{}.", g.picture.0, g.picture.1));
+                }
+            } else {
+                if !note.is_empty() {
+                    note.push(' ');
+                }
+                note.push_str(&format!(
+                    "{} can't store {}x{} in {}, so the output is {}x{}, with the {} repeated. \
+                     FFV1, ProRes or AV1 keep {}x{}.",
+                    self.encoding_settings.codec.display_name(),
+                    g.picture.0, g.picture.1, self.encoder_pix_fmt(), g.encoded.0, g.encoded.1,
+                    lines(extra.0, extra.1), g.picture.0, g.picture.1,
+                ));
+            }
+        }
+        (!note.is_empty()).then_some(note)
     }
 
     /// The output colour format the script converts to: the one decision,
@@ -1274,6 +1450,24 @@ pub enum VideoCodec {
     V210,
 }
 
+/// [`VideoJob::grid_output`]: the sizes of a picture off a chroma grid on
+/// its way out (task #97), each (width, height).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GridOutput {
+    /// The picture: the stored size less the crop (one more real line on a
+    /// side the crop took the repeated line from).
+    pub picture: (i32, i32),
+    /// The clip's size where the script reaches `GRID_PAD_TO` (just before
+    /// the output format conversion): the padded source less the crop.
+    pub script_in: (i32, i32),
+    /// The size the script delivers: the picture rounded up to every grid
+    /// it must sit on (the pipe's, the output format's, the encoder's).
+    pub script: (i32, i32),
+    /// The size the encoder is given: the picture rounded up to the
+    /// encoder's own steps. The encoder's `crop` takes `script` to this.
+    pub encoded: (i32, i32),
+}
+
 /// How a codec declares a still-interlaced picture's field order
 /// (`VideoCodec::field_order_signal`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1629,6 +1823,46 @@ impl VideoCodec {
         } else {
             "nv12"
         })
+    }
+
+    /// The size steps (across, down) this encoder can store a picture of
+    /// `pix_fmt` at: `(1, 1)` when it takes any size. Measured against the
+    /// bundled FFmpeg 9.0.2 (task #97, docs/reports/task-97-off-grid-sources):
+    /// FFV1, SVT-AV1 and ProRes store a 63x33 picture as it is; x264 and x265
+    /// refuse a size off the format's chroma grid; HuffYUV and v210 refuse an
+    /// odd width in any format, FFVHuff in an 8-bit subsampled one; VideoToolbox
+    /// takes the frame and silently drops the odd row and column, so it is
+    /// held to even sizes, as are NVENC, QSV and AMF (4:2:0 / nv12 encoders
+    /// nobody can check here). `encoder_size_step_test.rs` holds the software
+    /// rows to the bundle. Exhaustive on purpose: a new codec must say.
+    pub fn size_step(&self, pix_fmt: &str) -> (i32, i32) {
+        let grid = crate::pixel_format::chroma_grid(pix_fmt);
+        match self {
+            VideoCodec::FFV1
+            | VideoCodec::Av1
+            | VideoCodec::ProResProxy
+            | VideoCodec::ProResLT
+            | VideoCodec::ProRes422
+            | VideoCodec::ProResHQ
+            | VideoCodec::ProRes4444
+            | VideoCodec::ProRes4444Xq => (1, 1),
+            VideoCodec::H264 | VideoCodec::H265 => grid,
+            // FFVHuff refuses an odd width only for 8-bit subsampled formats
+            // ("Width must be even for this colorspace"); deeper ones store it.
+            VideoCodec::Ffvhuff => {
+                let (_, depth) = crate::pixel_format::chroma_and_depth(pix_fmt);
+                if grid.0 > 1 && depth <= 8 { (2, 1) } else { (1, 1) }
+            }
+            VideoCodec::Huffyuv | VideoCodec::V210 => (2, 1),
+            VideoCodec::H264Videotoolbox
+            | VideoCodec::H265Videotoolbox
+            | VideoCodec::H264Nvenc
+            | VideoCodec::H265Nvenc
+            | VideoCodec::H264Qsv
+            | VideoCodec::H265Qsv
+            | VideoCodec::H264Amf
+            | VideoCodec::H265Amf => (2, 2),
+        }
     }
 
     /// Encoder presets this codec accepts. Mirrors `availablePresets` in
@@ -2666,6 +2900,171 @@ mod tests {
             "\"tff\""
         );
     }
+
+    /// A job for the chroma-grid tables (task #97): `src` stored at `w`x`h`.
+    fn grid_job(src: &str, w: i32, h: i32, codec: VideoCodec, pipeline: serde_json::Value) -> VideoJob {
+        let mut job = fixed_format_job(codec, ChromaSubsampling::Original, src);
+        job.input_width = Some(w);
+        job.input_height = Some(h);
+        let mut p = serde_json::json!({"deinterlace": {"enabled": false}});
+        if let (Some(dst), Some(extra)) = (p.as_object_mut(), pipeline.as_object()) {
+            for (k, v) in extra {
+                dst.insert(k.clone(), v.clone());
+            }
+        }
+        job.processing_pipeline = Some(serde_json::from_value(p).unwrap());
+        job
+    }
+
+    fn none() -> serde_json::Value {
+        serde_json::json!({})
+    }
+
+    /// The measured encoder steps (docs/reports/task-97-off-grid-sources),
+    /// row by row. `encoder_size_step_test.rs` holds the software rows to
+    /// the bundled FFmpeg.
+    #[test]
+    fn size_step_rows() {
+        use VideoCodec::*;
+        let rows: &[(VideoCodec, &str, (i32, i32))] = &[
+            (FFV1, "yuv420p", (1, 1)), (FFV1, "yuv422p10le", (1, 1)),
+            (Av1, "yuv420p", (1, 1)), (Av1, "yuv420p10le", (1, 1)),
+            (ProRes422, "yuv422p10le", (1, 1)), (ProRes4444, "yuv444p10le", (1, 1)),
+            (H264, "yuv420p", (2, 2)), (H264, "yuv422p", (2, 1)), (H264, "yuv444p", (1, 1)),
+            (H265, "yuv420p10le", (2, 2)), (H265, "yuv444p10le", (1, 1)),
+            (Ffvhuff, "yuv420p", (2, 1)), (Ffvhuff, "yuv422p", (2, 1)),
+            (Ffvhuff, "yuv422p10le", (1, 1)), (Ffvhuff, "yuv444p", (1, 1)),
+            (Huffyuv, "yuv422p", (2, 1)), (V210, "yuv422p10le", (2, 1)),
+            (H264Videotoolbox, "yuv444p", (2, 2)), (H265Videotoolbox, "yuv420p", (2, 2)),
+            (H264Nvenc, "yuv420p", (2, 2)), (H265Qsv, "nv12", (2, 2)), (H264Amf, "nv12", (2, 2)),
+        ];
+        for (codec, fmt, step) in rows {
+            assert_eq!(codec.size_step(fmt), *step, "{codec:?} {fmt}");
+        }
+    }
+
+    /// A source on its grid into an encoder that takes it has nothing to do,
+    /// so its script and arguments are unchanged.
+    #[test]
+    fn grid_output_is_none_on_every_grid() {
+        for (src, w, h) in [("yuv420p", 720, 480), ("yuv420p", 720, 486), ("yuv422p10le", 1920, 1081),
+                            ("yuv444p", 63, 33), ("yuv420p10le", 3840, 2160)] {
+            for codec in [VideoCodec::FFV1, VideoCodec::H264, VideoCodec::ProRes422, VideoCodec::Av1] {
+                let job = grid_job(src, w, h, codec, none());
+                if codec == VideoCodec::ProRes422 && src == "yuv444p" {
+                    continue; // 4:4:4 -> 4:2:2 at an odd width: the output grid, below
+                }
+                if codec == VideoCodec::Av1 && (src == "yuv444p" || h % 2 == 1) {
+                    continue; // AV1 stores 4:2:0: an odd height is off its grid
+                }
+                assert_eq!(job.source_grid_pad(), (0, 0), "{src} {w}x{h}");
+                assert_eq!(job.grid_output(), None, "{src} {w}x{h} {codec:?}");
+                assert_eq!(job.grid_note(), None, "{src} {w}x{h} {codec:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_off_grid_source_is_padded_and_cropped_back_where_the_encoder_can() {
+        let job = grid_job("yuv420p", 1279, 719, VideoCodec::FFV1, none());
+        assert_eq!(job.source_grid_pad(), (1, 1));
+        let g = job.grid_output().unwrap();
+        assert_eq!(g, GridOutput { picture: (1279, 719), script_in: (1280, 720), script: (1280, 720), encoded: (1279, 719) });
+        let note = job.grid_note().unwrap();
+        assert!(note.contains("stored at 1279x719 in yuv420p"), "{note}");
+        assert!(note.contains("processed at 1280x720 with its last column and row repeated"), "{note}");
+        assert!(note.contains("The encoder crops it back to 1279x719."), "{note}");
+
+        // Decision A: an encoder that can't store it gets the next size up.
+        let job = grid_job("yuv420p", 1279, 719, VideoCodec::H264, none());
+        let g = job.grid_output().unwrap();
+        assert_eq!((g.script, g.encoded), ((1280, 720), (1280, 720)));
+        let note = job.grid_note().unwrap();
+        assert!(note.contains("H.264 can't store 1279x719 in yuv420p, so the output is 1280x720"), "{note}");
+
+        // 4:2:2, odd width only.
+        let job = grid_job("yuv422p10le", 63, 33, VideoCodec::ProRes422, none());
+        assert_eq!(job.source_grid_pad(), (1, 0));
+        let g = job.grid_output().unwrap();
+        assert_eq!((g.script_in, g.script, g.encoded), ((64, 33), (64, 33), (63, 33)));
+        assert!(job.grid_note().unwrap().contains("last column repeated"));
+
+        // 4:1:1: up to three columns.
+        let job = grid_job("yuv411p", 62, 32, VideoCodec::FFV1, none());
+        assert_eq!(job.source_grid_pad(), (2, 0));
+        assert_eq!(job.grid_output().unwrap().encoded, (62, 32));
+    }
+
+    /// The output format's grid and the encoder's, for a source VapourSynth
+    /// holds as it is (an odd-sized 4:4:4 picture).
+    #[test]
+    fn the_output_and_encoder_grids_pad_an_on_grid_source() {
+        let mut job = grid_job("yuv444p", 63, 33, VideoCodec::FFV1, none());
+        job.encoding_settings.chroma_subsampling = ChromaSubsampling::Yuv420;
+        let g = job.grid_output().unwrap();
+        assert_eq!(g, GridOutput { picture: (63, 33), script_in: (63, 33), script: (64, 34), encoded: (63, 33) });
+        assert_eq!(job.grid_note().unwrap(), "The encoder crops it back to 63x33.");
+
+        // VideoToolbox drops an odd row and column silently: it gets an even size.
+        let job = grid_job("yuv444p", 63, 33, VideoCodec::H264Videotoolbox, none());
+        let g = job.grid_output().unwrap();
+        assert_eq!((g.script, g.encoded), ((64, 34), (64, 34)));
+        assert!(job.grid_note().unwrap().starts_with("H.264 (VideoToolbox) can't store 63x33"));
+
+        // AV1 stores 4:2:0, so a 1081-line 4:2:2 source gets a row, cropped back.
+        let g = grid_job("yuv422p10le", 1920, 1081, VideoCodec::Av1, none()).grid_output().unwrap();
+        assert_eq!((g.script, g.encoded), ((1920, 1082), (1920, 1081)));
+
+        // x264 takes any size in 4:4:4.
+        assert_eq!(grid_job("yuv444p", 63, 33, VideoCodec::H264, none()).grid_output(), None);
+    }
+
+    #[test]
+    fn a_crop_keeps_or_takes_the_repeated_line() {
+        // Left / top: the pad stays at the right / bottom, and is cropped back.
+        let crop = |l: i32, r: i32, t: i32, b: i32| serde_json::json!({"cropResize": {
+            "enabled": true, "cropEnabled": true, "cropLeft": l, "cropRight": r, "cropTop": t, "cropBottom": b}});
+        let job = grid_job("yuv420p", 1279, 719, VideoCodec::FFV1, crop(8, 0, 4, 0));
+        let g = job.grid_output().unwrap();
+        assert_eq!(g, GridOutput { picture: (1271, 715), script_in: (1272, 716), script: (1272, 716), encoded: (1271, 715) });
+        // Right / bottom: the crop takes it, one real line more than asked.
+        let job = grid_job("yuv420p", 1279, 719, VideoCodec::FFV1, crop(0, 8, 0, 4));
+        assert_eq!(job.grid_output(), None, "the picture is on the grid: nothing to do at the end");
+        let note = job.grid_note().unwrap();
+        assert!(note.contains("the picture is 1272x716, one real line more than the crop's 1271x715"), "{note}");
+    }
+
+    /// A reshaping pass decides the size; the note says what became of the
+    /// repeated line.
+    #[test]
+    fn a_reshaping_pipeline_has_no_grid_output() {
+        let cases = [
+            (serde_json::json!({"geometry": {"enabled": true, "rotation": "cw90"}}), "Rotate / Flip"),
+            (serde_json::json!({"cropResize": {"enabled": true, "resizeEnabled": true, "targetWidth": 640}}),
+             "The resize reads only the real picture"),
+            (serde_json::json!({"cropResize": {"enabled": true, "useIntegerUpscale": true, "upscaleFactor": 2}}),
+             "Upscaling enlarges"),
+            (serde_json::json!({"cropResize": {"enabled": true, "padEnabled": true, "padWidth": 1920, "padHeight": 1080}}),
+             "The borders"),
+        ];
+        for (pipeline, says) in cases {
+            let job = grid_job("yuv420p", 1279, 719, VideoCodec::FFV1, pipeline.clone());
+            assert_eq!(job.grid_output(), None, "{pipeline}");
+            let note = job.grid_note().unwrap();
+            assert!(note.contains(says), "{pipeline}: {note}");
+        }
+    }
+
+    /// x264's field decision sees the height the encoder is given.
+    #[test]
+    fn h264_field_coding_reads_the_encoded_height() {
+        // 176x121 4:2:0 reaches x264 at 176x122, 2 mod 4: progressive.
+        let job = grid_job("yuv420p", 176, 121, VideoCodec::H264, none());
+        assert_eq!(job.h264_cannot_code_fields_at(), Some((176, 122)));
+        let job = grid_job("yuv420p", 176, 119, VideoCodec::H264, none());
+        assert_eq!(job.h264_cannot_code_fields_at(), None, "120 lines code as fields");
+    }
+
 }
 
 #[cfg(test)]

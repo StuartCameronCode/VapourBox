@@ -1,0 +1,164 @@
+TCanny at 14ac2ce (HomeOfVapourSynthEvolution/VapourSynth-TCanny, r14 + "Use
+alignof operator to query alignment": r14 itself asks aligned_alloc for 4-byte
+alignment, which arm64 refuses, so every frame fails there). VapourBox task
+#98 (task #52 found the race), docs/reports/task-98-per-thread-buffer-maps.
+
+The filter is fmParallel and keeps scratch buffers per worker thread in
+std::unordered_map<std::thread::id, ...> members of the filter instance. Four
+maps (blur, gradient, direction, found) are filled from getFrame and read by
+every kernel with no lock at all. Two threads starting their first frame of an
+instance together corrupt the map or lose an insert, and the kernel's .at()
+then throws std::out_of_range inside a noexcept function: std::terminate, so
+vspipe aborts ("unordered_map::at: key not found"; on Windows the UCRT's abort
+is a fail-fast, exit 0xC0000409). Measured on an M1 with 8 threads: one graph
+of 1000 instances aborted in 20 of 20 runs, one instance in a fresh vspipe in
+2 of 200; with the patch, none in 40 and 200. VapourBox's templates still
+never call TCanny (test_250, gauss_blur.py); this protects a user's own
+VapourSynth code.
+
+The patch locks the map: getFrame checks for the thread's buffers under a
+shared lock and allocates them under a unique lock (only the calling thread
+inserts its own key), and the kernels look them up through threadBuffer(),
+under the shared lock. The buffers, their reuse and so the output are
+unchanged, sample for sample. It also appends "(VapourBox: locked per-thread
+buffers, task #98)" to the plugin's name, which is how a test and the deps
+scripts recognise a patched build. No upstream release fixes this.
+
+Made by docs/reports/task-98-per-thread-buffer-maps/scripts/make_patches.py
+and applied by download-deps-{macos,linux}.sh and download-deps-windows.ps1
+right after the clone; each build fails if it stops applying.
+
+diff --git a/TCanny/TCanny.cpp b/TCanny/TCanny.cpp
+index 21453fb..83c3c3f 100644
+--- a/TCanny/TCanny.cpp
++++ b/TCanny/TCanny.cpp
+@@ -368,11 +368,10 @@ static void filter_c(const VSFrame* src, VSFrame* dst, const TCannyData* const V
+             auto srcp{ reinterpret_cast<const pixel_t*>(vsapi->getReadPtr(src, plane)) };
+             auto dstp{ reinterpret_cast<pixel_t*>(vsapi->getWritePtr(dst, plane)) };
+ 
+-            const auto threadId{ std::this_thread::get_id() };
+-            auto blur{ d->blur.at(threadId).get() + d->radiusAlign };
+-            auto gradient{ d->gradient.at(threadId).get() + bgStride + d->radiusAlign };
+-            auto direction{ d->direction.at(threadId).get() };
+-            auto found{ d->found.at(threadId).get() };
++            auto blur{ d->threadBuffer(d->blur) + d->radiusAlign };
++            auto gradient{ d->threadBuffer(d->gradient) + bgStride + d->radiusAlign };
++            auto direction{ d->threadBuffer(d->direction) };
++            auto found{ d->threadBuffer(d->found) };
+ 
+             if (d->radiusH[plane] && d->radiusV[plane])
+                 gaussianBlur(srcp, gradient, blur, width, height, stride, bgStride, d->radiusH[plane], d->radiusV[plane],
+@@ -418,7 +417,13 @@ static const VSFrame* VS_CC tcannyGetFrame(int n, int activationReason, void* in
+             auto threadId{ std::this_thread::get_id() };
+             auto stride{ vsapi->getStride(src, 0) / d->vi->format.bytesPerSample };
+ 
+-            if (!d->blur.count(threadId)) {
++            bool known;
++            {
++                std::shared_lock<std::shared_mutex> lock(d->bufferMutex);
++                known = d->blur.count(threadId);
++            }
++            if (!known) {
++                std::unique_lock<std::shared_mutex> lock(d->bufferMutex);
+                 auto blur{ vsh::vsh_aligned_malloc<float>((stride + d->radiusAlign * 2) * d->vi->height * sizeof(float), d->alignment) };
+                 if (!blur)
+                     throw "malloc failure (blur)"s;
+@@ -688,7 +693,7 @@ static void VS_CC tcannyCreate(const VSMap* in, VSMap* out, [[maybe_unused]] voi
+ // Init
+ 
+ VS_EXTERNAL_API(void) VapourSynthPluginInit2(VSPlugin* plugin, const VSPLUGINAPI* vspapi) {
+-    vspapi->configPlugin("com.holywu.tcanny", "tcanny", "Build an edge map using canny edge detection", VS_MAKE_VERSION(13, 0), VAPOURSYNTH_API_VERSION, 0, plugin);
++    vspapi->configPlugin("com.holywu.tcanny", "tcanny", "Build an edge map using canny edge detection (VapourBox: locked per-thread buffers, task #98)", VS_MAKE_VERSION(13, 0), VAPOURSYNTH_API_VERSION, 0, plugin);
+     vspapi->registerFunction("TCanny",
+                              "clip:vnode;"
+                              "sigma:float[]:opt;"
+diff --git a/TCanny/TCanny.h b/TCanny/TCanny.h
+index 7c05554..2c13aa5 100644
+--- a/TCanny/TCanny.h
++++ b/TCanny/TCanny.h
+@@ -3,6 +3,8 @@
+ #include <algorithm>
+ #include <limits>
+ #include <memory>
++#include <mutex>
++#include <shared_mutex>
+ #include <thread>
+ #include <type_traits>
+ #include <unordered_map>
+@@ -50,10 +52,16 @@ struct TCannyData final {
+     size_t alignment;
+     std::unique_ptr<float[]> weightsH[3];
+     std::unique_ptr<float[]> weightsV[3];
++    mutable std::shared_mutex bufferMutex;
+     std::unordered_map<std::thread::id, std::unique_ptr<bool[]>> found;
+     std::unordered_map<std::thread::id, unique_float> blur;
+     std::unordered_map<std::thread::id, unique_float> gradient;
+     std::unordered_map<std::thread::id, unique_int> direction;
++    // The calling thread's buffer, looked up under bufferMutex (task #98).
++    template<typename M> auto threadBuffer(const M & m) const {
++        std::shared_lock<std::shared_mutex> lock(bufferMutex);
++        return m.at(std::this_thread::get_id()).get();
++    }
+     void (*filter)(const VSFrame* src, VSFrame* dst, const TCannyData* const VS_RESTRICT d, const VSAPI* vsapi) noexcept;
+ };
+ 
+diff --git a/TCanny/TCanny_AVX2.cpp b/TCanny/TCanny_AVX2.cpp
+index b90a415..0a748f2 100644
+--- a/TCanny/TCanny_AVX2.cpp
++++ b/TCanny/TCanny_AVX2.cpp
+@@ -382,11 +382,10 @@ void filter_avx2(const VSFrame* src, VSFrame* dst, const TCannyData* const VS_RE
+             auto srcp{ reinterpret_cast<const pixel_t*>(vsapi->getReadPtr(src, plane)) };
+             auto dstp{ reinterpret_cast<pixel_t*>(vsapi->getWritePtr(dst, plane)) };
+ 
+-            const auto threadId{ std::this_thread::get_id() };
+-            auto blur{ d->blur.at(threadId).get() + d->radiusAlign };
+-            auto gradient{ d->gradient.at(threadId).get() + bgStride + d->radiusAlign };
+-            auto direction{ d->direction.at(threadId).get() };
+-            auto found{ d->found.at(threadId).get() };
++            auto blur{ d->threadBuffer(d->blur) + d->radiusAlign };
++            auto gradient{ d->threadBuffer(d->gradient) + bgStride + d->radiusAlign };
++            auto direction{ d->threadBuffer(d->direction) };
++            auto found{ d->threadBuffer(d->found) };
+ 
+             if (d->radiusH[plane] && d->radiusV[plane])
+                 gaussianBlur(srcp, gradient, blur, width, height, stride, bgStride, d->radiusH[plane], d->radiusV[plane],
+diff --git a/TCanny/TCanny_AVX512.cpp b/TCanny/TCanny_AVX512.cpp
+index 9bce775..a8f6466 100644
+--- a/TCanny/TCanny_AVX512.cpp
++++ b/TCanny/TCanny_AVX512.cpp
+@@ -382,11 +382,10 @@ void filter_avx512(const VSFrame* src, VSFrame* dst, const TCannyData* const VS_
+             auto srcp{ reinterpret_cast<const pixel_t*>(vsapi->getReadPtr(src, plane)) };
+             auto dstp{ reinterpret_cast<pixel_t*>(vsapi->getWritePtr(dst, plane)) };
+ 
+-            const auto threadId{ std::this_thread::get_id() };
+-            auto blur{ d->blur.at(threadId).get() + d->radiusAlign };
+-            auto gradient{ d->gradient.at(threadId).get() + bgStride + d->radiusAlign };
+-            auto direction{ d->direction.at(threadId).get() };
+-            auto found{ d->found.at(threadId).get() };
++            auto blur{ d->threadBuffer(d->blur) + d->radiusAlign };
++            auto gradient{ d->threadBuffer(d->gradient) + bgStride + d->radiusAlign };
++            auto direction{ d->threadBuffer(d->direction) };
++            auto found{ d->threadBuffer(d->found) };
+ 
+             if (d->radiusH[plane] && d->radiusV[plane])
+                 gaussianBlur(srcp, gradient, blur, width, height, stride, bgStride, d->radiusH[plane], d->radiusV[plane],
+diff --git a/TCanny/TCanny_SSE2.cpp b/TCanny/TCanny_SSE2.cpp
+index 2836f9d..2ed5935 100644
+--- a/TCanny/TCanny_SSE2.cpp
++++ b/TCanny/TCanny_SSE2.cpp
+@@ -382,11 +382,10 @@ void filter_sse2(const VSFrame* src, VSFrame* dst, const TCannyData* const VS_RE
+             auto srcp{ reinterpret_cast<const pixel_t*>(vsapi->getReadPtr(src, plane)) };
+             auto dstp{ reinterpret_cast<pixel_t*>(vsapi->getWritePtr(dst, plane)) };
+ 
+-            const auto threadId{ std::this_thread::get_id() };
+-            auto blur{ d->blur.at(threadId).get() + d->radiusAlign };
+-            auto gradient{ d->gradient.at(threadId).get() + bgStride + d->radiusAlign };
+-            auto direction{ d->direction.at(threadId).get() };
+-            auto found{ d->found.at(threadId).get() };
++            auto blur{ d->threadBuffer(d->blur) + d->radiusAlign };
++            auto gradient{ d->threadBuffer(d->gradient) + bgStride + d->radiusAlign };
++            auto direction{ d->threadBuffer(d->direction) };
++            auto found{ d->threadBuffer(d->found) };
+ 
+             if (d->radiusH[plane] && d->radiusV[plane])
+                 gaussianBlur(srcp, gradient, blur, width, height, stride, bgStride, d->radiusH[plane], d->radiusV[plane],

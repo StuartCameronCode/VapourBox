@@ -129,6 +129,41 @@ pub struct VideoFacts {
     pub color_transfer: Option<String>,
     pub color_range: Option<String>,
     pub dolby_vision: Option<DolbyVisionFacts>,
+    /// The stored frame is off its pipe format's chroma grid (task #97):
+    /// `None` for every frame VapourSynth holds as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_pad: Option<GridPad>,
+}
+
+/// A stored frame whose size isn't a whole number of chroma samples (a 4:2:0
+/// frame with an odd width or height, 4:2:2 or 4:1:1 with a width off its
+/// grid; VP9, AV1, MJPEG, FFV1, ProRes and others store them). `pipe_source`
+/// repeats the last column / row into the pad (`VideoJob::source_grid_pad`,
+/// the same rule), and the app's HDR "before" frame crops to the grid below
+/// before its tone map, which refuses such a frame (zimg 1027).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GridPad {
+    /// Columns and rows the reader repeats to reach the grid.
+    pub right: i32,
+    pub bottom: i32,
+    /// The grid, in luma samples per chroma sample (4:2:0: 2 and 2).
+    pub step_width: i32,
+    pub step_height: i32,
+}
+
+impl GridPad {
+    /// The pad for `pix_fmt` (ffprobe's) at `width` x `height`, judged in
+    /// the format the decoder pipes (`pixel_format::decode_pixel_format`).
+    pub fn of(pix_fmt: Option<&str>, width: i32, height: i32) -> Option<GridPad> {
+        if width <= 0 || height <= 0 {
+            return None;
+        }
+        let pipe = crate::pixel_format::decode_pixel_format(pix_fmt);
+        let (right, bottom) = crate::pixel_format::grid_pad(&pipe.name, width, height);
+        let (step_width, step_height) = crate::pixel_format::chroma_grid(&pipe.name);
+        (right > 0 || bottom > 0).then_some(GridPad { right, bottom, step_width, step_height })
+    }
 }
 
 /// See the module docs.
@@ -849,6 +884,11 @@ pub fn probe_source_with(
             color_transfer: color_tag(video, "color_transfer"),
             color_range: color_tag(video, "color_range"),
             dolby_vision,
+            grid_pad: GridPad::of(
+                str_of("pix_fmt").as_deref(),
+                uint(video.get("width")).unwrap_or(0) as i32,
+                uint(video.get("height")).unwrap_or(0) as i32,
+            ),
         },
         audio_streams,
         continuity,
@@ -1390,6 +1430,7 @@ mod tests {
                 color_transfer: None,
                 color_range: None,
                 dolby_vision: None,
+                grid_pad: None,
             },
             audio_streams: vec![],
             continuity: None,
@@ -1416,5 +1457,33 @@ mod tests {
         let t = m.timeline(30.0, |_| {}).expect("irregular times make a timeline");
         // The last stored frame is 38 (39 is a gap): it is shown for one frame.
         assert_eq!(t.slot_count(), 39);
+    }
+
+    /// Task #97: the model reports a stored size off the pipe format's chroma
+    /// grid, and nothing for a size on it (so those models are unchanged).
+    #[test]
+    fn grid_pad_reports_a_size_off_the_chroma_grid() {
+        assert_eq!(GridPad::of(Some("yuv420p"), 720, 480), None);
+        assert_eq!(GridPad::of(Some("yuv444p10le"), 63, 33), None);
+        assert_eq!(GridPad::of(Some("gbrp"), 63, 33), None);
+        assert_eq!(
+            GridPad::of(Some("yuv420p"), 64, 33),
+            Some(GridPad { right: 0, bottom: 1, step_width: 2, step_height: 2 })
+        );
+        assert_eq!(
+            GridPad::of(Some("yuv422p10le"), 63, 32),
+            Some(GridPad { right: 1, bottom: 0, step_width: 2, step_height: 1 })
+        );
+        // Converted by the decoder: judged in the pipe format (gray -> 4:2:0).
+        assert_eq!(
+            GridPad::of(Some("gray"), 63, 33),
+            Some(GridPad { right: 1, bottom: 1, step_width: 2, step_height: 2 })
+        );
+        let json = serde_json::to_value(GridPad::of(Some("yuv411p"), 62, 32).unwrap()).unwrap();
+        assert_eq!(json, serde_json::json!({"right": 2, "bottom": 0, "stepWidth": 4, "stepHeight": 1}));
+        let mut model = sample_model();
+        assert!(serde_json::to_value(&model).unwrap()["video"].get("gridPad").is_none());
+        model.video.grid_pad = GridPad::of(Some("yuv420p"), 63, 33);
+        assert_eq!(serde_json::to_value(&model).unwrap()["video"]["gridPad"]["right"], 1);
     }
 }
