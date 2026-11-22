@@ -6228,3 +6228,43 @@ release-candidate-aware comparison moved out of
 `vapoursynth_integration_test.dart`). On an older bundle the probe prints a
 warning: its LUT cells build the tables again and are slow at 10+ bits.
 
+### Linux's VapourSynth linked zimg master at build time (task #103, 2026-11-22)
+
+The 1.18.0-rc3 Linux bundles (task #90's candidate 44931836464, and the published
+assets from 44965649537) aborted in VapourSynth's own resize on every job that
+resized: `double free or corruption (!prev)` at `free()` ←
+`vszimg::real_get_frame`, SIGSEGV on some rows. That was 617 of 6861 nightly
+sweep rows, 17 heavy tests per tier, `zimg_colorspace_test` and 10 smoke rows.
+rc2 passed.
+
+- **Cause.** R78's `subprojects/zimg.wrap` says `revision = HEAD`, and the Linux
+  build makes meson use it. `meson setup` never receives `PKG_CONFIG_PATH` (or
+  `CC=clang-18`): the `\` continuation before it ends on a comment line, so the
+  variables go to a bare `env`. That has been true since 0c805a7b (task #111).
+  meson then logs "zimg found: NO … Executing subproject zimg" and links the
+  day's zimg master statically into `libvapoursynth.so.4`. rc2's build
+  (11-19) got `67e06032`; rc3's got `e2e43d09` "Update graphengine"
+  (11-21 01:32Z). That commit moves only the graphengine submodule
+  (`cb5b2ce1` → `91c6af4c`): 13 commits reworking buffer sizing. That a buffer
+  is now sized too small is inferred, not bisected (task #109).
+- **A correction.** The task and its plan blamed the script's own `git
+  clone` of zimg master, and the first fix pinned it. That build crashed
+  exactly as before: the standalone `libzimg.so` it makes is loaded by
+  nothing, and it was already byte-identical to rc2's. The lesson: read
+  meson's "Run-time dependency … found" line before pinning a library.
+- **Fix.** The script rewrites the wrap to `ZIMG_COMMIT` (67e06032; no
+  shallow clone, since a SHA needs a fetch by commit), fails if the wrap no
+  longer says `HEAD`, and checks the subproject and its graphengine after
+  setup. The standalone clone is pinned too, to the same commits.
+- **Result.** The rebuilt `libvapoursynth.so.4` is byte-identical to rc2's
+  (the unpinned rc3 build differed in 1,277,082 of 1,502,489 bytes).
+  ci-test 44983941521: `zimg_colorspace_test` ok, all 10 smoke rows pass,
+  no aborts. Nightly 44983943673: sweep 0 of 6861 rows failing on either
+  tier (617 / 618 before); heavy 3 / 1 failures, none resizing: the Lut2
+  memo (#104), a cut-off add-on download, and CTMF's AVX-512 kernel in #98's
+  stress test (#112, an unrelated intermittent). rc3's six Linux assets were
+  replaced with that build's artifacts.
+- **Guard.** `zimg_pin_test.dart` (push gate) fails on an unpinned wrap or
+  clone. Every other unpinned source clone is task #110.
+
+Report: [docs/reports/task-103-linux-zimg-pin](reports/task-103-linux-zimg-pin/index.html).
