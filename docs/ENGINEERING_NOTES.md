@@ -6237,6 +6237,38 @@ Report: [docs/reports/task-100-440-sources](reports/task-100-440-sources/index.h
   because of the 4:2:2 pipe (`BlankClip: invalid width`); a 4:4:4 pipe has
   no grid to be off, so it runs with or without #97's padding.
 
+### DFTTest plans with FFTW_ESTIMATE (task #101, 2026-11-22)
+
+Task #98 saw DFTTest give two pictures across ten fresh processes under
+Rosetta, old and new builds alike. `dfttestCreate` plans its four FFTs with
+`FFTW_PATIENT`, which times candidate plans per process: task #80's
+FFT3DFilter fault with a more patient planner, and DFTTest has no argument to
+choose another.
+
+- **Measured** (37 keys: the Noise Reduction method, other 3D and 2D sizes,
+  QTGMC's dfttest denoiser, SMDegrain's prefilter, TD2 postFFT 3; 720x480 at
+  8 and 16 bits): on every x86 machine (2 Linux and 6 Windows runner jobs,
+  macOS x64 under Rosetta) the same 15 keys, every 3D plan (`tbsize` > 1),
+  gave 2-3 pictures in 20-30 processes, 1 level apart (2 for QTGMC and TD2)
+  in at most 0.13% of samples. 2D plans (havsfunc's prefilters) and Apple
+  Silicon (M1, CI arm64): one picture always.
+- **No interaction with FFT3DFilter:** FFTW's exported wisdom shows no problem
+  hash shared by the two plugins (720x480 and 96x64), and FFT3DFilter after
+  DFTTest in one process equals a fresh process.
+- **Fix:** `patches/dfttest-bc5e018-fftw-estimate.patch`, after task #98's
+  (its context is that patch's name line), FFTW_ESTIMATE and a marker the
+  three deps scripts require. One picture per key everywhere; speed within
+  run noise; the picture is one of PATIENT's on x86 and moves the 3D cases by
+  1-2 levels in at most 0.13% of samples on arm64. Six previews and a lossless
+  encode agree sample for sample (heavy test). DCTFilter keeps PATIENT (task
+  #96's decision); it never split here.
+- **Trap:** a local heavy run in an agentbob worktree used the installed
+  app's 1.17.0-rc1 bundle (the debug worker searches upward for `deps/`, not
+  `VAPOURBOX_DEPS_DIR`), whose unpatched FFT3DFilter made every preview
+  differ. Link `deps/<platform>` in the worktree first.
+
+Report: [docs/reports/task-101-dfttest-fftw-planning](reports/task-101-dfttest-fftw-planning/index.html).
+
 ### The probe's Lut2 memo retired: havsfunc makes no Lut2 call (task #104, 2026-11-22)
 
 Nightly 44940674293 (the 1.18.0-rc3 candidate bundles) failed the heavy
