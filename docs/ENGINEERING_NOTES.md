@@ -6259,8 +6259,11 @@ rc2 passed.
 - **Result.** The rebuilt `libvapoursynth.so.4` is byte-identical to rc2's
   (the unpinned rc3 build differed in 1,277,082 of 1,502,489 bytes).
   ci-test 44983941521: `zimg_colorspace_test` ok, all 10 smoke rows pass,
-  no aborts. Nightly 44983943673: sweep 0 of 6861 rows failing on either tier (617 / 618 before); heavy 3 / 1 failures, none resizing: the Lut2 memo (#104), a cut-off add-on download, and CTMF's AVX-512 kernel in #98's stress test (#112, an unrelated intermittent). rc3's six Linux assets
-  were replaced with that build's artifacts.
+  no aborts. Nightly 44983943673: sweep 0 of 6861 rows failing on either
+  tier (617 / 618 before); heavy 3 / 1 failures, none resizing: the Lut2
+  memo (#104), a cut-off add-on download, and CTMF's AVX-512 kernel in #98's
+  stress test (#112, an unrelated intermittent). rc3's six Linux assets were
+  replaced with that build's artifacts.
 - **Guard.** `zimg_pin_test.dart` (push gate) fails on an unpinned wrap or
   clone. Every other unpinned source clone is task #110.
 

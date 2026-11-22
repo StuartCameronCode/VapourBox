@@ -419,6 +419,8 @@ CYEOF
     if [ "$(git -C subprojects/zimg rev-parse HEAD 2>/dev/null)" != "$ZIMG_COMMIT" ] \
         || [ "$(git -C subprojects/zimg/graphengine rev-parse HEAD 2>/dev/null)" != "$ZIMG_GRAPHENGINE_COMMIT" ]; then
         echo "  ERROR: VapourSynth's zimg subproject is not at $ZIMG_COMMIT with graphengine $ZIMG_GRAPHENGINE_COMMIT" >&2
+        echo "  If meson now finds zimg.pc (task #111 fixed), there is no subproject: VapourSynth links the" >&2
+        echo "  standalone libzimg.so built above; re-check which zimg it links and move this check (task #103)." >&2
         exit 1
     fi
     echo "  VapourSynth links zimg ${ZIMG_COMMIT:0:8} (graphengine ${ZIMG_GRAPHENGINE_COMMIT:0:8})"
