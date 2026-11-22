@@ -6263,7 +6263,7 @@ choose another.
   pictures). Six previews and a lossless
   encode agree sample for sample (heavy test). DCTFilter keeps PATIENT (task
   #96's decision); it never split here.
-- **Trap:** a local heavy run in an agentbob worktree used the installed
+- **Trap:** a local heavy run in a git worktree used the installed
   app's 1.17.0-rc1 bundle (the debug worker searches upward for `deps/`, not
   `VAPOURBOX_DEPS_DIR`), whose unpatched FFT3DFilter made every preview
   differ. Link `deps/<platform>` in the worktree first.

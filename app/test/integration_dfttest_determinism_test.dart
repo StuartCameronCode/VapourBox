@@ -21,7 +21,6 @@
 @Timeout(Duration(minutes: 30))
 library;
 
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -35,6 +34,7 @@ import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
 import 'package:vapourbox/models/video_job.dart';
 
+import 'support/deps_version.dart';
 import 'support/worker_harness.dart';
 
 // Real film with grain and motion: 640x480, 24 fps, 120 frames, progressive.
@@ -78,33 +78,6 @@ int _maxAbsDiff(Uint8List a, Uint8List b) {
   return worst;
 }
 
-/// Whether the bundle is older than [version], pre-releases included
-/// (`1.18.0-rc1` < `1.18.0-rc2` < `1.18.0`).
-bool _bundleBefore(String version) {
-  (List<int>, int) parse(String v) {
-    final dash = v.indexOf('-');
-    final nums = (dash < 0 ? v : v.substring(0, dash)).split('.').map(int.parse).toList();
-    final rc = dash < 0
-        ? 1 << 30
-        : int.parse(RegExp(r'(\d+)$').firstMatch(v.substring(dash))!.group(1)!);
-    return (nums, rc);
-  }
-
-  try {
-    final (have, haveRc) = parse((jsonDecode(
-            File(p.join(WorkerHarness.depsDir, 'version.json')).readAsStringSync())
-        as Map<String, dynamic>)['version'] as String);
-    final (want, wantRc) = parse(version);
-    for (var i = 0; i < want.length; i++) {
-      final v = i < have.length ? have[i] : 0;
-      if (v != want[i]) return v < want[i];
-    }
-    return haveRc < wantRc;
-  } catch (_) {
-    return false;
-  }
-}
-
 void main() {
   setUpAll(() async {
     await WorkerHarness.ensureReady();
@@ -144,7 +117,7 @@ void main() {
 
   for (final MapEntry(key: name, value: c) in cases.entries) {
     test('$name: previews repeat and match the encode (task #101)', () async {
-      if (_bundleBefore(c.since)) {
+      if (depsVersionBefore(WorkerHarness.depsDir, c.since)) {
         markTestSkipped('deps before ${c.since}: DFTTest plans with FFTW_PATIENT '
             '(task #101)');
         return;
