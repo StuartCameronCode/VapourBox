@@ -216,14 +216,17 @@ PYTHON_INCLUDE="$PYTHON_DIR/include/python${PYTHON_MAJOR_MINOR}"
 echo ""
 echo "=== Building zimg ==="
 
-# zimg is built from git, not a release: R78's resize reads zimg's
-# chromatic_adaptation field (ZIMG_API_VERSION 2.5), which no zimg release
-# has yet (see patches/vapoursynth-r78-zimg-api-guard.patch; with a release
-# the guard compiles the argument out). Pinned (task #103): this used to clone
-# unpinned master, which picked up e2e43d09 "Update graphengine" (2026-11-21),
-# and that build aborted with "double free or corruption" in
-# vszimg::real_get_frame on every job that resizes. 67e06032 is what deps
-# 1.18.0-rc2 and every earlier Linux bundle shipped, so output is unchanged.
+# The one zimg revision for this platform (task #103), used twice: this
+# standalone libzimg.so, and the zimg VapourSynth links statically from its
+# own subprojects/zimg.wrap (pinned in the VapourSynth block below). The
+# second is the one VapourSynth's resize runs: meson finds no zimg.pc there
+# (see the VapourSynth block), so it builds the wrap, whose revision is HEAD.
+# Unpinned, that cloned zimg master at build time: e2e43d09 "Update
+# graphengine" (2026-11-21) reached the 1.18.0-rc3 build and every job that
+# resized aborted with "double free or corruption" in vszimg::real_get_frame.
+# 67e06032 is what deps 1.18.0-rc2's build cloned, so output is unchanged.
+# Git, not a release: R78 reads chromatic_adaptation (ZIMG_API_VERSION 2.5),
+# which no release has (patches/vapoursynth-r78-zimg-api-guard.patch).
 # Bumping either commit changes VapourSynth's own resize on Linux: test it
 # through `deps_run_id` first (docs/reports/task-103-linux-zimg-pin).
 ZIMG_COMMIT="67e0603271c080e22c8429856dd4a8a56587e61e"             # 2026-09-04
@@ -301,6 +304,19 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.so" ] \
         exit 1
     }
     echo "  Applied the vspipe frame-done count fix"
+
+    # Pin the zimg VapourSynth links (task #103). R78's subprojects/zimg.wrap
+    # says `revision = HEAD`, and meson builds it because it finds no zimg.pc
+    # (the setup below never receives PKG_CONFIG_PATH: task #111), so
+    # unpinned it is whatever zimg master is that day. A SHA with `depth = 1`
+    # needs a fetch by commit, so the shallow clone goes too (zimg is small).
+    ZIMG_WRAP="$VS_BUILD_DIR/subprojects/zimg.wrap"
+    if ! grep -qx 'revision = HEAD' "$ZIMG_WRAP"; then
+        echo "  ERROR: $ZIMG_WRAP no longer says 'revision = HEAD'; re-check the zimg pin (task #103)." >&2
+        exit 1
+    fi
+    sed -i -e "s/^revision = HEAD\$/revision = $ZIMG_COMMIT/" -e '/^depth = /d' "$ZIMG_WRAP"
+    echo "  Pinned subprojects/zimg.wrap to ${ZIMG_COMMIT:0:8}"
 
     # Install Cython in our embedded Python for building
     echo "  Installing Cython in embedded Python..."
@@ -398,6 +414,14 @@ CYEOF
         --prefix="$VS_INSTALL_DIR" \
         --buildtype=release \
         -Dlibdir=lib
+
+    # The zimg meson set up is the pinned one, submodule included (task #103).
+    if [ "$(git -C subprojects/zimg rev-parse HEAD 2>/dev/null)" != "$ZIMG_COMMIT" ] \
+        || [ "$(git -C subprojects/zimg/graphengine rev-parse HEAD 2>/dev/null)" != "$ZIMG_GRAPHENGINE_COMMIT" ]; then
+        echo "  ERROR: VapourSynth's zimg subproject is not at $ZIMG_COMMIT with graphengine $ZIMG_GRAPHENGINE_COMMIT" >&2
+        exit 1
+    fi
+    echo "  VapourSynth links zimg ${ZIMG_COMMIT:0:8} (graphengine ${ZIMG_GRAPHENGINE_COMMIT:0:8})"
 
     echo "  Building VapourSynth..."
     PATH="$PYTHON_DIR/bin:$PATH" \

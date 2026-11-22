@@ -6,8 +6,10 @@
 // master's e2e43d09 ("Update graphengine") reached the 1.18.0-rc3 Linux build,
 // and every job that resizes aborted with "double free or corruption" in
 // vszimg::real_get_frame. Nothing in the build failed; only the bundle did.
-// This checks the script, with no bundle: the pin variables, the checkout, and
-// that no other clone of zimg.git skips it. zimg_colorspace_test.rs checks the
+// It came in through R78's own subprojects/zimg.wrap (`revision = HEAD`),
+// which meson builds and links statically because it finds no zimg.pc.
+// This checks the script, with no bundle: the pin variables, the standalone
+// clone's checkout, and the wrap's. zimg_colorspace_test.rs checks the
 // bundle's behaviour (docs/reports/task-103-linux-zimg-pin).
 import 'dart:io';
 
@@ -58,5 +60,21 @@ void main() {
       expect(after, contains(r'$ZIMG_GRAPHENGINE_COMMIT'),
           reason: 'line ${i + 1}: the graphengine commit is not verified');
     }
+  });
+
+  // The zimg VapourSynth's resize actually runs is R78's subprojects/zimg.wrap
+  // (`revision = HEAD`), linked statically: that is the copy rc3 got from
+  // master. The standalone clone above is not loaded by anything.
+  test("VapourSynth's zimg subproject is pinned and verified", () {
+    expect(script, contains(r'subprojects/zimg.wrap'),
+        reason: 'the VapourSynth block must pin subprojects/zimg.wrap');
+    expect(script, contains(r's/^revision = HEAD\$/revision = $ZIMG_COMMIT/'),
+        reason: 'the wrap must be rewritten to ZIMG_COMMIT');
+    expect(script, contains(r"grep -qx 'revision = HEAD'"),
+        reason: 'the rewrite must fail loudly if the wrap no longer says HEAD');
+    expect(script, contains(r'git -C subprojects/zimg rev-parse HEAD'),
+        reason: 'the subproject zimg meson set up must be checked');
+    expect(script, contains(r'git -C subprojects/zimg/graphengine rev-parse HEAD'),
+        reason: "the subproject's graphengine must be checked");
   });
 }
