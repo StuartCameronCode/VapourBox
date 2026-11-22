@@ -281,8 +281,11 @@ its probe, wisdom and speed are complete. Run 44995918257 was cancelled after it
 (FFV1) encode of frames 40–59 of <code>colorize_test.mp4</code> and six previews each of frames 48 and 52: the Noise
 Reduction DFTTest method, QTGMC with <code>Denoiser='dfttest'</code> (single rate) and TemporalDegrain2 with
 <code>postFFT=3</code>, whose spatial pass is FFT3DFilter (the mixed graph). On the M1 with the ESTIMATE build all six
-previews and the encode agree, max difference 0, for every case. The push gate checks the plugin's marker and that a
-second process hashes four DFTTest calls at two depths exactly as the first.</p>
+previews and the encode agree, max difference 0, for every case, and so do they on CI's Linux x64 runners (both
+tiers) against this branch's rc4 bundle (nightly run 45001595186), where PATIENT gave more than one picture. The
+push gate checks the plugin's marker and that a
+second process hashes four DFTTest calls at two depths exactly as the first; it passed on all four platforms against
+the rc4 build (ci-test run 45001593065).</p>
 
 <h2>5. Limits</h2>
 <ul class="notes">
