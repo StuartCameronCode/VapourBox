@@ -258,7 +258,8 @@ void main() {
         expect(r.success, isTrue, reason: r.error);
         expect(await _lumaHashes(r.outputPath!, []),
             ref.slotHashes(0, ref.slots.length - 1));
-      });
+        // A whole-source encode: up to 24 s on macOS x64 (task #99).
+      }, timeout: const Timeout(Duration(minutes: 5)));
 
       for (final n in f.frames) {
         test('frame $n: the preview, the Original and a trim from it are slot '
@@ -305,7 +306,8 @@ void main() {
         expect(r.success, isTrue, reason: r.error);
         expect(await _lumaHashes(r.outputPath!, []),
             ref.slotHashes(0, ref.slots.length - 1));
-      });
+        // A whole-source encode: up to 24 s on macOS x64 (task #99).
+      }, timeout: const Timeout(Duration(minutes: 5)));
     }
   });
 
