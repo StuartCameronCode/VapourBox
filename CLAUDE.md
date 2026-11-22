@@ -138,7 +138,7 @@ VapourBox/
 | `worker/src/pixel_format.rs` | Source `pix_fmt` → pipe format (see "Source Pixel Formats"); a format's chroma grid and a size's pad onto it (`chroma_grid`, `grid_pad`, task #97) |
 | `worker/templates/stabilize.py` | Stabilize pass: the weave (`Stab` measured at 16-bit) and the vertical pitch correction (see "Stabilize") |
 | `worker/templates/srestore.py` | The Unblend pass: VapourBox's windowed port of srestore (see "Unblend (SRestore)") |
-| `worker/templates/plugin_formats.py` | Each limited plugin's format `Contract` and `run_within()`, the one way a pass runs a plugin outside its formats; `pad_around()` / `read_padded()` for a frame size it refuses (see "High Bit Depth Sources"); `mvtools_blocks()` and `mvtools_flow_opt()` for MVTools' small-picture faults |
+| `worker/templates/plugin_formats.py` | Each limited plugin's format `Contract` and `run_within()`, the one way a pass runs a plugin outside its formats; `pad_around()` / `read_padded()` for a frame size it refuses (see "High Bit Depth Sources"); `mvtools_blocks()` and `mvtools_flow_opt()` for MVTools' small-picture faults; `havsfunc_mask_any_depth()` for QTGMC's 8-bit-only Mask (task #89) |
 | `Scripts/probe-plugin-formats.py` | Runs every plugin call the template makes at every format and size a pass can be handed; writes / checks `Tests/TestResources/plugin_format_table.json` (task #48) |
 | `worker/src/models/unblend_parameters.rs` | Unblend's parameters, srestore's ratio arithmetic (`srestore_ratio`) and the refusal wording |
 | `worker/src/cpu.rs` | The x86 deps CPU tier (`v3`/`v2`) — the single decision; see "CPU tiers" |
@@ -458,7 +458,15 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   CPU), so `_deinterlace_qtgmc_rows` pads with
   `mvtools_blocks(min_cols=_pf.mvtools_mask_cols(w, h, b, o))`, b/o from
   `QTGMCParameters::prog_sad_mask_blocks` (havsfunc's effective values),
-  for those jobs only (task #79, test_263). Check on a fixture with real low
+  for those jobs only (task #79, test_263). That Mask also refuses a clip
+  above 8 bits, so the same jobs rebind `_deinterlace_qtgmc` through
+  `_pf.havsfunc_mask_any_depth(haf, fn)`, which runs every Mask havsfunc
+  makes on an 8-bit stand-in of the clip's size, `ml × 2^(bits − 8)` for
+  kind 1, the mask put on the clip's scale (task #89, test_269; a
+  `{{#QTGMC_MASK_ANY_DEPTH}}` block, so other jobs' scripts are unchanged).
+  It works because kind 0–4 never read the clip's pixels and MVTools takes
+  the SAD shift from the clip but the scene-change thresholds from the
+  vectors. Check on a fixture with real low
   bits that the plugin leaves the samples it doesn't change exact — see
   "High Bit Depth Sources"
 - If any parameter is a **level, threshold or offset expressed in 8-bit units**

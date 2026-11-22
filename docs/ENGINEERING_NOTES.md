@@ -6300,3 +6300,50 @@ rc2 passed.
   clone. Every other unpinned source clone is task #110.
 
 Report: [docs/reports/task-103-linux-zimg-pin](reports/task-103-linux-zimg-pin/index.html).
+
+### QTGMC InputType 2/3 at more than 8 bits: Mask on an 8-bit stand-in (task #89, 2026-11-22)
+
+havsfunc's QTGMC runs `core.mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask)`
+on InputType 2/3 whenever ProgSADMask > 0: its default at Placebo, Very Slow,
+Slower (the app's default), Slow and Medium. MVTools' Mask refuses every clip
+above 8 bits (master and v24), so all those 10/12/16-bit jobs failed, and so
+did every 8-bit one with High Precision. Task #79 found it.
+
+- **Why a stand-in is exact.** Kinds 0–4 read only the clip's format and size.
+  Kind 1 shifts each SAD (Analyse's, at the vectors' depth) by bits − 8, read
+  from the *clip*, while the scene-change thresholds scale by the *vectors'*
+  depth. So an 8-bit BlankClip of the clip's size with `ml × 2^(bits−8)` gives
+  the mask a native deep Mask would, apart from MVTools' truncation of the
+  shift (at most one level). The mask then goes to the clip's scale
+  (`x·peak/255`).
+- **Fix.** `plugin_formats.havsfunc_mask_any_depth(haf, fn)` points
+  havsfunc's module `core` at a proxy for the duration of the QTGMC call
+  (restored after it, error or not), whose `mv.Mask` is
+  `mvtools_mask_any_depth`. The template rebinds `_deinterlace_qtgmc` through
+  it in a `{{#QTGMC_MASK_ANY_DEPTH}}` block, emitted only for
+  `prog_sad_mask_blocks()` jobs, so other scripts are unchanged. No deps
+  release: the user chose this over a havsfunc patch 9 (which would have
+  needed 1.18.0-rc4).
+- **Result** (pal-sd-25.mov with synthetic low bits, rc3, M1 Pro). Output
+  10-bit vs 8-bit: 0.16 levels at Slow and Medium, 0.07 at Placebo, each below
+  the same comparison with the Mask off (0.28 / 0.12). That residual is
+  QTGMC's own rounding at depth; its srchClip moves the mask about one level
+  even on an exact ×4 picture. 8-bit through the helper equals plain havsfunc
+  (0 / 0). The factor sweep's minimum is ×4 at 10 bits and ×256 at 16.
+  Forcing ProgSADMask=0 instead would move the picture 1.4–2.8 levels.
+- **Corrections.** "Bit-identical Mask" holds only where every deep SAD is
+  exactly 2^(bits−8) times the 8-bit one (pel 1). With pel 2, Super's
+  half-pel planes round per depth, so on a grain texture the mask differed by
+  up to 10 levels with identical vectors, as a native deep Mask would. Grain
+  on a flat picture also put a frame at the scene-change threshold, where
+  16-bit vectors decided differently. Both are MVTools rounding at depth, not
+  the stand-in.
+- **Placebo on 1.16.0** didn't repeat itself (plain havsfunc twice: max 7
+  levels); on rc3 it does. That is consistent with FFT3DFilter (task #62).
+- **Guards.** test_269; the contracts test's `task #89` group; probe calls
+  `havsfunc.QTGMC[InputType=2]` (HANDLED) and `pass.QTGMC[InputType=2]`; two
+  format-sweep variants; heavy 8-vs-10 parity. Also fixed: the Input Type
+  description in the Deinterlace panel (1 was "Telecined", 2–3 "Progressive" /
+  "Double-rate").
+
+Report: [docs/reports/task-89-qtgmc-mask-high-bit-depth](reports/task-89-qtgmc-mask-high-bit-depth/index.html).

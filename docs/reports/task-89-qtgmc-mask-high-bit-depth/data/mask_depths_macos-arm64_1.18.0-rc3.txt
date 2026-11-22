@@ -1,0 +1,24 @@
+YUV420P8 2 Slow ok
+YUV420P8 2 Medium ok
+YUV420P8 2 Fast ok
+YUV420P8 3 Slow ok
+YUV420P8 3 Medium ok
+YUV420P8 3 Fast ok
+YUV420P10 2 Slow ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV420P10 2 Medium ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV420P10 2 Fast ok
+YUV420P10 3 Slow ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV420P10 3 Medium ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV420P10 3 Fast ok
+YUV422P10 2 Slow ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV422P10 2 Medium ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV422P10 2 Fast ok
+YUV422P10 3 Slow ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV422P10 3 Medium ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV422P10 3 Fast ok
+YUV420P16 2 Slow ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV420P16 2 Medium ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV420P16 2 Fast ok
+YUV420P16 3 Slow ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV420P16 3 Medium ERR Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant d
+YUV420P16 3 Fast ok

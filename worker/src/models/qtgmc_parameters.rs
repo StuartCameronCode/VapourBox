@@ -451,7 +451,9 @@ impl QTGMCParameters {
     /// to half the BlockSize in effect. Mask writes before its buffer on x86
     /// under 4 block columns and garbles its bottom rows when a row fills its
     /// stride, and takes no `opt` from QTGMC, so the template pads the width
-    /// (`plugin_formats.mvtools_mask_cols`, task #79).
+    /// (`plugin_formats.mvtools_mask_cols`, task #79). Mask also refuses a
+    /// clip above 8 bits, so the same jobs run havsfunc's Mask on an 8-bit
+    /// stand-in (`plugin_formats.havsfunc_mask_any_depth`, task #89).
     pub fn prog_sad_mask_blocks(&self) -> Option<(i32, i32)> {
         if !matches!(self.input_type, Some(2) | Some(3)) {
             return None;

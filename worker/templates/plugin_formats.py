@@ -112,6 +112,13 @@ HANDLED = {
                            'luma runs on a 4:2:2 carrier (#29), measured as pass.DeScratch',
     'pass.DeScratch': 'the DeScratch pass as the template runs it at 8-bit: '
                       'field-flagged 4:2:0 luma runs on a 4:2:2 carrier (#29)',
+    'havsfunc.QTGMC[InputType=2]': "8-bit only: MVTools' Mask (QTGMC's ProgSADMask, "
+                                   'InputType 2/3 at Placebo..Medium) refuses a deeper clip; '
+                                   'the pass runs that Mask on an 8-bit stand-in with ml '
+                                   'scaled (havsfunc_mask_any_depth, task #89), measured as '
+                                   'pass.QTGMC[InputType=2]',
+    'pass.QTGMC[InputType=2]': 'QTGMC InputType 2 as the Deinterlace pass runs it: '
+                               "havsfunc's Mask through havsfunc_mask_any_depth (#89)",
 }
 
 # Refusals the probe measured that no pass handles yet, each with the task
@@ -169,6 +176,9 @@ MVTOOLS_RESIZE_MIN_BLOCKS = 8
 # columns, and, when the grid stops short of the bottom, a width that is not a
 # multiple of 32 bytes (no VapourSynth stride alignment divides it, so the
 # copy goes row by row).
+# Mask is also 8-bit only (task #89): havsfunc_mask_any_depth() runs it on an
+# 8-bit stand-in at every depth, so its rows are always 1 byte a sample and
+# the 32-byte stride rule above is exact for a 10-16-bit job too.
 MVTOOLS_MASK_MIN_BLOCKS = 4
 MVTOOLS_MASK_STRIDE_STEP = 32
 
@@ -521,6 +531,82 @@ def mvtools_mask_cols(width, height, blksize, overlap):
     if (h - overlap) % step and w % MVTOOLS_MASK_STRIDE_STEP == 0:
         w += 8
     return w if w > max(width, MVTOOLS_MIN_COLS) else width
+
+
+def mvtools_mask_any_depth(clip, vectors, ml=100.0, kind=0, **kwargs):
+    """MVTools' mv.Mask(clip, vectors, ml=, kind=, ...) at any integer depth
+    (task #89, docs/reports/task-89-qtgmc-mask-high-bit-depth). Mask refuses a
+    clip above 8 bits (master and v24 alike), so a deeper one gets an 8-bit
+    stand-in of its size and subsampling. That is exact because:
+    - kinds 0-4 never read the clip's pixels, only its format and size
+      (kind 5, which copies the source luma, is passed through as it is);
+    - kind 1 (SAD) shifts each block's SAD, measured by Analyse at the
+      vectors' depth, by (bits - 8) read from the *clip*, so on an 8-bit
+      stand-in ml x 2**(bits - 8) gives the same mask (without MVTools'
+      truncation of the shift: at most one mask level apart). Valid because
+      the vectors come from a clip of the same depth, as in havsfunc; the
+      depth can't be read from the vectors without requesting a frame while
+      the script is evaluated, which no template may do (task #65);
+    - thSCD1/thSCD2 are scaled by the vectors' depth, not the clip's, so the
+      scene-change decision doesn't move; ysc is in 8-bit units either way.
+    The mask (0-255) is then put on the clip's full scale (x * peak / 255) in
+    Mask's own output family (GRAY in gives YUV444 out, as MVTools does), so
+    a MaskedMerge weighs by m / peak as before. An 8-bit or float clip calls
+    Mask unchanged. Calls vs.core's Mask, never havsfunc's core, which may be
+    the proxy below."""
+    fmt = clip.format
+    bits = fmt.bits_per_sample
+    if fmt.sample_type != vs.INTEGER or bits <= 8 or kind == 5:
+        return vs.core.mv.Mask(clip, vectors, ml=ml, kind=kind, **kwargs)
+    stand = vs.core.std.BlankClip(clip, format=fmt.replace(bits_per_sample=8).id, keep=True)
+    if kind == 1:
+        ml = ml * (1 << (bits - 8))
+    mask = vs.core.mv.Mask(stand, vectors, ml=ml, kind=kind, **kwargs)
+    peak = (1 << bits) - 1
+    return _expr(mask, f'x {peak} * 255 /', format=mask.format.replace(bits_per_sample=bits).id)
+
+
+class _MaskAnyDepthMv:
+    """havsfunc's core.mv with Mask replaced by mvtools_mask_any_depth."""
+
+    def __init__(self, mv):
+        self._mv = mv
+
+    def __getattr__(self, name):
+        if name == 'Mask':
+            return mvtools_mask_any_depth
+        return getattr(self._mv, name)
+
+
+class _MaskAnyDepthCore:
+    """havsfunc's core (VapourSynth's, or patch 7's akarin proxy) with
+    mv.Mask replaced; everything else passes through."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        if name == 'mv':
+            return _MaskAnyDepthMv(self._inner.mv)
+        return getattr(self._inner, name)
+
+
+def havsfunc_mask_any_depth(haf, fn):
+    """fn wrapped so that every mv.Mask havsfunc makes while fn(clip) builds
+    its graph runs through mvtools_mask_any_depth (task #89): QTGMC's
+    ProgSADMask Mask (InputType 2/3 at Placebo..Medium) refuses a clip above
+    8 bits. havsfunc reads its module global `core` at call time, so it is
+    rebound for the call and restored after, even on an error. Safe for
+    QTGMC, which builds no FrameEval or ModifyFrame that would call back into
+    havsfunc after it returns."""
+    def wrapped(clip):
+        saved = haf.core
+        haf.core = _MaskAnyDepthCore(saved)
+        try:
+            return fn(clip)
+        finally:
+            haf.core = saved
+    return wrapped
 
 
 def mvtools_blocks(clip, fn, *, min_cols=0, label=None):

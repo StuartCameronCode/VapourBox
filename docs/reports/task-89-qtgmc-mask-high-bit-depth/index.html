@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Task #89: QTGMC InputType 2/3 at more than 8 bits</title>
+<style>
+  :root { --fg:#1d1d1f; --bg:#fff; --muted:#5f6368; --line:#d9dce1; --ok:#1a7f37; --bad:#c62828; --code:#f4f5f7; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#e8eaed; --bg:#16181c; --muted:#a0a6ad; --line:#30343a; --ok:#57c26d; --bad:#ef6b6b; --code:#22252a; } }
+  body { font: 16px/1.55 -apple-system, "Segoe UI", system-ui, sans-serif; color:var(--fg); background:var(--bg); max-width: 920px; margin: 0 auto; padding: 24px 16px 64px; }
+  h1 { font-size: 1.6rem; line-height:1.25; } h2 { font-size:1.2rem; margin-top:2em; border-bottom:1px solid var(--line); padding-bottom:.2em; }
+  code, pre { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .9em; background: var(--code); border-radius: 4px; }
+  code { padding: 0 .25em; } pre { padding: 10px 12px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: .8em 0; font-size: .93em; display:block; overflow-x:auto; }
+  th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { background: var(--code); } td.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .min { font-weight: 700; color: var(--ok); } .bad { color: var(--bad); }
+  .note { border-left: 4px solid var(--line); padding: 4px 12px; color: var(--muted); }
+  .muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>Task #89: QTGMC InputType 2/3 at more than 8 bits (havsfunc's 8-bit-only <code>mv.Mask</code>)</h1>
+<p class="muted">2026-11-22 · deps 1.18.0-rc3 (also 1.16.0 in Plan) · macOS arm64 (M1 Pro) · found by task #79</p>
+
+<h2>Outcome</h2>
+<p><strong>Fixed in the template, with no deps change.</strong> havsfunc's QTGMC runs
+<code>core.mv.Mask(srchClip, bVec1, kind=1, ml=ProgSADMask)</code> when <code>InputType</code> is 2 or 3
+and <code>ProgSADMask &gt; 0</code>, which it is by default at Placebo, Very Slow, Slower (the app's default),
+Slow and Medium. MVTools' Mask refuses any clip above 8 bits, so every 10/12/16-bit job with those
+settings failed, and so did every 8-bit one with High Precision (16-bit) on:</p>
+<pre>Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.</pre>
+<p>For exactly those jobs the Deinterlace pass now rebinds <code>_deinterlace_qtgmc</code> through
+<code>plugin_formats.havsfunc_mask_any_depth(haf, fn)</code>. While QTGMC builds its graph it points havsfunc's
+module-level <code>core</code> at a proxy whose <code>mv.Mask</code> is <code>mvtools_mask_any_depth</code>. That function hands
+Mask an 8-bit stand-in clip of the same size and subsampling, multiplies <code>ml</code> by 2<sup>bits−8</sup> for kind 1,
+and puts the 0–255 mask on the clip's full scale (<code>x·peak/255</code>). Other jobs' scripts are byte-for-byte
+unchanged.</p>
+<p>On the same picture at two depths, a 10-bit job now differs from the 8-bit one by <strong>0.16 levels</strong> (Slow,
+Medium) and <strong>0.07</strong> (Placebo). That is less than the same comparison with the Mask switched off (0.28 and 0.12),
+which shows the stand-in adds no difference of its own. What remains is QTGMC rounding at the deeper depth.</p>
+
+<h2>Why a stand-in is exact (MVTools master ed90ee9 and v24 read the same here)</h2>
+<ul>
+  <li><strong>Kinds 0–4 never read the clip's pixels.</strong> The clip supplies only the format and size. Only kind 5 copies
+    the source luma, and the helper passes kind 5 through unchanged.</li>
+  <li><strong>The SAD shift is read from the clip.</strong> <code>MakeSADMaskTime</code> computes
+    <code>sad = vector.sad &gt;&gt; (bitsPerSample − 8)</code>, with <code>bitsPerSample</code> taken from the clip's frame.
+    Analyse measured that SAD at the vectors' depth, which is srchClip's depth in havsfunc. Each block's mask value is
+    <code>ByteNorm(sad, 4 / (ml·blkX·blkY), gamma)</code>, so on an 8-bit stand-in, ml × 2<sup>bits−8</sup> gives the
+    same value. The one difference is that MVTools truncates <code>sad &gt;&gt; k</code> before dividing. That puts them at
+    most one mask level apart, and the stand-in is the more precise of the two.</li>
+  <li><strong>The scene-change thresholds scale by the vectors' depth</strong> (<code>scaleThSCD</code> reads the analysis
+    data), so a stand-in doesn't move the scene-change decision. <code>ysc</code> is in 8-bit units either way.</li>
+  <li>The factor can't be read from the vectors without requesting a frame while the script is evaluated, which no
+    template may do (task #65). It comes from the clip, whose depth is the vectors' depth in havsfunc.</li>
+</ul>
+
+<h2>Measurements</h2>
+<p>Source: <code>Tests/TestResources/pal-sd-25.mov</code>, 40 frames of 720x576 4:2:2, measured on frames 6–29. The file is an
+8-bit master in a 10-bit container (its low two bits sit 0.002 levels from zero). A light blur at 10 bits gives it
+<strong>0.47 levels</strong> of real sub-8-bit content. Three clips are compared: <em>8-bit</em> (that blur rounded),
+<em>exact-10</em> (the 8-bit clip ×4: the same picture at two depths) and <em>real-10</em> (the blurred clip itself).
+Differences are luma mean / max in 8-bit levels.</p>
+<p class="note">Limits: one clip with synthetic low bits, on one platform. A mean says nothing about where the differences
+fall. The Mask-off control is what separates QTGMC's own depth rounding from the stand-in. x86 was not measured here; the
+contracts test and format sweep run on every CI platform.</p>
+
+<h3>A. The Mask alone</h3>
+<table>
+<tr><th>comparison</th><th>pel 1</th><th>pel 2</th></tr>
+<tr><td>kind 1 mask: the stand-in on exact-10 vs native Mask on 8-bit</td><td class="n">0 / 0</td><td class="n">0 / 0</td></tr>
+<tr><td>kind 0, 3, 4 masks from 10-bit vs 8-bit vectors (the vectors are identical)</td><td class="n">0 / 0</td><td class="n">0 / 0</td></tr>
+</table>
+<p class="note"><strong>Correction, kept visible.</strong> The plan called the stand-in "bit-identical" on this evidence. That holds
+only when every SAD of the deeper picture is exactly 2<sup>bits−8</sup> times the 8-bit one. With pel 2, Super interpolates
+the half-pel planes at each depth with its own rounding. On a synthetic grain texture the contracts test first used, the
+kind 1 mask then differed by up to 10 mask levels at 10 and at 16 bits, with identical vectors. A native deep Mask would see
+that same deep SAD, so this comes from MVTools' interpolation, not from the stand-in. The contracts test now checks exactness
+at pel 1, where SADs scale exactly. A second fixture there, grain on a flat picture, put one frame at the scene-change
+threshold, and the 16-bit vectors decided it differently even with an 8-bit clip. That too is MVTools rounding at depth,
+and the fixture was replaced with a panning texture.</p>
+
+<h3>B. QTGMC end to end (<code>stand_in.py</code>)</h3>
+<table>
+<tr><th>InputType</th><th>preset</th><th>8-bit: helper vs plain</th><th>8-bit: plain run twice</th><th>mask inside QTGMC, exact-10 vs 8</th><th>output exact-10 vs 8</th><th>same, Mask off</th><th>output real-10 vs 8</th><th>same, Mask off</th><th>Mask on vs off at 8 bits</th></tr>
+<tr><td>2</td><td>Slow</td><td class="n">0 / 0</td><td class="n">0 / 0</td><td class="n">0.979 / 255</td><td class="n">0.164 / 47</td><td class="n">0.280 / 47</td><td class="n">0.154 / 47</td><td class="n">0.273 / 47</td><td class="n">1.395 / 55</td></tr>
+<tr><td>2</td><td>Medium</td><td class="n">0 / 0</td><td class="n">0 / 0</td><td class="n">1.027 / 255</td><td class="n">0.166 / 45</td><td class="n">0.295 / 47</td><td class="n">0.156 / 45</td><td class="n">0.285 / 45</td><td class="n">1.620 / 56</td></tr>
+<tr><td>2</td><td>Placebo</td><td class="n">0 / 0</td><td class="n">0 / 0</td><td class="n">0.006 / 45</td><td class="n">0.074 / 9</td><td class="n">0.119 / 9</td><td class="n">0.079 / 9</td><td class="n">0.152 / 9</td><td class="n">2.784 / 148</td></tr>
+<tr><td>3</td><td>Slow</td><td class="n">0 / 0</td><td class="n">0 / 0</td><td class="n">0.979 / 255</td><td class="n">0.165 / 55</td><td class="n">0.281 / 48</td><td class="n">0.154 / 55</td><td class="n">0.274 / 41</td><td class="n">1.394 / 58</td></tr>
+<tr><td>3</td><td>Medium</td><td class="n">0 / 0</td><td class="n">0 / 0</td><td class="n">1.027 / 255</td><td class="n">0.167 / 58</td><td class="n">0.295 / 43</td><td class="n">0.157 / 58</td><td class="n">0.285 / 42</td><td class="n">1.619 / 60</td></tr>
+<tr><td>3</td><td>Placebo</td><td class="n">0 / 0</td><td class="n">0 / 0</td><td class="n">0.006 / 45</td><td class="n">0.074 / 9</td><td class="n">0.119 / 9</td><td class="n">0.079 / 9</td><td class="n">0.152 / 9</td><td class="n">2.781 / 130</td></tr>
+</table>
+<p>The mask inside QTGMC differs by about one level at Slow and Medium, even on the exact-10 picture. QTGMC builds srchClip
+itself (SrchClipPP 3: thresholds and blurs), and at 10 bits it rounds differently, which moves some vectors. The output
+difference with the Mask on is <em>smaller</em> than with it off at every preset, so the stand-in adds nothing measurable on
+top of QTGMC's own rounding. The last column shows what is at stake: forcing <code>ProgSADMask=0</code> on deep clips, a
+rejected alternative, changes the picture by 1.4–2.8 levels.</p>
+<p class="note"><strong>Placebo on 1.16.0 (Plan).</strong> On the deps 1.16.0 bundle, plain havsfunc at Placebo did not repeat
+itself (run twice: 0.0014 mean, max 7). On 1.18.0-rc3 it does (0 / 0), and the helper equals plain havsfunc there too. That
+fits the FFT3DFilter race fixed in deps 1.18.0 (task #62). The other 1.16.0 numbers equal these to the third decimal.</p>
+
+<h3>The ml factor (<code>factor_sweep.py</code>, InputType 2, Slow)</h3>
+<table>
+<tr><th>picture</th><th>factor</th><th>mask inside QTGMC vs 8-bit job</th><th>output vs 8-bit job</th></tr>
+<tr><td rowspan="7">10-bit, exact ×4</td><td class="n">1</td><td class="n">11.173</td><td class="n">0.213</td></tr>
+<tr><td class="n">2</td><td class="n">6.316</td><td class="n">0.187</td></tr>
+<tr><td class="n">3</td><td class="n">3.139</td><td class="n">0.171</td></tr>
+<tr class="min"><td class="n">4</td><td class="n">0.979</td><td class="n">0.164</td></tr>
+<tr><td class="n">5</td><td class="n">2.588</td><td class="n">0.170</td></tr>
+<tr><td class="n">8</td><td class="n">7.649</td><td class="n">0.199</td></tr>
+<tr><td class="n">16</td><td class="n">17.578</td><td class="n">0.280</td></tr>
+<tr><td rowspan="5">real 10-bit</td><td class="n">2</td><td class="n">6.298</td><td class="n">0.177</td></tr>
+<tr><td class="n">3</td><td class="n">3.118</td><td class="n">0.161</td></tr>
+<tr class="min"><td class="n">4</td><td class="n">0.987</td><td class="n">0.154</td></tr>
+<tr><td class="n">5</td><td class="n">2.592</td><td class="n">0.159</td></tr>
+<tr><td class="n">8</td><td class="n">7.652</td><td class="n">0.188</td></tr>
+<tr><td rowspan="7">16-bit, exact ×256</td><td class="n">64</td><td class="n">11.223</td><td class="n">0.222</td></tr>
+<tr><td class="n">128</td><td class="n">6.353</td><td class="n">0.196</td></tr>
+<tr><td class="n">192</td><td class="n">3.169</td><td class="n">0.180</td></tr>
+<tr class="min"><td class="n">256</td><td class="n">0.985</td><td class="n">0.173</td></tr>
+<tr><td class="n">320</td><td class="n">2.568</td><td class="n">0.179</td></tr>
+<tr><td class="n">512</td><td class="n">7.625</td><td class="n">0.207</td></tr>
+<tr><td class="n">1024</td><td class="n">17.550</td><td class="n">0.287</td></tr>
+</table>
+<p>The minimum falls at 2<sup>bits−8</sup> at both depths, as the source predicts.</p>
+
+<h3>C. Formats</h3>
+<p>Through the helper, YUV420P10, YUV420P16 and YUV444P12 run, and plain havsfunc refuses each one. High Precision
+(8 → 16 → 8, dithered) differs from the plain 8-bit job by 0.182 / 47. Task #79's refusal table
+(<code>data/mask_depths_macos-arm64_1.18.0-rc3.txt</code>) is unchanged on rc3: every 10/16-bit InputType 2/3 Slow/Medium row
+refuses, while 8-bit and Fast run.</p>
+
+<h2>Decisions</h2>
+<ul>
+  <li><strong>Template-side, not a havsfunc patch</strong> (the user chose option C). It needs no deps release (a
+    patch would have needed 1.18.0-rc4), works on every bundle from 1.16.0, and does not depend on havsfunc's source text: if
+    upstream changes, the helper becomes inert rather than wrong. The cost is that it relies on havsfunc reading its
+    module-level <code>core</code> at call time, which patch 7 (akarin) already relies on, and on QTGMC building no
+    FrameEval that calls back after it returns.</li>
+  <li><strong>Only the jobs that run the Mask</strong> (InputType 2/3 at Placebo–Medium, the same condition as
+    <code>QTGMCParameters::prog_sad_mask_blocks</code> from #79) get the block. Every other script is unchanged
+    (<code>test_269</code>).</li>
+  <li><strong>Rejected:</strong> running QTGMC at 8 bits through <code>run_within</code>, which quantises the whole output;
+    and forcing <code>ProgSADMask=0</code> above 8 bits, which gives a different picture (1.4–2.8 levels).</li>
+  <li>#79's padding still holds as it stands. With the stand-in, Mask always works at 8 bits (1 byte per sample), so its
+    32-byte stride rule in <code>mvtools_mask_cols</code> stays exact for deeper clips.</li>
+  <li>ShutterBlur's kind 0 Mask (not exposed) goes through the same proxy and is exact for the same reason.</li>
+</ul>
+
+<h2>Tests</h2>
+<ul>
+  <li><code>test_269</code> (Rust): the block is in the encode and preview scripts exactly for InputType 2/3 at
+    Placebo–Medium (High Precision included), and absent otherwise. <code>test_263</code> tolerates it.</li>
+  <li><code>plugin_format_contracts_test.dart</code> (push gate): the stand-in's mask is exact at 10 and 16 bits (kinds 0, 1, 3,
+    pel 1); QTGMC InputType 2 at Medium runs through the helper at YUV420P10, YUV422P10 and YUV420P16 while the bare call
+    still refuses on Mask; 8-bit through the helper equals the plain call; havsfunc's <code>core</code> is restored, even after
+    an error.</li>
+  <li>Probe: <code>havsfunc.QTGMC[InputType=2]</code> records the refusal (8-bit only, in HANDLED), and
+    <code>pass.QTGMC[InputType=2]</code> (the pass as the template runs it) accepts every cell.</li>
+  <li>Format sweep: two variants, InputType 2 (Slower) and InputType 3 (Medium). All 138 nightly rows pass on macOS arm64
+    (run, depth, acts, parity).</li>
+  <li>Heavy parity (<code>integration_high_bit_depth_filters_test.dart</code>): InputType 2 Slow gives 0.68, and InputType 3 Medium with
+    High Precision gives 0.26, against a tolerance of 3.0. Without the fix, both fail on Mask (High Precision at 8 bits too).</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+  <li>x86 (master and v24 MVTools) and Windows were not measured; CI's contracts test and sweep cover them functionally.</li>
+  <li>Real 10-bit camera footage; the low bits here are synthetic.</li>
+  <li>An explicit BlockSize or Overlap other than the presets' defaults. Mask's arithmetic doesn't depend on them.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>docs/reports/task-89-qtgmc-mask-high-bit-depth/scripts/reproduce.sh deps/macos-arm64</pre>
+<p>This runs <code>stand_in.py</code>, <code>factor_sweep.py</code> and task #79's <code>mask_depths.py</code> with the bundle's
+Python. It writes <code>data/*_&lt;platform&gt;_&lt;deps version&gt;.txt</code> and takes about 9 minutes on an M1 Pro. The
+scripts import the shipped helper from <code>worker/templates/plugin_formats.py</code>.
+<code>factor_sweep.py</code> copies it with the factor varied.</p>
+</body>
+</html>

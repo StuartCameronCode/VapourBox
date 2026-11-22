@@ -10211,8 +10211,14 @@ fn test_263_qtgmc_input_type_2_3_pads_for_mvtools_mask() {
             assert!(s.contains(&format!("InputType={input_type},")));
             assert!(s.contains(&format!("{call}{}label='Deinterlace')", pad(32, 16))), "InputType {input_type}: no Mask pad");
         }
-        // Only that argument differs.
-        let strip = |s: &str| plain(s).replace(&pad(32, 16), "");
+        // Only that argument differs, and task #89's stand-in block (test_269).
+        let strip = |s: &str| {
+            let s = plain(s).replace(&pad(32, 16), "");
+            let start = s.find("# InputType 2 and 3 at Placebo..Medium run MVTools' Mask").expect("no stand-in block");
+            let end_marker = "_pf.havsfunc_mask_any_depth(haf, _deinterlace_qtgmc)\n";
+            let end = start + s[start..].find(end_marker).unwrap() + end_marker.len();
+            format!("{}{}", &s[..start], &s[end..])
+        };
         assert_eq!(strip(&encode), plain(&base_encode));
         assert_eq!(strip(&preview), plain(&base_preview));
     }
@@ -10568,5 +10574,92 @@ fn test_268_a_source_off_its_chroma_grid_is_padded() {
         }
         assert!(script.contains("_fit_aspect = clip.width / clip.height"), "{name}");
         assert!(script.contains("def _resize(src, **window):\n    return core.resize."), "{name}");
+    }
+}
+
+/// Task #89: MVTools' Mask refuses a clip above 8 bits, so havsfunc's QTGMC
+/// failed every 10/12/16-bit job (and every High Precision one) at InputType
+/// 2 or 3 at Placebo..Medium, where it runs Mask(kind=1, ml=ProgSADMask).
+/// Exactly those jobs wrap `_deinterlace_qtgmc` in
+/// `_pf.havsfunc_mask_any_depth(haf, ...)`, which runs havsfunc's Mask on an
+/// 8-bit stand-in with ml scaled by 2^(bits - 8); every other job's script is
+/// what it was. `plugin_format_contracts_test.dart` runs the helper against
+/// the bundle (docs/reports/task-89-qtgmc-mask-high-bit-depth).
+#[test]
+fn test_269_qtgmc_mask_runs_at_any_depth() {
+    create_output_dir();
+    let scripts = |preset: QTGMCPreset, input_type: Option<i32>, high_precision: bool| {
+        let mut job = create_base_job("test_269_qtgmc_mask_any_depth");
+        job.qtgmc_parameters = QTGMCParameters {
+            enabled: true,
+            preset,
+            tff: Some(true),
+            input_type,
+            high_precision: Some(high_precision),
+            ..QTGMCParameters::default()
+        };
+        job.processing_pipeline = Some(ProcessingPipeline {
+            deinterlace: job.qtgmc_parameters.clone(),
+            ..ProcessingPipeline::default()
+        });
+        generate_both_scripts(&job)
+    };
+    let wrapped = "\n_deinterlace_qtgmc = _pf.havsfunc_mask_any_depth(haf, _deinterlace_qtgmc)\n";
+    let plain_call = "_pf.mvtools_blocks(clip, _deinterlace_qtgmc, ";
+
+    for preset in [
+        QTGMCPreset::Placebo,
+        QTGMCPreset::VerySlow,
+        QTGMCPreset::Slower,
+        QTGMCPreset::Slow,
+        QTGMCPreset::Medium,
+    ] {
+        for input_type in [2, 3] {
+            for high_precision in [false, true] {
+                let (encode, preview) = scripts(preset, Some(input_type), high_precision);
+                for s in [&encode, &preview] {
+                    assert!(!s.contains("QTGMC_MASK_ANY_DEPTH"), "tag left in the script");
+                    assert_eq!(s.matches(wrapped).count(), 1, "{preset:?} InputType {input_type}: no stand-in");
+                    // After the function it wraps, before the call that runs it.
+                    let at = s.find(wrapped).unwrap();
+                    assert!(s.find("def _deinterlace_qtgmc(clip):").unwrap() < at);
+                    assert!(at < s.find(plain_call).unwrap());
+                }
+            }
+        }
+    }
+    // No Mask, no wrapper: InputType unset/0/1 anywhere, or a preset where
+    // ProgSADMask is 0.
+    for (preset, input_type) in [
+        (QTGMCPreset::Slower, None),
+        (QTGMCPreset::Slower, Some(0)),
+        (QTGMCPreset::Placebo, Some(1)),
+        (QTGMCPreset::Fast, Some(2)),
+        (QTGMCPreset::VeryFast, Some(3)),
+        (QTGMCPreset::Draft, Some(2)),
+    ] {
+        let (encode, preview) = scripts(preset, input_type, false);
+        for s in [&encode, &preview] {
+            assert!(!s.contains("QTGMC_MASK_ANY_DEPTH"), "tag left in the script");
+            assert!(!s.contains("havsfunc_mask_any_depth"), "{preset:?} {input_type:?} runs no Mask");
+            // Byte for byte as before: the function, two blank lines, the next.
+            assert!(s.contains("    return clip\n\n\ndef _deinterlace_qtgmc_rows(clip):"));
+        }
+    }
+
+    // The helper scales the SAD threshold by the depth, calls VapourSynth's
+    // own Mask (never havsfunc's rebound core, which would recurse) and
+    // restores havsfunc's core after the call.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let formats = std::fs::read_to_string(root.join("templates/plugin_formats.py")).unwrap().replace("\r\n", "\n");
+    for needle in [
+        "def mvtools_mask_any_depth(clip, vectors, ml=100.0, kind=0, **kwargs):",
+        "ml = ml * (1 << (bits - 8))",
+        "vs.core.mv.Mask(stand, vectors, ml=ml, kind=kind, **kwargs)",
+        "format=fmt.replace(bits_per_sample=8).id, keep=True)",
+        "def havsfunc_mask_any_depth(haf, fn):",
+        "        finally:\n            haf.core = saved",
+    ] {
+        assert!(formats.contains(needle), "plugin_formats.py lost: {needle}");
     }
 }

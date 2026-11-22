@@ -13724,6 +13724,430 @@
     "within_refused": []
    }
   },
+  "havsfunc.QTGMC[InputType=2]": {
+   "cells": {
+    "411p8/f0/160x120": {
+     "error": "Super: input clip must be GRAY, 420, 422, 440, or 444, up to 16 bits, with constant dimensions.",
+     "ok": false
+    },
+    "411p8/f2/160x120": {
+     "error": "Super: input clip must be GRAY, 420, 422, 440, or 444, up to 16 bits, with constant dimensions.",
+     "ok": false
+    },
+    "420p10/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p10/f1/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p10/f2/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p12/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p12/f1/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p12/f2/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p14/f0/160x120": {
+     "error": "bitdepth: output pixel bitdepth not supported.",
+     "ok": false
+    },
+    "420p16/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f0/1920x1080": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f0/352x240": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f0/64x48": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f0/718x480": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f0/720x486": {
+     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "ok": false
+    },
+    "420p16/f0/720x576": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f1/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f2/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f2/1920x1080": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f2/352x240": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f2/64x48": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f2/718x480": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p16/f2/720x486": {
+     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "ok": false
+    },
+    "420p16/f2/720x576": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "420p8/f0/160x120": {
+     "ok": true
+    },
+    "420p8/f0/1920x1080": {
+     "ok": true
+    },
+    "420p8/f0/352x240": {
+     "ok": true
+    },
+    "420p8/f0/64x48": {
+     "ok": true
+    },
+    "420p8/f0/718x480": {
+     "ok": true
+    },
+    "420p8/f0/720x486": {
+     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "ok": false
+    },
+    "420p8/f0/720x576": {
+     "ok": true
+    },
+    "420p8/f1/160x120": {
+     "ok": true
+    },
+    "420p8/f2/160x120": {
+     "ok": true
+    },
+    "420p8/f2/1920x1080": {
+     "ok": true
+    },
+    "420p8/f2/352x240": {
+     "ok": true
+    },
+    "420p8/f2/64x48": {
+     "ok": true
+    },
+    "420p8/f2/718x480": {
+     "ok": true
+    },
+    "420p8/f2/720x486": {
+     "error": "SeparateFields: clip height must be mod 2 in the smallest subsampled plane",
+     "ok": false
+    },
+    "420p8/f2/720x576": {
+     "ok": true
+    },
+    "420p9/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p10/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p10/f1/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p10/f2/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p12/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p12/f1/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p12/f2/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f0/1920x1080": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f0/352x240": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f0/64x48": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f0/718x480": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f0/720x486": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f0/720x576": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f1/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f2/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f2/1920x1080": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f2/352x240": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f2/64x48": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f2/718x480": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f2/720x486": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p16/f2/720x576": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "422p8/f0/160x120": {
+     "ok": true
+    },
+    "422p8/f0/1920x1080": {
+     "ok": true
+    },
+    "422p8/f0/352x240": {
+     "ok": true
+    },
+    "422p8/f0/64x48": {
+     "ok": true
+    },
+    "422p8/f0/718x480": {
+     "ok": true
+    },
+    "422p8/f0/720x486": {
+     "ok": true
+    },
+    "422p8/f0/720x576": {
+     "ok": true
+    },
+    "422p8/f1/160x120": {
+     "ok": true
+    },
+    "422p8/f2/160x120": {
+     "ok": true
+    },
+    "422p8/f2/1920x1080": {
+     "ok": true
+    },
+    "422p8/f2/352x240": {
+     "ok": true
+    },
+    "422p8/f2/64x48": {
+     "ok": true
+    },
+    "422p8/f2/718x480": {
+     "ok": true
+    },
+    "422p8/f2/720x486": {
+     "ok": true
+    },
+    "422p8/f2/720x576": {
+     "ok": true
+    },
+    "444p10/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p10/f1/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p10/f2/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p12/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p12/f1/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p12/f2/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f0/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f0/1920x1080": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f0/352x240": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f0/64x48": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f0/718x480": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f0/720x486": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f0/720x576": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f1/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f2/160x120": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f2/1920x1080": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f2/352x240": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f2/64x48": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f2/718x480": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f2/720x486": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p16/f2/720x576": {
+     "error": "Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8, or YUV444P8, with constant dimensions.",
+     "ok": false
+    },
+    "444p8/f0/160x120": {
+     "ok": true
+    },
+    "444p8/f0/1920x1080": {
+     "ok": true
+    },
+    "444p8/f0/352x240": {
+     "ok": true
+    },
+    "444p8/f0/64x48": {
+     "ok": true
+    },
+    "444p8/f0/718x480": {
+     "ok": true
+    },
+    "444p8/f0/720x486": {
+     "ok": true
+    },
+    "444p8/f0/720x576": {
+     "ok": true
+    },
+    "444p8/f1/160x120": {
+     "ok": true
+    },
+    "444p8/f2/160x120": {
+     "ok": true
+    },
+    "444p8/f2/1920x1080": {
+     "ok": true
+    },
+    "444p8/f2/352x240": {
+     "ok": true
+    },
+    "444p8/f2/64x48": {
+     "ok": true
+    },
+    "444p8/f2/718x480": {
+     "ok": true
+    },
+    "444p8/f2/720x486": {
+     "ok": true
+    },
+    "444p8/f2/720x576": {
+     "ok": true
+    }
+   },
+   "summary": {
+    "depths": [
+     8
+    ],
+    "field_based": true,
+    "sizes_refused": [
+     "420p8/f0/720x486",
+     "420p8/f2/720x486"
+    ],
+    "subsampling": [
+     "420",
+     "422",
+     "444"
+    ]
+   }
+  },
   "havsfunc.QTGMC[SrchClipPP=1]": {
    "cells": {
     "411p8/f0/160x120": {
@@ -20894,6 +21318,361 @@
    "summary": {
     "depths": [
      8
+    ],
+    "field_based": true,
+    "sizes_refused": [],
+    "subsampling": [
+     "420",
+     "422",
+     "444"
+    ]
+   }
+  },
+  "pass.QTGMC[InputType=2]": {
+   "cells": {
+    "411p8/f0/160x120": {
+     "ok": true
+    },
+    "411p8/f2/160x120": {
+     "ok": true
+    },
+    "420p10/f0/160x120": {
+     "ok": true
+    },
+    "420p10/f1/160x120": {
+     "ok": true
+    },
+    "420p10/f2/160x120": {
+     "ok": true
+    },
+    "420p12/f0/160x120": {
+     "ok": true
+    },
+    "420p12/f1/160x120": {
+     "ok": true
+    },
+    "420p12/f2/160x120": {
+     "ok": true
+    },
+    "420p14/f0/160x120": {
+     "ok": true
+    },
+    "420p16/f0/160x120": {
+     "ok": true
+    },
+    "420p16/f0/1920x1080": {
+     "ok": true
+    },
+    "420p16/f0/352x240": {
+     "ok": true
+    },
+    "420p16/f0/64x48": {
+     "ok": true
+    },
+    "420p16/f0/718x480": {
+     "ok": true
+    },
+    "420p16/f0/720x486": {
+     "ok": true
+    },
+    "420p16/f0/720x576": {
+     "ok": true
+    },
+    "420p16/f1/160x120": {
+     "ok": true
+    },
+    "420p16/f2/160x120": {
+     "ok": true
+    },
+    "420p16/f2/1920x1080": {
+     "ok": true
+    },
+    "420p16/f2/352x240": {
+     "ok": true
+    },
+    "420p16/f2/64x48": {
+     "ok": true
+    },
+    "420p16/f2/718x480": {
+     "ok": true
+    },
+    "420p16/f2/720x486": {
+     "ok": true
+    },
+    "420p16/f2/720x576": {
+     "ok": true
+    },
+    "420p8/f0/160x120": {
+     "ok": true
+    },
+    "420p8/f0/1920x1080": {
+     "ok": true
+    },
+    "420p8/f0/352x240": {
+     "ok": true
+    },
+    "420p8/f0/64x48": {
+     "ok": true
+    },
+    "420p8/f0/718x480": {
+     "ok": true
+    },
+    "420p8/f0/720x486": {
+     "ok": true
+    },
+    "420p8/f0/720x576": {
+     "ok": true
+    },
+    "420p8/f1/160x120": {
+     "ok": true
+    },
+    "420p8/f2/160x120": {
+     "ok": true
+    },
+    "420p8/f2/1920x1080": {
+     "ok": true
+    },
+    "420p8/f2/352x240": {
+     "ok": true
+    },
+    "420p8/f2/64x48": {
+     "ok": true
+    },
+    "420p8/f2/718x480": {
+     "ok": true
+    },
+    "420p8/f2/720x486": {
+     "ok": true
+    },
+    "420p8/f2/720x576": {
+     "ok": true
+    },
+    "420p9/f0/160x120": {
+     "ok": true
+    },
+    "422p10/f0/160x120": {
+     "ok": true
+    },
+    "422p10/f1/160x120": {
+     "ok": true
+    },
+    "422p10/f2/160x120": {
+     "ok": true
+    },
+    "422p12/f0/160x120": {
+     "ok": true
+    },
+    "422p12/f1/160x120": {
+     "ok": true
+    },
+    "422p12/f2/160x120": {
+     "ok": true
+    },
+    "422p16/f0/160x120": {
+     "ok": true
+    },
+    "422p16/f0/1920x1080": {
+     "ok": true
+    },
+    "422p16/f0/352x240": {
+     "ok": true
+    },
+    "422p16/f0/64x48": {
+     "ok": true
+    },
+    "422p16/f0/718x480": {
+     "ok": true
+    },
+    "422p16/f0/720x486": {
+     "ok": true
+    },
+    "422p16/f0/720x576": {
+     "ok": true
+    },
+    "422p16/f1/160x120": {
+     "ok": true
+    },
+    "422p16/f2/160x120": {
+     "ok": true
+    },
+    "422p16/f2/1920x1080": {
+     "ok": true
+    },
+    "422p16/f2/352x240": {
+     "ok": true
+    },
+    "422p16/f2/64x48": {
+     "ok": true
+    },
+    "422p16/f2/718x480": {
+     "ok": true
+    },
+    "422p16/f2/720x486": {
+     "ok": true
+    },
+    "422p16/f2/720x576": {
+     "ok": true
+    },
+    "422p8/f0/160x120": {
+     "ok": true
+    },
+    "422p8/f0/1920x1080": {
+     "ok": true
+    },
+    "422p8/f0/352x240": {
+     "ok": true
+    },
+    "422p8/f0/64x48": {
+     "ok": true
+    },
+    "422p8/f0/718x480": {
+     "ok": true
+    },
+    "422p8/f0/720x486": {
+     "ok": true
+    },
+    "422p8/f0/720x576": {
+     "ok": true
+    },
+    "422p8/f1/160x120": {
+     "ok": true
+    },
+    "422p8/f2/160x120": {
+     "ok": true
+    },
+    "422p8/f2/1920x1080": {
+     "ok": true
+    },
+    "422p8/f2/352x240": {
+     "ok": true
+    },
+    "422p8/f2/64x48": {
+     "ok": true
+    },
+    "422p8/f2/718x480": {
+     "ok": true
+    },
+    "422p8/f2/720x486": {
+     "ok": true
+    },
+    "422p8/f2/720x576": {
+     "ok": true
+    },
+    "444p10/f0/160x120": {
+     "ok": true
+    },
+    "444p10/f1/160x120": {
+     "ok": true
+    },
+    "444p10/f2/160x120": {
+     "ok": true
+    },
+    "444p12/f0/160x120": {
+     "ok": true
+    },
+    "444p12/f1/160x120": {
+     "ok": true
+    },
+    "444p12/f2/160x120": {
+     "ok": true
+    },
+    "444p16/f0/160x120": {
+     "ok": true
+    },
+    "444p16/f0/1920x1080": {
+     "ok": true
+    },
+    "444p16/f0/352x240": {
+     "ok": true
+    },
+    "444p16/f0/64x48": {
+     "ok": true
+    },
+    "444p16/f0/718x480": {
+     "ok": true
+    },
+    "444p16/f0/720x486": {
+     "ok": true
+    },
+    "444p16/f0/720x576": {
+     "ok": true
+    },
+    "444p16/f1/160x120": {
+     "ok": true
+    },
+    "444p16/f2/160x120": {
+     "ok": true
+    },
+    "444p16/f2/1920x1080": {
+     "ok": true
+    },
+    "444p16/f2/352x240": {
+     "ok": true
+    },
+    "444p16/f2/64x48": {
+     "ok": true
+    },
+    "444p16/f2/718x480": {
+     "ok": true
+    },
+    "444p16/f2/720x486": {
+     "ok": true
+    },
+    "444p16/f2/720x576": {
+     "ok": true
+    },
+    "444p8/f0/160x120": {
+     "ok": true
+    },
+    "444p8/f0/1920x1080": {
+     "ok": true
+    },
+    "444p8/f0/352x240": {
+     "ok": true
+    },
+    "444p8/f0/64x48": {
+     "ok": true
+    },
+    "444p8/f0/718x480": {
+     "ok": true
+    },
+    "444p8/f0/720x486": {
+     "ok": true
+    },
+    "444p8/f0/720x576": {
+     "ok": true
+    },
+    "444p8/f1/160x120": {
+     "ok": true
+    },
+    "444p8/f2/160x120": {
+     "ok": true
+    },
+    "444p8/f2/1920x1080": {
+     "ok": true
+    },
+    "444p8/f2/352x240": {
+     "ok": true
+    },
+    "444p8/f2/64x48": {
+     "ok": true
+    },
+    "444p8/f2/718x480": {
+     "ok": true
+    },
+    "444p8/f2/720x486": {
+     "ok": true
+    },
+    "444p8/f2/720x576": {
+     "ok": true
+    }
+   },
+   "summary": {
+    "depths": [
+     8,
+     10,
+     12,
+     16
     ],
     "field_based": true,
     "sizes_refused": [],

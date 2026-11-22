@@ -34,7 +34,7 @@ import 'support/format_sweep.dart';
 /// disappears fails here; adding a method or sub-feature means changing one
 /// number (and, if it is inert on the fixture, an actuation override).
 const expectedVariantCounts = <String, int>{
-  'deinterlace': 15, // 3 methods + QTGMC's 11 presets + Bwdif with NNEDI3 (task #81)
+  'deinterlace': 17, // 3 methods + QTGMC's 11 presets + Bwdif with NNEDI3 (task #81) + InputType 2/3 (task #89)
   'unblend': 1,
   'descratch': 1,
   'spotless': 2,
@@ -311,8 +311,14 @@ void main() {
             expect(params, contains(key), reason: '${v.filterId}: no parameter $key');
           }
         }
-        final id = '${v.filterId}/${v.values['method']}+'
-            '${(v.values.entries.where((e) => e.key != 'method').toList()..sort((a, b) => a.key.compareTo(b.key))).map((e) => '${e.key}=${e.value}').join('+')}';
+        // An enum axis's value reads `[param=v]` after the method (task #89).
+        final axes = enumAxes.where((a) => a.filterId == v.filterId).map((a) => a.param).toSet();
+        final axisPart = v.values.entries
+            .where((e) => axes.contains(e.key))
+            .map((e) => '[${e.key}=${e.value}]')
+            .join();
+        final id = '${v.filterId}/${v.values['method']}$axisPart+'
+            '${(v.values.entries.where((e) => e.key != 'method' && !axes.contains(e.key)).toList()..sort((a, b) => a.key.compareTo(b.key))).map((e) => '${e.key}=${e.value}').join('+')}';
         expect(ids, contains(id), reason: 'option variant $id was not generated (a duplicate pipeline?)');
         expect(v.reason, isNotEmpty);
       }
