@@ -3343,17 +3343,18 @@ Headless Dart-VM tests. Three groups:
   `schema_converter_integration_test`, `template_call_arguments_test`,
   `plugin_format_contracts_test` (the contracts against the table, every
   template call probed, and `run_within()` on real low bits, in the push
-  gate; its quick plugin format probe against the table and the Lut2 memo
+  gate; its quick plugin format probe against the table and the no-Lut2
   check are `heavy` since task #84, run nightly and, in the push gate, only
   when `.github/scripts/deps-sensitive.sh` says the run touches the deps
   bundle, the table or the probe; the full probe is the heavy
   `plugin_format_probe_test`. Both probes print each call's time as it
   finishes and stop themselves with `--budget` before their timeout, naming
-  the calls still running. The probe evaluates havsfunc's pure `Lut2`
-  functions once per process into lists, bit-identical and checked by the
-  memo test (task #75: LUTDeCrawl's 10-bit tables were 80% of the quick
-  probe, and the full probe never finished on macOS x64);
-  `--no-lut-memo` runs them as written), `removedirt_determinism_test`
+  the calls still running. The no-Lut2 check runs the probe's
+  LUTDeCrawl/LUTDeRainbow calls and fails on any `std.Lut2` call: their
+  10-bit Python tables were 80% of the quick probe, and the full probe never
+  finished on macOS x64 (task #75). Patch 8 removed them from deps
+  1.18.0-rc3, so the probe's memo of them is retired (task #104) and the
+  check skips older bundles), `removedirt_determinism_test`
   (task #57); need the per-arch `deps/`.
 - **Integration tests** — `integration_*_test.dart`. They spawn the worker
   end-to-end via `app/test/support/worker_harness.dart`. The encode-heavy ones

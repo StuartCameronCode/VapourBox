@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 
+import 'support/deps_version.dart';
 
 void main() {
   late String depsDir;
@@ -648,7 +649,7 @@ print("fmtconv r31 chroma placement OK")
         return;
       }
       // The plugin's default is measure=0 from deps 1.18.0-rc2 (task #80).
-      final estimateDefault = !_depsVersionBefore(depsDir, '1.18.0-rc2');
+      final estimateDefault = !depsVersionBefore(depsDir, '1.18.0-rc2');
       final script = r'''
 import ctypes
 import hashlib
@@ -807,7 +808,7 @@ print('dctfilter version OK')
 core.std.BlankClip().set_output()''';
 
     test('the bundle has DCTFilter r3.2 or later (task #96)', () async {
-      if (_depsVersionBefore(depsDir, '1.18.0-rc3')) {
+      if (depsVersionBefore(depsDir, '1.18.0-rc3')) {
         markTestSkipped('deps <= 1.18.0-rc2 ship DCTFilter r2/r2.1 on Windows '
             'and macOS x64 (task #96); enforced from deps 1.18.0-rc3');
         return;
@@ -848,7 +849,7 @@ core.std.BlankClip().set_output()''';
     // the same way at the sweep row's size (96x64 4:2:2 12-bit, fields).
     test('DCTFilter and Deblock_QED survive many instances starting together '
         '(task #96)', () async {
-      if (_depsVersionBefore(depsDir, '1.18.0-rc3')) {
+      if (depsVersionBefore(depsDir, '1.18.0-rc3')) {
         markTestSkipped('deps <= 1.18.0-rc2 ship DCTFilter r2/r2.1 on Windows '
             'and macOS x64 (task #96); enforced from deps 1.18.0-rc3');
         return;
@@ -893,7 +894,7 @@ core.std.Splice([$call for _ in range($instances)]).set_output()''';
 
     test('the bundle\'s DFTTest, LGhost, CTMF, TCanny (and EEDI3m r10) are '
         'patched (task #98)', () async {
-      if (_depsVersionBefore(depsDir, '1.18.0-rc3')) {
+      if (depsVersionBefore(depsDir, '1.18.0-rc3')) {
         markTestSkipped(skipReason);
         return;
       }
@@ -976,7 +977,7 @@ core.std.BlankClip().set_output()''';
     // radius-3 kernel serves, runs the same way.
     test('DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances '
         'starting together (task #98)', () async {
-      if (_depsVersionBefore(depsDir, '1.18.0-rc3')) {
+      if (depsVersionBefore(depsDir, '1.18.0-rc3')) {
         markTestSkipped(skipReason);
         return;
       }
@@ -1146,35 +1147,6 @@ bool _depsVersionAtMost(String depsDir, List<int> max) {
       if (v != max[i]) return v < max[i];
     }
     return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-/// Whether the deps bundle at [depsDir] is older than [version], pre-releases
-/// included (`1.18.0-rc1` < `1.18.0-rc2` < `1.18.0`). A missing or unreadable
-/// file counts as newer, so the check it guards still runs.
-bool _depsVersionBefore(String depsDir, String version) {
-  (List<int>, int) parse(String v) {
-    final dash = v.indexOf('-');
-    final core = (dash < 0 ? v : v.substring(0, dash)).split('.').map(int.parse).toList();
-    final rc = dash < 0
-        ? 1 << 30 // a release sorts after all its candidates
-        : int.parse(RegExp(r'(\d+)$').firstMatch(v.substring(dash))!.group(1)!);
-    return (core, rc);
-  }
-
-  try {
-    final json = jsonDecode(
-            File(path.join(depsDir, 'version.json')).readAsStringSync())
-        as Map<String, dynamic>;
-    final (have, haveRc) = parse(json['version'] as String);
-    final (want, wantRc) = parse(version);
-    for (var i = 0; i < want.length; i++) {
-      final v = i < have.length ? have[i] : 0;
-      if (v != want[i]) return v < want[i];
-    }
-    return haveRc < wantRc;
   } catch (_) {
     return false;
   }
