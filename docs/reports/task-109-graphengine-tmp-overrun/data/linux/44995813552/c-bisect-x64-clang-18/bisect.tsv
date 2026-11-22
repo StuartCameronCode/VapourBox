@@ -1,0 +1,46 @@
+commit	date	mode	cases	overrun	abort	max_bytes	subject
+cb5b2ce1	2026-07-18	vs	158	0	0	0	Add overflow checks to tmp_size calculation
+cb5b2ce1	2026-07-18	guard	158	0	0	0	Add overflow checks to tmp_size calculation
+cb5b2ce1	2026-07-18	asan	158	0	0	0	Add overflow checks to tmp_size calculation
+7014d9f2	2026-07-30	vs	158	0	0	0	Fix exception safety of add_sink
+7014d9f2	2026-07-30	guard	158	0	0	0	Fix exception safety of add_sink
+7014d9f2	2026-07-30	asan	158	0	0	0	Fix exception safety of add_sink
+1a0fdf9c	2026-07-30	vs	158	0	0	0	Fix live range tracking with subsampled sink node
+1a0fdf9c	2026-07-30	guard	158	0	0	0	Fix live range tracking with subsampled sink node
+1a0fdf9c	2026-07-30	asan	158	0	0	0	Fix live range tracking with subsampled sink node
+afcdd0e0	2026-07-30	vs	158	0	0	0	Add a separate error code for graph compilation failure
+afcdd0e0	2026-07-30	guard	158	0	0	0	Add a separate error code for graph compilation failure
+afcdd0e0	2026-07-30	asan	158	0	0	0	Add a separate error code for graph compilation failure
+5d02f51f	2026-07-30	vs	158	0	0	0	Update documentation for Subgraph exception safety
+5d02f51f	2026-07-30	guard	158	0	0	0	Update documentation for Subgraph exception safety
+5d02f51f	2026-07-30	asan	158	0	0	0	Update documentation for Subgraph exception safety
+562889d3	2026-07-30	vs	158	0	0	0	Check more edge cases for buffer sizing overflow
+562889d3	2026-07-30	guard	158	0	0	0	Check more edge cases for buffer sizing overflow
+562889d3	2026-07-30	asan	158	0	0	0	Check more edge cases for buffer sizing overflow
+f6211289	2026-07-30	vs	158	18	0	5784	Exclude fused nodes from buffer sizing calculation
+f6211289	2026-07-30	guard	158	0	36	0	Exclude fused nodes from buffer sizing calculation
+f6211289	2026-07-30	asan	158	0	18	0	Exclude fused nodes from buffer sizing calculation
+734f3bf1	2026-07-30	vs	158	18	0	5784	Check buffering calculation in test
+734f3bf1	2026-07-30	guard	158	0	36	0	Check buffering calculation in test
+734f3bf1	2026-07-30	asan	158	0	18	0	Check buffering calculation in test
+5c1c79d5	2026-07-31	vs	158	18	0	5784	Skip unreachable planes when estimating cache usage
+5c1c79d5	2026-07-31	guard	158	0	36	0	Skip unreachable planes when estimating cache usage
+5c1c79d5	2026-07-31	asan	158	0	18	0	Skip unreachable planes when estimating cache usage
+a939a669	2026-07-31	vs	158	18	0	5784	Access node registry during simulation through a callback
+a939a669	2026-07-31	guard	158	0	36	0	Access node registry during simulation through a callback
+a939a669	2026-07-31	asan	158	0	18	0	Access node registry during simulation through a callback
+733d3dc7	2026-07-31	vs	158	18	0	5784	Ignore cursor alignment during planar simulation
+733d3dc7	2026-07-31	guard	158	0	36	0	Ignore cursor alignment during planar simulation
+733d3dc7	2026-07-31	asan	158	0	18	0	Ignore cursor alignment during planar simulation
+444ec4c0	2026-07-31	vs	158	18	0	5784	More accurately test buffer sizing
+444ec4c0	2026-07-31	guard	158	0	36	0	More accurately test buffer sizing
+444ec4c0	2026-07-31	asan	158	0	18	0	More accurately test buffer sizing
+89b10e29	2026-08-01	vs	158	18	0	5784	Sync testcommon libraries
+89b10e29	2026-08-01	guard	158	0	36	0	Sync testcommon libraries
+89b10e29	2026-08-01	asan	158	0	18	0	Sync testcommon libraries
+91c6af4c	2026-08-01	vs	158	18	0	5784	Update to C++17
+91c6af4c	2026-08-01	guard	158	0	36	0	Update to C++17
+91c6af4c	2026-08-01	asan	158	0	18	0	Update to C++17
+e9b10267	2026-11-20	vs	158	18	0	5784	Fix testapp includes
+e9b10267	2026-11-20	guard	158	0	36	0	Fix testapp includes
+e9b10267	2026-11-20	asan	158	0	18	0	Fix testapp includes

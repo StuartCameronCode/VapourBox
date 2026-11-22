@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>graphengine tmp overrun</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  td.warn { background: var(--warn-bg); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>graphengine f6211289: <code>get_tmp_size()</code> leaves out an error-diffusion node's context</h1>
+<p class="meta">2026-11-22 · task #109 (added by task #103) · measured on macOS arm64 (M1 Pro) and x86_64 under
+Rosetta, locally, and on GitHub Actions <code>ubuntu-24.04</code> (x64) and <code>ubuntu-24.04-arm</code> runners ·
+every number below comes from <code>scripts/</code>, and the tables are in <code>data/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: cause found and bisected; a fix is drafted for upstream and not filed yet. Our bundles are
+unaffected</strong> (task #103's pin). zimg master's <code>e2e43d09</code> moved graphengine from
+<code>cb5b2ce1</code> to <code>91c6af4c</code>. From graphengine <strong><code>f6211289</code></strong> ("Exclude
+fused nodes from buffer sizing calculation", 2026-07-30), <code>zimg_filter_graph_get_tmp_size()</code> leaves out
+the context of any node with no live rows. The error-diffusion dither node is such a node, and its context holds two
+float error rows, <code>2 × (width + 2) × 4</code> bytes. So <strong>every graph that dithers with error diffusion
+writes about that much past the end of the buffer</strong>: 792 bytes at width 96, 5784 at 720. VapourSynth's resize
+allocates exactly <code>get_tmp_size()</code> bytes in <code>vszimg::real_get_frame</code>, and glibc's heap checks
+caught the overrun there. It reproduces through zimg's C API alone, on every platform and compiler tried. A
+one-line change (skip only the cache sizing, not the context) makes every case clean. graphengine HEAD
+(<code>e9b10267</code>) still has the bug.</p>
+</div>
+
+<h2>Symptom</h2>
+<p>From task #103: 1.18.0-rc3's Linux bundles, with VapourSynth R78 statically linked to zimg <code>e2e43d09</code>
+through R78's <code>subprojects/zimg.wrap</code>, aborted in VapourSynth's own resize on every job that resized:
+<code>double free or corruption (!prev)</code> at <code>free()</code> ← <code>vszimg::real_get_frame</code>.
+That was 617 of 6861 sweep rows (Deband, BM3D, Descale, Crop &amp; Resize's BT.709, Face Restoration, Colourisation,
+QTGMC high precision), and <code>zimg_colorspace_test</code>. VapourBox's template dithers its depth reductions
+with <code>dither_type="error_diffusion"</code>: ten calls in <code>pipeline_template.vpy</code> (BM3D, the AI
+upscale, the fade fix, the working-format and depth restores), plus <code>colorize.py</code> and
+<code>ai_runtime.py</code>. The failing passes are ones that reach such a call. That was not traced pass by pass.</p>
+
+<h2>Where the buffer comes from</h2>
+<p>R78's <code>src/core/vsresize.cpp</code>, <code>real_get_frame</code>, uses zimg's C API through
+<code>zimg++.hpp</code>. It allocates <code>vsh_aligned_malloc(graph.get_tmp_size(), 64)</code> (the larger of
+the two field graphs when interlaced), runs <code>graph.process(src, dst, tmp)</code>, and frees the buffer. A write
+past <code>tmp_size</code> lands in the next heap chunk's header, and glibc notices on that <code>free()</code> (the
+<code>!prev</code> check) or on a later <code>malloc</code>. So a plain C program can do exactly what VapourSynth
+does.</p>
+
+<h2>The repro</h2>
+<p><code>scripts/tmp_overrun.c</code> builds a graph per case, as VapourSynth does (<code>cpu_type</code>
+<code>AUTO_64B</code>, the luma filter for chroma too, approximate gamma, full-frame buffers with 64-byte strides,
+interlaced cases as two field graphs processed bottom then top). It then measures in two ways:</p>
+<ul>
+<li><strong>canary</strong>: 64 KiB guard bytes on each side of the buffer, filled with <code>0xA5</code> and then
+<code>0x5A</code>, and every guard byte that changed is counted. This works on any allocator or CPU.</li>
+<li><strong>exact</strong> (<code>--exact</code>): exactly <code>tmp_size</code> bytes, for AddressSanitizer.</li>
+</ul>
+<p><code>scripts/cases.tsv</code> (from <code>make_cases.py</code>) has 158 graphs: the conversions in
+<code>zimg_colorspace_test.rs</code> and the kinds of call the failing sweep rows make (Deband's depth round trip,
+BM3D's GRAY planes, Descale's luma resample, the 601→709 matrix change, Colourisation's float YUV444 to the source
+format, an SD→HD resize). Each is at 96x64, 98x64 and 720x480, progressive and interlaced. zimg is built by
+<code>scripts/build.sh</code> the way R78 builds its subproject: R78's own
+<code>subprojects/packagefiles/zimg/meson.build</code> is overlaid on zimg, so the file list,
+<code>-DZIMG_GRAPHENGINE_API</code>, <code>c++17</code> and the AVX2/AVX-512 kernel libraries are all R78's.
+There are three build modes:</p>
+<ul>
+<li><code>vs</code>: as R78 ships it (<code>b_ndebug=if-release</code>, so NDEBUG is set);</li>
+<li><code>guard</code>: NDEBUG unset, so graphengine puts guard pages between the regions of the buffer and asserts
+on them (<code>state.h</code>);</li>
+<li><code>asan</code>: <code>vs</code> plus <code>-fsanitize=address</code>, run with <code>--exact</code>.</li>
+</ul>
+<p><code>scripts/upstream_repro.c</code> is the one-case version for the upstream report: GRAY16 → GRAY8 at 96x64
+with error diffusion.</p>
+
+<h2>Results</h2>
+<h3>macOS (local)</h3>
+<table>
+<tr><th>arch</th><th>graphengine</th><th>vs: overruns past the end (largest)</th><th>guard: assertion aborts</th><th>asan: aborts</th></tr>
+<tr><td>arm64</td><td><code>cb5b2ce1</code></td><td class="ok">0 / 158</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>arm64</td><td><code>91c6af4c</code></td><td class="bad">18 (5784 B)</td><td class="bad">36</td><td class="bad">18</td></tr>
+<tr><td>arm64</td><td><code>91c6af4c</code> + patch</td><td class="ok">0</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>x86_64 (Rosetta)</td><td><code>cb5b2ce1</code></td><td class="ok">0</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>x86_64 (Rosetta)</td><td><code>91c6af4c</code></td><td class="bad">24 (5776 B)</td><td class="bad">36</td><td class="bad">24</td></tr>
+<tr><td>x86_64 (Rosetta)</td><td><code>91c6af4c</code> + patch</td><td class="ok">0</td><td class="ok">0</td><td class="ok">0</td></tr>
+</table>
+<p class="muted">data/macos/summary.tsv (scripts/macos.sh). Apple clang 21. The patch is
+scripts/graphengine-fused-node-context.patch.</p>
+<p>The <strong>36 cases the guard pages catch are exactly the 36 that use error diffusion</strong>, on both arches.
+The <code>vs</code> build overruns past the end on 18 (arm64) or 24 (x86_64) of them. In the rest, the context lands
+inside the buffer, on top of another node's region, and the canary can't see that. That still corrupts, but silently.
+This is why some VapourSynth runs died with SIGSEGV rather than glibc's message, and why
+<code>YUV444PS → YUV420P8</code> never aborted in VapourSynth (next section). Ordered and random dither, and
+<code>none</code>, never overrun (<code>scripts/dither_check.sh</code>).</p>
+
+<h3>The minimal repro, and zimg's own build</h3>
+<pre>cb5b2ce1:          tmp_size 1344, bytes changed past it 0, furthest 0
+91c6af4c:          tmp_size 384, bytes changed past it 791, furthest 792
+91c6af4c + patch:  tmp_size 1216, bytes changed past it 0, furthest 0
+e2e43d09 (zimg master, its own autotools build, ./configure --disable-shared):
+                   tmp_size 384, bytes changed past it 791, furthest 792</pre>
+<p class="muted">data/macos/upstream_repro.txt. ASan's report (data/macos/asan_upstream_repro.txt):
+<code>WRITE of size 792</code> in <code>ErrorDiffusionNEON::init_context</code> ←
+<code>TransformNodeBase::begin_frame</code> ← <code>GraphImpl::impl::run_node</code>, <code>0 bytes after 384-byte
+region</code>.</p>
+
+<h3>Linux (CI)</h3>
+<p>Run 44995813552 (<code>zimg-graphengine-bisect.yml</code>, <code>scripts/bisect.sh</code>) built each graphengine
+commit into zimg 67e06032 three ways on <code>ubuntu-24.04</code>. Each cell shows overruns past the end in the
+<code>vs</code> build / guard-page assertion aborts / ASan aborts:</p>
+<table>
+<tr><th>graphengine</th><th>x64 gcc 13</th><th>x64 clang 18</th><th>arm64 gcc 13</th><th>subject</th></tr>
+<tr><td><code>cb5b2ce1</code> … <code>562889d3</code> (6 commits)</td><td class="ok">0 / 0 / 0</td><td class="ok">0 / 0 / 0</td><td class="warn">0 / 0 / 32*</td><td>(what 67e06032 pins, then 5 more)</td></tr>
+<tr><td><strong><code>f6211289</code></strong></td><td class="bad">18 / 36 / 18</td><td class="bad">18 / 36 / 18</td><td class="bad">18 / 36 / 50*</td><td>Exclude fused nodes from buffer sizing calculation</td></tr>
+<tr><td><code>734f3bf1</code> … <code>91c6af4c</code> (7 commits)</td><td class="bad">18 / 36 / 18</td><td class="bad">18 / 36 / 18</td><td class="bad">18 / 36 / 50*</td><td>(through zimg e2e43d09's pin)</td></tr>
+<tr><td><code>e9b10267</code> (HEAD, 11-20)</td><td class="bad">18 / 36 / 18</td><td class="bad">18 / 36 / 18</td><td class="bad">18 / 36 / 50*</td><td>Fix testapp includes</td></tr>
+<tr><td><code>91c6af4c</code> + patch</td><td class="ok">0 / 0 / 0</td><td class="ok">0 / 0 / 0</td><td class="warn">0 / 0 / 32*</td><td></td></tr>
+<tr><td><code>e9b10267</code> + patch</td><td class="ok">0 / 0 / 0</td><td class="ok">0 / 0 / 0</td><td class="warn">0 / 0 / 32*</td><td></td></tr>
+</table>
+<p class="muted">data/linux/44995813552/c-bisect-*/bisect.tsv and patched.tsv. Per-case tables for 562889d3 (last good) and
+f6211289 (first bad) are kept beside them; the run's artifacts hold every commit's.</p>
+<p>Every platform and compiler gives the same answer. The first bad commit is <code>f6211289</code>, and the 36
+error-diffusion graphs are the ones that corrupt. <strong>* A separate finding:</strong> with gcc 13 ASan on
+Linux arm64 only, 32 other graphs, all 4:2:0 conversions (the 4x4 swatch, content to and from 4:2:0, the 601→709
+change), report a heap-buffer-overflow <em>at every commit, the good one and the patched one included</em>. At
+f6211289 the extra 18 are exactly this bug's 18. It is not this bug, it does not show with ASan on x64 or on macOS
+arm64, and whether it is zimg's NEON path or this harness's frame allocation was not examined. Task #115 has
+it.</p>
+<p class="muted">Correction, kept visible: the first run (44994453078) counted no ASan aborts on Linux. ASan
+there exits with status 1, which <code>run_cases.sh</code> read as tmp_overrun's own "overrun" status, and clang 18
+built nothing because strict <code>-std=c11</code> hides <code>posix_memalign</code> on glibc. Both are fixed in
+the scripts above, and only the second run's numbers are used.</p>
+
+<h3>Through VapourSynth itself (Linux x64)</h3>
+<p><code>scripts/repro.vpy</code> makes one <code>core.resize.Point</code> call on a blank clip.
+<code>scripts/vs_confirm.sh</code> runs each conversion 50 times plainly, then once under valgrind memcheck
+(single-threaded), against the rc3 candidate that aborted (bundle A, build-deps-linux 44931836464: zimg
+<code>e2e43d09</code>) and the pinned rebuild (B2, 44982770125: <code>67e06032</code>). Run 44994952747 (run 44995813552 repeated every count and
+message exactly):</p>
+<table>
+<tr><th>conversion</th><th>size</th><th>A: aborts / 50</th><th>A: valgrind invalid writes</th><th>B2: aborts</th><th>B2: invalid writes</th></tr>
+<tr><td>GRAY16 → GRAY8, error diffusion</td><td>96x64, 720x480</td><td class="bad">50, 50</td><td class="bad">2, 2</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>YUV420P16 → YUV420P8, error diffusion</td><td>96x64, 720x480</td><td class="bad">50, 50</td><td class="bad">2, 2</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>YUV444PS → YUV444P16, error diffusion</td><td>96x64, 720x480</td><td class="bad">50, 50</td><td class="bad">2, 2</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>YUV444PS → YUV420P8, error diffusion</td><td>96x64, 720x480</td><td class="warn">0, 0</td><td class="warn">0, 0</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>GRAY16 → GRAY8, none</td><td>96x64, 720x480</td><td class="ok">0</td><td class="ok">0</td><td class="ok">0</td><td class="ok">0</td></tr>
+<tr><td>YUV420P16 → YUV420P8, none</td><td>96x64, 720x480</td><td class="ok">0</td><td class="ok">0</td><td class="ok">0</td><td class="ok">0</td></tr>
+</table>
+<p>A's aborts are <code>Fatal glibc error: malloc.c:2599 (sysmalloc): assertion failed</code> (exit 134), except
+YUV420P16 → YUV420P8 at 720x480, which is a SIGSEGV (exit 139). Valgrind's first invalid write is the same one ASan
+reports on macOS: a <code>memset</code> in <code>TransformNodeBase::begin_frame</code> (the context init, inlined by
+LTO) under <code>zimg_filter_graph_process</code> ← <code>vszimg::real_get_frame</code>, <code>0 bytes after a block
+of size 384</code> (data/linux/44994952747/valgrind-A-GRAY16-GRAY8-ed-96x64.txt). The tmp_size is the C repro's 384.
+<code>YUV444PS → YUV420P8</code> is the inside-the-buffer case from the guard results: VapourSynth can't see it and
+neither can valgrind, but the guard-page build asserts on it.</p>
+<p class="muted">The first run of this job (44994453078) had valgrind's vspipe wrapper outside the bundle's
+directory, so Python never started under it and every valgrind count was a meaningless 0; its abort counts are the same as
+above. Kept visible as a correction.</p>
+
+<h2>Cause</h2>
+<p>f6211289 added an early <code>continue</code> to <code>GraphImpl::impl::compile_simulation_result</code>, for
+nodes whose simulation found no live rows (fused nodes, which need no cache):</p>
+<pre>unsigned live_rows = sim.live_range(id);
+if (!live_rows)
+    continue;
+
+for (unsigned p = 0; p &lt; node-&gt;num_planes(); ++p) { /* cache sizing */ }
+
+node_result.context_size = (sim.context_size(id) + ALIGNMENT_MASK) &amp; ~ALIGNMENT_MASK;
+node_result.initial_cursor = sim.cursor_min(id);
+sat_add(result.tmp_size, node_result.context_size);</pre>
+<p>The <code>continue</code> skips the last three lines too. So a fused node's context is never counted in
+<code>tmp_size</code>, and its <code>context_size</code> stays 0, but <code>begin_frame</code> still hands the filter a
+context pointer and <code>init_context</code> fills it. Error diffusion is the filter in these graphs with a real
+context (its error rows), so it writes them past the buffer, or over whatever region follows. The patch
+(<code>scripts/graphengine-fused-node-context.patch</code>, against 91c6af4c and HEAD alike) skips only the plane
+loop:</p>
+<pre>-			unsigned live_rows = sim.live_range(id);
+-			if (!live_rows)
+-				continue;
+-
+-			for (unsigned p = 0; p &lt; node-&gt;num_planes(); ++p) {
++			// A fused node (no live rows) has no cache, but its filter context
++			// is still allocated from tmp and initialised in begin_frame.
++			unsigned live_rows = sim.live_range(id);
++
++			for (unsigned p = 0; live_rows &amp;&amp; p &lt; node-&gt;num_planes(); ++p) {</pre>
+<p>With it, f6211289's saving stays (1216 bytes against cb5b2ce1's 1344 in the minimal repro), and every case is
+clean in all three modes on every platform above. It is offered to upstream as a suggestion only. VapourBox ships
+<code>cb5b2ce1</code> and never this patch.</p>
+
+<h2>Who is exposed</h2>
+<ul>
+<li><strong>VapourBox: nobody, since task #103.</strong> Linux pins the wrap to <code>67e06032</code> /
+<code>cb5b2ce1</code>. macOS ships zimg releases (arm64 Homebrew's 3.0.6, x64 3.0.5), which predate the range. The
+Windows R78 wheel was uploaded to PyPI on 2026-07-24, six days before f6211289 existed.</li>
+<li><strong>The bug itself is not platform-specific.</strong> It reproduces on macOS arm64 and x86_64 and on Linux
+x64 and arm64, with Apple clang, gcc 13 and clang 18. glibc is only what made it loud.</li>
+<li>Anyone building VapourSynth from source with its wrap (R78 through R82 still say <code>revision = HEAD</code>)
+since 2026-11-21. That is left to zimg's maintainer, who also maintains VapourSynth's resize; we are not reporting it
+to VapourSynth.</li>
+</ul>
+
+<h2>Upstream</h2>
+<p>Drafted, not yet filed: an issue on sekrit-twc/zimg (<code>upstream-issue-draft.md</code>) with
+<code>upstream_repro.c</code>, the bisect and the patch.
+It will be filed only after the user approves the text. Its link goes here once it exists. If upstream fixes it, the
+fixed zimg commit is the candidate for <code>ZIMG_COMMIT</code>. A bump changes every resize on Linux, so it needs
+the same A/B through <code>deps_run_id</code> as task #103.</p>
+
+<h2>Limits</h2>
+<ul>
+<li>The canary sees only writes past either end of the buffer. Writes that land inside it, in another region, are
+seen only by the guard-page build. The guard counts are the full extent; the <code>vs</code> counts are a lower
+bound.</li>
+<li>Only zimg's own filters were tried. Another graphengine user with a context-carrying fused node would hit the
+same thing.</li>
+<li>The patch was checked against these 158 graphs and the minimal repro, not against graphengine's own test suite.
+Whether <code>initial_cursor</code> matters for a fused node was not examined; the patch keeps setting it as before
+f6211289.</li>
+<li>Only <code>cpu_type</code> <code>AUTO_64B</code> (VapourSynth's default) was run. The fault is in the size
+calculation, not in a kernel, and it reproduced with NEON, with AVX2 under Rosetta, and on the runners' CPUs (each
+job's log names the CPU and whether it has AVX-512). The number of graphs that overrun past the end differs by
+arch (18 against 24), presumably because the buffer's layout follows each arch's kernels. That was not
+examined. The guard counts (36) are the same on both.</li>
+<li>Windows was not run. Its exposure is ruled out by date (wheel built before the bad commit), not measured.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul>
+<li><code>scripts/fetch.sh WORK</code>: clones zimg, graphengine and VapourSynth.</li>
+<li><code>scripts/build.sh WORK ZIMG GE OUT [vs|guard|asan]</code>: zimg with that graphengine and R78's overlay,
+plus tmp_overrun (<code>GE_PATCH</code>, <code>MESON_ARGS</code>, <code>CC</code>/<code>CXX</code>).</li>
+<li><code>scripts/tmp_overrun.c</code>, <code>scripts/cases.tsv</code> (<code>make_cases.py</code>),
+<code>scripts/run_cases.sh</code>: the measurement, one process per case.</li>
+<li><code>scripts/bisect.sh WORK OUT [MODES]</code>: every commit cb5b2ce1..91c6af4c and HEAD.</li>
+<li><code>scripts/macos.sh WORK OUT</code>: the macOS table.</li>
+<li><code>scripts/dither_check.sh BIN</code>: each dither type.</li>
+<li><code>scripts/upstream_repro.c</code>: the minimal repro.</li>
+<li><code>scripts/repro.vpy</code>, <code>scripts/vs_confirm.sh</code>: VapourSynth against a bundle.</li>
+<li><code>scripts/collect.sh RUN DATA</code>: a CI run's results into <code>data/linux/</code>.</li>
+<li><code>.github/workflows/zimg-graphengine-bisect.yml</code>: the Linux jobs.</li>
+</ul>
+
+</main>
+</body>
+</html>
