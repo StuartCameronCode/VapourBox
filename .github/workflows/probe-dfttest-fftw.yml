@@ -13,7 +13,7 @@ on:
     inputs:
       deps_run_id:
         description: 'Comma-separated build-deps-* run IDs of this branch (the ESTIMATE bundles)'
-        required: true
+        required: false
         type: string
       processes:
         description: 'Fresh processes per bundle'
@@ -21,6 +21,11 @@ on:
       speed_runs:
         description: 'speed.py runs per bundle'
         default: '3'
+
+  push:
+    branches-ignore: [main]
+    paths:
+      - '.github/workflows/probe-dfttest-fftw.yml'
 
 permissions:
   contents: read
@@ -66,7 +71,7 @@ jobs:
         run: |
           P="${{ matrix.platform }}"
           DEPS_RUN_ID= bash .github/scripts/install-deps-bundle.sh "$P" deps-v1.18.0-rc3 1.18.0-rc3 deps/patient
-          DEPS_RUN_ID="${{ inputs.deps_run_id }}" bash .github/scripts/install-deps-bundle.sh "$P" \
+          DEPS_RUN_ID="${{ inputs.deps_run_id || '44993114953,44993117365,44993119509' }}" bash .github/scripts/install-deps-bundle.sh "$P" \
             deps-v1.18.0-rc4 1.18.0-rc4 deps/estimate
           if [ "$RUNNER_OS" = macOS ]; then xattr -cr deps 2>/dev/null || true; fi
           cat deps/patient/version.json deps/estimate/version.json

@@ -3937,8 +3937,8 @@ QTGMC's denoiser falls back to DFTTest.
   `_tierFiles` entry).
 - **Verified:** macOS arm64 and x64 (Rosetta) builds give the old builds'
   output byte for byte; the Windows DLLs build and export the init symbol
-  but can only be run in CI. DFTTest's own output varies between processes
-  (its `FFTW_PATIENT` planning, both builds alike; task #101).
+  but can only be run in CI. DFTTest's planning is task #101's (next
+  section).
 - `vapoursynth_integration_test.dart`'s `per-thread buffer maps (task #98)`
   group checks the markers (from deps 1.18.0-rc3) and the patches and
   scripts (push gate), and runs graphs of 1000 instances of each plus
@@ -3947,6 +3947,43 @@ QTGMC's denoiser falls back to DFTTest.
   'unordered_map<std::__1::__thread_id'` on a macOS build, or grep its source
   for `thread::id`. A locked map (BM3D r12's `GetThreadBuffer`) is fine
   (docs/reports/task-98-per-thread-buffer-maps).
+
+### DFTTest plans with FFTW_ESTIMATE (task #101)
+
+DFTTest planned its four FFTs (`dfttestCreate`) with `FFTW_PATIENT`, which
+times candidate plans **in each process**; plans round floats differently,
+so the same script gave one of several pictures depending on the process,
+and a preview and its encode (two processes) could disagree. FFT3DFilter's
+`measure=1` was the same fault (task #80). DFTTest has **no argument** that
+picks the planner, so:
+
+- **`Scripts/patches/dfttest-bc5e018-fftw-estimate.patch`, applied after
+  task #98's thread-safety patch on every platform** (its context is that
+  patch's name line; it applies to bc5e018 and yuygfgg's e6f580a alike),
+  plans with `FFTW_ESTIMATE` (one plan per machine, in every process) and
+  appends `; FFTW_ESTIMATE, task #101` to the plugin's name. All three
+  `download-deps-*` scripts require that marker (`DFTTEST_MARKER`,
+  `$DftMarker`) as well as task #98's, so a thread-safe build that still
+  plans with PATIENT is rebuilt, never shipped. No template change: there is
+  nothing to pass.
+- **Measured:** RESULTS_PLACEHOLDER
+  (docs/reports/task-101-dfttest-fftw-planning).
+- **DCTFilter stays `FFTW_PATIENT`** (the user's decision in task #96); its
+  8x8 r2r plans are a different FFTW problem from DFTTest's and
+  FFT3DFilter's.
+- **Before adding a plugin that uses FFTW, look for per-process planning:**
+  `FFTW_MEASURE`, `FFTW_PATIENT` or `FFTW_EXHAUSTIVE` in its source (or a
+  `measure`-style argument defaulting to them) means a preview can differ
+  from its encode. FFTW also reuses a more patient plan made earlier in the
+  process for a later ESTIMATE request of the same problem, so one such call
+  can undo the others.
+- `vapoursynth_integration_test.dart`'s `dfttest FFTW planning (task #101)`
+  group checks the marker and that a second process filters exactly as the
+  first (from deps 1.18.0-rc4), and the patch and scripts (push gate);
+  `integration_dfttest_determinism_test.dart` (heavy) checks six previews
+  and the lossless encode agree sample for sample for the Noise Reduction
+  DFTTest method, QTGMC's dfttest denoiser and TemporalDegrain2 postFFT 3
+  (with its FFT3DFilter spatial pass).
 
 ## Debugging Tips
 
