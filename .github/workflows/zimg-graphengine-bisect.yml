@@ -1,0 +1,131 @@
+name: zimg graphengine bisect (Linux)
+
+# Task #109: zimg e2e43d09 (graphengine 91c6af4c) made VapourSynth R78's resize
+# abort with "double free or corruption" on Linux. This runs the evidence in
+# docs/reports/task-109-graphengine-tmp-overrun on Linux, where it was seen:
+#   c-bisect    every graphengine commit cb5b2ce1..91c6af4c, plus graphengine
+#               HEAD and 91c6af4c with graphengine-fused-node-context.patch,
+#               built into zimg 67e06032 the way R78 builds it, run over
+#               cases.tsv (tmp_overrun.c): VapourSynth's build (NDEBUG),
+#               graphengine's guard pages, and ASan. gcc 13 and clang 18 on
+#               x64 (what the deps build uses), gcc 13 on arm64.
+#   vs-confirm  repro.vpy through the bundles themselves: the rc3 candidate
+#               that aborted (zimg e2e43d09) and the pinned rebuild
+#               (67e06032), plainly and under valgrind.
+#
+# Dispatch it, or push a change to this file on a branch (a workflow that is
+# not on the default branch cannot be dispatched).
+
+on:
+  workflow_dispatch:
+    inputs:
+      repeat:
+        description: 'Plain vspipe runs per conversion in vs-confirm'
+        default: '50'
+  push:
+    branches-ignore: [main]
+    paths: ['.github/workflows/zimg-graphengine-bisect.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  R: docs/reports/task-109-graphengine-tmp-overrun/scripts
+
+jobs:
+  c-bisect:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, arch: x64, cc: gcc-13, cxx: g++-13 }
+          - { os: ubuntu-24.04, arch: x64, cc: clang-18, cxx: clang++-18 }
+          - { os: ubuntu-24.04-arm, arch: arm64, cc: gcc-13, cxx: g++-13 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc-13 g++-13 clang-18 llvm-18
+          pipx install meson==1.5.2
+          meson --version; $CC --version | head -1
+          grep -m1 'model name' /proc/cpuinfo || true
+          grep -m1 -o 'avx512[a-z]*' /proc/cpuinfo | head -1 || echo "no avx512"
+          ldd --version | head -1
+
+      - name: Fetch zimg, graphengine, VapourSynth
+        run: bash $R/fetch.sh "$RUNNER_TEMP/src"
+
+      - name: Bisect
+        run: |
+          mkdir -p out
+          bash $R/bisect.sh "$RUNNER_TEMP/src" "$RUNNER_TEMP/bisect" "vs guard asan" | tee out/bisect.tsv
+
+      - name: The patch on 91c6af4c and on graphengine HEAD
+        run: |
+          P=$PWD/$R/graphengine-fused-node-context.patch
+          HEAD=$(git -C "$RUNNER_TEMP/src/graphengine" rev-parse origin/HEAD)
+          printf 'graphengine\tmode\tcases\toverrun\tabort\n' > out/patched.tsv
+          for ge in 91c6af4c "$HEAD"; do
+            for mode in vs guard asan; do
+              b="$RUNNER_TEMP/fix-${ge:0:8}-$mode"
+              GE_PATCH=$P bash $R/build.sh "$RUNNER_TEMP/src" 67e06032 "$ge" "$b" "$mode"
+              opts=(); [ "$mode" = asan ] && opts=(--exact)
+              bash $R/run_cases.sh "$b/tmp_overrun" $R/cases.tsv "${opts[@]}" > "out/patched-${ge:0:8}-$mode.tsv"
+              awk -F'\t' -v g="${ge:0:8}+patch" -v m="$mode" 'NR>1{n++; if($7=="OVERRUN")o++; else if($7~/^abort/)a++}
+                END{printf "%s\t%s\t%d\t%d\t%d\n", g, m, n, o, a}' "out/patched-${ge:0:8}-$mode.tsv" | tee -a out/patched.tsv
+            done
+          done
+
+      - name: Per-case results
+        if: always()
+        run: cp "$RUNNER_TEMP"/bisect/*.tsv out/ 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: c-bisect-${{ matrix.arch }}-${{ matrix.cc }}
+          path: out/
+
+  vs-confirm:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: 'A-e2e43d09', run_id: '44931836464' }
+          - { label: 'B2-67e06032', run_id: '44982770125' }
+    runs-on: ubuntu-24.04  # the deps-build image (glibc 2.39)
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind unzip
+          grep -m1 'model name' /proc/cpuinfo
+          grep -m1 -o 'avx512[a-z]*' /proc/cpuinfo | head -1 || echo "no avx512"
+
+      - name: Install the bundle (build-deps-linux ${{ matrix.run_id }})
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ matrix.run_id }}
+        run: bash .github/scripts/install-deps-bundle.sh linux-x64 deps-v1.18.0-rc3 1.18.0-rc3 deps/linux-x64
+
+      - name: repro.vpy, plain and under valgrind
+        run: |
+          mkdir -p out
+          bash $R/vs_confirm.sh "$PWD/deps/linux-x64" "${{ matrix.label }}" "${{ inputs.repeat || '50' }}" out/logs | tee out/vs-confirm.tsv
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vs-confirm-${{ matrix.label }}
+          path: out/
