@@ -16,7 +16,7 @@
 // plugin_format_probe_test.dart. worker/tests/filter_integration_test.rs
 // (test_252) keeps contracted plugins inside run_within().
 //
-// The quick probe and the probe's Lut2 memo check are tagged `heavy` (task
+// The quick probe and the no-Lut2 check are tagged `heavy` (task
 // #84): they check the deps bundle and the probe's own tooling, not code a
 // pull request usually changes, so nightly runs them, and ci-test.yml runs
 // them only when .github/scripts/deps-sensitive.sh says the run touches the
@@ -27,6 +27,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'support/deps_version.dart';
 import 'support/plugin_probe_runner.dart';
 import 'support/worker_harness.dart';
 
@@ -408,12 +409,16 @@ for fmt in (vs.YUV420P8, vs.YUV444P8):
 print(json.dumps(problems))
 ''';
 
-// The probe evaluates havsfunc's pure Lut2 functions into one list per
-// process (task #75: 7.7 s -> 1.1 s per 10-bit LUTDeCrawl cell on an M1). The list must
-// give the same picture and format as the function, a function that reads
-// anything but its arguments must pass through, and havsfunc's own calls must
-// still take the memo (else the probe is slow again, silently).
-const _lutMemoCheck = r'''
+// LUTDeCrawl and LUTDeRainbow used to AND their masks through eight
+// Lut2(function=lambda x, y: x & y) tables, a million Python calls each at 10
+// bits: 80% of the quick probe, and the full probe never finished on macOS x64
+// (task #75, which memoised them in the probe). Havsfunc patch 8 (deps
+// 1.18.0-rc3, task #82) made them Expr 'x y min', leaving havsfunc no Lut2
+// call, so the memo was retired (task #104). This checks the probe's own LUT
+// calls, and the branches they don't take (linkUV=False, mask=True), make no
+// Lut2 call at all: one coming back would make the probe slow again, silently.
+// vapoursynth_integration_test's patch-8 test checks the picture.
+const _noLut2Check = r'''
 import importlib.util, json, sys
 import vapoursynth as vs
 core = vs.core
@@ -421,60 +426,54 @@ spec = importlib.util.spec_from_file_location('probe', sys.argv[1])
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 sys.path.insert(0, sys.argv[2])
+import havsfunc as haf
 
 problems = []
-def check(cond, msg):
-    if not cond:
-        problems.append(msg)
+if not hasattr(haf, '_mask_and'):
+    problems.append('havsfunc lacks patch 8 (no _mask_and) on a bundle from 1.18.0-rc3 on (task #82)')
 
-def same(a, b):
-    if a.format.id != b.format.id or (a.width, a.height, a.num_frames) != (b.width, b.height, b.num_frames):
-        return False
-    for p in range(a.format.num_planes):
-        st = core.std.PlaneStats(a, b, plane=p)
-        for n in range(a.num_frames):
-            if st.get_frame(n).props['PlaneStatsDiff'] != 0:
-                return False
-    return True
+calls = []
 
-def clip(fmt, seed):
-    c = core.std.BlankClip(width=64, height=48, format=fmt, length=3)
-    return core.grain.Add(c, var=800, uvar=800, constant=False, seed=seed)
+class _CountingStd:
+    def __init__(self, std):
+        self._std = std
+    def __getattr__(self, name):
+        fn = getattr(self._std, name)
+        if name != 'Lut2':
+            return fn
+        def lut2(*args, **kw):
+            calls.append(name)
+            return fn(*args, **kw)
+        return lut2
 
-memo = probe._LutMemoCore(core)
-asym8 = lambda x, y: (x * 3 + (y >> 1)) & 255
-asym10 = lambda x, y: (x * 3 + (y >> 1)) & 1023
-# Mixed depths pin the index order both ways (x + (y << bits_a)) at a quarter
-# of a 10x10 table's cost: the reference is built the slow way, which takes
-# seconds per 10-bit table on the Intel runners.
-for fa, fb, f in ((vs.GRAY8, vs.GRAY8, asym8), (vs.GRAY8, vs.GRAY10, asym8),
-                  (vs.YUV420P10, vs.YUV420P8, asym10)):
-    a, b = clip(fa, 1), clip(fb, 2)
-    n = len(memo.std.tables)
-    got = memo.std.Lut2(a, b, function=f)
-    check(len(memo.std.tables) == n + 1, '%s x %s: the memo was not used' % (a.format.name, b.format.name))
-    check(same(got, core.std.Lut2(a, b, function=f)),
-          '%s x %s: the list differs from the function' % (a.format.name, b.format.name))
-a, b = clip(vs.YUV420P8, 1), clip(vs.YUV420P8, 2)
-check(same(memo.std.Lut2(clipa=a, clipb=b, function=asym8, planes=[0]), core.std.Lut2(a, b, function=asym8, planes=[0])),
-      'keywords and planes: the list differs')
+class _CountingCore:
+    def __init__(self, c):
+        self._core = c
+        self.std = _CountingStd(c.std)
+    def __getattr__(self, name):
+        return getattr(self._core, name)
 
-t = 5
-n = len(memo.std.tables)
-a = clip(vs.GRAY8, 3)
-check(same(memo.std.Lut2(a, a, function=lambda x, y: (x + t) & 255),
-           core.std.Lut2(a, a, function=lambda x, y: (x + t) & 255)), 'a closure changed the picture')
-check(same(memo.std.Lut2(a, a, function=lambda x, y: max(x, y)), core.std.Lut2(a, a, function=lambda x, y: max(x, y))),
-      'a function naming a global changed the picture')
-check(len(memo.std.tables) == n, 'a function that reads more than its arguments was memoised')
+probe_calls = probe._calls()
+runs = {key: probe_calls[key]['run'] for key in probe.LUT_CALLS}
+runs['havsfunc.LUTDeCrawl mask'] = lambda c: haf.LUTDeCrawl(c, ythresh=10, cthresh=10, maxdiff=50, mask=True)
+runs['havsfunc.LUTDeRainbow mask'] = lambda c: haf.LUTDeRainbow(c, cthresh=10, ythresh=10, y=True, linkUV=True, mask=True)
+runs['havsfunc.LUTDeRainbow unlinked'] = lambda c: haf.LUTDeRainbow(c, cthresh=10, ythresh=10, y=True, linkUV=False)
+runs['havsfunc.LUTDeRainbow unlinked mask'] = lambda c: haf.LUTDeRainbow(c, cthresh=10, ythresh=10, y=True, linkUV=False, mask=True)
 
-import havsfunc as haf
-src = clip(vs.YUV420P8, 4)
-want = haf.LUTDeCrawl(src, ythresh=10, cthresh=10, maxdiff=50)
-shim = probe.memo_havsfunc_luts()
-got = haf.LUTDeCrawl(src, ythresh=10, cthresh=10, maxdiff=50)
-check(len(shim.std.tables) > 0, 'havsfunc.LUTDeCrawl no longer goes through the memo: the probe is slow again')
-check(same(got, want), 'havsfunc.LUTDeCrawl through the memo differs')
+original = haf.core
+haf.core = _CountingCore(original)
+try:
+    for fmt in (vs.YUV420P8, vs.YUV420P10):
+        c = core.std.BlankClip(width=64, height=48, format=fmt, length=3)
+        c = core.grain.Add(c, var=800, uvar=800, constant=False, seed=1)
+        for label, run in runs.items():
+            del calls[:]
+            run(c).get_frame(1)
+            if calls:
+                problems.append('%s at %s made %d Lut2 call(s): the probe builds Python tables again'
+                                % (label, c.format.name, len(calls)))
+finally:
+    haf.core = original
 print(json.dumps(problems))
 ''';
 
@@ -618,8 +617,9 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
     expect(problems, isEmpty, reason: problems.join('\n'));
   });
 
-  // macOS x64 is the slowest: 442-857 s before task #75 evaluated havsfunc's
-  // Lut2 tables once per process (LUTDeCrawl/LUTDeRainbow were 80% of it).
+  // macOS x64 is the slowest: 442-857 s while havsfunc's LUTDeCrawl/LUTDeRainbow
+  // built Python Lut2 tables in every cell (80% of it; task #75 memoised them,
+  // patch 8 removed them from deps 1.18.0-rc3, task #82).
   // The probe stops itself 90 s before this (--budget) and says which calls
   // were still running.
   const quickTimeout = Duration(minutes: 15);
@@ -632,9 +632,15 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
             'ran out of time and says which calls were still running:\n${r.report}');
   }, tags: ['heavy'], timeout: const Timeout(quickTimeout));
 
-  test('the probe\'s Lut2 memo gives exactly what havsfunc\'s functions give (task #75)', () async {
-    final script = File(p.join(Directory.systemTemp.path, 'vb_lutmemo_$pid.py'));
-    await script.writeAsString(_lutMemoCheck);
+  test('havsfunc makes no Lut2 call, so the probe\'s LUT cells build no Python tables '
+      '(task #104; patch 8, task #82)', () async {
+    if (depsVersionBefore(WorkerHarness.depsDir, '1.18.0-rc3')) {
+      markTestSkipped('deps before 1.18.0-rc3 ship havsfunc without patch 8: its LUTDeCrawl/'
+          'LUTDeRainbow still build Python Lut2 tables, which the probe no longer memoises');
+      return;
+    }
+    final script = File(p.join(Directory.systemTemp.path, 'vb_nolut2_$pid.py'));
+    await script.writeAsString(_noLut2Check);
     try {
       final r = await _python([script.path, _probe, _templatesDir]);
       expect(r.exitCode, 0, reason: '${r.stdout}\n${r.stderr}');
@@ -643,8 +649,7 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
     } finally {
       if (script.existsSync()) script.deleteSync();
     }
-    // About 6 s on an M1; the reference tables are much slower on the Intel runners.
-  }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 3)));
+  }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 1)));
 
   test('MVTools Flow calls avoid the AVX2 upsizer below 8 block columns (task #69)', () async {
     final problems = await _pythonJson(_flowGuardCheck) as List;

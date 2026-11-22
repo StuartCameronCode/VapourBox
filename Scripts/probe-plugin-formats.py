@@ -54,8 +54,9 @@ Each call prints one stderr line as it finishes (cells, refused, seconds).
 running (and their last finished cell) and which never started, kills the
 children and exits 3: how a hang is told from slowness (task #75). A child
 running past CHILD_TIMEOUT is reported as one ERROR line naming its call.
-havsfunc's pure Lut2 functions are evaluated once per process into lists
-(see _LutMemoStd, task #75); --no-lut-memo runs them as written.
+From deps 1.18.0-rc3 havsfunc makes no Lut2 call (patch 8, task #82); on an
+older bundle LUTDeCrawl/LUTDeRainbow build Python Lut2 tables at 10+ bits and
+are slow (task #75), and the probe says so.
 """
 import argparse
 import concurrent.futures
@@ -365,88 +366,40 @@ def quick_grid(limited, padded=False, key=None):
 
 
 # ---------------------------------------------------------------------------
-# havsfunc's lookup tables, built once per process (task #75)
+# havsfunc's Lut2 tables (tasks #75, #82, #104)
 #
-# LUTDeCrawl and LUTDeRainbow each call
-# core.std.Lut2(a, b, function=lambda x, y: x & y) four times. At 10 bits
-# VapourSynth calls that lambda 2^20 times per table: 1.95 s each, so 7.9 s of
-# graph building per 10-bit cell on an M1 and several times that on the Intel
-# runners, where the full probe's LUTDeCrawl child passed an hour. The same
-# table as a list is bit-identical (the push gate checks it) and goes through
-# the same format checks, so which formats a call accepts cannot change. Only
-# a function that depends on nothing but its arguments (no closure, no
-# defaults, no global or attribute names) is evaluated this way, and each
-# table once per process; every other Lut2 call passes through untouched.
-# Handing VapourSynth a cached list still costs about 0.28 s per table, so a
-# 10-bit cell goes from 7.7 s to 1.1 s on an M1, not to nothing.
-# --no-lut-memo runs the calls exactly as havsfunc writes them.
+# LUTDeCrawl and LUTDeRainbow used to AND their masks with eight
+# core.std.Lut2(function=lambda x, y: x & y) calls: a million Python calls per
+# table at 10 bits, 80% of the quick probe, and the full probe never finished
+# on macOS x64 (task #75, which memoised the tables). Havsfunc patch 8 (deps
+# 1.18.0-rc3, task #82) made them Expr 'x y min', leaving havsfunc no Lut2 call
+# at all, so the memo was retired (task #104). plugin_format_contracts_test
+# checks the probe's LUT calls make none. On an older bundle the probe warns.
 # ---------------------------------------------------------------------------
 
-class _LutMemoStd:
-    def __init__(self, std):
-        self._std = std
-        self.tables = {}
-
-    def __getattr__(self, name):
-        return self._lut2 if name == 'Lut2' else getattr(self._std, name)
-
-    @staticmethod
-    def _pure(f):
-        code = getattr(f, '__code__', None)
-        return (code is not None and not getattr(f, '__closure__', None)
-                and not getattr(f, '__defaults__', None) and not getattr(f, '__kwdefaults__', None)
-                and not code.co_names and code.co_argcount == 2)
-
-    def _lut2(self, *args, **kw):
-        import vapoursynth as vs
-        f = kw.get('function')
-        names = ('clipa', 'clipb')
-        clips = list(args) + [kw.get(n) for n in names[len(args):]]
-        if (f is None or len(args) > 2 or not self._pure(f) or any(k in kw for k in ('bits', 'floatout', 'lut', 'lutf'))
-                or len(clips) != 2 or not all(isinstance(c, vs.VideoNode) for c in clips)
-                or not all(c.format and c.format.sample_type == vs.INTEGER for c in clips)):
-            return self._std.Lut2(*args, **kw)
-        ba, bb = clips[0].format.bits_per_sample, clips[1].format.bits_per_sample
-        tkey = (f.__code__, ba, bb)
-        lut = self.tables.get(tkey)
-        if lut is None:
-            # Lut2's index is x + (y << bits of clipa).
-            lut = self.tables[tkey] = [f(x, y) for y in range(1 << bb) for x in range(1 << ba)]
-        rest = {k: v for k, v in kw.items() if k not in names and k != 'function'}
-        return self._std.Lut2(clips[0], clips[1], lut=lut, **rest)
+LUT_CALLS = ('havsfunc.LUTDeCrawl', 'havsfunc.LUTDeRainbow')
 
 
-class _LutMemoCore:
-    """Wraps a core (or havsfunc's akarin shim) so std.Lut2 goes through
-    _LutMemoStd; everything else passes through."""
-
-    def __init__(self, core):
-        self._core = core
-        self.std = _LutMemoStd(core.std)
-
-    def __getattr__(self, name):
-        return getattr(self._core, name)
-
-
-def memo_havsfunc_luts():
+def havsfunc_has_patch_8():
+    """Whether the importable havsfunc ANDs its masks with Expr (patch 8)."""
+    import importlib.util
     sys.path.insert(0, TEMPLATES)
-    import havsfunc
-    if not isinstance(havsfunc.core, _LutMemoCore):
-        havsfunc.core = _LutMemoCore(havsfunc.core)
-    return havsfunc.core
+    spec = importlib.util.find_spec('havsfunc')
+    if spec is None or not spec.origin:
+        return True  # nothing to warn about; the calls fail on their own
+    with open(spec.origin, encoding='utf-8') as f:
+        return 'def _mask_and(' in f.read()
 
 
 # ---------------------------------------------------------------------------
 # Child: run one call's cells, one JSON line per cell as it finishes
 # ---------------------------------------------------------------------------
 
-def child(key, cells, fixtures, within=True, lut_memo=True):
+def child(key, cells, fixtures, within=True):
     import ctypes
     import vapoursynth as vs
     core = vs.core
     calls = _calls()
-    if lut_memo:
-        memo_havsfunc_luts()
     run = calls[key]['run']
     cache = {}
 
@@ -599,7 +552,7 @@ class Progress:
 PROGRESS = Progress()
 
 
-def _child_once(key, cells, fixtures, within, lut_memo):
+def _child_once(key, cells, fixtures, within):
     """Runs one child over cells; returns (results, returncode, stderr)."""
     p = PROGRESS.spawn(key, [sys.executable, os.path.abspath(__file__), '--child', key])
     err = []
@@ -614,8 +567,7 @@ def _child_once(key, cells, fixtures, within, lut_memo):
     timer.daemon = True
     timer.start()
     try:
-        p.stdin.write(json.dumps({'cells': cells, 'fixtures': fixtures, 'within': within,
-                                  'lut_memo': lut_memo}))
+        p.stdin.write(json.dumps({'cells': cells, 'fixtures': fixtures, 'within': within}))
         p.stdin.close()
     except BrokenPipeError:
         pass
@@ -638,13 +590,13 @@ def _child_once(key, cells, fixtures, within, lut_memo):
     return results, code, ''.join(err)
 
 
-def run_cells(key, cells, fixtures, within=True, lut_memo=True):
+def run_cells(key, cells, fixtures, within=True):
     """{cell key: {'ok', 'error'?}} for every cell, through as many child
     processes as crashes need. within=False skips the run_within() pass."""
     results = {}
     todo = list(cells)
     while todo:
-        got, code, err = _child_once(key, todo, fixtures, within, lut_memo)
+        got, code, err = _child_once(key, todo, fixtures, within)
         results.update(got)
         todo = [c for c in todo if cell_key(c) not in results]
         if todo and code == 0:
@@ -653,7 +605,7 @@ def run_cells(key, cells, fixtures, within=True, lut_memo=True):
         if todo:
             # The first cell not reported crashed it: re-run that one alone.
             first = todo.pop(0)
-            got, code, _ = _child_once(key, [first], fixtures, within, lut_memo)
+            got, code, _ = _child_once(key, [first], fixtures, within)
             if got:
                 results.update(got)
             else:
@@ -740,15 +692,13 @@ def main():
     ap.add_argument('--ffmpeg', default=os.environ.get('VAPOURBOX_FFMPEG', 'ffmpeg'))
     ap.add_argument('--budget', type=float,
                     help='seconds: past this, report where every call is, kill the children, exit 3')
-    ap.add_argument('--no-lut-memo', action='store_true',
-                    help="run havsfunc's Lut2 functions as written, not as one list per process")
     a = ap.parse_args()
     if a.quick and a.out:
         ap.error('--quick measures a subset and writes no summaries; write the table from a full run')
 
     if a.child:
         req = json.loads(sys.stdin.read())
-        child(a.child, req['cells'], req['fixtures'], req.get('within', True), req.get('lut_memo', True))
+        child(a.child, req['cells'], req['fixtures'], req.get('within', True))
         return 0
 
     calls = _calls()
@@ -768,6 +718,11 @@ def main():
             grids[k] = base_grid() + doc_grid() + size_grid()
     sizes = sorted({(c['w'], c['h']) for g in grids.values() for c in g})
 
+    if any(k in LUT_CALLS for k in keys) and not havsfunc_has_patch_8():
+        sys.stderr.write("probe: warning: this bundle's havsfunc predates patch 8 (deps < 1.18.0-rc3): "
+                         'LUTDeCrawl/LUTDeRainbow build Python Lut2 tables and are slow at 10+ bits '
+                         '(task #75)\n')
+        sys.stderr.flush()
     if a.budget:
         threading.Thread(target=_watchdog, args=(a.budget,), daemon=True).start()
     t0 = time.monotonic()
@@ -787,8 +742,7 @@ def main():
             futs = {}
             for k in order:
                 PROGRESS.submitted(k, len(grids[k]))
-                futs[ex.submit(run_cells, k, grids[k], fixtures, not a.quick or k in padded,
-                               not a.no_lut_memo)] = k
+                futs[ex.submit(run_cells, k, grids[k], fixtures, not a.quick or k in padded)] = k
             for fut in concurrent.futures.as_completed(futs):
                 k = futs[fut]
                 try:
@@ -807,8 +761,7 @@ def main():
                 bad = sum(1 for r in res.values() if not r['ok'])
                 sys.stderr.write('%-40s %4d cells, %4d refused, %7.1f s\n' % (k, len(cells), bad, secs))
                 sys.stderr.flush()
-    sys.stderr.write('probe: %d calls in %.0f s, --jobs %d, lut memo %s\n'
-                     % (len(keys), time.monotonic() - t0, a.jobs, 'off' if a.no_lut_memo else 'on'))
+    sys.stderr.write('probe: %d calls in %.0f s, --jobs %d\n' % (len(keys), time.monotonic() - t0, a.jobs))
     table = {k: table[k] for k in keys if k in table}
     if errors:
         for e in errors:
