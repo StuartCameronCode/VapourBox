@@ -52,6 +52,11 @@ before merge. The 15 minute timeout stays, now with about 4× headroom.</li>
 patch, needs a deps release). The nightly full probe also differs from the table on Linux and Windows for reasons
 unrelated to time: task #69 (Flow at 64x48) and task #81 (znedi3 at 720x486 on x86, VFM documentation rows).</li>
 </ul>
+<p class="note"><em>Later (task #104, 2026-11-22):</em> task #82's havsfunc patch 8 (deps 1.18.0-rc3) turned these
+eight <code>Lut2</code> calls into <code>Expr 'x y min'</code>, leaving havsfunc no <code>Lut2</code> call, so the
+memo, <code>--no-lut-memo</code> and the memo test were removed from the probe; a heavy test now checks the probe's
+LUT calls make no <code>Lut2</code> call. <code>scripts/time_cells.py</code>'s <code>memo</code> option needs the
+probe as it was at this report (it calls <code>memo_havsfunc_luts</code>, now gone); the numbers here stand.</p>
 
 <h2>1. Slow, not hung</h2>
 <p>The quick probe's printed time in every job of 23 push-gate runs, 2026-11-17 to 2026-11-19
