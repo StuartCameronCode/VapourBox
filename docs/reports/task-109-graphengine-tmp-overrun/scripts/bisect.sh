@@ -28,6 +28,7 @@ for c in $COMMITS; do
             printf '%s\t%s\t%s\t-\t-\t-\t-\t%s (does not build)\n' "$short" "$date" "$mode" "$subj"
             continue
         fi
+        rm -f "$OUT/$short-$mode.build.log"   # kept only when the build fails
         opts=()
         [ "$mode" = asan ] && opts=(--exact)
         "$HERE/run_cases.sh" "$bdir/tmp_overrun" "$HERE/cases.tsv" ${opts[@]+"${opts[@]}"} >"$OUT/$short-$mode.tsv"

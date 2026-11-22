@@ -1,0 +1,159 @@
+case	cpu	tmp_size	tail_changed	tail_max	head_changed	status	detail
+swatch-yuv420p8	auto64	117824	0	0	0	ok	
+swatch-yuv420p10	auto64	117824	0	0	0	ok	
+swatch-yuv422p10	auto64	101184	0	0	0	ok	
+swatch-yuv444p16	auto64	83392	0	0	0	ok	
+cs-to-yuv420p8-96x64p	auto64	131840	0	0	0	ok	
+cs-to-rgbs-yuv420p8-96x64p	auto64	99968	0	0	0	ok	
+cs-from-rgbs-yuv420p8-96x64p	auto64	116096	0	0	0	ok	
+colorize-yuv420p8-96x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv420p10-96x64p	auto64	131840	0	0	0	ok	
+cs-to-rgbs-yuv420p10-96x64p	auto64	99968	0	0	0	ok	
+cs-from-rgbs-yuv420p10-96x64p	auto64	116096	0	0	0	ok	
+colorize-yuv420p10-96x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv422p10-96x64p	auto64	107520	0	0	0	ok	
+cs-to-rgbs-yuv422p10-96x64p	auto64	77120	0	0	0	ok	
+cs-from-rgbs-yuv422p10-96x64p	auto64	82496	0	0	0	ok	
+colorize-yuv422p10-96x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv444p16-96x64p	auto64	84352	0	0	0	ok	
+cs-to-rgbs-yuv444p16-96x64p	auto64	58176	0	0	0	ok	
+cs-from-rgbs-yuv444p16-96x64p	auto64	59328	0	0	0	ok	
+colorize-yuv444p16-96x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-rgbs-yuv444ps-96x64p	auto64	33216	0	0	0	ok	
+deband-up-yuv420p8-96x64p	auto64	49856	0	0	0	ok	
+deband-up-yuv420p10-96x64p	auto64	49856	0	0	0	ok	
+deband-up-yuv422p10-96x64p	auto64	49856	0	0	0	ok	
+deband-down-96x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+bm3d-up-96x64p	auto64	33216	0	0	0	ok	
+bm3d-down-96x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+descale-96x64p	auto64	45632	0	0	0	ok	
+bt709-96x64p	auto64	182016	0	0	0	ok	
+cs-to-yuv420p8-96x64i	auto64	131840	0	0	0	ok	
+cs-to-rgbs-yuv420p8-96x64i	auto64	99968	0	0	0	ok	
+cs-from-rgbs-yuv420p8-96x64i	auto64	116096	0	0	0	ok	
+colorize-yuv420p8-96x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv420p10-96x64i	auto64	131840	0	0	0	ok	
+cs-to-rgbs-yuv420p10-96x64i	auto64	99968	0	0	0	ok	
+cs-from-rgbs-yuv420p10-96x64i	auto64	116096	0	0	0	ok	
+colorize-yuv420p10-96x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv422p10-96x64i	auto64	107520	0	0	0	ok	
+cs-to-rgbs-yuv422p10-96x64i	auto64	77120	0	0	0	ok	
+cs-from-rgbs-yuv422p10-96x64i	auto64	82496	0	0	0	ok	
+colorize-yuv422p10-96x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv444p16-96x64i	auto64	84352	0	0	0	ok	
+cs-to-rgbs-yuv444p16-96x64i	auto64	58176	0	0	0	ok	
+cs-from-rgbs-yuv444p16-96x64i	auto64	59328	0	0	0	ok	
+colorize-yuv444p16-96x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-rgbs-yuv444ps-96x64i	auto64	33216	0	0	0	ok	
+deband-up-yuv420p8-96x64i	auto64	49856	0	0	0	ok	
+deband-up-yuv420p10-96x64i	auto64	49856	0	0	0	ok	
+deband-up-yuv422p10-96x64i	auto64	49856	0	0	0	ok	
+deband-down-96x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+bm3d-up-96x64i	auto64	33216	0	0	0	ok	
+bm3d-down-96x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+descale-96x64i	auto64	45632	0	0	0	ok	
+bt709-96x64i	auto64	182016	0	0	0	ok	
+cs-to-yuv420p8-98x64p	auto64	134464	0	0	0	ok	
+cs-to-rgbs-yuv420p8-98x64p	auto64	101568	0	0	0	ok	
+cs-from-rgbs-yuv420p8-98x64p	auto64	120256	0	0	0	ok	
+colorize-yuv420p8-98x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv420p10-98x64p	auto64	134464	0	0	0	ok	
+cs-to-rgbs-yuv420p10-98x64p	auto64	101568	0	0	0	ok	
+cs-from-rgbs-yuv420p10-98x64p	auto64	120256	0	0	0	ok	
+colorize-yuv420p10-98x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv422p10-98x64p	auto64	108864	0	0	0	ok	
+cs-to-rgbs-yuv422p10-98x64p	auto64	77696	0	0	0	ok	
+cs-from-rgbs-yuv422p10-98x64p	auto64	83840	0	0	0	ok	
+colorize-yuv422p10-98x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv444p16-98x64p	auto64	84544	0	0	0	ok	
+cs-to-rgbs-yuv444p16-98x64p	auto64	58176	0	0	0	ok	
+cs-from-rgbs-yuv444p16-98x64p	auto64	59520	0	0	0	ok	
+colorize-yuv444p16-98x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-rgbs-yuv444ps-98x64p	auto64	33216	0	0	0	ok	
+deband-up-yuv420p8-98x64p	auto64	49856	0	0	0	ok	
+deband-up-yuv420p10-98x64p	auto64	49856	0	0	0	ok	
+deband-up-yuv422p10-98x64p	auto64	49856	0	0	0	ok	
+deband-down-98x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+bm3d-up-98x64p	auto64	33216	0	0	0	ok	
+bm3d-down-98x64p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+descale-98x64p	auto64	46656	0	0	0	ok	
+bt709-98x64p	auto64	187712	0	0	0	ok	
+cs-to-yuv420p8-98x64i	auto64	134464	0	0	0	ok	
+cs-to-rgbs-yuv420p8-98x64i	auto64	101568	0	0	0	ok	
+cs-from-rgbs-yuv420p8-98x64i	auto64	120256	0	0	0	ok	
+colorize-yuv420p8-98x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv420p10-98x64i	auto64	134464	0	0	0	ok	
+cs-to-rgbs-yuv420p10-98x64i	auto64	101568	0	0	0	ok	
+cs-from-rgbs-yuv420p10-98x64i	auto64	120256	0	0	0	ok	
+colorize-yuv420p10-98x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv422p10-98x64i	auto64	108864	0	0	0	ok	
+cs-to-rgbs-yuv422p10-98x64i	auto64	77696	0	0	0	ok	
+cs-from-rgbs-yuv422p10-98x64i	auto64	83840	0	0	0	ok	
+colorize-yuv422p10-98x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv444p16-98x64i	auto64	84544	0	0	0	ok	
+cs-to-rgbs-yuv444p16-98x64i	auto64	58176	0	0	0	ok	
+cs-from-rgbs-yuv444p16-98x64i	auto64	59520	0	0	0	ok	
+colorize-yuv444p16-98x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-rgbs-yuv444ps-98x64i	auto64	33216	0	0	0	ok	
+deband-up-yuv420p8-98x64i	auto64	49856	0	0	0	ok	
+deband-up-yuv420p10-98x64i	auto64	49856	0	0	0	ok	
+deband-up-yuv422p10-98x64i	auto64	49856	0	0	0	ok	
+deband-down-98x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+bm3d-up-98x64i	auto64	33216	0	0	0	ok	
+bm3d-down-98x64i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+descale-98x64i	auto64	46656	0	0	0	ok	
+bt709-98x64i	auto64	187712	0	0	0	ok	
+cs-to-yuv420p8-720x480p	auto64	231936	0	0	0	ok	
+cs-to-rgbs-yuv420p8-720x480p	auto64	155136	0	0	0	ok	
+cs-from-rgbs-yuv420p8-720x480p	auto64	276096	0	0	0	ok	
+colorize-yuv420p8-720x480p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv420p10-720x480p	auto64	231936	0	0	0	ok	
+cs-to-rgbs-yuv420p10-720x480p	auto64	155136	0	0	0	ok	
+cs-from-rgbs-yuv420p10-720x480p	auto64	276096	0	0	0	ok	
+colorize-yuv420p10-720x480p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv422p10-720x480p	auto64	157696	0	0	0	ok	
+cs-to-rgbs-yuv422p10-720x480p	auto64	92352	0	0	0	ok	
+cs-from-rgbs-yuv422p10-720x480p	auto64	132672	0	0	0	ok	
+colorize-yuv422p10-720x480p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv444p16-720x480p	auto64	91840	0	0	0	ok	
+cs-to-rgbs-yuv444p16-720x480p	auto64	58176	0	0	0	ok	
+cs-from-rgbs-yuv444p16-720x480p	auto64	66816	0	0	0	ok	
+colorize-yuv444p16-720x480p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-rgbs-yuv444ps-720x480p	auto64	33216	0	0	0	ok	
+deband-up-yuv420p8-720x480p	auto64	49856	0	0	0	ok	
+deband-up-yuv420p10-720x480p	auto64	49856	0	0	0	ok	
+deband-up-yuv422p10-720x480p	auto64	49856	0	0	0	ok	
+deband-down-720x480p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+bm3d-up-720x480p	auto64	33216	0	0	0	ok	
+bm3d-down-720x480p	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+descale-720x480p	auto64	72768	0	0	0	ok	
+bt709-720x480p	auto64	392192	0	0	0	ok	
+cs-to-yuv420p8-720x480i	auto64	231936	0	0	0	ok	
+cs-to-rgbs-yuv420p8-720x480i	auto64	155136	0	0	0	ok	
+cs-from-rgbs-yuv420p8-720x480i	auto64	276096	0	0	0	ok	
+colorize-yuv420p8-720x480i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv420p10-720x480i	auto64	231936	0	0	0	ok	
+cs-to-rgbs-yuv420p10-720x480i	auto64	155136	0	0	0	ok	
+cs-from-rgbs-yuv420p10-720x480i	auto64	276096	0	0	0	ok	
+colorize-yuv420p10-720x480i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv422p10-720x480i	auto64	157696	0	0	0	ok	
+cs-to-rgbs-yuv422p10-720x480i	auto64	92352	0	0	0	ok	
+cs-from-rgbs-yuv422p10-720x480i	auto64	132672	0	0	0	ok	
+colorize-yuv422p10-720x480i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-to-yuv444p16-720x480i	auto64	91840	0	0	0	ok	
+cs-to-rgbs-yuv444p16-720x480i	auto64	58176	0	0	0	ok	
+cs-from-rgbs-yuv444p16-720x480i	auto64	66816	0	0	0	ok	
+colorize-yuv444p16-720x480i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+cs-rgbs-yuv444ps-720x480i	auto64	33216	0	0	0	ok	
+deband-up-yuv420p8-720x480i	auto64	49856	0	0	0	ok	
+deband-up-yuv420p10-720x480i	auto64	49856	0	0	0	ok	
+deband-up-yuv422p10-720x480i	auto64	49856	0	0	0	ok	
+deband-down-720x480i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+bm3d-up-720x480i	auto64	33216	0	0	0	ok	
+bm3d-down-720x480i	auto64	-	-	-	-	abort:134	Assertion failed: (word == pattern()), function assert_page, file state.h, line 149.
+descale-720x480i	auto64	72768	0	0	0	ok	
+bt709-720x480i	auto64	392192	0	0	0	ok	
+resize-sd-hd-p	auto64	550656	0	0	0	ok	
+resize-down-p	auto64	196224	0	0	0	ok	
+resize-sd-hd-i	auto64	550656	0	0	0	ok	
+resize-down-i	auto64	196224	0	0	0	ok	

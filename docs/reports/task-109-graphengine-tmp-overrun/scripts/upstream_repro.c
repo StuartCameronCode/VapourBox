@@ -10,6 +10,7 @@
  * intact. Under AddressSanitizer use EXACT=1 (no guard), which reports a
  * heap-buffer-overflow in ErrorDiffusion*::init_context.
  */
+#define _POSIX_C_SOURCE 200112L /* posix_memalign under -std=c11 on glibc */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

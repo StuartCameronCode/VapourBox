@@ -1,0 +1,19 @@
+# EXACT=1 scripts/upstream_repro.c, -fsanitize=address, zimg 67e06032 + graphengine 91c6af4c (R78 overlay, NDEBUG), macOS arm64
+=================================================================
+==62320==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x6140000003c0 at pc 0x000100c92fbc bp 0x00016fc95470 sp 0x00016fc95448
+WRITE of size 792 at 0x6140000003c0 thread T0
+    #0 0x000100c92fb8 in __asan_memset+0x1e0 (libclang_rt.asan_osx_dynamic.dylib:arm64e+0x3efb8)
+    #1 0x0001001f46fc in zimg::depth::(anonymous namespace)::ErrorDiffusionNEON::init_context(void*) const+0x38 (ura:arm64+0x10008c6fc)
+    #2 0x00010018546c in graphengine::zimg::(anonymous namespace)::TransformNodeBase::begin_frame(graphengine::zimg::FrameState*, unsigned int, unsigned int, unsigned int) const+0x448 (ura:arm64+0x10001d46c)
+    #3 0x00010017a82c in graphengine::zimg::GraphImpl::impl::run_node(graphengine::zimg::Node*, graphengine::zimg::GraphImpl::impl::SimulationResult const&, graphengine::Graph::Endpoint const*, unsigned int, void*) const+0x420 (ura:arm64+0x10001282c)
+    #4 0x00010016f7ec in graphengine::zimg::GraphImpl::impl::run(graphengine::Graph::Endpoint const*, void*) const+0x220 (ura:arm64+0x1000077ec)
+    #5 0x00010016f3b8 in graphengine::zimg::GraphImpl::run(graphengine::Graph::Endpoint const*, void*) const+0x30 (ura:arm64+0x1000073b8)
+    #6 0x0001001c1e4c in zimg::graph::FilterGraph::process(std::__1::array<graphengine::BufferDescriptor, 4ul> const&, std::__1::array<graphengine::BufferDescriptor, 4ul> const&, void*, int (*)(void*, unsigned int, unsigned int, unsigned int), void*, int (*)(void*, unsigned int, unsigned int, unsigned int), void*) const+0x290 (ura:arm64+0x100059e4c)
+    #7 0x0001001891ec in zimg_filter_graph_process+0x360 (ura:arm64+0x1000211ec)
+    #8 0x000100168d2c in main upstream_repro.c:70
+    #9 0x00019af90d78 in start+0x19f8 (dyld:arm64e+0x31d78)
+0x6140000003c0 is located 0 bytes after 384-byte region [0x614000000240,0x6140000003c0)
+allocated by thread T0 here:
+    #0 0x000100c957e4 in posix_memalign+0x88 (libclang_rt.asan_osx_dynamic.dylib:arm64e+0x417e4)
+    #1 0x000100168c74 in main upstream_repro.c:53
+    #2 0x00019af90d78 in start+0x19f8 (dyld:arm64e+0x31d78)

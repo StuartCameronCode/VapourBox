@@ -7,8 +7,10 @@
 # Prints tmp_overrun's columns; a case whose process died gets status
 # "abort:<exit status>" and the first line of its stderr in a last column.
 set -euo pipefail
-# A leak report at exit is not what this measures.
-export ASAN_OPTIONS=${ASAN_OPTIONS:-detect_leaks=0}
+# A leak report at exit is not what this measures. ASan aborts on an error,
+# as it does by default on macOS (on Linux it exits 1, which reads as a
+# canary overrun).
+export ASAN_OPTIONS=${ASAN_OPTIONS:-detect_leaks=0:abort_on_error=1}
 BIN=$1 CASES=$2
 shift 2
 CPU=auto64

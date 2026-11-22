@@ -29,6 +29,7 @@
  * after the buffer, furthest offset written past its end, guard bytes changed
  * before it, status. Exit status 1 when any case wrote outside the buffer.
  */
+#define _POSIX_C_SOURCE 200112L /* posix_memalign under -std=c11 on glibc */
 #include <errno.h>
 #include <math.h>
 #include <stdint.h>
