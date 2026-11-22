@@ -38,7 +38,7 @@ for conv in $CONVERSIONS; do
     for size in $SIZES; do
         tag="$src-$dst-$dither-$size"
         aborts=0 msg=""
-        for i in $(seq "$REPEAT"); do
+        for _ in $(seq "$REPEAT"); do
             rc=0
             "$VSPIPE" -a src="$src" -a dst="$dst" -a dither="$dither" -a size="$size" -a frames=20 \
                 "$HERE/repro.vpy" - >/dev/null 2>"$OUT/$tag.err" || rc=$?

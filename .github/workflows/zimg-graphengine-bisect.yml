@@ -122,9 +122,12 @@ jobs:
         run: bash .github/scripts/install-deps-bundle.sh linux-x64 deps-v1.18.0-rc3 1.18.0-rc3 deps/linux-x64
 
       - name: repro.vpy, plain and under valgrind
+        env:
+          LABEL: ${{ matrix.label }}
+          REPEAT: ${{ inputs.repeat || '50' }}
         run: |
           mkdir -p out
-          bash $R/vs_confirm.sh "$PWD/deps/linux-x64" "${{ matrix.label }}" "${{ inputs.repeat || '50' }}" out/logs | tee out/vs-confirm.tsv
+          bash $R/vs_confirm.sh "$PWD/deps/linux-x64" "$LABEL" "$REPEAT" out/logs | tee out/vs-confirm.tsv
 
       - uses: actions/upload-artifact@v4
         if: always()

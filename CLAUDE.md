@@ -3771,9 +3771,11 @@ unpinned wrap or clone; `zimg_colorspace_test.rs` is what caught the crash.
 The crash is graphengine `f6211289` (task #109): a fused node's context is
 left out of `get_tmp_size()`, so every error-diffusion conversion writes past
 the buffer, and graphengine HEAD still has it. **Bump `ZIMG_COMMIT` /
-`ZIMG_GRAPHENGINE_COMMIT` only to an upstream commit that fixes it**: check
-with `docs/reports/task-109-graphengine-tmp-overrun/scripts/bisect.sh` (or
-`run_cases.sh` on one build), which needs no VapourSynth.
+`ZIMG_GRAPHENGINE_COMMIT` only to an upstream commit that fixes it**: build
+the candidate with `docs/reports/task-109-graphengine-tmp-overrun/scripts/build.sh`
+in `guard` mode and run `run_cases.sh` over `cases.tsv`; its 36
+error-diffusion cases must not abort. That needs VapourSynth's source (R78's
+zimg overlay), not a VapourSynth build.
 macOS ships zimg releases (arm64 Homebrew's, x64 3.0.5 from source), Windows
 the wheel's (docs/reports/task-103-linux-zimg-pin).
 
