@@ -6,7 +6,7 @@ name: Probe DFTTest FFTW plans (task #101, temporary)
 # and a build-deps-* run of this branch (FFTW_ESTIMATE, deps_run_id):
 # distinct pictures across fresh processes, how far apart, whether DFTTest
 # and FFT3DFilter share an FFTW problem, and speed. Several Windows and Linux
-# jobs sample different runner CPUs. (Push re-runs it: run 2.)
+# jobs sample different runner CPUs. (Each push re-runs it.)
 
 on:
   workflow_dispatch:
@@ -58,11 +58,12 @@ jobs:
       - name: CPU
         shell: bash
         run: |
+          mkdir -p out
           case "$RUNNER_OS" in
             Windows) powershell -NoProfile -Command "(Get-CimInstance Win32_Processor).Name" ;;
-            Linux) grep -m1 'model name' /proc/cpuinfo ;;
+            Linux) grep -m1 'model name' /proc/cpuinfo | sed 's/.*: //' ;;
             macOS) sysctl -n machdep.cpu.brand_string ;;
-          esac
+          esac | tee out/cpu.txt
 
       - name: Install both bundles
         shell: bash

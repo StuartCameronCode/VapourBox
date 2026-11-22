@@ -52,7 +52,8 @@ def problems():
     lib.fftwf_export_wisdom_to_string.restype = ctypes.c_void_p
     p = lib.fftwf_export_wisdom_to_string()
     text = ctypes.string_at(p).decode()
-    lib.fftwf_free(ctypes.c_void_p(p))
+    # Not freed: fftwf_free from Python crashed Windows' heap (0xC0000374),
+    # and the process ends here anyway.
     entries = re.findall(r'\(([^()]+)\)', text)
     out = {}
     for e in entries:
