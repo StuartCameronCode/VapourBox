@@ -1,0 +1,161 @@
+{
+ "counts": {
+  "dctfilter grain 16": [
+   20
+  ],
+  "dctfilter grain 8": [
+   20
+  ],
+  "dctfilter vhs 16": [
+   20
+  ],
+  "dctfilter vhs 8": [
+   20
+  ],
+  "fft3d_nr_bt3 grain 16": [
+   20
+  ],
+  "fft3d_nr_bt3 grain 8": [
+   20
+  ],
+  "fft3d_nr_bt3 vhs 16": [
+   20
+  ],
+  "fft3d_nr_bt3 vhs 8": [
+   20
+  ],
+  "fft3d_td2_spat grain 16": [
+   20
+  ],
+  "fft3d_td2_spat grain 8": [
+   20
+  ],
+  "fft3d_td2_spat vhs 16": [
+   20
+  ],
+  "fft3d_td2_spat vhs 8": [
+   20
+  ],
+  "nr_default grain 16": [
+   20
+  ],
+  "nr_default grain 8": [
+   20
+  ],
+  "nr_default vhs 16": [
+   20
+  ],
+  "nr_default vhs 8": [
+   20
+  ],
+  "nr_strong grain 16": [
+   20
+  ],
+  "nr_strong grain 8": [
+   20
+  ],
+  "nr_strong vhs 16": [
+   20
+  ],
+  "nr_strong vhs 8": [
+   20
+  ],
+  "qtgmc_dfttest vhs 8": [
+   20
+  ],
+  "smdegrain_pf3 grain 8": [
+   20
+  ],
+  "smdegrain_pf3 vhs 8": [
+   20
+  ],
+  "tb1 grain 16": [
+   20
+  ],
+  "tb1 grain 8": [
+   20
+  ],
+  "tb1 vhs 16": [
+   20
+  ],
+  "tb1 vhs 8": [
+   20
+  ],
+  "tb1_sb12 grain 16": [
+   20
+  ],
+  "tb1_sb12 grain 8": [
+   20
+  ],
+  "tb1_sb12 vhs 16": [
+   20
+  ],
+  "tb1_sb12 vhs 8": [
+   20
+  ],
+  "tb3_sb12 grain 16": [
+   20
+  ],
+  "tb3_sb12 grain 8": [
+   20
+  ],
+  "tb3_sb12 vhs 16": [
+   20
+  ],
+  "tb3_sb12 vhs 8": [
+   20
+  ],
+  "td2_post3 grain 8": [
+   20
+  ],
+  "td2_post3 vhs 8": [
+   20
+  ]
+ },
+ "cpu_count": 4,
+ "diff_top_two": {},
+ "distinct": {
+  "dctfilter grain 16": 1,
+  "dctfilter grain 8": 1,
+  "dctfilter vhs 16": 1,
+  "dctfilter vhs 8": 1,
+  "fft3d_nr_bt3 grain 16": 1,
+  "fft3d_nr_bt3 grain 8": 1,
+  "fft3d_nr_bt3 vhs 16": 1,
+  "fft3d_nr_bt3 vhs 8": 1,
+  "fft3d_td2_spat grain 16": 1,
+  "fft3d_td2_spat grain 8": 1,
+  "fft3d_td2_spat vhs 16": 1,
+  "fft3d_td2_spat vhs 8": 1,
+  "nr_default grain 16": 1,
+  "nr_default grain 8": 1,
+  "nr_default vhs 16": 1,
+  "nr_default vhs 8": 1,
+  "nr_strong grain 16": 1,
+  "nr_strong grain 8": 1,
+  "nr_strong vhs 16": 1,
+  "nr_strong vhs 8": 1,
+  "qtgmc_dfttest vhs 8": 1,
+  "smdegrain_pf3 grain 8": 1,
+  "smdegrain_pf3 vhs 8": 1,
+  "tb1 grain 16": 1,
+  "tb1 grain 8": 1,
+  "tb1 vhs 16": 1,
+  "tb1 vhs 8": 1,
+  "tb1_sb12 grain 16": 1,
+  "tb1_sb12 grain 8": 1,
+  "tb1_sb12 vhs 16": 1,
+  "tb1_sb12 vhs 8": 1,
+  "tb3_sb12 grain 16": 1,
+  "tb3_sb12 grain 8": 1,
+  "tb3_sb12 vhs 16": 1,
+  "tb3_sb12 vhs 8": 1,
+  "td2_post3 grain 8": 1,
+  "td2_post3 vhs 8": 1
+ },
+ "keys_with_more_than_one": [],
+ "machine": "Windows-2025Server-10.0.26100-SP0",
+ "plugin": "2D/3D frequency domain denoiser (VapourBox: locked per-thread buffers, task #98; FFTW_ESTIMATE, task #101)",
+ "processes": 20,
+ "processor": "AMD64 Family 25 Model 1 Stepping 1, AuthenticAMD"
+}
