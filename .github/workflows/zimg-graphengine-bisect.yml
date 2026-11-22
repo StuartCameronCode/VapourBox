@@ -14,7 +14,8 @@ name: zimg graphengine bisect (Linux)
 #               (67e06032), plainly and under valgrind.
 #
 # Dispatch it, or push a change to this file on a branch (a workflow that is
-# not on the default branch cannot be dispatched).
+# not on the default branch cannot be dispatched). A push whose commit message
+# contains [vs-only] runs vs-confirm alone.
 
 on:
   workflow_dispatch:
@@ -35,6 +36,7 @@ env:
 
 jobs:
   c-bisect:
+    if: ${{ !contains(github.event.head_commit.message, '[vs-only]') }}
     strategy:
       fail-fast: false
       matrix:

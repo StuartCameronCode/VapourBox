@@ -16,7 +16,8 @@
 #            asan   as vs, plus -fsanitize=address (for --exact runs)
 # CC / CXX choose the compiler (default: the system's cc / c++).
 # GE_PATCH=<file> applies a patch to graphengine first (-p1), e.g.
-# graphengine-fused-node-context.patch.
+# graphengine-fused-node-context.patch. MESON_ARGS adds meson setup arguments
+# (macos.sh passes a cross file for x86_64 under Rosetta).
 set -euo pipefail
 
 WORK=$1 ZIMG_REV=$2 GE_REV=$3 OUT=$4 MODE=${5:-vs}
@@ -49,7 +50,8 @@ case "$MODE" in
     asan)  SAN=(-Db_ndebug=true -Db_sanitize=address -Db_lundef=false) ;;
     *)     echo "unknown mode $MODE" >&2; exit 2 ;;
 esac
-meson setup "$OUT/build" "$OUT/src" "${SAN[@]}" >"$OUT/setup.log" 2>&1 || { tail -30 "$OUT/setup.log"; exit 1; }
+# shellcheck disable=SC2086
+meson setup "$OUT/build" "$OUT/src" "${SAN[@]}" ${MESON_ARGS:-} >"$OUT/setup.log" 2>&1 || { tail -30 "$OUT/setup.log"; exit 1; }
 ninja -C "$OUT/build" >"$OUT/build.log" 2>&1 || { tail -40 "$OUT/build.log"; exit 1; }
 cp "$OUT/build/tmp_overrun" "$OUT/tmp_overrun"
 echo "built $OUT/tmp_overrun (zimg ${ZIMG_REV:0:8}, graphengine ${GE_REV:0:8}${GE_PATCH:+ + $(basename "$GE_PATCH")}, $MODE)"
