@@ -3966,8 +3966,8 @@ picks the planner, so:
   `$DftMarker`) as well as task #98's, so a thread-safe build that still
   plans with PATIENT is rebuilt, never shipped. No template change: there is
   nothing to pass.
-- **Measured:** on every x86 machine (Linux and Windows runners, macOS x64
-  under Rosetta) the 3D plans (`tbsize` > 1: the Noise Reduction method,
+- **Measured:** on every x86 machine (Linux, Windows and Intel Mac
+  runners, macOS x64 under Rosetta) the 3D plans (`tbsize` > 1: the Noise Reduction method,
   QTGMC's dfttest denoiser and knlmeanscl fallback, TD2 postFFT 3) gave 2-3
   pictures in 20-30 fresh processes, 1-2 levels apart in at most 0.13% of
   samples; the 2D plans (`tbsize=1`, havsfunc's prefilters) and Apple

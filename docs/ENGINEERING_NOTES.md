@@ -6247,8 +6247,8 @@ choose another.
 
 - **Measured** (37 keys: the Noise Reduction method, other 3D and 2D sizes,
   QTGMC's dfttest denoiser, SMDegrain's prefilter, TD2 postFFT 3; 720x480 at
-  8 and 16 bits): on every x86 machine (2 Linux and 6 Windows runner jobs,
-  macOS x64 under Rosetta) the same 15 keys, every 3D plan (`tbsize` > 1),
+  8 and 16 bits): on every x86 machine (Linux, Windows and Intel Mac
+  runners, Xeon and EPYC; macOS x64 under Rosetta) the same 15 keys, every 3D plan (`tbsize` > 1),
   gave 2-3 pictures in 20-30 processes, 1 level apart (2 for QTGMC and TD2)
   in at most 0.13% of samples. 2D plans (havsfunc's prefilters) and Apple
   Silicon (M1, CI arm64): one picture always.
@@ -6258,8 +6258,9 @@ choose another.
 - **Fix:** `patches/dfttest-bc5e018-fftw-estimate.patch`, after task #98's
   (its context is that patch's name line), FFTW_ESTIMATE and a marker the
   three deps scripts require. One picture per key everywhere; speed within
-  run noise; the picture is one of PATIENT's on x86 and moves the 3D cases by
-  1-2 levels in at most 0.13% of samples on arm64. Six previews and a lossless
+  run noise; against PATIENT it moves only the 3D cases, by at most 2 levels
+  in at most 0.13% of samples (on some x86 runners it is one of PATIENT's
+  pictures). Six previews and a lossless
   encode agree sample for sample (heavy test). DCTFilter keeps PATIENT (task
   #96's decision); it never split here.
 - **Trap:** a local heavy run in an agentbob worktree used the installed

@@ -61,12 +61,13 @@ under Rosetta) DFTTest's 3D plans (<code>tbsize</code> &gt; 1) gave two or three
 processes: the Noise Reduction DFTTest method, QTGMC's dfttest denoiser (and its knlmeanscl fallback) and
 TemporalDegrain2's postFFT 3. Its 2D plans (<code>tbsize=1</code>: havsfunc's SMDegrain and MCTemporalDenoise
 prefilters) never did. Apple Silicon agreed with itself every time. The pictures differ by 1 level (2 for QTGMC and
-TD2) in at most 0.13% of samples.</p>
+TD2) in at most 0.135% of samples.</p>
 <p>DFTTest has no argument that picks the planner, so <code>Scripts/patches/dfttest-bc5e018-fftw-estimate.patch</code>,
 applied after task #98's thread-safety patch on every platform, plans with <code>FFTW_ESTIMATE</code>: one plan per
 machine. With it, every key gave one picture on every machine, and six previews of one frame equal the lossless
-encode sample for sample (heavy test). It costs no measurable speed. Its picture is one of PATIENT's on x86; on Apple
-Silicon it moves the same 3D cases by the same 1–2 levels in at most 0.13% of samples.</p>
+encode sample for sample (heavy test). It costs no measurable speed. Against PATIENT's pictures it moves only the 3D cases, by at most 2 levels in at most
+0.13% of samples (on some x86 runners it is exactly one of PATIENT's pictures); the 2D plans, SMDegrain, DCTFilter
+and FFT3DFilter are unchanged.</p>
 <p>FFTW's wisdom shows <strong>no problem shared</strong> between DFTTest and FFT3DFilter, so a DFTTest PATIENT plan
 could not have undone FFT3DFilter's ESTIMATE fix (task #80) in a mixed graph; FFT3DFilter's picture after DFTTest
 planned in the same process equals a fresh one's.</p>
@@ -128,6 +129,7 @@ results into <code>data/ci/</code>).</li>
 <tr><td>linux-x64-1 (CI run 44996894983, Intel(R) Xeon(R) 6975P-C)</td><td>20</td><td class="bad">9 of 37</td><td>2</td><td>2, 0.1120%</td><td class="ok">0 of 37</td></tr>
 <tr><td>linux-x64-2 (CI run 44996894983, Intel(R) Xeon(R) 6975P-C)</td><td>20</td><td class="bad">15 of 37</td><td>2</td><td>2, 0.1340%</td><td class="ok">0 of 37</td></tr>
 <tr><td>macos-arm64-1 (CI run 44996894983, Apple M1 (Virtual))</td><td>20</td><td class="ok">0 of 37</td><td>1</td><td>-</td><td class="ok">0 of 37</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td>20</td><td class="bad">15 of 37</td><td>2</td><td>2, 0.1313%</td><td class="ok">0 of 37</td></tr>
 <tr><td>windows-x64-1 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td>20</td><td class="bad">15 of 37</td><td>2</td><td>2, 0.1340%</td><td class="ok">0 of 37</td></tr>
 <tr><td>windows-x64-2 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td>20</td><td class="bad">15 of 37</td><td>2</td><td>2, 0.1340%</td><td class="ok">0 of 37</td></tr>
 <tr><td>windows-x64-3 (CI run 44996894983, AMD EPYC 7763 64-Core Processor)</td><td>20</td><td class="bad">15 of 37</td><td>2</td><td>2, 0.1345%</td><td class="ok">0 of 37</td></tr>
@@ -148,6 +150,7 @@ results into <code>data/ci/</code>).</li>
 <tr><td>linux-x64-1 (CI run 44996894983, Intel(R) Xeon(R) 6975P-C)</td><td><code>nr_default</code>, <code>nr_strong</code>, <code>qtgmc_dfttest</code></td></tr>
 <tr><td>linux-x64-2 (CI run 44996894983, Intel(R) Xeon(R) 6975P-C)</td><td><code>nr_default</code>, <code>nr_strong</code>, <code>qtgmc_dfttest</code>, <code>tb3_sb12</code>, <code>td2_post3</code></td></tr>
 <tr><td>macos-arm64-1 (CI run 44996894983, Apple M1 (Virtual))</td><td>none</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td><code>nr_default</code>, <code>nr_strong</code>, <code>qtgmc_dfttest</code>, <code>tb3_sb12</code>, <code>td2_post3</code></td></tr>
 <tr><td>windows-x64-1 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td><code>nr_default</code>, <code>nr_strong</code>, <code>qtgmc_dfttest</code>, <code>tb3_sb12</code>, <code>td2_post3</code></td></tr>
 <tr><td>windows-x64-2 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td><code>nr_default</code>, <code>nr_strong</code>, <code>qtgmc_dfttest</code>, <code>tb3_sb12</code>, <code>td2_post3</code></td></tr>
 <tr><td>windows-x64-3 (CI run 44996894983, AMD EPYC 7763 64-Core Processor)</td><td><code>nr_default</code>, <code>nr_strong</code>, <code>qtgmc_dfttest</code>, <code>tb3_sb12</code>, <code>td2_post3</code></td></tr>
@@ -170,6 +173,8 @@ results into <code>data/ci/</code>).</li>
 <tr><td>linux-x64-2 (CI run 44996894983, Intel(R) Xeon(R) 6975P-C)</td><td>ESTIMATE</td><td>68</td><td>38</td><td class="ok">0</td><td>none</td></tr>
 <tr><td>macos-arm64-1 (CI run 44996894983, Apple M1 (Virtual))</td><td>PATIENT</td><td>74</td><td>38</td><td class="ok">0</td><td>none</td></tr>
 <tr><td>macos-arm64-1 (CI run 44996894983, Apple M1 (Virtual))</td><td>ESTIMATE</td><td>68</td><td>38</td><td class="ok">0</td><td>none</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td>PATIENT</td><td>73</td><td>38</td><td class="ok">0</td><td>none</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td>ESTIMATE</td><td>68</td><td>38</td><td class="ok">0</td><td>none</td></tr>
 <tr><td>windows-x64-1 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td>PATIENT</td><td>68</td><td>38</td><td class="ok">0</td><td>none</td></tr>
 <tr><td>windows-x64-1 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td>ESTIMATE</td><td>68</td><td>38</td><td class="ok">0</td><td>none</td></tr>
 <tr><td>windows-x64-2 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td>PATIENT</td><td>68</td><td>38</td><td class="ok">0</td><td>none</td></tr>
@@ -187,6 +192,7 @@ results into <code>data/ci/</code>).</li>
 <tr><td>linux-x64-1 (CI run 44996894983, Intel(R) Xeon(R) 6975P-C)</td><td>6 of 37</td><td>2</td><td>0.1340%</td><td>31</td></tr>
 <tr><td>linux-x64-2 (CI run 44996894983, Intel(R) Xeon(R) 6975P-C)</td><td>0 of 37</td><td>0</td><td>0.0000%</td><td>37</td></tr>
 <tr><td>macos-arm64-1 (CI run 44996894983, Apple M1 (Virtual))</td><td>15 of 37</td><td>2</td><td>0.1297%</td><td>22</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td>9 of 37</td><td>2</td><td>0.1114%</td><td>28</td></tr>
 </table>
 <h3>Speed (median of runs)</h3>
 <table><tr><th>Machine</th><th>Call</th><th>Create PATIENT / ESTIMATE (s)</th><th>fps PATIENT / ESTIMATE</th></tr>
@@ -238,6 +244,12 @@ results into <code>data/ci/</code>).</li>
 <tr><td>macos-arm64-1 (CI run 44996894983, Apple M1 (Virtual))</td><td><code>qtgmc_dfttest 720x480</code></td><td>0.309 / 0.344</td><td>31.8 / 31.2</td></tr>
 <tr><td>macos-arm64-1 (CI run 44996894983, Apple M1 (Virtual))</td><td><code>tb1 1920x1080</code></td><td>0.001 / 0.001</td><td>17.6 / 17.6</td></tr>
 <tr><td>macos-arm64-1 (CI run 44996894983, Apple M1 (Virtual))</td><td><code>tb1 720x480</code></td><td>0.000 / 0.000</td><td>113.2 / 97.9</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td><code>nr_default 1920x1080</code></td><td>0.029 / 0.025</td><td>2.1 / 2.9</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td><code>nr_default 720x480</code></td><td>0.020 / 0.001</td><td>18.0 / 17.3</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td><code>qtgmc_dfttest 1920x1080</code></td><td>1.069 / 0.746</td><td>3.1 / 4.5</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td><code>qtgmc_dfttest 720x480</code></td><td>0.171 / 0.166</td><td>18.9 / 22.3</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td><code>tb1 1920x1080</code></td><td>0.000 / 0.000</td><td>8.2 / 12.5</td></tr>
+<tr><td>macos-x64-1 (CI run 44996894983, Intel(R) Core(TM) i7-8700B CPU @ 3.20GHz)</td><td><code>tb1 720x480</code></td><td>0.000 / 0.000</td><td>53.4 / 64.4</td></tr>
 <tr><td>windows-x64-1 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td><code>nr_default 1920x1080</code></td><td>0.035 / 0.032</td><td>3.0 / 2.8</td></tr>
 <tr><td>windows-x64-1 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td><code>nr_default 720x480</code></td><td>0.027 / 0.001</td><td>16.9 / 16.4</td></tr>
 <tr><td>windows-x64-1 (CI run 44996894983, Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz)</td><td><code>qtgmc_dfttest 1920x1080</code></td><td>0.559 / 0.562</td><td>3.7 / 3.7</td></tr>
@@ -275,7 +287,7 @@ second process hashes four DFTTest calls at two depths exactly as the first.</p>
 <h2>5. Limits</h2>
 <ul class="notes">
 <li>Rosetta translates x86 code; its plan timings are not an Intel CPU's. Its result matched the real x86 runners
-(the same 15 keys).</li>
+(the same 15 keys), and so did the Intel Mac runner.</li>
 <li>A cross-process count is a sample: 20–30 processes can miss a rare plan, and a runner draw (CPU model, load)
 changes which plans win. Two CI runs per platform; every x86 job split the same keys.</li>
 <li>ESTIMATE is one plan per machine, not per platform: two different CPUs may still pick different plans. A preview
