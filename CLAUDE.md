@@ -1173,9 +1173,12 @@ it — if they disagree, the byte stream desyncs from the frame geometry
   order). So no pass sees 4:1:1 and none carries a 4:1:1 guard of its own;
   mvtools, Cnr4, RemoveDirt and DeScratch all refuse it.
 - Anything else is converted **by the decoder ffmpeg** to the nearest readable
-  superset format (never less chroma resolution or bit depth): 4:1:0/4:4:0 go to
-  4:2:2; depth rounds *up* to 8/10/12/16; unrecognized names fall back to
-  `yuv444p16le`.
+  superset format (never less chroma resolution or bit depth, **on either
+  axis**): 4:1:0 goes to 4:2:2; **4:4:0 (JPEG/MJPEG cameras) goes to 4:4:4**,
+  since it has full horizontal chroma, which 4:2:2 halved until task #100
+  (`pipe_format_never_has_less_chroma_on_either_axis`; the app's twin is
+  `pixelFormatChromaLayout`, docs/reports/task-100-440-sources); depth rounds
+  *up* to 8/10/12/16; unrecognized names fall back to `yuv444p16le`.
 - **14-bit is never piped** (task #23): a 14-bit (or 13-bit) source decodes as
   16-bit, losslessly (an exact shift in limited range). fmtconv's
   `bitdepth` has no 14-bit output and havsfunc returns to the clip's depth

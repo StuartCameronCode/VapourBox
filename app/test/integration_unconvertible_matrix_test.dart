@@ -280,7 +280,7 @@ void main() {
   }
 
   // 4:4:0 is not a pipe format, so the encode's own decoder converts it to
-  // 4:2:2: the neutraliser in front lets it.
+  // 4:4:4 (task #100): the neutraliser in front lets it.
   test('ycgco 4:4:0: an encode whose decoder converts equals the twin\'s',
       () async {
     final src = await _retag('m76_ycgco_440', 'ycgco', pixFmt: 'yuv440p');

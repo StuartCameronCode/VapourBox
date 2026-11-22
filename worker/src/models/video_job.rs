@@ -2070,6 +2070,15 @@ mod tests {
             VideoCodec::H264Nvenc.forced_pix_fmt("yuv444p"),
             Some("yuv420p")
         );
+        // A 4:4:0 camera source reaches the encoder as 4:4:4 under Original
+        // (task #100), and is pinned the same way.
+        let job =
+            fixed_format_job(VideoCodec::H264Nvenc, ChromaSubsampling::Original, "yuvj440p");
+        assert_eq!(job.encoder_input_pix_fmt(), "yuv444p");
+        assert_eq!(
+            VideoCodec::H264Nvenc.forced_pix_fmt(&job.encoder_input_pix_fmt()),
+            Some("yuv420p")
+        );
     }
 
     /// The guard must stay off for what already worked. Pinning NVENC
@@ -2194,10 +2203,18 @@ mod tests {
 
     /// The sources both pin-warning tables run over: every chroma layout, and
     /// depths below, at and above ProRes/v210's 10 bits (`yuv444p12le` is what
-    /// the decoder reports for every ProRes 4444 source).
-    const FIXED_FORMAT_SOURCES: [&str; 7] = [
+    /// the decoder reports for every ProRes 4444 source). `yuv440p` (JPEG
+    /// cameras) has full horizontal chroma, so it counts as 4:4:4 (task #100).
+    const FIXED_FORMAT_SOURCES: [&str; 8] = [
         "yuv420p", "yuv411p", "yuv422p", "yuv422p10le", "yuv444p10le", "yuv444p12le", "yuv422p16le",
+        "yuv440p",
     ];
+
+    /// Whether a source of `FIXED_FORMAT_SOURCES` has 4:4:4's horizontal
+    /// chroma, stated from the names rather than from `chroma_and_depth`.
+    fn full_horizontal_chroma(src: &str) -> bool {
+        src.starts_with("yuv444") || src.starts_with("yuv440")
+    }
 
     /// What a pin warning reports for a codec that stores `stored` whatever is
     /// selected: (selection ignored, source chroma lost, padded up to 4:4:4).
@@ -2216,6 +2233,22 @@ mod tests {
         let lost = !stores_444 && src_chroma == ChromaClass::C444;
         let padded = stores_444 && src_chroma != ChromaClass::C444;
         (ignored, lost, padded)
+    }
+
+    /// Task #100: under Original a 4:4:0 source comes out 4:4:4 at its own
+    /// depth, since that is what its pipe carries; it used to come out 4:2:2,
+    /// its horizontal chroma halved.
+    #[test]
+    fn a_440_source_is_output_as_444_under_original() {
+        for (src, out) in [
+            ("yuv440p", "yuv444p"),
+            ("yuvj440p", "yuv444p"),
+            ("yuv440p10le", "yuv444p10le"),
+            ("yuv440p12le", "yuv444p12le"),
+        ] {
+            let job = fixed_format_job(VideoCodec::FFV1, ChromaSubsampling::Original, src);
+            assert_eq!(job.encoder_input_pix_fmt(), out, "{src}");
+        }
     }
 
     /// Which codecs declare a still-interlaced picture's field order, stated
@@ -2254,7 +2287,7 @@ mod tests {
                 assert_eq!(job.encoding_settings.effective_chroma_subsampling(), C::Yuv422P10);
                 assert_eq!(job.encoder_input_pix_fmt(), "yuv422p10le", "{cs:?} {src}");
 
-                let src_444 = src.starts_with("yuv444");
+                let src_444 = full_horizontal_chroma(src);
                 let expected = match cs {
                     C::Original | C::Yuv422P10 => (false, src_444, false),
                     C::Yuv420 | C::Yuv420P10 | C::Yuv422 | C::Yuv444P10 => (true, src_444, false),
@@ -2302,7 +2335,7 @@ mod tests {
                     // ffmpeg inserts no scaler of its own.
                     assert_eq!(codec.forced_pix_fmt(&job.encoder_input_pix_fmt()), Some(pix));
 
-                    let src_444 = src.starts_with("yuv444");
+                    let src_444 = full_horizontal_chroma(src);
                     let expected = match (stores_444, cs) {
                         (false, C::Original | C::Yuv422P10) => (false, src_444, false),
                         (false, C::Yuv420 | C::Yuv420P10 | C::Yuv422 | C::Yuv444P10) => {
@@ -2344,6 +2377,9 @@ mod tests {
             (C::Original, "yuv422p10le", C::Yuv420P10),
             (C::Original, "yuv444p12le", C::Yuv420P10),
             (C::Original, "yuv422p16le", C::Yuv420P10),
+            (C::Original, "yuv440p", C::Yuv420),
+            (C::Original, "yuvj440p", C::Yuv420),
+            (C::Original, "yuv440p10le", C::Yuv420P10),
             (C::Yuv420, "yuv422p10le", C::Yuv420),
             (C::Yuv420P10, "yuv420p", C::Yuv420P10),
             (C::Yuv422, "yuv420p", C::Yuv420),

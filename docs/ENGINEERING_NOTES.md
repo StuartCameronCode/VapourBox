@@ -6124,3 +6124,35 @@ Report: [docs/reports/task-91-sweep-ai-encode-budget](reports/task-91-sweep-ai-e
   stop running the Core ML path users run). If 10 frames is ever not enough,
   run the add-on encodes one at a time before raising the budget: it is per
   process.
+
+### 4:4:0 sources are decoded as 4:4:4, not 4:2:2 (task #100, 2026-11-22)
+
+Report: [docs/reports/task-100-440-sources](reports/task-100-440-sources/index.html).
+
+- **The fault.** `pixel_format.rs::classify` put the subsampling code `440`
+  in the 4:2:2 class ("a superset horizontally and equal vertically"). It is
+  the other way round: 4:4:0 has full horizontal chroma and half vertical, so
+  the decoder's `-pix_fmt yuv422p…` halved a 4:4:0 source's horizontal
+  chroma. Some JPEG/MJPEG cameras record `yuvj440p`. The app's twin,
+  `pixelFormatChromaLayout`, made the same call.
+- **Measured** (FFmpeg 9.0.2, macOS arm64, 128x96 FFV1): 1-px red/blue
+  columns came through a 4:2:2 pipe 70 levels off on average (max 91, the
+  columns gone), through 4:4:4 exact; testsrc2 1.78 / 21 (full range 1.83 /
+  23) against a one-step 4:4:4 rendering, 0 / 0 through 4:4:4. End to end,
+  the encode is now bit-identical to ffmpeg's own 4:4:4 decode of the source
+  (it differed in about half its samples), and the preview shows the columns.
+  The planning stage's "yuvj440p" fixture was in fact limited range (FFV1
+  stores no `yuvj`); the report keeps that correction.
+- **Fix.** `440` is in the 4:4:4 class; 4:1:0 stays 4:2:2, which holds it on
+  both axes. `pipe_format_never_has_less_chroma_on_either_axis` checks every
+  code × prefix × depth on both axes. The Dart twin moved with it, and
+  `yuv440p` rows were added to the ProRes, v210, AV1 and NVENC tables pinned
+  between the two.
+- **Output change.** Under "Match source" a 4:4:0 source comes out 4:4:4
+  (x264: High 4:4:4 Predictive) where it was 4:2:2. Every explicit format,
+  AV1, ProRes, v210 and HuffYUV now convert from the true chroma; their
+  warnings say a 4:2:2 output reduces it, and ProRes 4444 no longer says it
+  pads. The pipe and passes carry about 1.5× the bytes.
+- **Task #97.** An odd-width 4:4:0 source was off the chroma grid only
+  because of the 4:2:2 pipe (`BlankClip: invalid width`); a 4:4:4 pipe has
+  no grid to be off, so it runs with or without #97's padding.

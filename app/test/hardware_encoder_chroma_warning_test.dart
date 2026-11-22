@@ -36,7 +36,14 @@ void main() {
       // conclusion.
       expect(pixelFormatChromaLayout('yuv411p'), ChromaLayout.c422);
       expect(pixelFormatChromaLayout('yuv410p'), ChromaLayout.c422);
-      expect(pixelFormatChromaLayout('yuv440p'), ChromaLayout.c422);
+    });
+
+    test('4:4:0 is 4:4:4, as the worker decodes it (task #100)', () {
+      // Full horizontal chroma: the worker pipes it as 4:4:4, so that is what
+      // a hardware encoder would be handed under "Match source".
+      expect(pixelFormatChromaLayout('yuv440p'), ChromaLayout.c444);
+      expect(pixelFormatChromaLayout('yuvj440p'), ChromaLayout.c444);
+      expect(pixelFormatChromaLayout('yuv440p10le'), ChromaLayout.c444);
     });
 
     test('reads semi-planar and packed formats', () {
@@ -89,6 +96,7 @@ void main() {
         (VideoCodec.h265Nvenc, 'yuv422p10le', '4:2:0 10-bit'), // -> p010le
         (VideoCodec.h265Nvenc, 'yuv422p', '4:2:0 8-bit'), // -> yuv420p
         (VideoCodec.h264Nvenc, 'yuv444p', '4:2:0 8-bit'), // -> yuv420p
+        (VideoCodec.h264Nvenc, 'yuvj440p', '4:2:0 8-bit'), // -> yuv420p (task #100)
         // 10-bit 4:2:0 in — only H.264 has a problem with it.
         (VideoCodec.h264Nvenc, 'yuv420p10le', '4:2:0 8-bit'), // -> yuv420p
         (VideoCodec.h265Nvenc, 'yuv420p10le', null), // -> None

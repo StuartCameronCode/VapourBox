@@ -98,10 +98,11 @@ enum ChromaLayout {
   /// 4:2:0 — one colour sample per 2x2 block.
   c420,
 
-  /// 4:2:2 and anything hardware treats like it (4:4:0, 4:1:1, 4:1:0).
+  /// 4:2:2 and anything hardware treats like it (4:1:1, 4:1:0).
   c422,
 
-  /// 4:4:4, and RGB, which carries full colour resolution by construction.
+  /// 4:4:4, 4:4:0 (full horizontal chroma, which the worker decodes as 4:4:4,
+  /// task #100), and RGB, which carries full colour resolution by construction.
   c444,
 }
 
@@ -121,13 +122,14 @@ ChromaLayout pixelFormatChromaLayout(String? pixFmt) {
     switch (planar.group(1)!) {
       case '420':
         return ChromaLayout.c420;
-      // 4:1:0 and 4:1:1 subsample more coarsely than 4:2:2 horizontally and
-      // 4:4:0 more coarsely vertically, but none of them is 4:2:0, and no
-      // hardware encoder takes any of them — so they warn alongside 4:2:2.
+      // 4:1:0 and 4:1:1 subsample more coarsely than 4:2:2 horizontally;
+      // neither is 4:2:0, and no hardware encoder takes either, so they warn
+      // alongside 4:2:2 (the worker pipes both as 4:2:2). 4:4:0 has full
+      // horizontal chroma and falls through to 4:4:4, which is what the
+      // worker decodes it as (`pixel_format.rs`, task #100).
       case '410':
       case '411':
       case '422':
-      case '440':
         return ChromaLayout.c422;
       default:
         return ChromaLayout.c444;
