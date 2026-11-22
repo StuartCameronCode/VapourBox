@@ -1,6 +1,6 @@
 # Draft: issue for sekrit-twc/zimg
 
-**Not filed.** For the user to approve before it is posted with `gh issue create -R sekrit-twc/zimg`.
+**Filed 2026-11-22 as https://github.com/sekrit-twc/zimg/issues/245** (the body below, with `scripts/upstream_repro.c` appended in a collapsed section).
 
 ---
 

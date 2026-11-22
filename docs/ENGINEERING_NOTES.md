@@ -6411,8 +6411,8 @@ VapourSynth; the cause is in graphengine, not in VapourSynth or our build.
 - **Fix (upstream's to make).** Skip only the plane loop for a node with no
   live rows (`graphengine-fused-node-context.patch`, a one-line change). It
   is clean on every case and mode, and keeps f6211289's saving (1216 against
-  1344 bytes in the minimal repro). It is drafted for sekrit-twc/zimg and not
-  filed until the user approves the text. VapourBox never ships the patch.
+  1344 bytes in the minimal repro). Reported as sekrit-twc/zimg#245
+  (https://github.com/sekrit-twc/zimg/issues/245). VapourBox never ships the patch.
 - **Exposure.** None in VapourBox: Linux is pinned to `cb5b2ce1` (task
   #103); macOS ships zimg releases; the Windows R78 wheel (2026-07-24)
   predates f6211289. A bump of `ZIMG_COMMIT` must land on an upstream commit

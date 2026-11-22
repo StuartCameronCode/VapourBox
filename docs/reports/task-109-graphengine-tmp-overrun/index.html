@@ -49,7 +49,7 @@ Rosetta, locally, and on GitHub Actions <code>ubuntu-24.04</code> (x64) and <cod
 every number below comes from <code>scripts/</code>, and the tables are in <code>data/</code>.</p>
 
 <div class="card">
-<p><strong>Outcome: cause found and bisected; a fix is drafted for upstream and not filed yet. Our bundles are
+<p><strong>Outcome: cause found and bisected; reported upstream as <a href="https://github.com/sekrit-twc/zimg/issues/245">sekrit-twc/zimg#245</a> with a one-line fix. Our bundles are
 unaffected</strong> (task #103's pin). zimg master's <code>e2e43d09</code> moved graphengine from
 <code>cb5b2ce1</code> to <code>91c6af4c</code>. From graphengine <strong><code>f6211289</code></strong> ("Exclude
 fused nodes from buffer sizing calculation", 2026-07-30), <code>zimg_filter_graph_get_tmp_size()</code> leaves out
@@ -235,9 +235,8 @@ to VapourSynth.</li>
 </ul>
 
 <h2>Upstream</h2>
-<p>Drafted, not yet filed: an issue on sekrit-twc/zimg (<code>upstream-issue-draft.md</code>) with
-<code>upstream_repro.c</code>, the bisect and the patch.
-It will be filed only after the user approves the text. Its link goes here once it exists. If upstream fixes it, the
+<p>Filed 2026-11-22 as <a href="https://github.com/sekrit-twc/zimg/issues/245">sekrit-twc/zimg#245</a>, with
+<code>upstream_repro.c</code>, the bisect and the patch; the text is <code>upstream-issue-draft.md</code>. If upstream fixes it, the
 fixed zimg commit is the candidate for <code>ZIMG_COMMIT</code>. A bump changes every resize on Linux, so it needs
 the same A/B through <code>deps_run_id</code> as task #103.</p>
 
