@@ -5528,6 +5528,8 @@ time, and `--budget` stops it before the test's timeout naming the calls still
 running. Real 10-bit previews still pay ~8 s for the same tables (task #82);
 nightly's other probe differences are tasks #69 and #81. Report:
 [docs/reports/task-75-quick-probe-timeout](reports/task-75-quick-probe-timeout/index.html).
+*Superseded by task #104 (2026-11-22): havsfunc patch 8 (task #82, deps
+1.18.0-rc3) removed every Lut2 call, so the memo was retired; see below.*
 
 ### QTGMC's "uninitialised memory" at an odd chroma width was memcheck's model of `vpmaddwd` (task #70, 2026-11-19)
 
@@ -6234,3 +6236,27 @@ Report: [docs/reports/task-100-440-sources](reports/task-100-440-sources/index.h
 - **Task #97.** An odd-width 4:4:0 source was off the chroma grid only
   because of the 4:2:2 pipe (`BlankClip: invalid width`); a 4:4:4 pipe has
   no grid to be off, so it runs with or without #97's padding.
+
+### The probe's Lut2 memo retired: havsfunc makes no Lut2 call (task #104, 2026-11-22)
+
+Nightly 44940674293 (the 1.18.0-rc3 candidate bundles) failed the heavy
+`plugin_format_contracts_test` check "the probe's Lut2 memo gives exactly what
+havsfunc's functions give" on macOS x64 and Linux x64, both tiers:
+"havsfunc.LUTDeCrawl no longer goes through the memo: the probe is slow again".
+It wasn't slow. Patch 8 (task #82) turned LUTDeCrawl's and LUTDeRainbow's eight
+`Lut2(function=lambda x, y: x & y)` calls, havsfunc's only Lut2 calls, into
+`Expr 'x y min'`, so the memo (task #75) had nothing left to memoise. The check
+was written for unpatched havsfunc and runs only heavy, against the bundle, so
+#82's CI on the rc2 bundle never ran it. Nothing else in the template, its
+modules or the probe calls Lut2, and every bundle CI runs is now rc3 (pinned
+by task #105; a `deps_run_id` build fails if patch 8 doesn't apply).
+
+So the memo, its plumbing and `--no-lut-memo` are gone from
+`Scripts/probe-plugin-formats.py`. The test now runs the probe's own LUT calls,
+and the branches they don't take (`linkUV=False`, `mask=True`), at 8 and 10
+bits through a shim that counts `std.Lut2` calls, and requires none; it skips
+bundles before 1.18.0-rc3 (`test/support/deps_version.dart`, the
+release-candidate-aware comparison moved out of
+`vapoursynth_integration_test.dart`). On an older bundle the probe prints a
+warning: its LUT cells build the tables again and are slow at 10+ bits.
+

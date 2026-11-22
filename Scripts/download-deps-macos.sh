@@ -162,14 +162,20 @@ PYTHON_VERSION="3.12.8"
 # A per-OS FFmpeg is a per-OS encoder: the arguments in pipeline_executor.rs
 # would then mean subtly different things depending on where the job ran.
 FFMPEG_SERIES="9.0"
-# The exact martin-riedl.de build for x64, by build ID (<id>_<version>) and
-# SHA-256. The host keeps every build-ID URL reachable (verified back to its
+# The exact martin-riedl.de build for each arch, by build ID (<id>_<version>)
+# and SHA-256. The host keeps every build-ID URL reachable (verified back to its
 # 5.0 builds from 2022), so an exact pin is durable. The version after the
 # underscore must be within $FFMPEG_SERIES, which assert_ffmpeg_series checks
 # and app/test/ffmpeg_version_pin_test.dart reads.
 FFMPEG_MACOS_X64_BUILD="1789931006_9.0.2"
 FFMPEG_MACOS_X64_FFMPEG_SHA256="7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4"
 FFMPEG_MACOS_X64_FFPROBE_SHA256="2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd"
+# arm64 took `latest` until 2026-11-22, when it moved to 9.1 and failed the
+# series check (deps 1.18.0-rc3). This build is the one every bundle up to
+# 1.18.0-rc2 shipped, byte for byte (code signature aside).
+FFMPEG_MACOS_ARM64_BUILD="1789931890_9.0.2"
+FFMPEG_MACOS_ARM64_FFMPEG_SHA256="c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924"
+FFMPEG_MACOS_ARM64_FFPROBE_SHA256="fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6"
 
 # Fail the build if the FFmpeg we installed is not the series we pinned.
 # Without this, an upstream that moves `latest` onto a new series reintroduces
@@ -742,15 +748,12 @@ else
     # Use the static arm64 build from martin-riedl.de (links only system
     # frameworks, ~60 MB) - the same source the 1.3.0 deps shipped, and the
     # same host as the x64 build above.
-    echo "  Downloading static arm64 FFmpeg from martin-riedl.de..."
-    #
-    # This host only publishes `latest` plus opaque build-id paths whose
-    # retention is unknown, so pinning a URL is not available. Take latest and
-    # let assert_ffmpeg_series below fail the build if it has moved off the
-    # pinned series — a red build naming the drift is better than silently
-    # shipping a different FFmpeg here than everywhere else.
-    curl -fsSL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffmpeg.zip" -o "$BUILD_DIR/ffmpeg.zip"
-    curl -fsSL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/ffprobe.zip" -o "$BUILD_DIR/ffprobe.zip"
+    echo "  Downloading static arm64 FFmpeg $FFMPEG_MACOS_ARM64_BUILD from martin-riedl.de..."
+    # Pinned by build ID and SHA-256, as x64 is: `latest` moved to a new series
+    # under us (9.1, 2026-11-22). assert_ffmpeg_series below still checks it.
+    FFMPEG_ARM64_BASE="https://ffmpeg.martin-riedl.de/download/macos/arm64/$FFMPEG_MACOS_ARM64_BUILD"
+    fetch_sha256 "$FFMPEG_ARM64_BASE/ffmpeg.zip" "$BUILD_DIR/ffmpeg.zip" "$FFMPEG_MACOS_ARM64_FFMPEG_SHA256"
+    fetch_sha256 "$FFMPEG_ARM64_BASE/ffprobe.zip" "$BUILD_DIR/ffprobe.zip" "$FFMPEG_MACOS_ARM64_FFPROBE_SHA256"
     unzip -q -o "$BUILD_DIR/ffmpeg.zip" -d "$DEPS_DIR/ffmpeg/"
     unzip -q -o "$BUILD_DIR/ffprobe.zip" -d "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"

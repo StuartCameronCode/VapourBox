@@ -92,29 +92,31 @@ void main() {
       );
     });
 
-    test("macOS's exact x64 pin lies within the shared series", () {
-      // martin-riedl.de keeps every build-ID URL (<id>_<version>), so the x64
-      // build is pinned exactly, with a SHA-256 per zip (task #45). It still
-      // has to be inside the series everyone else is on, or macOS x64 silently
-      // diverges from macOS arm64.
+    test("macOS's exact pins lie within the shared series", () {
+      // martin-riedl.de keeps every build-ID URL (<id>_<version>), so each
+      // arch is pinned exactly, with a SHA-256 per zip (x64: task #45; arm64
+      // since its `latest` moved to 9.1, deps 1.18.0-rc3). Each still has to be
+      // inside the series everyone else is on, or macOS silently diverges.
       final text = File(p.join(root, 'Scripts', 'download-deps-macos.sh')).readAsStringSync();
       final series = RegExp(r'^FFMPEG_SERIES="([^"]+)"', multiLine: true).firstMatch(text)!.group(1)!;
-      final build = RegExp(r'^FFMPEG_MACOS_X64_BUILD="(\d+)_([^"]+)"', multiLine: true).firstMatch(text);
-      expect(build, isNotNull,
-          reason: 'download-deps-macos.sh no longer pins an exact x64 build '
-              '(FFMPEG_MACOS_X64_BUILD="<id>_<version>")');
-      expect(
-        build!.group(2)!,
-        startsWith('$series.'),
-        reason: 'the pinned x64 build ${build.group(0)} is not in the '
-            '$series series the other platforms use',
-      );
-      for (final name in ['FFMPEG_MACOS_X64_FFMPEG_SHA256', 'FFMPEG_MACOS_X64_FFPROBE_SHA256']) {
+      for (final arch in ['X64', 'ARM64']) {
+        final build = RegExp('^FFMPEG_MACOS_${arch}_BUILD="(\\d+)_([^"]+)"', multiLine: true).firstMatch(text);
+        expect(build, isNotNull,
+            reason: 'download-deps-macos.sh no longer pins an exact $arch build '
+                '(FFMPEG_MACOS_${arch}_BUILD="<id>_<version>")');
         expect(
-          RegExp('^$name="[0-9a-f]{64}"\$', multiLine: true).hasMatch(text),
-          isTrue,
-          reason: 'download-deps-macos.sh must pin $name as a SHA-256',
+          build!.group(2)!,
+          startsWith('$series.'),
+          reason: 'the pinned $arch build ${build.group(0)} is not in the '
+              '$series series the other platforms use',
         );
+        for (final name in ['FFMPEG_MACOS_${arch}_FFMPEG_SHA256', 'FFMPEG_MACOS_${arch}_FFPROBE_SHA256']) {
+          expect(
+            RegExp('^$name="[0-9a-f]{64}"\$', multiLine: true).hasMatch(text),
+            isTrue,
+            reason: 'download-deps-macos.sh must pin $name as a SHA-256',
+          );
+        }
       }
     });
 
