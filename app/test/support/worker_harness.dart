@@ -40,6 +40,8 @@ import 'package:vapourbox/services/whisper_addon_manager.dart';
 import 'package:vapourbox/services/dependency_manager.dart'
     show DepsVersionInfo, DependencyManager;
 
+import 'bounded_process.dart';
+
 /// Static entry point used by every integration test's `setUpAll`/helpers.
 class WorkerHarness {
   WorkerHarness._();
@@ -474,10 +476,14 @@ class WorkerHarness {
       final exitCode = await process.exitCode.timeout(
         timeout,
         onTimeout: () async {
+          // Where each process of the tree is stuck, before it is killed
+          // (task #99: a hung job used to say nothing at all).
+          final hang = await describeHang(process.pid);
           // The whole tree: on Windows killing the worker alone leaves its
           // vspipe running a network on every core, starving later tests.
           await ProcessTree.killTree(process, ProcessSignal.sigkill);
-          throw TimeoutException('$label timed out after ${timeout.inSeconds}s');
+          throw TimeoutException(
+              '$label timed out after ${timeout.inSeconds}s${hang.isEmpty ? '' : '\n$hang'}');
         },
       );
       stopwatch.stop();
@@ -584,8 +590,13 @@ class WorkerHarness {
   }
 
   /// Run ffprobe and return decoded JSON.
-  static Future<Map<String, dynamic>> ffprobeJson(List<String> args) async {
-    final result = await Process.run(ffprobePath, args, environment: ffmpegEnv);
+  ///
+  /// Bounded (task #99): a measuring ffprobe that hangs is killed after
+  /// [timeout] and named, rather than holding the test to its own limit.
+  static Future<Map<String, dynamic>> ffprobeJson(List<String> args,
+      {Duration timeout = const Duration(seconds: 120)}) async {
+    final result = await runBounded(ffprobePath, args,
+        label: 'ffprobe', timeout: timeout, environment: ffmpegEnv);
     if (result.exitCode != 0) {
       throw Exception('ffprobe failed: ${result.stderr}');
     }
