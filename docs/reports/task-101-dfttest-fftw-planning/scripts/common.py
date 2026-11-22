@@ -185,7 +185,10 @@ def fftw_library():
     if sys.platform == 'darwin':
         path = os.path.join(deps, 'lib', 'libfftw3f.3.dylib')
     elif sys.platform == 'win32':
-        path = os.path.join(deps, 'vapoursynth', 'vs-plugins', 'libfftw3f-3.dll')
+        # vs-plugins from deps 1.18.0-rc4 (task #90), vapoursynth\ before.
+        path = next(p for p in (os.path.join(deps, 'vapoursynth', 'vs-plugins', 'libfftw3f-3.dll'),
+                                os.path.join(deps, 'vapoursynth', 'libfftw3f-3.dll'))
+                    if os.path.exists(p))
     else:
         path = os.path.join(deps, 'lib', 'libfftw3f.so.3')
     return ctypes.CDLL(path)
