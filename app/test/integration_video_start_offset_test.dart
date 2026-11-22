@@ -511,7 +511,9 @@ void main() {
         await check('Convert AAC ${quality.name}${trim ? ', trimmed' : ''}',
             job(name, AudioMode.convert, quality, trim: trim), mustOvershoot: must);
       }
-    });
+      // Four encodes: 11-30 s on the 4-core macOS x64 runner beside other
+      // heavy files, past package:test's 30 s default (task #99).
+    }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('a 256 kbps mono AAC source copied into AVI: every beep on its flash', () async {
       await Directory(_outDir).create(recursive: true);
@@ -529,7 +531,7 @@ void main() {
       await check('Passthrough of 256 kbps mono AAC',
           VideoJob.fromJson({...copied.toJson(), 'inputPath': source}),
           mustOvershoot: true);
-    });
+    }, timeout: const Timeout(Duration(minutes: 5)));
   });
 
   // Task #43: a source whose sound ffmpeg encoded (AAC, MP3 in MKV/MP4)

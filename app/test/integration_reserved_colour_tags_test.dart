@@ -34,6 +34,7 @@ import 'package:vapourbox/models/video_job.dart';
 import 'package:vapourbox/models/source_model.dart';
 import 'package:vapourbox/services/preview_generator.dart';
 
+import 'support/bounded_process.dart';
 import 'support/worker_harness.dart';
 
 String get _outDir => p.join(WorkerHarness.outputDir, 'reserved_colour_tags');
@@ -118,16 +119,34 @@ Future<(Uint8List?, String)> _ffmpeg(List<String> args) async {
   return (out.readAsBytesSync(), '');
 }
 
+/// Every test here that runs the worker, a detector or ffmpeg states its
+/// limit, sized by the slowest platform: `--detect-native` on a 15-frame
+/// 720x480 ProRes took 23-30 s on the 4-core macOS x64 runner beside other
+/// heavy files, past package:test's 30 s default (task #99, as task #95 did
+/// for the Descale test). `conformance_timeouts_test.dart` checks it.
+const _timeout = Timeout(Duration(minutes: 5));
+
+/// One detector run's limit, below the test's (two runs each): a hang is
+/// killed and named with the stderr it reached (`NATIVE_RES_STAGE:` lines
+/// for `--detect-native`) instead of hitting the test's timeout.
+const _detectLimit = Duration(minutes: 2);
+
 Future<Map<String, dynamic>> _detect(String flag, VideoJob job) async {
   final config = File(p.join(_outDir, '${job.id}.json'));
   await config.writeAsString(jsonEncode(job.toJson()));
   try {
-    final r = await Process.run(
+    final r = await runBounded(
       WorkerHarness.workerPath,
       [flag, '--config', config.path],
+      label: flag,
+      timeout: _detectLimit,
       environment: WorkerHarness.workerEnv,
       workingDirectory: File(WorkerHarness.workerPath).parent.path,
     );
+    final stages = const LineSplitter()
+        .convert(r.stderr.toString())
+        .where((l) => l.contains('NATIVE_RES_STAGE:'));
+    if (stages.isNotEmpty) print('  $flag ${job.id}: ${stages.map((l) => l.split('NATIVE_RES_STAGE:').last.trim()).join('; ')}');
     final line = const LineSplitter()
         .convert(r.stdout.toString())
         .lastWhere((l) => l.trim().startsWith('{'), orElse: () => '{}');
@@ -204,7 +223,7 @@ void main() {
         reason: s.path,
       );
     }
-  });
+  }, timeout: _timeout);
 
   test('thumbnail: fails without the fix, succeeds with it', () async {
     List<String> args({String? tagFix}) => PreviewGenerator.thumbnailArgs(
@@ -217,25 +236,25 @@ void main() {
     expect(broken, isNull, reason: 'the fixture no longer reproduces the bug');
     final (fixed, err) = await _ffmpeg(args(tagFix: prores422.tagFix));
     expect(fixed, isNotNull, reason: err);
-  });
+  }, timeout: _timeout);
 
   test('--detect-crop reports exactly what it reports on the twin', () async {
     final report = await _detect('--detect-crop', prores422.job('crop'));
     final twin = await _detect('--detect-crop', twin422.job('crop_twin'));
     expect(report, twin);
-  });
+  }, timeout: _timeout);
 
   test('--detect-native reports exactly what it reports on the twin', () async {
     final report = await _detect('--detect-native', prores422.job('native'));
     final twin = await _detect('--detect-native', twin422.job('native_twin'));
     expect(report, twin);
-  });
+  }, timeout: _timeout);
 
   test('--detect-noise-halo reports exactly what it reports on the twin', () async {
     final report = await _detect('--detect-noise-halo', prores422.job('nh'));
     final twin = await _detect('--detect-noise-halo', twin422.job('nh_twin'));
     expect(report, twin);
-  });
+  }, timeout: _timeout);
 
   test('preview renders the twin\'s picture (422 and converted 4444a)', () async {
     for (final (s, t) in [(prores422, twin422), (prores4444a, twin4444a)]) {
@@ -252,7 +271,7 @@ void main() {
         reason: s.path,
       );
     }
-  });
+  }, timeout: _timeout);
 
   test('a 4444-with-alpha encode (converting decoder) equals the twin\'s', () async {
     final job = await WorkerHarness.runJob(prores4444a.job('enc').toJson(),
@@ -262,5 +281,5 @@ void main() {
         label: 'encode twin 4444a');
     expect(twin.success, isTrue, reason: '${twin.error}\n${twin.logs.join('\n')}');
     expect(await _framesMd5(job.outputPath!), await _framesMd5(twin.outputPath!));
-  });
+  }, timeout: _timeout);
 }

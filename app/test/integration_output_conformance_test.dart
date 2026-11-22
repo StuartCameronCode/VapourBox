@@ -541,10 +541,11 @@ void main() {
 
   test('a copy the container cannot hold is refused before any work (task #49)', () async {
     final opus = p.join(_outDir, 'opus_source.mkv');
-    final made = await Process.run(
+    final made = await runBounded(
       WorkerHarness.ffmpegPath,
       ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x120:r=25:d=1',
        '-f', 'lavfi', '-i', 'sine=d=1:sample_rate=48000', '-c:v', 'ffv1', '-c:a', 'libopus', opus],
+      label: 'making the Opus source',
       environment: WorkerHarness.ffmpegEnv,
     );
     expect(made.exitCode, 0, reason: '${made.stderr}');

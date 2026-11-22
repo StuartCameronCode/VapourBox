@@ -20,16 +20,20 @@ import 'package:vapourbox/services/process_tree.dart';
 /// A [runBounded] process that outlived its limit. [hang] is what
 /// [describeHang] found before it was killed.
 class BoundedTimeout implements Exception {
-  BoundedTimeout(this.label, this.limit, this.command, this.hang);
+  BoundedTimeout(this.label, this.limit, this.command, this.hang, [this.stderrTail = '']);
 
   final String label;
   final Duration limit;
   final String command;
   final String hang;
 
+  /// The last lines the process wrote to stderr before it was killed.
+  final String stderrTail;
+
   @override
   String toString() => '$label: still running after ${limit.inSeconds} s, killed: '
-      '$command${hang.isEmpty ? '' : '\n$hang'}';
+      '$command${stderrTail.isEmpty ? '' : '\nits stderr ended:\n$stderrTail'}'
+      '${hang.isEmpty ? '' : '\n$hang'}';
 }
 
 /// Runs [executable] like `Process.run`, but kills it after [timeout] and
@@ -44,9 +48,11 @@ Future<ProcessResult> runBounded(
   required String label,
   Duration timeout = const Duration(seconds: 120),
   Map<String, String>? environment,
+  String? workingDirectory,
   bool binaryStdout = false,
 }) async {
-  final process = await Process.start(executable, arguments, environment: environment);
+  final process = await Process.start(executable, arguments,
+      environment: environment, workingDirectory: workingDirectory);
   final out = BytesBuilder(copy: false);
   final err = BytesBuilder(copy: false);
   final outDone = process.stdout.listen(out.add).asFuture<void>();
@@ -57,7 +63,9 @@ Future<ProcessResult> runBounded(
   } on TimeoutException {
     final hang = await describeHang(process.pid);
     await ProcessTree.killTree(process, ProcessSignal.sigkill);
-    throw BoundedTimeout(label, timeout, _command(executable, arguments), hang);
+    final lines = utf8.decode(err.toBytes(), allowMalformed: true).trimRight().split('\n');
+    throw BoundedTimeout(label, timeout, _command(executable, arguments), hang,
+        lines.sublist(lines.length > 20 ? lines.length - 20 : 0).join('\n'));
   }
   await Future.wait([outDone, errDone]);
   final stdoutBytes = out.takeBytes();
