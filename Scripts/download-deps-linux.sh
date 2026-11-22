@@ -216,10 +216,32 @@ PYTHON_INCLUDE="$PYTHON_DIR/include/python${PYTHON_MAJOR_MINOR}"
 echo ""
 echo "=== Building zimg ==="
 
+# zimg is built from git, not a release: R78's resize reads zimg's
+# chromatic_adaptation field (ZIMG_API_VERSION 2.5), which no zimg release
+# has yet (see patches/vapoursynth-r78-zimg-api-guard.patch; with a release
+# the guard compiles the argument out). Pinned (task #103): this used to clone
+# unpinned master, which picked up e2e43d09 "Update graphengine" (2026-11-21),
+# and that build aborted with "double free or corruption" in
+# vszimg::real_get_frame on every job that resizes. 67e06032 is what deps
+# 1.18.0-rc2 and every earlier Linux bundle shipped, so output is unchanged.
+# Bumping either commit changes VapourSynth's own resize on Linux: test it
+# through `deps_run_id` first (docs/reports/task-103-linux-zimg-pin).
+ZIMG_COMMIT="67e0603271c080e22c8429856dd4a8a56587e61e"             # 2026-09-04
+ZIMG_GRAPHENGINE_COMMIT="cb5b2ce13384ec2491f0c37256ea210034799f69"  # its graphengine submodule
+
 if [ "$FORCE" = true ] || [ ! -f "$BUILD_PREFIX/lib/libzimg.so" ]; then
     cd "$BUILD_DIR"
     rm -rf zimg
-    git clone --depth 1 --recursive https://github.com/sekrit-twc/zimg.git zimg
+    git clone -q https://github.com/sekrit-twc/zimg.git zimg
+    git -C zimg checkout -q "$ZIMG_COMMIT"
+    # Only graphengine: test/extra/googletest is for --enable-unit-test.
+    git -C zimg submodule update --init graphengine
+    if [ "$(git -C zimg rev-parse HEAD)" != "$ZIMG_COMMIT" ] \
+        || [ "$(git -C zimg/graphengine rev-parse HEAD)" != "$ZIMG_GRAPHENGINE_COMMIT" ]; then
+        echo "  ERROR: zimg is not at $ZIMG_COMMIT with graphengine $ZIMG_GRAPHENGINE_COMMIT" >&2
+        exit 1
+    fi
+    echo "  zimg at ${ZIMG_COMMIT:0:8} (graphengine ${ZIMG_GRAPHENGINE_COMMIT:0:8})"
     cd zimg
     ./autogen.sh
     ./configure --prefix="$BUILD_PREFIX"
