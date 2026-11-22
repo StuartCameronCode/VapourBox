@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>4:4:0 sources</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+</style>
+</head>
+<body>
+<h1>4:4:0 sources are decoded as 4:4:4, not 4:2:2</h1>
+<p class="meta">Task #100, 2026-11-22. macOS arm64 (M1 Pro), FFmpeg 9.0.2 (martin-riedl build, deps 1.17.0-rc1). Synthetic FFV1 fixtures made with the bundled ffmpeg. No screenshots: the pictures are checked by their samples, which the tables give.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>The fault:</b> <code>pixel_format.rs::classify</code> put the subsampling code <code>440</code> in the 4:2:2 class, with the comment "4:4:0 is a superset horizontally and equal vertically". That is backwards. 4:4:0 has <b>full</b> horizontal chroma and half vertical; 4:2:2 has half horizontal and full vertical. So the decoder ffmpeg (<code>-pix_fmt yuv422p…</code>) halved a 4:4:0 source's horizontal chroma before VapourSynth saw it, against the module's own rule (never less chroma or depth than the source). <code>yuvj440p</code> is what some JPEG/MJPEG cameras record.</li>
+<li><b>Fix:</b> <code>440</code> is in the 4:4:4 class. 4:1:0 (quarter horizontal, half vertical) really fits in 4:2:2 and stays there. The app's twin, <code>pixelFormatChromaLayout</code>, moves with it, so the ProRes, v210, AV1 and hardware-encoder warnings describe what the worker does.</li>
+<li><b>Guard:</b> <code>pipe_format_never_has_less_chroma_on_either_axis</code> checks every planar YUV code (410, 411, 420, 422, 440, 444) × prefix × depth on both axes, so a class judged on one axis fails a test.</li>
+<li><b>Output change:</b> under Color Format "Match source", a 4:4:0 source now comes out 4:4:4 at its depth (it was 4:2:2). See <a href="#output">below</a>.</li>
+</ul>
+
+<h2>A. What the pipe delivers</h2>
+<p>A 128x96 testsrc2 frame stored as 4:4:0, decoded the way the worker's decoder does it (<code>-pix_fmt &lt;pipe&gt;</code>, ffmpeg's default scaler), read back as 4:4:4, and compared with the source rendered at 4:4:4 by the same scaler in one step, which is what a 4:4:4 pipe delivers. Chroma only; luma was identical in every row. 8-bit levels.</p>
+<table>
+<tr><th>Source</th><th>Pipe <code>yuv422p</code> (before)</th><th>Pipe <code>yuv444p</code> (after)</th></tr>
+<tr><td>testsrc2 <code>yuv440p</code>, limited range</td><td class="num no">mean 1.78, max 21</td><td class="num ok">0 / 0</td></tr>
+<tr><td>testsrc2 <code>yuv440p</code>, full range (<code>pc</code>, the camera case)</td><td class="num no">mean 1.83, max 23</td><td class="num ok">0 / 0</td></tr>
+</table>
+<p><b>Correction.</b> The planning stage listed a "testsrc2 <code>yuvj440p</code>" row equal to the limited-range one (1.78 / 21). That fixture was not full range: FFV1 has no <code>yuvj</code> formats, and ffmpeg stored <code>-pix_fmt yuvj440p</code> as limited-range <code>yuv440p</code>. The full-range row above is made with <code>scale=out_range=pc</code> and tagged <code>pc</code>. Only the MJPEG decoder reports the name <code>yuvj440p</code>, and ffmpeg's MJPEG encoder cannot write 4:4:0, so no fixture here carries that name; the unit tests cover it (it classifies exactly as <code>yuv440p</code>).</p>
+
+<h2>B. Pure horizontal chroma detail</h2>
+<p>1-pixel red/blue alternating columns, stored as 4:4:0. The fixture has no vertical detail, so the vertical upsampling method doesn't matter; both sides are read back by nearest neighbour.</p>
+<table>
+<tr><th>Source</th><th>Pipe <code>yuv422p</code> (before)</th><th>Pipe <code>yuv444p</code> (after)</th></tr>
+<tr><td>1-px colour columns <code>yuv440p</code></td><td class="num no">mean 70.0, max 91 (the columns are gone)</td><td class="num ok">0 / 0</td></tr>
+</table>
+
+<h2>C. Against the source's own samples</h2>
+<p>The source's chroma with each row repeated (nearest neighbour), against the pipe read back the same way. This is the reading the task description used. <b>Limit:</b> the 4:4:4 row is not 0 because the decoder's vertical upsampling interpolates rows rather than repeating them. That is resampling, not loss; A and B are the measures of loss. The task description's 3.1 / 65 came from other scaler and read-back flags; the conclusion is the same.</p>
+<table>
+<tr><th>Source</th><th>Pipe 4:2:2 (before)</th><th>Pipe 4:4:4 (after)</th></tr>
+<tr><td>testsrc2 <code>yuv440p</code></td><td class="num">mean 4.42, max 83</td><td class="num">mean 1.88, max 52</td></tr>
+<tr><td>testsrc2 <code>yuv440p10le</code> (in 8-bit levels)</td><td class="num">mean 4.41, max 83.5</td><td class="num">mean 1.88, max 51.75</td></tr>
+</table>
+
+<h2>The worker, end to end</h2>
+<p>The heavy group <code>4:4:0 sources keep their horizontal chroma (task #100)</code> in <code>app/test/integration_source_formats_test.dart</code>: testsrc2 with 1-px red/blue columns over the left half, 5 frames, FFV1/MKV, every pass off, Color Format "Match source", then a preview of frame 2. It was run against a worker built with the old class first, then with the fix.</p>
+<table>
+<tr><th>Fixture</th><th>Output format</th><th>Samples differing from ffmpeg's own 4:4:4 decode</th><th>Column contrast in U (source → encode)</th><th>Preview pixels with the right hue</th></tr>
+<tr><td><code>yuv440p</code> 128x96</td><td>before <code class="no">yuv422p</code><br>after <code class="ok">yuv444p</code></td><td class="num">93,882 of 184,320<br><span class="ok">0</span></td><td class="num">150.0 → <span class="no">0.8</span><br>150.0 → <span class="ok">150.0</span></td><td class="num">0.1%<br><span class="ok">100%</span></td></tr>
+<tr><td><code>yuv440p</code> full range 128x96</td><td>before <code class="no">yuv422p</code> pc<br>after <code class="ok">yuv444p</code> pc</td><td class="num">91,511 of 184,320<br><span class="ok">0</span></td><td class="num">171.0 → <span class="no">0.9</span><br>171.0 → <span class="ok">171.0</span></td><td class="num">0.1%<br><span class="ok">100%</span></td></tr>
+<tr><td><code>yuv440p10le</code> 128x96</td><td>before <code class="no">yuv422p10le</code><br>after <code class="ok">yuv444p10le</code></td><td class="num">167,791 of 368,640<br><span class="ok">0</span></td><td class="num">149.8 → <span class="no">0.8</span><br>149.8 → <span class="ok">149.8</span></td><td class="num">0.1%<br><span class="ok">100%</span></td></tr>
+<tr><td><code>yuv440p</code> 127x95</td><td>before <span class="no">failed: <code>BlankClip: invalid width</code></span><br>after <code class="ok">yuv444p</code></td><td class="num">–<br><span class="ok">0</span></td><td class="num">–<br>150.0 → <span class="ok">150.0</span></td><td class="num">–<br><span class="ok">100%</span></td></tr>
+</table>
+<p>Column contrast is the mean |U(x) − U(x+1)| over the column region of frame 2, in 8-bit levels. "Right hue" counts preview pixels in that region where an odd column is red and an even one blue by more than 64 levels. The preview matched the encode (mean difference 0.000, read as the preview converts, <code>previewFrameRgb24</code>) in every row, before and after: both sides lost the columns together, which is why the comparison with an independent decode of the source is the one that matters.</p>
+<p>The 127x95 row is task #97's fault reached through this one: an odd-width 4:4:0 source was off the grid only because of the 4:2:2 pipe. A 4:4:4 pipe has no grid to be off, so it now runs with or without #97.</p>
+
+<h2 id="output">What changes for existing jobs</h2>
+<ul>
+<li><b>Color Format "Match source"</b> (the default): a 4:4:0 source comes out <b>4:4:4</b> at its own depth (<code>yuv440p</code> → <code>yuv444p</code>, <code>yuv440p10le</code> → <code>yuv444p10le</code>), where it was 4:2:2. With x264 that is High 4:4:4 Predictive instead of High 4:2:2; neither plays widely, and choosing 4:2:0 is still how to get a compatible file.</li>
+<li><b>Any other Color Format, and AV1:</b> the script converts from the true 4:4:4 chroma instead of from a 4:2:2 copy that had already lost half of it. Equal or better.</li>
+<li><b>ProRes 422 / v210 / HuffYUV:</b> still 4:2:2, resampled from the true chroma. Their warnings in the app (and HuffYUV's format note in the job log) now say the source's chroma is reduced, which has always been true of 4:4:0 → 4:2:2. ProRes 4444 no longer says it pads the source.</li>
+<li><b>Hardware encoders</b> (NVENC, QSV): handed 4:4:4 under "Match source", which the worker already converts to 4:2:0 for them (<code>forced_pix_fmt</code>); the warning names 4:4:4.</li>
+<li><b>Cost:</b> the pipe and every pass carry three full planes instead of two, about 1.5× the bytes, as for any 4:4:4 source.</li>
+<li>Nothing changes for any other source format: every other code keeps its class.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>A real camera file: only synthetic fixtures. A real MJPEG 4:4:0 file is decoded by the same decoder path; ffmpeg's MJPEG encoder can't write 4:4:0, so none could be made here.</li>
+<li><code>yuv440p12le</code> end to end (the unit tests cover its class), and every pass on a 4:4:0 source: the passes see a 4:4:4 clip, which the format sweep already covers at every depth.</li>
+<li>Other platforms: the decision is pure Rust and the conversion ffmpeg's, the same series everywhere; only macOS arm64 was run.</li>
+</ul>
+
+<h2>Decisions</h2>
+<ul>
+<li><b>4:4:4, not a new 4:4:0 pipe format:</b> VapourSynth has 4:4:0, but vspipe cannot name it in the Y4M header the encoder reads (the template already avoids it after a quarter turn of 4:2:2 for that reason), and no pass's plugins were probed at it. 4:4:4 is the smallest format already in <code>_FORMAT_MAP</code> and the format sweep that holds it.</li>
+<li><b>4:1:0 stays 4:2:2:</b> it has at most 4:2:2's chroma on each axis.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>python3 -I scripts/measure.py &lt;bundle&gt;/ffmpeg/ffmpeg          # tables A-C
+cd app &amp;&amp; flutter test --tags heavy test/integration_source_formats_test.dart --plain-name '4:4:0'</pre>
+<p><code>measure.py</code> writes its fixtures to <code>$VAPOURBOX_REPORT_SCRATCH</code>, or a fresh temporary directory. The "before" column of the end-to-end table is the same test with <code>"440"</code> put back in the 4:2:2 arm of <code>classify</code>.</p>
+</body>
+</html>

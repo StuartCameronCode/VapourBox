@@ -85,13 +85,14 @@ void main() {
       'yuv444p10le',
       'yuv444p12le',
       'yuv422p16le',
+      'yuv440p', // full horizontal chroma: decoded as 4:4:4 (task #100)
     ];
 
     /// (selection ignored, source chroma lost, padded up to 4:4:4) — the same
     /// rows as the worker's `expected`.
     (bool, bool, bool) expected(
         bool stores444, ChromaSubsampling cs, String src) {
-      final src444 = src.startsWith('yuv444');
+      final src444 = src.startsWith('yuv444') || src.startsWith('yuv440');
       if (!stores444) {
         switch (cs) {
           case ChromaSubsampling.original:
