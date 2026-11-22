@@ -1,0 +1,63 @@
+DFTTest at bc5e018 (and yuygfgg/VapourSynth-DFTTest e6f580a, which macOS
+arm64 builds) AFTER dfttest-bc5e018-thread-safety.patch: apply that patch
+first. Its last hunk is the context of this one (the plugin name line), so
+this patch does not apply on its own. VapourBox task #101,
+docs/reports/task-101-dfttest-fftw-planning.
+
+dfttestCreate plans its four FFTs (r2c/c2r, 2D or 3D by tbsize) with
+FFTW_PATIENT. PATIENT times candidate plans in the running process and keeps
+the fastest, and different plans round the floats differently, so the same
+script gave one of several pictures depending on the process: a preview and
+its encode (two processes) could filter the same frame differently. Task #80
+found the same in FFT3DFilter's FFTW_MEASURE. DFTTest has no argument that
+selects the planner, so the fix is here.
+
+The patch plans with FFTW_ESTIMATE, which chooses by FFTW's heuristics
+alone: one plan per machine, in every process. It also leaves no measured
+wisdom in the process for a later ESTIMATE request of the same problem
+(FFTW reuses wisdom from a more patient planner). It appends
+"; FFTW_ESTIMATE, task #101" to the "(VapourBox: ...)" suffix of the plugin's
+name, which is how the deps scripts and the test tell this build from a
+thread-safe build that still plans with PATIENT.
+
+Applied by download-deps-{macos,linux}.sh and download-deps-windows.ps1 right
+after the thread-safety patch; each build fails if it stops applying.
+
+diff --git a/DFTTest/DFTTest.cpp b/DFTTest/DFTTest.cpp
+index fcbeac6..e130cad 100644
+--- a/DFTTest/DFTTest.cpp
++++ b/DFTTest/DFTTest.cpp
+@@ -900,12 +900,20 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData,
+ 
+         fftwf_make_planner_thread_safe();
+ 
++        // VapourBox task #101: FFTW_ESTIMATE, not FFTW_PATIENT. PATIENT times
++        // candidate plans in each process, and plans round differently, so
++        // two processes (a preview and its encode) could filter the same
++        // frame differently. ESTIMATE chooses by heuristics alone: one plan
++        // per machine, in every process. It also leaves no measured wisdom
++        // behind for a later ESTIMATE request of the same problem.
++        const unsigned planFlags = FFTW_ESTIMATE | FFTW_DESTROY_INPUT;
++
+         if (d->tbsize > 1) {
+-            d->ft = { fftwf_plan_dft_r2c_3d(d->tbsize, d->sbsize, d->sbsize, dftgr.get(), d->dftgc.get(), FFTW_PATIENT | FFTW_DESTROY_INPUT), fftwf_destroy_plan };
+-            d->fti = { fftwf_plan_dft_c2r_3d(d->tbsize, d->sbsize, d->sbsize, d->dftgc.get(), dftgr.get(), FFTW_PATIENT | FFTW_DESTROY_INPUT), fftwf_destroy_plan };
++            d->ft = { fftwf_plan_dft_r2c_3d(d->tbsize, d->sbsize, d->sbsize, dftgr.get(), d->dftgc.get(), planFlags), fftwf_destroy_plan };
++            d->fti = { fftwf_plan_dft_c2r_3d(d->tbsize, d->sbsize, d->sbsize, d->dftgc.get(), dftgr.get(), planFlags), fftwf_destroy_plan };
+         } else {
+-            d->ft = { fftwf_plan_dft_r2c_2d(d->sbsize, d->sbsize, dftgr.get(), d->dftgc.get(), FFTW_PATIENT | FFTW_DESTROY_INPUT), fftwf_destroy_plan };
+-            d->fti = { fftwf_plan_dft_c2r_2d(d->sbsize, d->sbsize, d->dftgc.get(), dftgr.get(), FFTW_PATIENT | FFTW_DESTROY_INPUT), fftwf_destroy_plan };
++            d->ft = { fftwf_plan_dft_r2c_2d(d->sbsize, d->sbsize, dftgr.get(), d->dftgc.get(), planFlags), fftwf_destroy_plan };
++            d->fti = { fftwf_plan_dft_c2r_2d(d->sbsize, d->sbsize, d->dftgc.get(), dftgr.get(), planFlags), fftwf_destroy_plan };
+         }
+ 
+         float wscale = 0.0f;
+@@ -1176,7 +1184,7 @@ static void VS_CC dfttestCreate(const VSMap * in, VSMap * out, void * userData,
+ // Init
+ 
+ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin * plugin) {
+-    configFunc("com.holywu.dfttest", "dfttest", "2D/3D frequency domain denoiser (VapourBox: locked per-thread buffers, task #98)", VAPOURSYNTH_API_VERSION, 1, plugin);
++    configFunc("com.holywu.dfttest", "dfttest", "2D/3D frequency domain denoiser (VapourBox: locked per-thread buffers, task #98; FFTW_ESTIMATE, task #101)", VAPOURSYNTH_API_VERSION, 1, plugin);
+     registerFunc("DFTTest",
+                  "clip:clip;"
+                  "ftype:int:opt;"

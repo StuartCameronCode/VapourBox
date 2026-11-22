@@ -1007,6 +1007,120 @@ core.std.Splice([$call for _ in range($instances)]).set_output()''';
     }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 10)));
   });
 
+  // Task #101: DFTTest planned its FFTs with FFTW_PATIENT, which times
+  // candidate plans in each process; plans round differently, so a preview
+  // and its encode (two processes) could filter the same frame differently.
+  // DFTTest has no argument that picks the planner, so download-deps-* apply
+  // patches/dfttest-bc5e018-fftw-estimate.patch after task #98's, which plans
+  // with FFTW_ESTIMATE (one plan per machine) and adds a marker to the name.
+  // docs/reports/task-101-dfttest-fftw-planning.
+  group('dfttest FFTW planning (task #101)', () {
+    const marker = 'FFTW_ESTIMATE, task #101';
+    const skipReason = 'deps <= 1.18.0-rc3 ship a DFTTest that plans with '
+        'FFTW_PATIENT (task #101); enforced from deps 1.18.0-rc4';
+
+    // The marker is the hard gate. The two-process comparison below backs it
+    // up, but on a PATIENT build it is probabilistic (both processes can pick
+    // the same plan), so it alone could pass an unpatched bundle.
+    test('the bundle\'s DFTTest plans with FFTW_ESTIMATE, and a second process '
+        'filters exactly as the first (task #101)', () async {
+      if (depsVersionBefore(depsDir, '1.18.0-rc4')) {
+        markTestSkipped(skipReason);
+        return;
+      }
+      const script = r'''
+import hashlib
+import vapoursynth as vs
+import havsfunc as haf
+core = vs.core
+core.num_threads = 8
+print('PLUGIN ' + core.dfttest.name)
+# Task #98's picture: grain on flat grey, a new pattern every frame.
+src8 = core.std.BlankClip(width=352, height=288, format=vs.YUV420P8, length=10,
+                          color=[100, 120, 140])
+src8 = core.grain.Add(src8, var=60, uvar=20, seed=7, constant=False)
+src16 = core.resize.Point(src8, format=vs.YUV420P16)
+CALLS = {
+    # Noise Reduction's DFTTest method at its defaults (3D plans).
+    'nr_default': lambda c: core.dfttest.DFTTest(c, sigma=8.0, tbsize=3, sbsize=16),
+    # Another 3D size.
+    'tb3_sb12': lambda c: core.dfttest.DFTTest(c, tbsize=3, sbsize=12, sosize=6),
+    # havsfunc's prefilter call (2D plans).
+    'tb1': lambda c: core.dfttest.DFTTest(c, tbsize=1, sigma=10.0),
+    # QTGMC's dfttest denoiser (havsfunc's own call).
+    'qtgmc': lambda c: haf.QTGMC(c, Preset='Fast', TFF=True, NoiseProcess=1,
+                                 Denoiser='dfttest', NoiseTR=1),
+}
+def digest(c):
+    m = hashlib.md5()
+    for f in c.frames(prefetch=16):
+        for p in range(f.format.num_planes):
+            m.update(bytes(f[p]))
+    return m.hexdigest()
+for depth, src in (('8', src8), ('16', src16)):
+    for name, call in CALLS.items():
+        print(f'HASH {depth}-bit {name} {digest(call(src))}')
+src8.set_output()''';
+      Map<String, String> hashes(ProcessResult r) => {
+            for (final m in RegExp(r'^HASH (\S+ \S+) ([0-9a-f]{32})', multiLine: true)
+                .allMatches(r.stdout.toString()))
+              m.group(1)!: m.group(2)!,
+          };
+      final first = await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(first.exitCode, 0, reason: 'stdout: ${first.stdout}\nstderr: ${first.stderr}');
+      expect(RegExp(r'^PLUGIN (.*)$', multiLine: true)
+              .firstMatch(first.stdout.toString())?.group(1),
+          contains(marker),
+          reason: 'DFTTest is not the task #101 build: it plans with FFTW_PATIENT');
+      final second = await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(second.exitCode, 0, reason: 'stdout: ${second.stdout}\nstderr: ${second.stderr}');
+      expect(hashes(first), hasLength(8));
+      expect(hashes(second), equals(hashes(first)),
+          reason: 'a second process filtered differently: DFTTest planned per '
+              'process (task #101, docs/reports/task-101-dfttest-fftw-planning)');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+
+    test('the patch plans with FFTW_ESTIMATE, and every deps script applies it '
+        'after task #98\'s and requires its marker (task #101)', () {
+      String read(String rel) => File(path.join(Directory.current.path, '..', rel))
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
+      const safety = 'dfttest-bc5e018-thread-safety.patch';
+      const estimate = 'dfttest-bc5e018-fftw-estimate.patch';
+      final patch = read('Scripts/patches/$estimate');
+      final lines = patch.split('\n');
+      final added = lines.where((l) => l.startsWith('+') && !l.startsWith('+++'));
+      final removed = lines.where((l) => l.startsWith('-') && !l.startsWith('---'));
+      expect(removed.where((l) => l.contains('FFTW_PATIENT')), hasLength(4),
+          reason: 'the patch replaces all four PATIENT plans');
+      for (final l in added) {
+        expect(l, isNot(contains('FFTW_PATIENT')), reason: l);
+        expect(l, isNot(contains('FFTW_MEASURE')), reason: l);
+      }
+      expect(added.join('\n'), contains('FFTW_ESTIMATE | FFTW_DESTROY_INPUT'));
+      expect(added.join('\n'), contains(marker));
+      // Its context is task #98's name line: it applies after that patch only.
+      expect(removed.join('\n'), contains('locked per-thread buffers, task #98)'));
+
+      for (final script in ['download-deps-macos.sh', 'download-deps-linux.sh',
+          'download-deps-windows.ps1']) {
+        final text = read('Scripts/$script');
+        expect(text, contains(marker), reason: '$script does not require the marker');
+        // Every place the thread-safety patch is applied, the ESTIMATE patch
+        // follows it.
+        final uses = safety.allMatches(text).map((m) => m.start).toList();
+        expect(uses, isNotEmpty, reason: script);
+        for (final at in uses) {
+          final next = text.indexOf(estimate, at);
+          final again = text.indexOf(safety, at + 1);
+          expect(next, greaterThan(at), reason: '$script applies $safety without $estimate');
+          expect(again == -1 || again > next, isTrue,
+              reason: '$script applies $safety without $estimate after it');
+        }
+      }
+    });
+  });
+
   // Task #82: havsfunc patch 8 (download-deps-*) turns LUTDeCrawl's and
   // LUTDeRainbow's eight Lut2(function=lambda x, y: x & y) mask ANDs into
   // Expr 'x y min'. At 10 bits each of those tables was a million Python calls:

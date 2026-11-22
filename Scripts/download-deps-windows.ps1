@@ -918,6 +918,13 @@ if (-not (Test-FileContainsAscii $DctOut "VapourSynthPluginInit2")) {
 # and adds $Task98Marker to the plugin's name: that is how a DLL from an older
 # run of this script is recognised and replaced. Keep the pins in step.
 #
+# Task #101: DFTTest also takes patches/dfttest-bc5e018-fftw-estimate.patch,
+# applied after the thread-safety one (its context is that patch's name
+# line), which plans with FFTW_ESTIMATE instead of FFTW_PATIENT (PATIENT
+# timed its plans per process, so a preview and its encode could filter
+# differently) and adds $DftMarker to the name. Each row lists its patches in
+# the order they apply and every marker its DLL must carry.
+#
 # DCTFilter's recipe (4b4) with several translation units, as each meson.build
 # lays them out: the C/SSE2 files and VCL2's instrset_detect at the x86-64
 # baseline, the AVX2 and AVX-512 kernels in files of their own, picked at run
@@ -931,21 +938,33 @@ Write-Host ""
 Write-Host "[4b5/8] Building DFTTest, LGhost, CTMF, TCanny (patched, task #98)..." -ForegroundColor Yellow
 
 $Task98Marker = "locked per-thread buffers, task #98"
+$DftMarker = "FFTW_ESTIMATE, task #101"
 $DftCommit = "bc5e0186a7f309556f20a8e9502f2238e39179b8"     # r7 + 2; no later tag
 $LGhostTag = "r1"
 $CtmfTag = "r5"
 $TCannyCommit = "14ac2ceeb59afc7089974d0ae233fe8d0ea183c8"  # r14 + 1
 $Task98Plugins = @(
-    @{ Dir = "DFTTest"; Ref = $DftCommit; Patch = "dfttest-bc5e018-thread-safety.patch"; Dll = "DFTTest.dll"; Fftw = $true
+    @{ Dir = "DFTTest"; Ref = $DftCommit; Dll = "DFTTest.dll"; Fftw = $true
+       Patches = @("dfttest-bc5e018-thread-safety.patch", "dfttest-bc5e018-fftw-estimate.patch")
+       Markers = @($Task98Marker, $DftMarker)
        Repo = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest.git" },
-    @{ Dir = "LGhost"; Ref = $LGhostTag; Patch = "lghost-r1-thread-safety.patch"; Dll = "LGhost.dll"; Fftw = $false
+    @{ Dir = "LGhost"; Ref = $LGhostTag; Patches = @("lghost-r1-thread-safety.patch"); Markers = @($Task98Marker)
+       Dll = "LGhost.dll"; Fftw = $false
        Repo = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost.git" },
-    @{ Dir = "CTMF"; Ref = $CtmfTag; Patch = "ctmf-r5-thread-safety.patch"; Dll = "CTMF.dll"; Fftw = $false
+    @{ Dir = "CTMF"; Ref = $CtmfTag; Patches = @("ctmf-r5-thread-safety.patch"); Markers = @($Task98Marker)
+       Dll = "CTMF.dll"; Fftw = $false
        Repo = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CTMF.git" },
-    @{ Dir = "TCanny"; Ref = $TCannyCommit; Patch = "tcanny-14ac2ce-thread-safety.patch"; Dll = "TCanny.dll"; Fftw = $false
+    @{ Dir = "TCanny"; Ref = $TCannyCommit; Patches = @("tcanny-14ac2ce-thread-safety.patch"); Markers = @($Task98Marker)
+       Dll = "TCanny.dll"; Fftw = $false
        Repo = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TCanny.git" }
 )
-$Task98Pending = @($Task98Plugins | Where-Object { -not (Test-FileContainsAscii "$PluginsDir\$($_.Dll)" $Task98Marker) })
+function Test-Task98Markers([string]$Path, $Plugin) {
+    foreach ($M in $Plugin.Markers) {
+        if (-not (Test-FileContainsAscii $Path $M)) { return $false }
+    }
+    return $true
+}
+$Task98Pending = @($Task98Plugins | Where-Object { -not (Test-Task98Markers "$PluginsDir\$($_.Dll)" $_) })
 if ($Task98Pending.Count -eq 0) {
     Write-Host "  All four already installed (patched)" -ForegroundColor Gray
 } else {
@@ -987,11 +1006,13 @@ if ($Task98Pending.Count -eq 0) {
             if ($LASTEXITCODE -ne 0) { throw "git clone of $Dir failed (exit $LASTEXITCODE)" }
             & git -C $Src -c advice.detachedHead=false checkout --quiet $P.Ref
             if ($LASTEXITCODE -ne 0) { throw "git checkout of $Dir $($P.Ref) failed (exit $LASTEXITCODE)" }
-            $Patch = Join-Path $T98Work "$Dir.patch"
-            $PatchText = [IO.File]::ReadAllText((Join-Path $ScriptDir "patches\$($P.Patch)")).Replace("`r`n", "`n")
-            [IO.File]::WriteAllText($Patch, $PatchText, (New-Object System.Text.UTF8Encoding($false)))
-            & git -C $Src apply $Patch
-            if ($LASTEXITCODE -ne 0) { throw "patches/$($P.Patch) did not apply to $Dir $($P.Ref) - re-check the patch" }
+            foreach ($PatchName in $P.Patches) {
+                $Patch = Join-Path $T98Work "$Dir-$PatchName"
+                $PatchText = [IO.File]::ReadAllText((Join-Path $ScriptDir "patches\$PatchName")).Replace("`r`n", "`n")
+                [IO.File]::WriteAllText($Patch, $PatchText, (New-Object System.Text.UTF8Encoding($false)))
+                & git -C $Src apply $Patch
+                if ($LASTEXITCODE -ne 0) { throw "patches/$PatchName did not apply to $Dir $($P.Ref) - re-check the patch" }
+            }
 
             $Define = "-D$($Dir.ToUpper())_X86"
             $Units = @(
@@ -1012,7 +1033,7 @@ if ($Task98Pending.Count -eq 0) {
             $Built = Join-Path $T98Work $P.Dll
             & $ZigExe c++ -target x86_64-windows-gnu -shared @Objs -o $Built
             if ($LASTEXITCODE -ne 0) { throw "zig c++ failed linking $($P.Dll) (exit $LASTEXITCODE)" }
-            if (-not (Test-FileContainsAscii $Built $Task98Marker)) { throw "the built $($P.Dll) lacks the task #98 marker" }
+            if (-not (Test-Task98Markers $Built $P)) { throw "the built $($P.Dll) lacks a marker ($($P.Markers -join '; '))" }
             Copy-Item $Built "$PluginsDir\$($P.Dll)" -Force
             Write-Host "    Built: $($P.Dll) ($($P.Ref), patched)" -ForegroundColor Gray
         }
@@ -1022,8 +1043,8 @@ if ($Task98Pending.Count -eq 0) {
     }
 }
 foreach ($P in $Task98Plugins) {
-    if (-not (Test-FileContainsAscii "$PluginsDir\$($P.Dll)" $Task98Marker)) {
-        throw "$($P.Dll) is not the patched build (task #98)"
+    if (-not (Test-Task98Markers "$PluginsDir\$($P.Dll)" $P)) {
+        throw "$($P.Dll) is not the patched build ($($P.Markers -join '; '))"
     }
 }
 
