@@ -69,7 +69,15 @@ pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .
 <p>Against the nightly: about 24 AV1 cases a leg and 2 failures in about 10 legs is roughly one in 120 case runs. At that rate B1 alone (960 x64 case runs) would have expected about 8. So what the nightly has and this did not is the cause or its trigger: other heavy test files running beside the matrix (the AI passes use several GB and every core for minutes; the format sweep runs on another leg) rather than CPU load alone. Not measured: memory pressure, and the 11-19/11-21 bundles (rc1, rc2), whose FFmpeg is byte-identical to rc3's on x64.</p>
 
 <h2 id="nightly">The nightly on this branch</h2>
-<p>NIGHTLY_PLACEHOLDER</p>
+<p>Nightly run 44998535692 (2026-11-22, <code>platform=macos</code>, on the probe branch, which holds this branch's code without the docs commit):</p>
+<table>
+<tr><th>Leg</th><th>Output conformance</th><th>Step D tests (reserved tags, video start offset, audio restoration, AVI copy trim, AVI audio seek, source grid, frame mapping)</th><th>Other failures</th></tr>
+<tr><td>macos-x64 heavy</td><td class="num ok">448 / 448</td><td class="num ok">all pass</td><td>Face Restoration's setUpAll: 12 min timeout installing its three add-ons</td></tr>
+<tr><td>macos-x64-v2 heavy</td><td class="num ok">448 / 448</td><td class="num ok">all pass</td><td>Colourisation's setUpAll: 12 min timeout installing DDColor + DeOldify (1.1 GB)</td></tr>
+<tr><td>macos-arm64 heavy</td><td class="num ok">pass</td><td class="num ok">pass</td><td>none</td></tr>
+<tr><td>macos-x64 sweep</td><td>–</td><td>–</td><td>4 add-on variants: <code>Failed host lookup: 'github.com'</code> while downloading</td></tr>
+</table>
+<p>Both cases of the 11-19/11-21 failures (<code>mp4+av1/passthrough/delayed-avi/untrimmed</code> and <code>near-start</code>) passed on both x64 tiers; no case printed evidence or kept an output. Every other failure in the run is an add-on download from github.com during a network fault the sweep leg's DNS error shows, not anything this branch changed (the arm64 legs and the x64-v2 sweep installed the same add-ons in time).</p>
 
 <h2>Step D: heavy tests cut off by the 30 s default</h2>
 <p>Every saved macOS x64 heavy leg from 11-16 to 11-21 (13 legs) read for <code>TimeoutException after 0:00:30</code>: 8 legs had one, always one of two tests. Durations below are the gap between a test's result line and the previous one in the same file (files run concurrently, tests in a file in order), so they include a little queueing; the maximum over the legs that ran it.</p>
