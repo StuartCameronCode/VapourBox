@@ -69,6 +69,24 @@ void main() {
     }
   });
 
+  test('describeHang names the tree and keeps to its budget', () async {
+    if (Platform.isWindows) return; // no ps, no stacks
+    final proc = await Process.start('sh', ['-c', 'sleep 30 & sleep 30; wait']);
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      final watch = Stopwatch()..start();
+      final report = await describeHang(proc.pid,
+          budget: const Duration(seconds: 6), perProcess: const Duration(seconds: 4));
+      expect(report, contains('process tree at the timeout'));
+      expect(report, contains('sleep 30'));
+      expect(watch.elapsed, lessThan(const Duration(seconds: 15)),
+          reason: 'the report outran its budget');
+    } finally {
+      await Process.run('pkill', ['-P', '${proc.pid}']); // the sleeps, first
+      proc.kill(ProcessSignal.sigkill);
+    }
+  });
+
   test('the conformance matrix kills a hung job before the case times out', () {
     final s = _read('integration_output_conformance_test.dart');
     final job = _const(s, 'jobTimeout'), kase = _const(s, 'caseTimeout');

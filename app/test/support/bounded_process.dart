@@ -110,7 +110,10 @@ Future<List<(int, String)>> processTree(int pid) async {
 /// (`ps`), then each process's threads' stacks: macOS `sample <pid> 2`,
 /// Linux `gdb -batch -ex 'thread apply all bt'` when gdb is installed.
 /// Nothing on Windows. Never throws: a report that fails says why.
-Future<String> describeHang(int pid, {int maxLinesEach = 120}) async {
+Future<String> describeHang(int pid,
+    {int maxLinesEach = 120,
+    Duration budget = const Duration(seconds: 20),
+    Duration perProcess = const Duration(seconds: 10)}) async {
   try {
     final tree = await processTree(pid);
     if (tree.isEmpty) return '';
@@ -118,25 +121,32 @@ Future<String> describeHang(int pid, {int maxLinesEach = 120}) async {
     for (final (p, c) in tree) {
       b.writeln('  $p  ${c.length > 300 ? '${c.substring(0, 300)}…' : c}');
     }
+    // The whole report has [budget]: a hung job's is taken inside the 30 s
+    // between the job's limit and the case's (conformance_timeouts_test).
+    final deadline = DateTime.now().add(budget);
     for (final (p, c) in tree) {
       final name = c.split(' ').first.split('/').last;
-      ProcessResult? r;
-      if (Platform.isMacOS) {
-        r = await Process.run('sample', ['$p', '2', '-mayDie'])
-            .timeout(const Duration(seconds: 30));
-      } else if (Platform.isLinux) {
-        try {
-          r = await Process.run('gdb', ['-batch', '-p', '$p', '-ex', 'thread apply all bt'])
-              .timeout(const Duration(seconds: 60));
-        } on ProcessException {
-          b.writeln('(no gdb: no stacks)');
-          break;
-        }
+      final left = deadline.difference(DateTime.now());
+      if (left < const Duration(seconds: 3)) {
+        b.writeln('--- $p $name: not sampled (the ${budget.inSeconds} s budget was used) ---');
+        continue;
       }
-      if (r == null) continue;
-      final lines = '${r.stdout}${r.stderr}'.split('\n')
-          .where((l) => l.trim().isNotEmpty)
-          .toList();
+      final List<String> cmd;
+      if (Platform.isMacOS) {
+        cmd = ['sample', '$p', '2', '-mayDie'];
+      } else if (Platform.isLinux) {
+        cmd = ['gdb', '-batch', '-p', '$p', '-ex', 'thread apply all bt'];
+      } else {
+        continue;
+      }
+      final String text;
+      try {
+        text = await _runKilledAt(cmd, left < perProcess ? left : perProcess);
+      } on ProcessException {
+        b.writeln('(no ${cmd.first}: no stacks)');
+        break;
+      }
+      final lines = text.split('\n').where((l) => l.trim().isNotEmpty).toList();
       // `sample`'s call graph starts at "Call graph:"; its header is noise.
       final start = lines.indexWhere((l) => l.startsWith('Call graph:'));
       final body = start < 0 ? lines : lines.sublist(start);
@@ -148,4 +158,21 @@ Future<String> describeHang(int pid, {int maxLinesEach = 120}) async {
   } catch (e) {
     return '(could not describe the hang: $e)';
   }
+}
+
+/// [cmd]'s stdout and stderr, the process killed if it outlives [limit]
+/// (a `sample` or `gdb` that hangs must not hold the report).
+Future<String> _runKilledAt(List<String> cmd, Duration limit) async {
+  final proc = await Process.start(cmd.first, cmd.sublist(1));
+  final out = StringBuffer();
+  final a = proc.stdout.transform(utf8.decoder).listen(out.write).asFuture<void>();
+  final e = proc.stderr.transform(utf8.decoder).listen(out.write).asFuture<void>();
+  try {
+    await proc.exitCode.timeout(limit);
+  } on TimeoutException {
+    proc.kill(ProcessSignal.sigkill);
+    out.writeln('(${cmd.first} killed after ${limit.inSeconds} s)');
+  }
+  await Future.wait([a, e]).timeout(const Duration(seconds: 2), onTimeout: () => []);
+  return out.toString();
 }
