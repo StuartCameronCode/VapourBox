@@ -1,0 +1,202 @@
+name: Reproduce an output conformance flake (macOS)
+
+# Task #99: AV1-into-MP4 cases of integration_output_conformance_test.dart
+# failed now and then on the macOS x64 nightly (99 pictures for 100; a case
+# that hung past the test's 3 minutes). This runs the suspects in a loop on
+# the nightly's runners, layer by layer. Phases (space-separated `phases`):
+#   versions  the bundle's FFmpeg, SVT-AV1 and AV1 decoders (B0)
+#   b1        the cases matching `name`, `iterations` times each, in one
+#             flutter test process (VAPOURBOX_CONFORMANCE_REPEAT)
+#   b1load    every mp4+av1 case, `load_iterations` times each, with every
+#             core but one busy, as nightly's concurrent test files are
+#   b2        the encoder alone: one job's captured Y4M fed to its exact
+#             encoder command `replays` times, from a file and throttled,
+#             then 4 at once under load (scripts/replay_encoder.py)
+#   b3        the test's own decodes of that output (and of any output b1
+#             kept failing), `replays` times per decoder variant
+#             (scripts/measure_decode.py)
+# Scripts: docs/reports/task-99-av1-conformance-flake/scripts. Every failing
+# case's output, job and log are uploaded (VAPOURBOX_CONFORMANCE_KEEP).
+#
+# Dispatch it, or push a change to this file on a `stuart/99-probe-*`
+# branch: a workflow that is not on the default branch cannot be dispatched,
+# and a push then runs it with the defaults below.
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: 'b1: --name regex of the cases to loop'
+        default: 'mp4\+av1/passthrough/delayed-avi/(untrimmed|near-start)'
+      iterations:
+        description: 'b1: runs of each case'
+        default: '60'
+      load_iterations:
+        description: 'b1load: runs of each mp4+av1 case under load'
+        default: '15'
+      replays:
+        description: 'b2/b3: runs per mode or decoder variant'
+        default: '300'
+      phases:
+        description: 'Space-separated: versions b1 b1load b2 b3'
+        default: 'versions b1 b1load b2 b3'
+  push:
+    branches: ['stuart/99-probe-*']
+    paths: ['.github/workflows/repro-output-conformance.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  repro:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: x64, runner: macos-15-intel, asset: macos-x64}
+          - {arch: x64, runner: macos-15-intel, asset: macos-x64-v2}
+          # The control: arm64 never failed these cases.
+          - {arch: arm64, runner: macos-15, asset: macos-arm64}
+    name: repro (${{ matrix.asset }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 200
+    env:
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/macos-${{ matrix.arch }}
+      VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
+      NAME: ${{ inputs.name || 'mp4\+av1/passthrough/delayed-avi/(untrimmed|near-start)' }}
+      ITER: ${{ inputs.iterations || '60' }}
+      LOAD_ITER: ${{ inputs.load_iterations || '15' }}
+      REPLAYS: ${{ inputs.replays || '300' }}
+      PHASES: ${{ inputs.phases || 'versions b1 b1load b2 b3' }}
+      S: ${{ github.workspace }}/docs/reports/task-99-av1-conformance-flake/scripts
+      R: ${{ github.workspace }}/repro-out
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve deps tag
+        id: deps
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: false
+          pub-cache-path: ${{ runner.temp }}/pub-cache
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Download dependencies (${{ matrix.asset }})
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/install-deps-bundle.sh "${{ matrix.asset }}" \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" "deps/macos-${{ matrix.arch }}"
+          xattr -cr "deps/macos-${{ matrix.arch }}" 2>/dev/null || true
+
+      - name: Build worker and generate Dart serialization
+        run: |
+          (cd worker && cargo build)
+          cd app && flutter pub get && dart run build_runner build --delete-conflicting-outputs
+
+      - name: B0 versions
+        if: contains(env.PHASES, 'versions')
+        run: |
+          mkdir -p "$R"
+          FF="$VAPOURBOX_DEPS_DIR/ffmpeg/ffmpeg"; [ -x "$FF" ] || FF=$(find "$VAPOURBOX_DEPS_DIR" -name ffmpeg -type f -perm +111 | head -1)
+          {
+            echo "cpu: $(sysctl -n machdep.cpu.brand_string) cores $(sysctl -n hw.ncpu)"
+            "$FF" -hide_banner -version | head -3
+            "$FF" -hide_banner -buildconf | grep -iE 'svt|dav1d|aom' || true
+            echo "AV1 decoders:"; "$FF" -hide_banner -decoders | grep -i av1
+            echo "SVT-AV1 banner:"
+            SVT_LOG=4 "$FF" -hide_banner -v info -f lavfi -i testsrc2=s=160x120:r=25:d=0.2 \
+              -c:v libsvtav1 -preset 10 -f null - 2>&1 | grep -iE 'svt|version|lib' | head -12
+            echo "decoder ffmpeg picks for AV1:"
+            "$FF" -hide_banner -v error -y -f lavfi -i testsrc2=s=160x120:r=25:d=0.2 -c:v libsvtav1 "$RUNNER_TEMP/v.mp4"
+            "$FF" -hide_banner -nostats -v verbose -i "$RUNNER_TEMP/v.mp4" -f null - 2>&1 | grep -E 'Stream #0:0 ->|dav1d|libaom' | head -5
+          } 2>&1 | tee "$R/versions.txt"
+
+      - name: B1 the cases in a loop
+        if: contains(env.PHASES, 'b1 ') || endsWith(env.PHASES, 'b1')
+        run: |
+          mkdir -p "$R/kept-b1"
+          cd app
+          VAPOURBOX_CONFORMANCE_REPEAT=$ITER VAPOURBOX_CONFORMANCE_KEEP="$R/kept-b1" \
+            flutter test --tags heavy test/integration_output_conformance_test.dart \
+            --name "$NAME" --reporter compact --file-reporter "json:$R/b1.json" > "$R/b1.log" 2>&1 || true
+          tail -5 "$R/b1.log"
+          python3 "$S/summarize_flutter_json.py" "$R/b1.json" "B1 $NAME x$ITER" | tee "$R/b1-summary.txt"
+
+      - name: B1 every mp4+av1 case under load
+        if: contains(env.PHASES, 'b1load')
+        run: |
+          mkdir -p "$R/kept-b1load"
+          N=$(sysctl -n hw.ncpu); for i in $(seq $((N - 1))); do yes > /dev/null & done
+          cd app
+          VAPOURBOX_CONFORMANCE_REPEAT=$LOAD_ITER VAPOURBOX_CONFORMANCE_KEEP="$R/kept-b1load" \
+            flutter test --tags heavy test/integration_output_conformance_test.dart \
+            --name 'mp4\+av1/' --reporter compact --file-reporter "json:$R/b1load.json" > "$R/b1load.log" 2>&1 || true
+          pkill yes || true
+          tail -5 "$R/b1load.log"
+          python3 "$S/summarize_flutter_json.py" "$R/b1load.json" "B1 load mp4+av1 x$LOAD_ITER" | tee "$R/b1load-summary.txt"
+
+      - name: B2 the encoder alone
+        if: contains(env.PHASES, 'b2')
+        run: |
+          VS="$VAPOURBOX_DEPS_DIR/vapoursynth"
+          bash "$S/capture-vspipe-stdout.sh" install "$VS" "$R/capture"
+          (cd app && VAPOURBOX_CONFORMANCE_KEEP="$R/kept-b2" VAPOURBOX_CONFORMANCE_KEEP_ALL=1 \
+            flutter test --tags heavy test/integration_output_conformance_test.dart \
+            --plain-name 'mp4+av1/passthrough/delayed-avi/untrimmed' --reporter compact) || true
+          bash "$S/capture-vspipe-stdout.sh" uninstall "$VS"
+          Y4M=$(ls "$R"/capture/run.*/out.y4m | head -1)
+          LOG=$(ls "$R"/kept-b2/*/log.txt | head -1)
+          echo "y4m $Y4M ($(wc -c < "$Y4M") bytes), log $LOG"
+          FF="$VAPOURBOX_DEPS_DIR/ffmpeg/ffmpeg"; FP="$VAPOURBOX_DEPS_DIR/ffmpeg/ffprobe"
+          for mode in file throttled; do
+            python3 -I "$S/replay_encoder.py" --log "$LOG" --y4m "$Y4M" --ffmpeg "$FF" --ffprobe "$FP" \
+              --out "$R/b2-$mode" --runs "$REPLAYS" --mode "$mode" | tee "$R/b2-$mode.txt"
+          done
+          N=$(sysctl -n hw.ncpu); for i in $(seq $((N - 1))); do yes > /dev/null & done
+          python3 -I "$S/replay_encoder.py" --log "$LOG" --y4m "$Y4M" --ffmpeg "$FF" --ffprobe "$FP" \
+            --out "$R/b2-load" --runs "$REPLAYS" --mode throttled --parallel 4 | tee "$R/b2-load.txt"
+          pkill yes || true
+          rm -rf "$R/capture"
+
+      - name: B3 the test's own decodes
+        if: contains(env.PHASES, 'b3')
+        run: |
+          FF="$VAPOURBOX_DEPS_DIR/ffmpeg/ffmpeg"; FP="$VAPOURBOX_DEPS_DIR/ffmpeg/ffprobe"
+          GOOD=$(ls "$R"/kept-b2/*/*.mp4 2>/dev/null | head -1)
+          BAD=$(ls "$R"/kept-b1*/*/*.mp4 2>/dev/null | head -1)
+          for f in $GOOD $BAD; do
+            tag=$( [ "$f" = "$GOOD" ] && echo good || echo bad )
+            python3 -I "$S/measure_decode.py" --file "$f" --ffmpeg "$FF" --ffprobe "$FP" \
+              --out "$R/b3-$tag" --runs "$REPLAYS" | tee "$R/b3-$tag.txt"
+            N=$(sysctl -n hw.ncpu); for i in $(seq $((N - 1))); do yes > /dev/null & done
+            python3 -I "$S/measure_decode.py" --file "$f" --ffmpeg "$FF" --ffprobe "$FP" \
+              --out "$R/b3-$tag-load" --runs "$REPLAYS" --parallel 4 | tee "$R/b3-$tag-load.txt"
+            pkill yes || true
+          done
+
+      - name: Summary
+        if: always()
+        run: |
+          for f in "$R"/versions.txt "$R"/*summary.txt "$R"/b2-*.txt "$R"/b3-*.txt; do
+            [ -f "$f" ] && { echo "=== $(basename "$f")"; tail -30 "$f"; }
+          done
+
+      - name: Upload
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: repro-output-conformance-${{ matrix.asset }}
+          path: |
+            repro-out/
+            !repro-out/capture/
+          if-no-files-found: ignore
+          retention-days: 14

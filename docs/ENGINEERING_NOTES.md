@@ -6347,3 +6347,36 @@ did every 8-bit one with High Precision. Task #79 found it.
   "Double-rate").
 
 Report: [docs/reports/task-89-qtgmc-mask-high-bit-depth](reports/task-89-qtgmc-mask-high-bit-depth/index.html).
+
+### AV1-into-MP4 conformance failures on macOS x64: not reproduced, made diagnosable (task #99, 2026-11-22)
+
+Task #94 saw four `mp4+av1` cases of the output conformance matrix fail on the
+macOS x64 nightly, each differently. Reading every nightly heavy job since
+11-16: the two "white frames at [1.12]" failures (11-16, 11-17) were task
+#58's `pipe_source` fault (17-31 other near-start cases in every container
+failed with them), and 11-18's SIGSEGVs task #68's vspipe race. Two remain:
+`mp4+av1/passthrough/delayed-avi/near-start` past the test's 3 minutes
+(11-19, rc1) and `…/untrimmed` with 99 pictures for 100 (11-21, rc2), both
+x64-v2; about 2 in 10 legs, never elsewhere.
+
+- **Not reproduced** on the nightly's `macos-15-intel` runners
+  (`repro-output-conformance.yml`, run 44992968756), either tier: the two
+  cases 60 times each, every `mp4+av1` case 15 times with the CPU busy, the
+  encoder alone 900 times from the captured Y4M (from a file, throttled as
+  vspipe writes, 4 at once under load: always 100 packets, one hash), and
+  the test's decodes 4,800 times (100 every time; libdav1d, single thread,
+  libaom). SVT-AV1 is 4.2.0 and dav1d 1.5.4 on both arches. At the nightly's
+  rate about 8 failures were expected, so its trigger is something the loop
+  lacks, most likely the other heavy files running beside it.
+- **So the next one explains itself:** every subprocess of the matrix is
+  bounded (`runBounded`), the job's limit is below the case's and a hang is
+  sampled before its tree is killed, a failing case prints its log tail,
+  packet and decoded counts and job, and the nightly uploads its output
+  (`VAPOURBOX_CONFORMANCE_KEEP`). The worker logs its encoder arguments. No
+  retry; no `knownFailures` entry for an intermittent case.
+- **Found on the way:** 8 macOS x64 legs had failed on package:test's 30 s
+  default timeout, not on any fault: `--detect-native` on the reserved-tag
+  ProRes (23-30 s there) and task #41's AAC test. Those and five more tests
+  measured at 23-31 s state 5 minutes now; the detectors are bounded at 2.
+
+Report: [docs/reports/task-99-av1-conformance-flake](reports/task-99-av1-conformance-flake/index.html).

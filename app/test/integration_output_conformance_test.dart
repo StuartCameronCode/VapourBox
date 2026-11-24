@@ -18,6 +18,7 @@
 @Tags(['heavy'])
 library;
 
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -37,6 +38,7 @@ import 'package:vapourbox/services/timestamp_continuity_service.dart';
 import 'package:vapourbox/services/tool_locator.dart';
 
 import 'support/av_sync.dart';
+import 'support/bounded_process.dart';
 import 'support/output_matrix.dart';
 import 'support/worker_harness.dart';
 
@@ -87,10 +89,11 @@ class _Source {
 /// across containers that packetise the same frames differently (a TS PES
 /// holds several MP2 frames, Matroska one each).
 Future<Uint8List> _payload(String path) async {
-  final r = await Process.run(
+  final r = await runBounded(
     WorkerHarness.ffmpegPath,
     ['-v', 'error', '-i', path, '-map', '0:a:0', '-c', 'copy', '-f', 'data', '-'],
-    stdoutEncoding: null,
+    label: 'the sound payload copy',
+    binaryStdout: true,
     environment: WorkerHarness.ffmpegEnv,
   );
   expect(r.exitCode, 0, reason: '${r.stderr}');
@@ -98,11 +101,12 @@ Future<Uint8List> _payload(String path) async {
 }
 
 Future<Float32List> _samples(String path, {String? decoder}) async {
-  final r = await Process.run(
+  final r = await runBounded(
     WorkerHarness.ffmpegPath,
     ['-v', 'error', if (decoder != null) ...['-c:a', decoder], '-i', path, '-map', '0:a:0', '-ac', '1',
      '-f', 'f32le', '-'],
-    stdoutEncoding: null,
+    label: 'the sample decode',
+    binaryStdout: true,
     environment: WorkerHarness.ffmpegEnv,
   );
   final bytes = Uint8List.fromList(r.stdout as List<int>);
@@ -269,10 +273,97 @@ String? _byteRun(Uint8List out, Uint8List src) {
       '(the longest match: $best bytes, at $bestAt)';
 }
 
+/// Each case's limit, and its job's: the job's is below the case's, so a
+/// hung job is killed as a tree and reported with where it hung (task #99),
+/// not cut off by the test's bare TimeoutException with its processes left
+/// running. `conformance_timeouts_test.dart` (push gate) holds the order.
+const caseTimeout = Duration(minutes: 3);
+const jobTimeout = Duration(seconds: 150);
+
+/// Encodes [c] and checks the output; on any failure prints what tells an
+/// encoder that lost a picture from a decoder that did, or a pipeline that
+/// did ([_evidence]), and keeps the output in `$VAPOURBOX_CONFORMANCE_KEEP`.
 Future<void> _check(MatrixCase c, _Source s) async {
-  final r = await WorkerHarness.runJob(_job(c, s).toJson(), label: c.id);
-  expect(r.success, isTrue, reason: '1. the job: ${r.error}');
-  final out = r.outputPath!;
+  final job = _job(c, s).toJson();
+  final r = await WorkerHarness.runJob(job, label: c.id, timeout: jobTimeout);
+  try {
+    expect(r.success, isTrue, reason: '1. the job: ${r.error}');
+    await _checkOutput(c, s, r.outputPath!);
+  } catch (_) {
+    await _evidence(c, job, r);
+    rethrow;
+  }
+  // `VAPOURBOX_CONFORMANCE_KEEP_ALL=1` keeps passing cases too: the repro
+  // workflow replays a good job's encoder from them (task #99).
+  if (Platform.environment['VAPOURBOX_CONFORMANCE_KEEP_ALL'] == '1') {
+    await _evidence(c, job, r, failed: false);
+  }
+}
+
+/// What a failed case leaves behind for its diagnosis (task #99): the job's
+/// log tail (vspipe's "Output N frames", the encoder's last lines), the
+/// output's video packet count beside the frames ffprobe and an ffmpeg
+/// decode count, the decoder ffmpeg chose, and the job. With
+/// `$VAPOURBOX_CONFORMANCE_KEEP` set, the output and the job are copied
+/// there (nightly uploads it).
+Future<void> _evidence(MatrixCase c, Map<String, dynamic> job, JobResult r,
+    {bool failed = true}) async {
+  final b = StringBuffer('--- evidence for ${c.id} (task #99) ---\n');
+  b.writeln('job: ${r.success ? 'succeeded' : 'failed: ${r.error}'} in ${r.duration.inMilliseconds} ms');
+  final out = r.outputPath ?? '${job['outputPath']}';
+  for (final l in r.logs) {
+    if (l.contains('Output ') && l.contains(' frames')) b.writeln('vspipe: $l');
+  }
+  final tail = r.logs.length > 40 ? r.logs.sublist(r.logs.length - 40) : r.logs;
+  b.writeln('job log, last ${tail.length} lines:');
+  for (final l in tail) {
+    b.writeln('  ${l.length > 400 ? '${l.substring(0, 400)}…' : l}');
+  }
+  if (File(out).existsSync()) {
+    try {
+      final v = await WorkerHarness.ffprobeJson([
+        '-v', 'error', '-select_streams', 'v:0', '-count_packets', '-count_frames',
+        '-show_entries', 'stream=codec_name,nb_frames,nb_read_packets,nb_read_frames',
+        '-of', 'json', out,
+      ], timeout: const Duration(seconds: 60));
+      b.writeln('video stream: ${(v['streams'] as List).firstOrNull}');
+    } catch (e) {
+      b.writeln('ffprobe count: $e');
+    }
+    try {
+      final d = await runBounded(
+        WorkerHarness.ffmpegPath,
+        ['-hide_banner', '-nostats', '-v', 'info', '-i', out, '-map', '0:v:0', '-f', 'null', '-'],
+        label: 'the evidence decode',
+        timeout: const Duration(seconds: 60),
+        environment: WorkerHarness.ffmpegEnv,
+      );
+      for (final l in '${d.stderr}'.split('\n')) {
+        if (l.contains('Stream #0:') && l.contains('->') || l.contains('frames decoded') ||
+            l.contains('frames encoded') || l.contains('frame=')) {
+          b.writeln('ffmpeg decode: ${l.trim()}');
+        }
+      }
+    } catch (e) {
+      b.writeln('ffmpeg decode: $e');
+    }
+  } else {
+    b.writeln('no output file at $out');
+  }
+  b.writeln('job: ${jsonEncode(job)}');
+  final keep = Platform.environment['VAPOURBOX_CONFORMANCE_KEEP'];
+  if (keep != null && keep.isNotEmpty) {
+    final dir = Directory(p.join(keep, c.id.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_')))
+      ..createSync(recursive: true);
+    if (File(out).existsSync()) File(out).copySync(p.join(dir.path, p.basename(out)));
+    File(p.join(dir.path, 'job.json')).writeAsStringSync(jsonEncode(job));
+    File(p.join(dir.path, 'log.txt')).writeAsStringSync('${b.toString()}\n${r.logs.join('\n')}');
+    b.writeln('kept in ${dir.path}');
+  }
+  if (failed) print(b);
+}
+
+Future<void> _checkOutput(MatrixCase c, _Source s, String out) async {
 
   // 1. The header wrote: one video stream and the expected sound.
   final streams = await WorkerHarness.ffprobeJson([
@@ -389,8 +480,14 @@ void main() {
     av1 = await WorkerHarness.hasEncoder('libsvtav1');
   });
 
-  for (final c in cases) {
-    test(c.id, () async {
+  // `VAPOURBOX_CONFORMANCE_REPEAT=N` registers each case N times, for
+  // reproducing an intermittent one in one process
+  // (`repro-output-conformance.yml`, task #99). Never a retry: each run is
+  // its own test and its own verdict.
+  final repeat = int.tryParse(Platform.environment['VAPOURBOX_CONFORMANCE_REPEAT'] ?? '') ?? 1;
+  final runs = [for (final c in cases) for (var k = 1; k <= repeat; k++) (c, k)];
+  for (final (c, run) in runs) {
+    test(repeat == 1 ? c.id : '${c.id} (run $run of $repeat)', () async {
       if (c.video == VideoCodec.av1 && !av1) {
         markTestSkipped('no libsvtav1 in this FFmpeg');
         return;
@@ -409,7 +506,7 @@ void main() {
       expect(failure, isNotNull,
           reason: 'a known failure ($known) now passes: remove it from knownFailures');
       print('  known failure ($known): $failure');
-    }, timeout: const Timeout(Duration(minutes: 3)));
+    }, timeout: const Timeout(caseTimeout));
   }
 
   // Found by the matrix: a reset whose first part's sound ends off the
@@ -444,10 +541,11 @@ void main() {
 
   test('a copy the container cannot hold is refused before any work (task #49)', () async {
     final opus = p.join(_outDir, 'opus_source.mkv');
-    final made = await Process.run(
+    final made = await runBounded(
       WorkerHarness.ffmpegPath,
       ['-v', 'error', '-y', '-f', 'lavfi', '-i', 'testsrc2=s=160x120:r=25:d=1',
        '-f', 'lavfi', '-i', 'sine=d=1:sample_rate=48000', '-c:v', 'ffv1', '-c:a', 'libopus', opus],
+      label: 'making the Opus source',
       environment: WorkerHarness.ffmpegEnv,
     );
     expect(made.exitCode, 0, reason: '${made.stderr}');

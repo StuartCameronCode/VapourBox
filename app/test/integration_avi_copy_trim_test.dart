@@ -186,7 +186,8 @@ void main() {
       // Before the fix: 137-375 ms late.
       expect(_syncLag(source, sound, start, vs), 0);
       expect(_maxDiffFromInPoint(source, sound, start, vs), 0);
-    });
+      // Up to 29 s on macOS x64 (task #99).
+    }, timeout: const Timeout(Duration(minutes: 5)));
   }
 
   // Half a packet, plus a millisecond for the AVI demuxer's own timestamps.

@@ -150,6 +150,9 @@ jobs:
         # found" and prove nothing.
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
+          # A failing output conformance case keeps its output, job and log
+          # here, uploaded below (task #99).
+          VAPOURBOX_CONFORMANCE_KEEP: ${{ github.workspace }}/conformance-failures
         # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
         # `sweep` tests are also `heavy`; each leg takes its own.
         run: >-
@@ -162,6 +165,18 @@ jobs:
         # did, so a failure of either never hides the other's result.
         if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.build.outcome == 'success' }}
         run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
+
+      - name: Failing conformance cases (task #99)
+        # Each failing case of integration_output_conformance_test.dart: its
+        # output file, job and log, so an intermittent failure can be measured
+        # offline.
+        if: ${{ failure() && matrix.suite == 'heavy' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: conformance-failures-${{ matrix.asset }}
+          path: conformance-failures/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Format sweep results
         # Every row's outcome, time and differences (integration_format_sweep_test.dart).
@@ -289,6 +304,9 @@ jobs:
         # `flutter test`, where the running executable is the test runner.
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}\worker\target\debug\vapourbox-worker.exe
+          # A failing output conformance case keeps its output, job and log
+          # here, uploaded below (task #99).
+          VAPOURBOX_CONFORMANCE_KEEP: ${{ github.workspace }}/conformance-failures
         # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
         # `sweep` tests are also `heavy`; each leg takes its own.
         run: >-
@@ -301,6 +319,18 @@ jobs:
         # did, so a failure of either never hides the other's result.
         if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.build.outcome == 'success' }}
         run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
+
+      - name: Failing conformance cases (task #99)
+        # Each failing case of integration_output_conformance_test.dart: its
+        # output file, job and log, so an intermittent failure can be measured
+        # offline.
+        if: ${{ failure() && matrix.suite == 'heavy' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: conformance-failures-${{ matrix.asset }}
+          path: conformance-failures/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Format sweep results
         # Every row's outcome, time and differences (integration_format_sweep_test.dart).
@@ -415,6 +445,9 @@ jobs:
         # found" and prove nothing.
         env:
           VAPOURBOX_WORKER: ${{ github.workspace }}/worker/target/debug/vapourbox-worker
+          # A failing output conformance case keeps its output, job and log
+          # here, uploaded below (task #99).
+          VAPOURBOX_CONFORMANCE_KEEP: ${{ github.workspace }}/conformance-failures
         # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
         # `sweep` tests are also `heavy`; each leg takes its own.
         run: >-
@@ -427,6 +460,18 @@ jobs:
         # did, so a failure of either never hides the other's result.
         if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.build.outcome == 'success' }}
         run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
+
+      - name: Failing conformance cases (task #99)
+        # Each failing case of integration_output_conformance_test.dart: its
+        # output file, job and log, so an intermittent failure can be measured
+        # offline.
+        if: ${{ failure() && matrix.suite == 'heavy' }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: conformance-failures-${{ matrix.asset }}
+          path: conformance-failures/
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Format sweep results
         # Every row's outcome, time and differences (integration_format_sweep_test.dart).

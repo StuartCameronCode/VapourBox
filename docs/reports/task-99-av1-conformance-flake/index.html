@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AV1 conformance flake</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>AV1-into-MP4 conformance failures on the macOS x64 nightly: not reproduced, now diagnosable</h1>
+<p class="meta">Task #99, 2026-11-22. Nightly logs of 2026-11-16 to 2026-11-21 read on every platform; the repro run on GitHub's <code>macos-15-intel</code> runners (Intel Core i7-8700B, 4 vCPUs) with both x64 CPU tiers and a <code>macos-15</code> arm64 control, deps 1.18.0-rc3.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>Two of the task's four failures were already fixed.</b> The "white frames at [1.12]" failures of 11-16 and 11-17 were not AV1's: the same jobs failed 17 to 31 other near-start cases in every container with the same message, task #58's dropped-frame fault in <code>pipe_source</code> (fixed 11-18). The 11-18 vspipe SIGSEGVs were task #68's teardown race (fixed in deps 1.18.0-rc1).</li>
+<li><b>Two remain unexplained,</b> both <code>mp4+av1/passthrough/delayed-avi</code> on the x64-v2 tier: a case that ran past the test's 3 minutes (11-19, rc1) and one that counted 99 pictures for 100 (11-21, rc2). Every other heavy job since #58 and #68 passed all 451 cases: two failures in about 10 macOS x64 legs, none on arm64, Windows or Linux.</li>
+<li><b>Not reproduced, layer by layer.</b> On each x64 tier: the two cases 60 times each, every <code>mp4+av1</code> case 15 times with every core but one busy, the encoder alone 900 times from the captured Y4M, and the test's own decodes of that output 4,800 times: <b>no failure, no hang, one video hash.</b> 2,760 encodes and 9,600 decodes on x64 in all, and as many on the arm64 control per leg.</li>
+<li><b>The encoder is deterministic and the decoders agree.</b> SVT-AV1 4.2.0 (the same library version in the x64 and arm64 FFmpeg 9.0.2) wrote 100 packets and the same bytes in all 900 replays per leg, from a file, throttled one frame per 10 ms as vspipe writes, and 4 at once under load. ffprobe's and ffmpeg's decodes counted 100 pictures with libdav1d 1.5.4 (FFmpeg's choice), single-threaded, and with libaom.</li>
+<li><b>What changed:</b> the next failure explains itself. Every subprocess of the matrix is bounded (60–150 s), a hang is sampled (<code>sample</code> on macOS, gdb on Linux) and its tree killed before the test's timeout, a failing case prints its job log tail (vspipe's "Output N frames"), the output's packet count beside two decoders' frame counts, the decoder used and the job, and the nightly uploads the output, job and log (<code>conformance-failures-&lt;bundle&gt;</code>). The worker now logs its encoder arguments, so a kept job can be replayed. <b>No retry was added</b>, and no case is in <code>knownFailures</code>: that list is for cases that fail every time.</li>
+<li><b>Also fixed (Step D):</b> eight macOS x64 heavy legs failed on package:test's 30 s default timeout, not on a fault: <code>--detect-native</code> on the reserved-colour-tags fixtures (23–30 s there) and task #41's AAC test (11–30 s). They and five more tests measured at 23–31 s on that runner now state a 5-minute timeout, and the detectors run bounded at 2 minutes.</li>
+</ul>
+
+<h2>The failures in the nightlies</h2>
+<table>
+<tr><th>Run (job)</th><th>Date, commit</th><th>Bundle</th><th>Failure</th><th>Cause</th></tr>
+<tr><td>43909344002 (133446658134)</td><td>11-16, <code>dc9e36ce</code></td><td>1.17.0-rc2, x64-v2</td><td><code>mp4+av1/passthrough/reset-ps/near-start</code>: white frames at [1.12]</td><td class="ok">Task #58 finding 4; 17 other near-start cases in mp4, mov, mkv and avi failed the same way in that job</td></tr>
+<tr><td>44127090331 (134193727710)</td><td>11-17, <code>84df4d90</code></td><td>1.17.0-rc3, x64</td><td><code>mp4+av1/restore/late-video/near-start</code>: white frames at [1.12]</td><td class="ok">The same; 19 other near-start cases (and 2 vspipe SIGSEGVs). Run 44089342398 failed 26 and 31</td></tr>
+<tr><td>44342418084 (134935675943)</td><td>11-18, <code>48bca80e</code></td><td>1.17.0-rc3, x64</td><td><code>mkv/restore-convert-aac/delayed-avi/untrimmed</code>, <code>avi/restore-convert-aac/late-video/mid</code>: vspipe SIGSEGV</td><td class="ok">Task #68 (vspipe R78 teardown race); not in the task's table</td></tr>
+<tr><td>44515333102 (135529807721)</td><td>11-19, <code>c6448e16</code></td><td>1.18.0-rc1, x64-v2</td><td><code>mp4+av1/passthrough/delayed-avi/near-start</code>: TimeoutException after 3 min (other cases: 1.6–2 s)</td><td class="no">Not reproduced</td></tr>
+<tr><td>44869849455 (136741691095)</td><td>11-21, <code>426cccba</code></td><td>1.18.0-rc2, x64-v2</td><td><code>mp4+av1/passthrough/delayed-avi/untrimmed</code>: 2. pictures, expected 100, actual 99</td><td class="no">Not reproduced</td></tr>
+</table>
+<p>The task description's "every other container/codec row passes in the same jobs" holds only for the last two. What they rule out: <code>pipe_source</code> repeats its last frame past the end of its input and, since task #58, raises on a frame asked for after it was dropped, so vspipe writes the script's 100 frames or fails; a 99 is lost between vspipe's stdout and <code>ffprobe -count_frames</code> (the encoder, the MP4 muxer, or the test's decode). Check 2 failed before check 3 counted packets, so which one was not recorded. The hang's job had a 5-minute limit of its own and the test 3, so the test's TimeoutException fired first, named nothing and killed nothing.</p>
+
+<h2>Versions</h2>
+<table>
+<tr><th></th><th>macOS x64 (both tiers)</th><th>macOS arm64</th></tr>
+<tr><td>FFmpeg</td><td>martin-riedl 9.0.2, build 1789931006</td><td>martin-riedl 9.0.2, build 1789931890 (pinned since 11-22; the same binary every bundle up to rc2 shipped)</td></tr>
+<tr><td>SVT-AV1</td><td>v4.2.0, built 2026-09-20 (Apple LLVM 14.0.0)</td><td>v4.2.0, built 2026-09-20</td></tr>
+<tr><td>AV1 decoders</td><td colspan="2">libdav1d 1.5.4 (FFmpeg's choice), libaom-av1, native <code>av1</code> (hardware only: fails without a hwaccel)</td></tr>
+</table>
+<p>The plan's guess that arm64 might carry a different SVT-AV1 was wrong: same version, same build date.</p>
+
+<h2>What was run</h2>
+<p>Run 44992968756 of <code>repro-output-conformance.yml</code>, one job per bundle, each phase in a fresh process. "Load" is <code>yes &gt; /dev/null</code> on every core but one.</p>
+<table>
+<tr><th>Phase</th><th>What</th><th>macos-x64</th><th>macos-x64-v2</th><th>macos-arm64</th></tr>
+<tr><td>B1</td><td><code>…/delayed-avi/untrimmed</code> and <code>…/near-start</code>, 60 times each, one flutter test process</td><td class="num ok">120 / 120 pass</td><td class="num ok">120 / 120</td><td class="num ok">120 / 120</td></tr>
+<tr><td>B1 load</td><td>every <code>mp4+av1</code> case (24), 15 times each, under load</td><td class="num ok">360 / 360</td><td class="num ok">360 / 360</td><td class="num ok">360 / 360</td></tr>
+<tr><td>B2 file</td><td>the untrimmed job's encoder, its captured Y4M from a file, 300 runs</td><td class="num ok">300 × 100 packets, 1 hash</td><td class="num ok">300 × 100, 1 hash</td><td class="num ok">300 × 100, 1 hash</td></tr>
+<tr><td>B2 throttled</td><td>the same, one frame every 10 ms, 300 runs</td><td class="num ok">300 × 100, 1 hash</td><td class="num ok">300 × 100, 1 hash</td><td class="num ok">300 × 100, 1 hash</td></tr>
+<tr><td>B2 load</td><td>throttled, 4 at once, under load, 300 runs</td><td class="num ok">300 × 100, 1 hash</td><td class="num ok">300 × 100, 1 hash</td><td class="num ok">300 × 100, 1 hash</td></tr>
+<tr><td>B3</td><td>B2's output: <code>ffprobe -count_frames</code> and the luma decode of check 4, 300 each per variant (default, <code>-threads 1</code>, libdav1d, libaom), alone and 4 at once under load</td><td class="num ok">4,800 × 100, no hang</td><td class="num ok">4,800 × 100</td><td class="num ok">4,800 × 100</td></tr>
+</table>
+<p>The x64 hash differs from arm64's (<code>fb07a314…</code> against <code>d3cbb654…</code>), as SIMD paths do; within an architecture it never varied. The encoder took 0.13–0.49 s a run from a file and 2.6–5.5 s throttled; nothing approached the 60 s hang limit.</p>
+<p>Against the nightly: about 24 AV1 cases a leg and 2 failures in about 10 legs is roughly one in 120 case runs. At that rate B1 alone (960 x64 case runs) would have expected about 8. So what the nightly has and this did not is the cause or its trigger: other heavy test files running beside the matrix (the AI passes use several GB and every core for minutes; the format sweep runs on another leg) rather than CPU load alone. Not measured: memory pressure, and the 11-19/11-21 bundles (rc1, rc2), whose FFmpeg is byte-identical to rc3's on x64.</p>
+
+<h2 id="nightly">The nightly on this branch</h2>
+<p>Nightly run 44998535692 (2026-11-22, <code>platform=macos</code>, on the probe branch, which holds this branch's code without the docs commit):</p>
+<table>
+<tr><th>Leg</th><th>Output conformance</th><th>Step D tests (reserved tags, video start offset, audio restoration, AVI copy trim, AVI audio seek, source grid, frame mapping)</th><th>Other failures</th></tr>
+<tr><td>macos-x64 heavy</td><td class="num ok">448 / 448</td><td class="num ok">all pass</td><td>Face Restoration's setUpAll: 12 min timeout installing its three add-ons</td></tr>
+<tr><td>macos-x64-v2 heavy</td><td class="num ok">448 / 448</td><td class="num ok">all pass</td><td>Colourisation's setUpAll: 12 min timeout installing DDColor + DeOldify (1.1 GB)</td></tr>
+<tr><td>macos-arm64 heavy</td><td class="num ok">pass</td><td class="num ok">pass</td><td>none</td></tr>
+<tr><td>macos-x64 sweep</td><td>–</td><td>–</td><td>4 add-on variants: <code>Failed host lookup: 'github.com'</code> while downloading</td></tr>
+</table>
+<p>Both cases of the 11-19/11-21 failures (<code>mp4+av1/passthrough/delayed-avi/untrimmed</code> and <code>near-start</code>) passed on both x64 tiers; no case printed evidence or kept an output. Every other failure in the run is an add-on download from github.com during a network fault the sweep leg's DNS error shows, not anything this branch changed (the arm64 legs and the x64-v2 sweep installed the same add-ons in time).</p>
+
+<h2>Step D: heavy tests cut off by the 30 s default</h2>
+<p>Every saved macOS x64 heavy leg from 11-16 to 11-21 (13 legs) read for <code>TimeoutException after 0:00:30</code>: 8 legs had one, always one of two tests. Durations below are the gap between a test's result line and the previous one in the same file (files run concurrently, tests in a file in order), so they include a little queueing; the maximum over the legs that ran it.</p>
+<table>
+<tr><th>Test</th><th>Max on macOS x64</th><th>Failed at 30 s</th><th>Now</th></tr>
+<tr><td>integration_reserved_colour_tags: <code>--detect-native</code> reports exactly what it reports on the twin</td><td class="num">30.5 s (passing legs 23.3–29.6; other platforms 6.6–23.5)</td><td class="num">8 legs</td><td>5 min, each detect bounded at 2 min</td></tr>
+<tr><td>integration_reserved_colour_tags: <code>--detect-noise-halo</code> …</td><td class="num">26.2 s</td><td class="num">0</td><td>5 min (every test in the file that runs anything)</td></tr>
+<tr><td>integration_video_start_offset: mono AAC over 768 bytes (task #41), converted at High and Very High</td><td class="num">30.3 s</td><td class="num">2 legs</td><td>5 min (and its copy test)</td></tr>
+<tr><td>integration_audio_restoration: beside ProRes or v210, and in AVI, … 24-bit PCM</td><td class="num">30.7 s</td><td class="num">0</td><td>5 min</td></tr>
+<tr><td>integration_avi_copy_trim: PCM trimmed into AVI from frame N</td><td class="num">28.7 s</td><td class="num">0</td><td>5 min</td></tr>
+<tr><td>integration_frame_mapping: frame rate conversion retimes by the reduced ratio</td><td class="num">27.6 s</td><td class="num">0</td><td>5 min</td></tr>
+<tr><td>integration_avi_audio_seek: the chirp copied to MKV from frame N</td><td class="num">25.4 s</td><td class="num">0</td><td>5 min</td></tr>
+<tr><td>integration_source_grid: the app counts the frames the encode produces (both whole-source encodes)</td><td class="num">23.7 s</td><td class="num">0</td><td>5 min</td></tr>
+</table>
+<p>Every other test above 20 s there already states a timeout. No change to <code>dart_test.yaml</code>'s default: a longer default would hide real hangs everywhere. <code>conformance_timeouts_test.dart</code> (push gate) keeps the reserved-colour-tags file's timeouts and the matrix's job &lt; case limits in place.</p>
+
+<h2>Limits</h2>
+<ul>
+<li>Hosted runners only, one run per bundle; the nightly's own conditions were not reproduced beyond what <a href="#nightly">its run on this branch</a> shows.</li>
+<li>The 99-picture case's file was not kept (the nightly did not keep outputs then), so whether it held 99 packets is unknown.</li>
+<li>"Load" was CPU only. Memory pressure, disk contention and other processes' GPU use were not simulated.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul>
+<li><a href="../../../.github/workflows/repro-output-conformance.yml"><code>.github/workflows/repro-output-conformance.yml</code></a>: the run above (phases versions, b1, b1load, b2, b3).</li>
+<li><a href="scripts/summarize_flutter_json.py">summarize_flutter_json.py</a>: counts a <code>--file-reporter json</code> run per case.</li>
+<li><a href="scripts/capture-vspipe-stdout.sh">capture-vspipe-stdout.sh</a>: keeps vspipe's Y4M as the encoder reads it.</li>
+<li><a href="scripts/replay_encoder.py">replay_encoder.py</a>: replays a kept job's encoder from that Y4M (B2).</li>
+<li><a href="scripts/measure_decode.py">measure_decode.py</a>: the test's decodes, per decoder variant (B3).</li>
+</ul>
+<p>The test side: <code>VAPOURBOX_CONFORMANCE_REPEAT=N</code> registers each case N times in one process (each its own test and verdict); <code>VAPOURBOX_CONFORMANCE_KEEP=&lt;dir&gt;</code> keeps a failing case's output, job and log, and <code>VAPOURBOX_CONFORMANCE_KEEP_ALL=1</code> passing ones too.</p>
+</body>
+</html>

@@ -210,7 +210,8 @@ void main() {
       // the sound was 1.28 s off.
       expect(lag, isNotNull, reason: 'the in-point\'s sound is not near the picture: $starts');
       expect(lag!.abs(), lessThanOrEqualTo(40), reason: 'lag $lag samples, $starts');
-    });
+      // Up to 25 s on macOS x64 (task #99).
+    }, timeout: const Timeout(Duration(minutes: 5)));
   }
 
   for (final start in [1, 2, 3, 20]) {

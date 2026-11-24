@@ -2784,6 +2784,21 @@ table. Rules:
   `flutter test --tags heavy test/integration_output_conformance_test.dart
   --plain-name 'avi/convert-aac/delayed-avi/near-start'`. The shared
   measuring helpers are `test/support/av_sync.dart`.
+  **Every subprocess the matrix runs is bounded (task #99)**:
+  `test/support/bounded_process.dart`'s `runBounded` kills it at its limit
+  and names it, the job's limit (`jobTimeout`) is below the case's
+  (`caseTimeout`), and a hang is sampled (`describeHang`: `sample` on
+  macOS, gdb on Linux) before its tree is killed; never `Process.run` there
+  (`conformance_timeouts_test.dart`). A failing case prints its job log
+  tail, packet and decoded counts and the job, and is kept under
+  `$VAPOURBOX_CONFORMANCE_KEEP` (the nightly uploads it as
+  `conformance-failures-<bundle>`); `VAPOURBOX_CONFORMANCE_REPEAT=N` runs
+  each case N times in one process, which
+  `.github/workflows/repro-output-conformance.yml` uses to loop a case on
+  the nightly's runners. The two `mp4+av1` failures of 2026-11-19/21 on
+  macOS x64 did not reproduce in 960 case runs, 1,800 encoder replays
+  and 9,600 decodes there (docs/reports/task-99-av1-conformance-flake);
+  never retry a case or list an intermittent one in `knownFailures`.
 
 ### Audio Restoration
 
@@ -3435,6 +3450,13 @@ cd worker && cargo run --release -- --config test_job.json
 > test compared the 8-bit run with itself for as long as it existed
 > (task #64). The worker now probes the format, but only the assertion makes
 > a test fail if its depth stops reaching the pass.
+
+> **A heavy test that runs a detector or several encodes states its
+> timeout, sized by the slowest platform (macOS x64's 4-core runner).**
+> package:test's default is 30 s; `--detect-native` on a small ProRes took
+> 23-30 s there and failed 8 nightly legs (task #99, as task #95 did for
+> Descale). Don't raise the default in `dart_test.yaml`: it would hide real
+> hangs everywhere.
 
 > **The heavy tests run the worker BINARY, not the library**, and
 > `app/lib/**/*.g.dart` is gitignored — **run `cargo build` before the heavy

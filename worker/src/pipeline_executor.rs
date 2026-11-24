@@ -810,6 +810,10 @@ impl PipelineExecutor {
             &comment_file,
             &hdr,
         );
+        // The encoder's exact arguments, so a failed or short encode can be
+        // replayed outside the job (task #99), as the decoder's above.
+        self.reporter
+            .send_log(LogLevel::Debug, &format!("Encoder args: {:?}", ffmpeg_args));
 
         // Start ffmpeg process
         let mut ffmpeg = Command::new(&ffmpeg_path)

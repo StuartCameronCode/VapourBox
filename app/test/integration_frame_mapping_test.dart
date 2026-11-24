@@ -290,7 +290,8 @@ void main() {
       expect(_progressTotals(r), everyElement(n),
           reason: 'issue #134: a total left at the source count pins '
               'progress at 100% with no ETA for the rest of the encode');
-    });
+      // Up to 28 s on macOS x64 (task #99).
+    }, timeout: const Timeout(Duration(minutes: 5)));
 
     test('a custom frame rate is the exact rate typed in', () async {
       // Issue #129. 59.94 typed in must run at 60000/1001, not 2997/50: from

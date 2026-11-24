@@ -299,7 +299,8 @@ void main() {
       if (container == 'mov') expect(first['codec_tag_string'], 'in24', reason: label);
       expect(await s32(out), orderedEquals(expected), reason: '$label: the same samples as the MKV reference');
     }
-  });
+    // Several encodes: up to 31 s on macOS x64 (task #99).
+  }, timeout: const Timeout(Duration(minutes: 5)));
 
   test('subtitles are transcribed from the restored sound, so cues follow the offset', () async {
     // CI provisions Whisper; locally, VAPOURBOX_FETCH_WHISPER=1 installs the
