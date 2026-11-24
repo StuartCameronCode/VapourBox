@@ -1,0 +1,177 @@
+# agentbob board configuration. Lives in the root of the project's primary repository.
+# Edit it here or in Agent Bob's Project settings (saving there keeps these comments).
+#
+# Columns run left to right. "To Do" is reserved and always first. A column with a `prompt`
+# runs an agent when a task enters it; a column without one is a holding column (the agent
+# session is closed there). When an agent finishes a stage you can approve it (moving the task
+# to `next`, or any column you pick) or keep discussing in the same session.
+#
+# Prompt variables: {{task.title}} {{task.description}} {{task.key}} {{task.id}} {{branch}}
+#   {{artefacts_dir}} {{context_dir}} {{attachments_dir}} {{task_root}} {{worktrees}}
+#   {{repos.<name>.path}} {{repos.<name>.branch}} {{column}} {{previous_column}}
+version: 1
+
+agent:
+  provider: claude-code # default agent for every column: claude-code | ollama
+  # model: opus                # default model (claude --model value, or an Ollama model name)
+  # options:                   # defaults for every column; a column's own agent.options win
+  #   permission_mode: auto    # auto (default) | acceptEdits | manual | plan | dontAsk | bypassPermissions
+  #   effort: medium           # low | medium (default) | high | xhigh | max
+  #
+  # Ollama options (provider: ollama): permission_mode (acceptEdits default), think, temperature, and
+  #   num_ctx: 131072            # context window in tokens; default: the model's maximum (or max)
+  #
+  # Any column can override these: agent: { provider: ollama, model: bonsai-2 } runs that column on a
+  # local Ollama model; agent: { model: haiku } or agent: { options: { effort: high } } adjusts one,
+  # and agent: { options: { num_ctx: 65536 } } sets one Ollama column's context window.
+  # A task can override the provider, model and options for itself (task Details tab).
+
+worktrees:
+  branch_prefix: stuart/ # each task gets branch agentbob/<n>-<slug> in every repository
+  start_from: main # new tasks branch from: main (each repository's main branch) | current (its checked-out branch)
+  # base: main                 # this repository's main branch (default: detected, main or master)
+
+  # Other repositories this project spans (this repository is the primary one).
+  # Paths are relative to this repository; they can be overridden per machine in the UI.
+  # repositories:
+  #   - name: api
+  #     github: myorg/api
+  #     path: ../api
+  #     base: main
+
+columns:
+  - name: To Do
+    next: Plan # Start goes to Plan; drag a card (or pick "Start in") to choose Adhoc
+
+  # Plan without Claude's plan mode: in plan mode Claude cannot write plan.md, and ends every
+  # stage with its own "approve this plan?" dialog (answered in the task panel).
+  - name: Plan
+    prompt: |
+      Investigate the task below across all repositories and produce an implementation plan.
+      Do not change any code: the only file you may create is {{artefacts_dir}}/plan.md, where
+      you save the plan as markdown. Summarise the plan in your reply.
+    next: Implement
+    agent: { options: { effort: high } } # per-column override (the session restarts with it)
+
+  - name: Implement
+    prompt: |
+      Implement the plan in {{artefacts_dir}}/plan.md. Work only inside the task worktrees and
+      commit your changes on branch {{branch}} in each repository you modify. Run the relevant
+      tests before you finish and report the results.
+    next: Review
+    auto_advance: true
+
+  - name: Review
+    session: new # start a fresh session: it receives the previous output and artefacts
+    prompt: |
+      Review the changes on branch {{branch}} in each repository for correctness, tests and
+      style. Fix anything clearly wrong, then write a short review to {{artefacts_dir}}/review.md.
+    next: Make a PR
+
+  # Pushes the task's branch and opens a pull request on GitHub (needs the `gh` CLI signed in),
+  # then waits: discuss the PR here for as long as you like. Nothing is merged until you move the
+  # task to Merge PR (drag it, or Advance). No auto_advance for that reason.
+  - name: Make a PR
+    prompt: |
+      Open a pull request for this task in each repository listed for this task.
+      1. In each task worktree, check `git status`. Commit the outstanding changes that belong to
+         the task on {{branch}} with a descriptive message. Leave out temporary or unrelated files
+         and list them in your reply.
+      2. Find the repository's default branch with `gh repo view --json defaultBranchRef`. Skip the
+         repository when {{branch}} has no commits that the remote default branch does not have.
+      3. Push {{branch}} with `git push -u origin {{branch}}`. Never force-push. If there is no
+         GitHub remote or the push fails, report why and move on to the next repository.
+      4. If `gh pr view {{branch}}` finds an open pull request, update its description with
+         `gh pr edit` instead of opening another. Otherwise run
+         `gh pr create --head {{branch}} --base <default branch>` (not a draft) with a short title
+         and a description of the change and how it was tested. Draw on {{artefacts_dir}}/plan.md
+         and {{artefacts_dir}}/review.md, but leave out local file paths.
+      5. When more than one repository has a pull request, link each one to the others in its
+         description.
+      Do not merge the pull requests, delete the branch or remove the worktrees: the user will
+      review the pull request, may ask you for changes here (commit and push them to {{branch}}),
+      and starts the merge by moving the task to Merge PR. Reply with the URL of each pull
+      request, or why you could not open one.
+    next: Merge PR
+
+  # Rebases the pull request onto origin/main only when main has moved in a way likely to interfere
+  # with the branch (otherwise the pull request's CI run decides), waits for CI, merges it on GitHub
+  # and updates the local main. Runs only when you move a task here. When the merge succeeds the task moves to
+  # Done by itself; when it cannot merge, the agent asks you instead of finishing its turn (a
+  # finished turn would auto-advance), so the task stays here showing Needs your input.
+  - name: Merge PR
+    prompt: |
+      The user has approved the pull request for this task: merge it, in each repository listed
+      for this task that has one.
+      Your turn must not end until every pull request is merged: when this turn completes the
+      task moves to Done by itself. So run every command in the foreground (no background
+      commands, loops or scheduled wake-ups). If anything below stops you, do not reply and stop.
+      Instead, ask the user how to continue with a question (AskUserQuestion) that explains the
+      problem, and carry on with their answer.
+      1. Run `gh pr view {{branch}} --json number,url,state,isDraft,baseRefName,headRefOid`. If
+         its state is MERGED, note it and move on. If there is no pull request, or it is CLOSED,
+         ask the user.
+      2. In the task worktree, check `git status`. Commit the outstanding changes that belong to
+         the task on {{branch}}, for example changes made while discussing the pull request.
+         Leave out temporary or unrelated files.
+      3. Run `git fetch origin`. If origin/<base> is an ancestor of {{branch}}, go to step 4.
+         Otherwise rebase only when the commits <base> gained since {{branch}} branched off are
+         likely to interfere with the branch's changes. Let <mb> be
+         `git merge-base origin/<base> {{branch}}`, and compare
+         `git log --oneline <mb>..origin/<base>` and `git diff --stat <mb> origin/<base>` with
+         `git diff --stat <mb> {{branch}}`. Rebase when any of these holds:
+         - `git merge-tree --write-tree origin/<base> {{branch}}` reports a conflict, or
+           `gh pr view <number> --json mergeable` reports CONFLICTING;
+         - both sides changed the same file (read both diffs of it: unrelated hunks far apart
+           in a large file do not count);
+         - <base> changed something the branch relies on: a function, type, API, schema,
+           config or build file, dependency or version pin, or test fixture that the branch's
+           code or tests use or also change.
+         Otherwise do not rebase: CI on the pull request (started by Make a PR) tests the branch
+         merged with <base> and decides in step 6. Say in your reply whether you rebased and why.
+         When you do rebase, run `git rebase origin/<base>`, resolve any conflicts so that both
+         sides' intent is kept, run the tests for what you touched (see CLAUDE.md), and
+         continue. If you cannot resolve a conflict with confidence, run `git rebase --abort`
+         and ask the user.
+      4. If {{branch}} differs from origin/{{branch}}, push it. After a rebase, use
+         `git push --force-with-lease origin {{branch}}`; otherwise a plain `git push`. Never
+         force-push any other branch, and never push to <base>.
+      5. If the pull request is a draft, run `gh pr ready <number>`.
+      6. Wait for CI with `gh pr checks <number> --watch --fail-fast --interval 30`, in the
+         foreground with the longest command timeout you have. If the command times out, run it
+         again until the checks finish. Checks can take 25 minutes after a push, and can take a
+         minute to appear: if it reports no checks just after a push, wait a minute and run it
+         again. When the pull request still has no checks, carry on. If a check fails, do not
+         merge: show the failing job's log (`gh run view <run-id> --log-failed`) and ask the
+         user whether to fix it, re-run it or stop.
+      7. Merge with `gh pr merge <number> --merge --match-head-commit <sha>`,
+         where <sha> is `git rev-parse {{branch}}` (the commit CI just checked).
+         Do not pass --delete-branch, and do not squash or rebase-merge. Confirm that
+         `gh pr view <number> --json state,mergeCommit` reports MERGED.
+      8. Update the local <base>: `git fetch origin`, then find the checkout of <base> with
+         `git worktree list` (usually the repository's own folder). If its tracked files are
+         clean, run `git merge --ff-only origin/<base>` there. If <base> is not checked out, run
+         `git fetch origin <base>:<base>`. If that would not be a fast-forward, or the checkout
+         has uncommitted changes, leave it alone and say so: this step never needs a question.
+      Do not delete the branch or remove the worktrees. Reply with each pull request's URL and
+      merge commit, and whether the local <base> was updated.
+    next: Done
+    auto_advance: true
+
+  - name: Done
+
+  # Adhoc: a one-off conversation with the default agent (or the task's own agent override), outside the
+  # Plan → Implement flow. The task's title and description are the first message; keep chatting from the
+  # task panel and approve when you are done (the task moves straight to Done).
+  - name: Adhoc
+    prompt: |
+      This is an ad hoc conversation, not a staged piece of work: there is no plan to follow and no later
+      stage. Treat the task title and description below as the user's message and respond to it. The user
+      may follow up with more messages and will finish the task when they are done.
+    next: Done
+
+  # Trash: deleted tasks wait here without their worktrees, keeping their artefacts and
+  # transcripts, until you empty it (the furnace in its header). Hidden until you press Trash in
+  # the top bar. Reserved: it must be the last column and only has a name. Remove it to delete
+  # tasks straight away.
+  - name: Trash
