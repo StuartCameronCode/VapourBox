@@ -57,7 +57,7 @@
       "vapoursynth": { "name": "InputType" },
       "ui": {
         "label": "Input Type",
-        "description": "0=interlaced, 1=telecined, 2=progressive, 3=double-rate progressive",
+        "description": "0=interlaced, 1=progressive (repair only), 2=progressive with combing from a bad deinterlace, 3=as 2 from the other fields",
         "widget": "dropdown"
       }
     },

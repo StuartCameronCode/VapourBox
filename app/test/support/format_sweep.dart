@@ -159,6 +159,14 @@ const optionVariants = <OptionVariant>[
       reason: 'NNEDI3 as Bwdif\'s interpolator: znedi3 (x86) refuses a 4:2:0 '
           'frame 2 mod 4 high, which _nnedi3() pads (task #81); the '
           'heightTwoMod4 rows keep it fixed'),
+  // InputType is a slider, not an enum, so no axis reaches it.
+  OptionVariant('deinterlace', {'method': 'qtgmc', 'inputType': 2},
+      reason: 'InputType 2 at the default preset (Slower) runs MVTools\' Mask '
+          '(ProgSADMask), 8-bit only: it failed every deeper row until the pass ran '
+          'it on an 8-bit stand-in (task #89); the padding for its faults is #79\'s'),
+  OptionVariant('deinterlace', {'method': 'qtgmc', 'inputType': 3, 'preset': 'Medium'},
+      reason: 'InputType 3 at Medium, the fastest preset that runs the Mask '
+          '(task #89)'),
 ];
 
 /// A frame size's own numbers, for overrides that must scale with it.

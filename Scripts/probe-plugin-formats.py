@@ -164,6 +164,18 @@ def _calls():
         y = descratch(core.std.ShufflePlanes([c, blank, blank], [0, 0, 0], vs.YUV))
         return core.std.ShufflePlanes([y, c], [0, 1, 2], vs.YUV)
 
+    def qtgmc_input_type_2_pass(c):
+        # The Deinterlace pass's call for InputType 2 at Medium (BlockSize
+        # 16, Overlap 8): _deinterlace_qtgmc_rows under the stand-in, inside
+        # the QTGMC contract's run_within().
+        import plugin_formats as pf
+
+        def rows(x):
+            fn = pf.havsfunc_mask_any_depth(
+                haf, lambda y: haf.QTGMC(y, Preset='Medium', InputType=2, TFF=True))
+            return pf.mvtools_blocks(x, fn, min_cols=pf.mvtools_mask_cols(x.width, x.height, 16, 8))
+        return pf.run_within(c, 'havsfunc.QTGMC', rows, delta_only=False)
+
     def sangnom(c):
         aa = core.resize.Spline36(c, c.width * 2, c.height * 2)
         aa = core.sangnom.SangNom(aa, order=1, aa=48)
@@ -207,6 +219,14 @@ def _calls():
     # Fast doesn't: the only presets that refuse a 4:2:x width 2 mod 4 (task
     # #56 F2). The template picks this contract for SrchClipPP 1.
     call('havsfunc.QTGMC[SrchClipPP=1]', ['havsfunc.QTGMC'], lambda c: haf.QTGMC(c, Preset='Super Fast', TFF=True))
+    # InputType 2/3 at Placebo..Medium run MVTools' Mask (ProgSADMask), which
+    # refuses a clip above 8 bits (task #89); Medium is the cheapest preset
+    # that runs it. The bare call records the refusal; the pass runs every
+    # Mask havsfunc makes on an 8-bit stand-in (havsfunc_mask_any_depth), with
+    # the template's padding (#79) and its run_within() for the frame size.
+    call('havsfunc.QTGMC[InputType=2]', ['havsfunc.QTGMC'],
+         lambda c: haf.QTGMC(c, Preset='Medium', InputType=2, TFF=True))
+    call('pass.QTGMC[InputType=2]', [], qtgmc_input_type_2_pass)
     call('bwdif.Bwdif', ['bwdif.Bwdif'], lambda c: core.bwdif.Bwdif(c, field=3, edeint=nnedi3(c, field=3)))
     # The plugin itself (its refusal), and through run_within() its contract.
     call('nnedi3.nnedi3', ['nnedi3.nnedi3', 'znedi3.nnedi3'], lambda c: nnedi3_plugin(c, field=1))

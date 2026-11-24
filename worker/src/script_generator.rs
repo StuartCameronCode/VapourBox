@@ -1060,6 +1060,11 @@ impl ScriptGenerator {
                             .map(|(b, o)| format!("min_cols=_pf.mvtools_mask_cols(clip.width, clip.height, {b}, {o}), "))
                             .unwrap_or_default(),
                     );
+                    script = if params.prog_sad_mask_blocks().is_some() {
+                        keep_block_lines("QTGMC_MASK_ANY_DEPTH", script)
+                    } else {
+                        remove_block("{{#QTGMC_MASK_ANY_DEPTH}}", "{{/QTGMC_MASK_ANY_DEPTH}}", script)
+                    };
 
                     // Noise processing
                     // When noise reduction is set to QTGMC built-in, use the noise

@@ -409,6 +409,114 @@ for fmt in (vs.YUV420P8, vs.YUV444P8):
 print(json.dumps(problems))
 ''';
 
+// Task #89: MVTools' Mask refuses a clip above 8 bits, so havsfunc's QTGMC
+// failed every 10-16-bit job at InputType 2/3, Placebo..Medium (ProgSADMask).
+// plugin_formats.havsfunc_mask_any_depth runs that Mask on an 8-bit stand-in
+// with ml x 2^(bits - 8). Checked here against the bundle: on a deep picture
+// that is an 8-bit one shifted, the stand-in's mask is the 8-bit mask on the
+// deep scale, sample for sample; QTGMC through the helper runs at every
+// depth while the bare call still refuses (when MVTools accepts deep clips,
+// this fails and the helper can go); an 8-bit job through the helper is the
+// plain call's picture; havsfunc's core is restored after the call, an
+// error included (docs/reports/task-89-qtgmc-mask-high-bit-depth).
+const _maskAnyDepthCheck = r'''
+import json, sys
+import vapoursynth as vs
+core = vs.core
+sys.path.insert(0, sys.argv[1])
+import plugin_formats as pf
+import havsfunc as haf
+
+problems = []
+def check(cond, msg):
+    if not cond:
+        problems.append(msg)
+
+def max_diff(a, b):
+    # Largest |a - b| over every plane and frame.
+    d = core.std.Expr([a, b], 'x y - abs')
+    worst = 0
+    for p in range(a.format.num_planes):
+        s = core.std.PlaneStats(d, plane=p)
+        for n in range(a.num_frames):
+            worst = max(worst, s.get_frame(n).props['PlaneStatsMax'])
+    return worst
+
+# A textured picture panning 3 px right and 1 down a frame: real vectors and
+# SADs, and no frame near MVTools' scene-change thresholds (grain on a flat
+# picture put one there, which deep vectors decided differently even for an
+# 8-bit clip: MVTools' own depth rounding, not the stand-in's).
+tex = core.std.BlankClip(width=180, height=120, format=vs.YUV444P8, length=1, color=[128, 128, 128])
+tex = core.std.BoxBlur(core.grain.Add(tex, var=2500, uvar=400, constant=True, seed=1), hradius=1, vradius=1)
+src8 = core.std.Splice([core.std.CropAbs(tex, 128, 96, left=3 * n, top=n) for n in range(6)])
+src8 = core.resize.Bicubic(src8, format=vs.YUV422P8)
+base = core.resize.Point(src8, format=vs.YUV444P16)
+
+# pel=1: each SAD of the shifted picture is then exactly 2^(bits - 8) times
+# the 8-bit one. With pel=2 the half-pel planes round at each depth, so the
+# deep SAD differs (up to 10 mask levels here) as it would for a native deep
+# Mask too: that is MVTools' interpolation, not the stand-in.
+def vectors(c):
+    return core.mv.Analyse(core.mv.Super(c, pel=1), isb=True, blksize=16, overlap=8)
+
+# The stand-in's mask on a picture that is an 8-bit one shifted (limited range,
+# Point: an exact x 2^(bits - 8)) is the 8-bit mask put on the deep scale.
+v8 = vectors(src8)
+for kind in (0, 1, 3):
+    m8 = core.mv.Mask(src8, v8, kind=kind, ml=10)
+    check(pf.mvtools_mask_any_depth(src8, v8, kind=kind, ml=10).format.id == m8.format.id,
+          'an 8-bit clip must reach Mask unchanged')
+    for bits in (10, 16):
+        deep = core.resize.Point(src8, format=src8.format.replace(bits_per_sample=bits).id)
+        got = pf.mvtools_mask_any_depth(deep, vectors(deep), kind=kind, ml=10)
+        want = core.std.Expr(m8, 'x %d * 255 /' % ((1 << bits) - 1), format=got.format.id)
+        check(got.format.bits_per_sample == bits, 'kind %d at %d bits: mask came back %s'
+              % (kind, bits, got.format.name))
+        diff = max_diff(got, want)
+        check(diff == 0, 'kind %d at %d bits: the stand-in mask is %d off the 8-bit mask'
+              % (kind, bits, diff))
+    if kind == 1:
+        avg = sum(core.std.PlaneStats(m8).get_frame(n).props['PlaneStatsAverage'] for n in range(m8.num_frames)) / m8.num_frames
+        check(0.02 < avg < 0.98, 'the SAD mask is flat (%.3f): the picture no longer tests it' % avg)
+
+def qtgmc(c, it=2):
+    return pf.mvtools_blocks(
+        c, lambda x: haf.QTGMC(x, Preset='Medium', InputType=it, TFF=True),
+        min_cols=pf.mvtools_mask_cols(c.width, c.height, 16, 8))
+
+wrapped = pf.havsfunc_mask_any_depth(haf, qtgmc)
+for fmt in (vs.YUV420P10, vs.YUV422P10, vs.YUV420P16):
+    c = core.resize.Bicubic(base, format=fmt)
+    try:
+        out = wrapped(c)
+        check(out.format.id == c.format.id, '%s: QTGMC through the helper came back %s'
+              % (c.format.name, out.format.name))
+        for n in range(out.num_frames):
+            out.get_frame(n)
+    except vs.Error as e:
+        problems.append('%s: QTGMC InputType 2 through the helper failed: %s' % (c.format.name, e))
+    try:
+        bare = qtgmc(c)
+        bare.get_frame(0)
+        problems.append('%s: the bare QTGMC InputType 2 call now runs; MVTools may accept deep '
+                        'clips, so havsfunc_mask_any_depth may be unneeded (task #89)' % c.format.name)
+    except vs.Error as e:
+        check('Mask' in str(e), '%s: the bare call failed, but not on Mask: %s' % (c.format.name, e))
+
+saved = haf.core
+check(max_diff(pf.havsfunc_mask_any_depth(haf, lambda c: qtgmc(c, 3))(src8), qtgmc(src8, 3)) == 0,
+      '8-bit QTGMC InputType 3 through the helper differs from the plain call')
+check(haf.core is saved, "havsfunc's core was not restored")
+def fails(c):
+    raise RuntimeError('boom')
+try:
+    pf.havsfunc_mask_any_depth(haf, fails)(src8)
+except RuntimeError:
+    pass
+check(haf.core is saved, "havsfunc's core was not restored after an error")
+print(json.dumps(problems))
+''';
+
 // LUTDeCrawl and LUTDeRainbow used to AND their masks through eight
 // Lut2(function=lambda x, y: x & y) tables, a million Python calls each at 10
 // bits: 80% of the quick probe, and the full probe never finished on macOS x64
@@ -660,6 +768,11 @@ print(json.dumps({'contracts': {k: dict(v._asdict()) for k, v in pf.CONTRACTS.it
     final problems = await _pythonJson(_maskGuardCheck) as List;
     expect(problems, isEmpty, reason: problems.join('\n'));
   });
+
+  test('QTGMC InputType 2/3 runs MVTools Mask at every depth on an 8-bit stand-in (task #89)', () async {
+    final problems = await _pythonJson(_maskAnyDepthCheck) as List;
+    expect(problems, isEmpty, reason: problems.join('\n'));
+  }, timeout: const Timeout(Duration(minutes: 3)));
 
   test('run_within keeps every sample the plugin leaves alone, and refuses clearly', () async {
     final problems = await _pythonJson(_runWithinCheck) as List;

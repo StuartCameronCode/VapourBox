@@ -751,5 +751,49 @@ void main() {
         expect(script, contains("_pf.mvtools_blocks(clip, _deinterlace_qtgmc, label='Deinterlace')"));
       }
     }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('InputType 2/3 run MVTools Mask on an 8-bit stand-in (task #89)', () async {
+      // Mask refuses a clip above 8 bits, so every 10-16-bit job (and every
+      // High Precision one) at InputType 2/3, Placebo..Medium failed. Those
+      // jobs, and only those, wrap the QTGMC call so havsfunc's Mask runs on
+      // an 8-bit stand-in (plugin_formats.havsfunc_mask_any_depth).
+      Future<String> scriptFor(int inputType, QTGMCPreset preset) {
+        final params = QTGMCParameters(
+          enabled: true,
+          method: DeinterlaceMethod.qtgmc,
+          preset: preset,
+          tff: true,
+          inputType: inputType,
+          highPrecision: true,
+        );
+        return generateScriptViaWorker(VideoJob(
+          id: const Uuid().v4(),
+          inputPath: TestConfig.inputFile,
+          outputPath: '${TestConfig.outputDir}/deint_mask_any_depth_$inputType.mkv',
+          qtgmcParameters: params,
+          processingPipeline: ProcessingPipeline(deinterlace: params),
+          encodingSettings: const EncodingSettings(
+            codec: VideoCodec.h264,
+            container: ContainerFormat.mkv,
+            audioMode: AudioMode.none,
+          ),
+          startFrame: 10,
+          endFrame: 30,
+        ));
+      }
+
+      const wrap = '_deinterlace_qtgmc = _pf.havsfunc_mask_any_depth(haf, _deinterlace_qtgmc)';
+      for (final (inputType, preset) in [(2, QTGMCPreset.slower), (3, QTGMCPreset.medium)]) {
+        final script = await scriptFor(inputType, preset);
+        expect(script, contains('InputType=$inputType,'));
+        expect(script, contains('\n$wrap\n'),
+            reason: 'InputType $inputType at ${preset.name} runs Mask: it must use the stand-in');
+      }
+      for (final (inputType, preset) in [(0, QTGMCPreset.slower), (2, QTGMCPreset.fast)]) {
+        final script = await scriptFor(inputType, preset);
+        expect(script, isNot(contains('havsfunc_mask_any_depth')),
+            reason: 'InputType $inputType at ${preset.name} runs no Mask: script unchanged');
+      }
+    }, timeout: const Timeout(Duration(minutes: 2)));
   });
 }

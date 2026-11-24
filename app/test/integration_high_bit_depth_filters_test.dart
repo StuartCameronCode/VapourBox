@@ -638,6 +638,35 @@ List<_Pass> _passes() => [
         ),
         tolerance: 3.0,
       ),
+      // InputType 2 at Slow runs MVTools' Mask (ProgSADMask), which refuses
+      // a clip above 8 bits: every 10-bit job failed until task #89 ran it on
+      // an 8-bit stand-in (0.68 here, as plain QTGMC Fast's 0.70; High
+      // Precision failed at 8 bits too), docs/reports/task-89-qtgmc-mask-high-bit-depth.
+      _Pass(
+        'deinterlace_qtgmc_input_type_2',
+        _only(
+          deinterlace: const QTGMCParameters(
+            enabled: true,
+            preset: QTGMCPreset.slow,
+            tff: true,
+            inputType: 2,
+          ),
+        ),
+        tolerance: 3.0,
+      ),
+      _Pass(
+        'deinterlace_qtgmc_input_type_3_high_precision',
+        _only(
+          deinterlace: const QTGMCParameters(
+            enabled: true,
+            preset: QTGMCPreset.medium,
+            tff: true,
+            inputType: 3,
+            highPrecision: true,
+          ),
+        ),
+        tolerance: 3.0,
+      ),
       _Pass(
         'deinterlace_qtgmc_chroma_upsample',
         _only(

@@ -1,0 +1,41 @@
+# stand_in.py, deps 1.18.0-rc3, macos-arm64
+real low bits (mean |10-bit - rounded 8-bit x4|, 10-bit levels): 0.468
+A pel=1  mask, 10-bit x4 picture through the stand-in vs native 8-bit: (0.0, 0)
+  pel=1 vectors, kind 0 mask from 10-bit vectors vs 8-bit vectors: (0.0, 0)
+  pel=1 vectors, kind 3 mask from 10-bit vectors vs 8-bit vectors: (0.0, 0)
+  pel=1 vectors, kind 4 mask from 10-bit vectors vs 8-bit vectors: (0.0, 0)
+A pel=2  mask, 10-bit x4 picture through the stand-in vs native 8-bit: (0.0, 0)
+  pel=2 vectors, kind 0 mask from 10-bit vectors vs 8-bit vectors: (0.0, 0)
+  pel=2 vectors, kind 3 mask from 10-bit vectors vs 8-bit vectors: (0.0, 0)
+  pel=2 vectors, kind 4 mask from 10-bit vectors vs 8-bit vectors: (0.0, 0)
+B IT=2 Slow    8-bit: helper vs plain (0.0, 0), plain twice (0.0, 0)
+  mask inside QTGMC: exact-10 vs 8 (0.979, 255), real-10 vs 8 (0.987, 255)
+  output: exact-10 vs 8 (0.164, 47) (Mask off: (0.28, 47)) | real-10 vs 8 (0.154, 47) (Mask off: (0.273, 47))
+  Mask on vs off at 8 bits: (1.395, 55) | 28 s
+B IT=2 Medium  8-bit: helper vs plain (0.0, 0), plain twice (0.0, 0)
+  mask inside QTGMC: exact-10 vs 8 (1.027, 255), real-10 vs 8 (1.034, 255)
+  output: exact-10 vs 8 (0.166, 45) (Mask off: (0.295, 47)) | real-10 vs 8 (0.156, 45) (Mask off: (0.285, 45))
+  Mask on vs off at 8 bits: (1.62, 56) | 25 s
+B IT=2 Placebo 8-bit: helper vs plain (0.0, 0), plain twice (0.0, 0)
+  mask inside QTGMC: exact-10 vs 8 (0.006, 45), real-10 vs 8 (0.006, 45)
+  output: exact-10 vs 8 (0.074, 9) (Mask off: (0.119, 9)) | real-10 vs 8 (0.079, 9) (Mask off: (0.152, 9))
+  Mask on vs off at 8 bits: (2.784, 148) | 118 s
+B IT=3 Slow    8-bit: helper vs plain (0.0, 0), plain twice (0.0, 0)
+  mask inside QTGMC: exact-10 vs 8 (0.979, 255), real-10 vs 8 (0.987, 255)
+  output: exact-10 vs 8 (0.165, 55) (Mask off: (0.281, 48)) | real-10 vs 8 (0.154, 55) (Mask off: (0.274, 41))
+  Mask on vs off at 8 bits: (1.394, 58) | 53 s
+B IT=3 Medium  8-bit: helper vs plain (0.0, 0), plain twice (0.0, 0)
+  mask inside QTGMC: exact-10 vs 8 (1.027, 255), real-10 vs 8 (1.034, 255)
+  output: exact-10 vs 8 (0.167, 58) (Mask off: (0.295, 43)) | real-10 vs 8 (0.157, 58) (Mask off: (0.285, 42))
+  Mask on vs off at 8 bits: (1.619, 60) | 36 s
+B IT=3 Placebo 8-bit: helper vs plain (0.0, 0), plain twice (0.0, 0)
+  mask inside QTGMC: exact-10 vs 8 (0.006, 45), real-10 vs 8 (0.006, 45)
+  output: exact-10 vs 8 (0.074, 9) (Mask off: (0.119, 9)) | real-10 vs 8 (0.079, 9) (Mask off: (0.152, 9))
+  Mask on vs off at 8 bits: (2.781, 130) | 63 s
+C YUV420P10 runs
+  plain havsfunc: Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8
+C YUV420P16 runs
+  plain havsfunc: Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8
+C YUV444P12 runs
+  plain havsfunc: Mask: input clip must be GRAY8, YUV420P8, YUV422P8, YUV440P8
+C High Precision (8 -> 16 -> 8, dithered) vs 8-bit: (0.182, 47)

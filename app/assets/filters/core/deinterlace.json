@@ -223,7 +223,7 @@
       },
       "ui": {
         "label": "Input Type",
-        "description": "0: Interlaced | 1: Telecined (3:2 pulldown) | 2: Progressive | 3: Double-rate progressive",
+        "description": "0: Interlaced (the default) | 1: Progressive: repairs shimmer and aliasing without deinterlacing | 2: Progressive with combing left by a bad deinterlace: rebuilt from half the fields where it moves | 3: As 2, from the other half of the fields",
         "widget": "slider",
         "visibleWhen": {
           "method": [

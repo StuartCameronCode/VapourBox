@@ -509,6 +509,15 @@ def _deinterlace_qtgmc(clip):
     return clip
 
 
+{{#QTGMC_MASK_ANY_DEPTH}}
+# InputType 2 and 3 at Placebo..Medium run MVTools' Mask inside QTGMC, and
+# Mask refuses a clip above 8 bits: for them every Mask havsfunc makes while
+# QTGMC builds its graph runs on an 8-bit stand-in with ml scaled (task #89;
+# High Precision's 16-bit call included).
+_deinterlace_qtgmc = _pf.havsfunc_mask_any_depth(haf, _deinterlace_qtgmc)
+
+
+{{/QTGMC_MASK_ANY_DEPTH}}
 def _deinterlace_qtgmc_rows(clip):
     # MVTools inside QTGMC divides by zero on a picture two block rows tall
     # (Very Fast..Draft: 32-px blocks, overlap 8, so 56..79 rows; task #56 F9).
