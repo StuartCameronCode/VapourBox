@@ -6380,3 +6380,44 @@ x64-v2; about 2 in 10 legs, never elsewhere.
   measured at 23-31 s state 5 minutes now; the detectors are bounded at 2.
 
 Report: [docs/reports/task-99-av1-conformance-flake](reports/task-99-av1-conformance-flake/index.html).
+
+### graphengine f6211289 leaves an error-diffusion node's context out of tmp_size (task #109, 2026-11-22)
+
+The upstream side of task #103's abort. Bisected and reproduced without
+VapourSynth; the cause is in graphengine, not in VapourSynth or our build.
+
+- **Cause.** graphengine `f6211289` ("Exclude fused nodes from buffer sizing
+  calculation", 2026-07-30; in zimg since master `e2e43d09`) added
+  `if (!live_rows) continue;` to `compile_simulation_result`. That skips the
+  cache sizing, as meant, and also the node's `context_size` and its addition
+  to `tmp_size`. zimg's error-diffusion node is fused and has a real context
+  (two float error rows, `2 × (width + 2) × 4` bytes), so `init_context`
+  writes it past the buffer `zimg_filter_graph_get_tmp_size()` asked for:
+  792 bytes at width 96, 5784 at 720. VapourSynth allocates exactly that size
+  in `vszimg::real_get_frame`, and glibc caught the overrun at `free()`.
+  graphengine HEAD (`e9b10267`) still has it.
+- **Measured.** `tmp_overrun.c` (zimg's C API, as `vsresize.cpp` uses it) over
+  158 graphs, with zimg built by R78's own overlay meson.build. On graphengine
+  `cb5b2ce1` through `562889d3`, nothing overruns. From `f6211289` on,
+  **every graph with error diffusion** corrupts the buffer: 36 of 36 trip
+  graphengine's own guard pages without NDEBUG, and with NDEBUG (as shipped)
+  18 to 24 of them write past the end and the rest overwrite another region.
+  `none`, ordered and random dither never do. Measured on macOS arm64 and
+  x86_64 (Rosetta) and on Linux x64 and arm64 (gcc 13, clang 18), and in zimg
+  master built by its own autotools. Through bundle A's vspipe on Linux:
+  50 of 50 runs abort per error-diffusion conversion, and valgrind finds the
+  write `0 bytes after a block of size 384` in `begin_frame` ←
+  `real_get_frame`. The pinned bundle B2 is clean.
+- **Fix (upstream's to make).** Skip only the plane loop for a node with no
+  live rows (`graphengine-fused-node-context.patch`, a one-line change). It
+  is clean on every case and mode, and keeps f6211289's saving (1216 against
+  1344 bytes in the minimal repro). Reported as sekrit-twc/zimg#245
+  (https://github.com/sekrit-twc/zimg/issues/245). VapourBox never ships the patch.
+- **Exposure.** None in VapourBox: Linux is pinned to `cb5b2ce1` (task
+  #103); macOS ships zimg releases; the Windows R78 wheel (2026-07-24)
+  predates f6211289. A bump of `ZIMG_COMMIT` must land on an upstream commit
+  with the fix, A/B'd through `deps_run_id`.
+- **Separate.** gcc 13 ASan on Linux arm64 also flags 32 4:2:0 conversions
+  at every commit, the good one included. That has not been examined (task #115).
+
+Report: [docs/reports/task-109-graphengine-tmp-overrun](reports/task-109-graphengine-tmp-overrun/index.html).

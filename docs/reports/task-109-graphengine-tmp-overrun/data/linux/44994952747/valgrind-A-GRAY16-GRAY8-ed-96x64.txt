@@ -1,0 +1,24 @@
+# valgrind memcheck, vspipe -a src=GRAY16 -a dst=GRAY8 -a dither=error_diffusion -a size=96x64 -a threads=1 repro.vpy, bundle A (build-deps-linux 44931836464), run 44994952747
+
+Thread 2:
+Invalid write of size 8
+   at 0x4852CCC: memset (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+   by 0x8363538: graphengine::zimg::(anonymous namespace)::TransformNodeBase::begin_frame(graphengine::zimg::FrameState*, unsigned int, unsigned int, unsigned int) const (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x8365108: graphengine::zimg::GraphImpl::impl::run_node(graphengine::zimg::Node*, graphengine::zimg::GraphImpl::impl::SimulationResult const&, graphengine::Graph::Endpoint const*, unsigned int, void*) const (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x836876D: graphengine::zimg::GraphImpl::run(graphengine::Graph::Endpoint const*, void*) const (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x8350997: zimg_filter_graph_process (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x834DAE6: (anonymous namespace)::vszimg::real_get_frame(VSFrame const*, VSCore*, VSAPI const*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x834E584: (anonymous namespace)::vszimg::static_get_frame(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x833DEE2: VSNode::getFrameInternal(int, int, VSFrameContext*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x8353F94: VSThreadPool::runTasks(bool&) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x495EDB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+   by 0x4BBCB63: start_thread (pthread_create.c:447)
+   by 0x4C49C83: clone (clone.S:100)
+ Address 0x9341440 is 0 bytes after a block of size 384 alloc'd
+   at 0x484E366: posix_memalign (in /usr/libexec/valgrind/vgpreload_memcheck-amd64-linux.so)
+   by 0x834D8E7: (anonymous namespace)::vszimg::real_get_frame(VSFrame const*, VSCore*, VSAPI const*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x834E584: (anonymous namespace)::vszimg::static_get_frame(int, int, void*, void**, VSFrameContext*, VSCore*, VSAPI const*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x833DEE2: VSNode::getFrameInternal(int, int, VSFrameContext*) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x8353F94: VSThreadPool::runTasks(bool&) (in deps/linux-x64/vapoursynth/libvapoursynth.so.4)
+   by 0x495EDB3: ??? (in /usr/lib/x86_64-linux-gnu/libstdc++.so.6.0.33)
+   by 0x4BBCB63: start_thread (pthread_create.c:447)

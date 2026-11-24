@@ -1,0 +1,19 @@
+diff --git a/graphengine/graph.cpp b/graphengine/graph.cpp
+index 17f641d..7d42dcd 100644
+--- a/graphengine/graph.cpp
++++ b/graphengine/graph.cpp
+@@ -358,11 +358,11 @@ class GraphImpl::impl : public Simulation::NodeInterface {
+ 			if (!sim.is_live_node(id))
+ 				continue;
+ 
++			// A fused node (no live rows) has no cache, but its filter context
++			// is still allocated from tmp and initialised in begin_frame.
+ 			unsigned live_rows = sim.live_range(id);
+-			if (!live_rows)
+-				continue;
+ 
+-			for (unsigned p = 0; p < node->num_planes(); ++p) {
++			for (unsigned p = 0; live_rows && p < node->num_planes(); ++p) {
+ 				PlaneDescriptor desc = node->format(p);
+ 				unsigned subsample_h = node->subsample_h(p);
+ 				if (output_id == m_sink_id)

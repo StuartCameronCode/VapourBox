@@ -1,0 +1,7 @@
+# scripts/upstream_repro.c, macOS arm64 (M1 Pro), Apple clang 21, 2026-11-22
+# against R78's overlay build (vs mode) of each graphengine:
+cb5b2ce1:          tmp_size 1344, bytes changed past it 0, furthest 0
+91c6af4c:          tmp_size 384, bytes changed past it 791, furthest 792
+91c6af4c + patch:  tmp_size 1216, bytes changed past it 0, furthest 0
+# against zimg master e2e43d09 built by its own autotools (./configure --disable-shared):
+e2e43d09:          tmp_size 384, bytes changed past it 791, furthest 792
