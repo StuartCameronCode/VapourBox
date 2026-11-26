@@ -3281,4 +3281,11 @@ _keep, _after_drop = [max(0, min(_i, clip.num_frames - 1))
                       for _i in ({{PREVIEW_OUTPUT_INDEX}}, {{PREVIEW_OUTPUT_INDEX_AFTER_DROP}})]
 clip = _preview_decimate_pick(clip, _keep, _after_drop)
 {{/PREVIEW_ONLY}}
+# The pipe reader keeps every frame an output frame still in flight can ask
+# for again (task #120): vspipe runs ahead of a late output frame without
+# bound, and VapourSynth's cache drops a served frame before that output's own
+# requests reach it. Always the last node: the reader counts from the moment
+# vspipe requests a frame of it.
+import pipe_source as _pipe_source
+clip = _pipe_source.track_output(clip)
 clip.set_output()

@@ -10663,3 +10663,42 @@ fn test_269_qtgmc_mask_runs_at_any_depth() {
         assert!(formats.contains(needle), "plugin_formats.py lost: {needle}");
     }
 }
+
+/// Task #120: pipe_source keeps the frames an output frame still in flight
+/// can ask for again, which it learns from `pipe_source.track_output`. vspipe
+/// runs ahead of a late output frame without bound and VapourSynth's cache
+/// drops a served frame before that output's own requests reach it (Stab on a
+/// Windows runner: frame 0 asked for again after 70 were read, past its window
+/// of 42). The reader counts from the moment vspipe requests an output frame,
+/// so the tracker is the last node of both scripts, with nothing after it.
+#[test]
+fn test_270_both_scripts_end_with_the_pipe_output_tracker() {
+    create_output_dir();
+    let mut stabilize = create_base_job("test_270_stabilize");
+    stabilize.qtgmc_parameters.enabled = false;
+    stabilize.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        stabilize: StabilizeParameters { enabled: true, mirror: 3, ..StabilizeParameters::default() },
+        ..ProcessingPipeline::default()
+    });
+    for (name, job) in [("default", create_base_job("test_270_default")), ("stabilize", stabilize)] {
+        let (encode, preview) = generate_both_scripts(&job);
+        for (side, script) in [("encode", &encode), ("preview", &preview)] {
+            let code: Vec<&str> = script
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                .collect();
+            assert_eq!(
+                &code[code.len() - 3..],
+                &[
+                    "import pipe_source as _pipe_source",
+                    "clip = _pipe_source.track_output(clip)",
+                    "clip.set_output()",
+                ],
+                "{name} {side} script does not end with the pipe output tracker"
+            );
+            assert_eq!(script.matches("track_output(").count(), 1, "{name} {side}");
+        }
+    }
+}

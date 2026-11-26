@@ -16,6 +16,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'package:vapourbox/services/process_tree.dart';
+
 import 'support/bounded_process.dart';
 
 String _read(String name) =>
@@ -70,7 +72,22 @@ void main() {
   });
 
   test('describeHang names the tree and keeps to its budget', () async {
-    if (Platform.isWindows) return; // no ps, no stacks
+    // Windows lists the tree through Win32_Process (task #120); its stacks
+    // need the SDK's cdb, which this test doesn't ask for.
+    if (Platform.isWindows) {
+      final proc = await Process.start(
+          'powershell', ['-NoProfile', '-Command', 'Start-Sleep -Seconds 30']);
+      try {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        final report = await describeHang(proc.pid,
+            budget: const Duration(seconds: 20), perProcess: const Duration(seconds: 15));
+        expect(report, contains('process tree at the timeout'));
+        expect(report, contains('Start-Sleep'));
+      } finally {
+        await ProcessTree.killTree(proc, ProcessSignal.sigkill);
+      }
+      return;
+    }
     final proc = await Process.start('sh', ['-c', 'sleep 30 & sleep 30; wait']);
     try {
       await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -85,6 +102,17 @@ void main() {
       await Process.run('pkill', ['-P', '${proc.pid}']); // the sleeps, first
       proc.kill(ProcessSignal.sigkill);
     }
+  });
+
+  test('a worker run killed at its timeout says where it was stuck (task #120)', () {
+    // runJob always did; runPreview (the format sweep's every row) killed a
+    // hung preview with nothing to show for it.
+    final s = _read(p.join('support', 'worker_harness.dart'));
+    expect('describeHang(process.pid)'.allMatches(s).length, greaterThanOrEqualTo(2));
+    final preview = s.substring(s.indexOf('static Future<PreviewResult> runPreview('));
+    final onTimeout = preview.substring(0, preview.indexOf('ProcessTree.killTree'));
+    expect(onTimeout, contains('describeHang(process.pid)'),
+        reason: 'runPreview takes the stacks before it kills the tree');
   });
 
   test('the conformance matrix kills a hung job before the case times out', () {

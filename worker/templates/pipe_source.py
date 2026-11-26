@@ -63,6 +63,10 @@ _EXTRA_BYTES = 512 * 1024 * 1024
 _MIN_EXTRA_FRAMES = 16
 
 
+# The reader the last create_pipe_clip made, for track_output.
+_reader = None
+
+
 class _PipeReader:
     """Reads raw video frames from stdin, keeping the frames the script may
     still ask for.
@@ -79,6 +83,19 @@ class _PipeReader:
     A frame asked for after it was dropped raises: it can no longer be read,
     and serving any other picture in its place silently writes the wrong frame
     into the output (which this reader used to do).
+
+    A served frame can be asked for again, too (task #120): it is wanted by
+    every output frame within the radius, through several nodes, and
+    VapourSynth's cache drops it between their requests. One output frame
+    that runs late (vspipe has no bound on how far it runs ahead of one) then
+    asks for it long after `_low` has moved on: measured 22-30 frames late on
+    an M1 under load, 70 on a Windows runner, past Stab's window of 42. So
+    when the script's output goes through `track_output`, a frame is also
+    kept while it is less than the window behind `_low` *as it was when the
+    oldest output frame still in flight was requested*. That output can only
+    need frames from there on: when output m is requested, only outputs
+    below m have asked for anything, so `_low` is at most src(m-1) + R + 1,
+    and m reaches back to src(m) - R, within the window (2R + 24).
     """
 
     def __init__(self, width, height, vs_format, cache_frames=40,
@@ -131,6 +148,10 @@ class _PipeReader:
         self._next = 0          # the next frame the pipe will deliver
         self._low = 0           # the lowest frame not yet served
         self._served = set()    # frames >= _low already served
+        # Output frame -> _low when vspipe requested it, for each output frame
+        # requested and not yet complete (track_output). Empty when the
+        # script's output isn't tracked: then only _low counts.
+        self._in_flight = {}
         self._lock = threading.Lock()
         self._eof = False
         self._last_frame = None  # last successfully read frame data
@@ -153,11 +174,18 @@ class _PipeReader:
             self._served.discard(self._low)
             self._low += 1
 
+    def _anchor(self):
+        """The frame the window counts back from: `_low`, or `_low` as it was
+        when the oldest output frame still in flight was requested."""
+        if self._in_flight:
+            return min(self._low, min(self._in_flight.values()))
+        return self._low
+
     def _evict(self):
         """Drop served frames behind the window, and the oldest past the cap."""
         while self._cache:
             k = next(iter(self._cache))
-            if k < self._low - self._window:
+            if k < self._anchor() - self._window:
                 self._cache.popitem(last=False)
             elif len(self._cache) > self._cap:
                 # Never asked for while the reader went this far ahead: given
@@ -187,12 +215,19 @@ class _PipeReader:
         data = self._cache.get(n)
         if data is None:
             if n < self._next:
+                if self._in_flight:
+                    oldest = min(self._in_flight)
+                    flight = (f", oldest output frame in flight {oldest}, "
+                              f"requested at {self._in_flight[oldest]}")
+                else:
+                    flight = ""
                 raise vs.Error(
                     f"pipe_source: frame {n} was asked for after it left the "
                     f"cache (read up to frame {self._next - 1}, oldest frame "
-                    f"not yet served {self._low}, window {self._window}, cap "
-                    f"{self._cap} frames). This is a VapourBox fault: a pass "
-                    "reads further back than its declared radius."
+                    f"not yet served {self._low}{flight}, window "
+                    f"{self._window}, cap {self._cap} frames). This is a "
+                    "VapourBox fault: a pass reads further back than its "
+                    "declared radius, or the reader fell past its memory cap."
                 )
             # Past the end of the stream: repeat the last real frame so
             # VDecimate can identify it as a duplicate and drop it (blank
@@ -203,6 +238,23 @@ class _PipeReader:
             self._served.add(n)
             self._advance_low()
         return data
+
+    def output_requested(self, n):
+        """vspipe asked for output frame n (track_output).
+
+        vspipe asks in order, but VapourSynth runs the requests' first steps
+        on its thread pool, so one can reach here after later outputs' (up to
+        9 outputs late measured on an M1 under load). Taking the anchor of
+        the outputs already in flight, never a later `_low`, keeps such an
+        output's frames.
+        """
+        with self._lock:
+            self._in_flight.setdefault(n, self._anchor())
+
+    def output_done(self, n):
+        """Output frame n is complete (track_output)."""
+        with self._lock:
+            self._in_flight.pop(n, None)
 
     def fill_frame(self, n, f):
         """VapourSynth ModifyFrame callback."""
@@ -297,6 +349,8 @@ def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt,
     vs_format = _FORMAT_MAP[pix_fmt]
     reader = _PipeReader(width, height, vs_format, cache_frames,
                          pad_right, pad_bottom, pad_fields)
+    global _reader
+    _reader = reader
 
     blank = core.std.BlankClip(
         width=width + reader.pad_right, height=height + reader.pad_bottom,
@@ -305,3 +359,30 @@ def create_pipe_clip(width, height, num_frames, fps_num, fps_den, pix_fmt,
     )
 
     return core.std.ModifyFrame(clip=blank, clips=[blank], selector=reader.fill_frame)
+
+
+def track_output(clip):
+    """Tell the pipe reader which output frames are in flight (task #120).
+
+    Wraps the script's final clip: a FrameEval notes when vspipe requests
+    output frame n, before any of n's own requests reach the pipe, and a
+    ModifyFrame notes when n is complete. The reader keeps every frame an
+    output in flight can still ask for (see _PipeReader). It must be the last
+    node before set_output: a node after it would be requested first, and its
+    request time is what the reader counts from. Neither callback requests a
+    frame. Without a pipe clip in the script it returns the clip unchanged.
+    """
+    reader = _reader
+    if reader is None:
+        return clip
+
+    def _requested(n, c=clip):
+        reader.output_requested(n)
+        return c
+
+    def _done(n, f):
+        reader.output_done(n)
+        return f
+
+    tracked = core.std.FrameEval(clip, _requested)
+    return core.std.ModifyFrame(tracked, tracked, _done)
