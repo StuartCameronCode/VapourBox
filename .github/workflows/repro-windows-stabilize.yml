@@ -1,0 +1,132 @@
+name: Reproduce the Windows Stabilize failures
+
+# Task #120: on the 2026-11-25 nightly (windows-x64-v2) Stab's end-to-end job
+# failed with "pipe_source: frame 0 was asked for after it left the cache",
+# and the format sweep's stabilize/pitchMode=auto row at
+# 720x480/yuv444p16le/prog hung past its 6-minute limit (2-4 s everywhere
+# else). This loops both on the nightly's Windows runners
+# (app/test/repro_stabilize_test.dart, VAPOURBOX_REPRO_STABILIZE=N), each run
+# its own test and verdict, under load if asked. A hung preview is sampled
+# with the Windows SDK's cdb before it is killed (describeHang).
+#
+# `baseline_ref`: run with pipe_source.py and pipeline_template.vpy from that
+# commit instead (e.g. the parent of the fix), to count the failure before
+# the fix on the same runners.
+#
+# Dispatch it, or push a change to this file on a `stuart/120-probe-*`
+# branch: a workflow that is not on the default branch cannot be dispatched,
+# and a push then runs it with the defaults below.
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Runs of each case'
+        default: '40'
+      cases:
+        description: 'Comma-separated: encode, sweep'
+        default: 'encode,sweep'
+      load:
+        description: 'Keep every core but one busy, as the nightly''s concurrent test files do'
+        type: boolean
+        default: true
+      baseline_ref:
+        description: 'Optional commit to take pipe_source.py and the template from'
+        default: ''
+  push:
+    branches: ['stuart/120-probe-*']
+    paths: ['.github/workflows/repro-windows-stabilize.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  repro:
+    strategy:
+      fail-fast: false
+      matrix:
+        asset: [windows-x64-v2, windows-x64]
+    name: repro (${{ matrix.asset }})
+    runs-on: windows-latest
+    timeout-minutes: 240
+    env:
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/windows-x64
+      VAPOURBOX_WORKER: ${{ github.workspace }}\worker\target\debug\vapourbox-worker.exe
+      ITER: ${{ inputs.iterations || '40' }}
+      CASES: ${{ inputs.cases || 'encode,sweep' }}
+      LOAD: ${{ inputs.load == false && 'false' || 'true' }}
+      BASELINE: ${{ inputs.baseline_ref }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Baseline templates
+        if: ${{ env.BASELINE != '' }}
+        shell: bash
+        run: git checkout "$BASELINE" -- worker/templates/pipe_source.py worker/templates/pipeline_template.vpy
+
+      - name: Resolve deps tag
+        id: deps
+        shell: bash
+        run: |
+          TAG=$(python -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: false
+          pub-cache-path: ${{ runner.temp }}/pub-cache
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Download dependencies (${{ matrix.asset }})
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/install-deps-bundle.sh "${{ matrix.asset }}" \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/windows-x64
+
+      - name: Build worker and generate Dart serialization
+        run: |
+          cd worker
+          cargo build
+          cd ../app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Machine and debugger
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_Processor | Select-Object Name, NumberOfLogicalProcessors | Format-List
+          $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
+          if (Test-Path $cdb) { "cdb: $cdb" } else { "cdb: not installed (a hang is reported without stacks)" }
+
+      - name: Loop the cases
+        shell: bash
+        run: |
+          mkdir -p repro-out
+          if [ "$LOAD" = true ]; then
+            N=$(nproc); for i in $(seq $((N - 1))); do yes > /dev/null & done
+          fi
+          cd app
+          VAPOURBOX_REPRO_STABILIZE=$ITER VAPOURBOX_REPRO_CASES=$CASES \
+            flutter test test/repro_stabilize_test.dart --reporter expanded \
+            > ../repro-out/repro.log 2>&1 || true
+          if [ "$LOAD" = true ]; then pkill yes || true; fi
+          cd ..
+          tail -40 repro-out/repro.log
+          echo "passed: $(grep -cE '^\s*[0-9:]+ \+[0-9]+.*: (encode|sweep):' repro-out/repro.log)"
+          echo "failed runs:"; grep -E '\[E\]' repro-out/repro.log | sort | uniq || true
+          echo "pipe_source errors: $(grep -c 'left the cache' repro-out/repro.log)"
+          echo "timeouts: $(grep -c 'timed out after' repro-out/repro.log)"
+
+      - uses: actions/upload-artifact@v5
+        if: ${{ always() }}
+        with:
+          name: repro-stabilize-${{ matrix.asset }}
+          path: repro-out

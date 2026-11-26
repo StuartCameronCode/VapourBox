@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pipe_source and a late output frame</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+</style>
+</head>
+<body>
+<h1>pipe_source dropped a frame a late output frame still needed</h1>
+<p class="meta">Task #120, 2026-11-26. Measured on an Apple Silicon Mac (M1), macos-arm64 deps 1.16.0, the bundle's vspipe (R78). The failures are nightly run 45667413686 (main <code>bd1ed4b2</code>, deps 1.18.0-rc3), jobs 139393212274 (windows-x64-v2, heavy) and 139393212389 (windows-x64-v2, sweep). Nothing here was re-run on Windows: see "Not measured".</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>Symptom 1:</b> <code>stabilize: Stab runs end-to-end</code> failed once, on a Zen 5 Windows runner (AMD Family 26), with <code>pipe_source: frame 0 was asked for after it left the cache (read up to frame 70, oldest frame not yet served 71, window 42, cap 689 frames)</code>. It passed on every other run, platform and tier with the same bundle.</li>
+<li><b>Cause:</b> Stab's declared reach (n−8…n+9) is right. pipe_source kept a served frame for a window of 42 counted back from <code>_low</code>, the oldest <i>source</i> frame not yet served (task #58). A served frame can be asked for <i>again</i>: every output within the radius wants it, through several nodes (two SCDetects, Interleave, the 16-bit copy), and VapourSynth's cache drops it between their requests. vspipe R78 asks for the next output frame whenever any frame completes, with no limit on how far ahead it runs (<code>frameDoneCallback</code>), so while one output frame runs late the reader reads on. When that output's own requests arrive, the frame can be more than the window behind <code>_low</code>.</li>
+<li><b>Not MVTools:</b> v24's <code>DepanEstimateStage1-3</code> and <code>DepanCompensate</code> are <code>fmParallel</code> and issue every request in <code>arInitial</code>. <b>Not task #116</b> (the missing FFTW DLL): the failing job computed Depan for 70 frames, and Stab passed on the v3 tier that night with the same bundle.</li>
+<li><b>Fix:</b> the template's last node is <code>pipe_source.track_output(clip)</code>: a FrameEval notes when vspipe requests output frame <i>m</i> (before any of <i>m</i>'s requests reach the pipe), a ModifyFrame when it completes. The reader keeps every frame less than the window behind <code>_low</code> as it was when the oldest output frame still in flight was requested. Without a tracker the rule is the old one. The memory cap is unchanged: a stalled output now has the cap (689 frames in the failing job), not the 42-frame window, before a frame it needs is given up, and asking for a frame given up still raises.</li>
+<li><b>Symptom 2</b>, the format sweep's <code>stabilize/pitchMode=auto</code> row at 720x480 yuv444p16le hanging past 360 s, is <b>not explained</b>. It is a hang, not a slow machine (table below), and it left no stacks. The harness now samples a hung preview, and takes stacks on Windows; <code>repro-windows-stabilize.yml</code> loops both cases on the nightly's runners.</li>
+</ul>
+
+<h2>Why the window from the oldest output in flight is enough</h2>
+<p>vspipe requests output frames in order. When it requests output <i>m</i>, only outputs below <i>m</i> have asked for anything, so <code>_low ≤ src(m−1) + R + 1</code>. Output <i>m</i> reaches back to <code>src(m) − R</code>, which is at least <code>_low − (2R + 1)</code>; the window is <code>max(40, 2·total_radius + 24)</code>. No map from output to source frames is needed, so it holds through rate changes, decimation, VFR timelines and preview padding.</p>
+<p><b>Measured caveat:</b> VapourSynth runs the requests' first steps on its thread pool, so the tracker's FrameEval sees them <b>out of order</b>: 428 times in 360 loaded runs, up to 14 outputs late. Taking <code>_low</code> at that moment put an output's snapshot up to 18 frames past its own frame (the window allows 33 at R = 9). So an output reaching the tracker late takes the lowest snapshot of the outputs already in flight instead; with that, every snapshot was at most 9 past its frame, inside the in-order bound of R + 1 = 10.</p>
+
+<h2>Measurements</h2>
+<p><code>scripts/stab.vpy</code> is the job's generated encode graph (pipe_source → <code>stabilize.weave(dxmax=4, dymax=4, mirror=3)</code>) on <code>interlaced_test.avi</code> (720x576 4:2:2, 79 frames), logging every reader request and every output completion; <code>scripts/stab_tracked.vpy</code> adds the tracker and logs its snapshots. <code>loop.sh</code> / <code>tloop.sh</code> run them, 12 loops at once on 8 cores; <code>order.py</code> / <code>order2.py</code> count.</p>
+<table>
+<tr><th>Reader</th><th>Runs</th><th>Load</th><th>Runs re-asking for a served frame</th><th>Furthest past it the reader had read</th><th>Failures</th></tr>
+<tr><td>old</td><td class=num>8</td><td>none (cache 1 MB – 4 GB, 2 / 8 threads)</td><td class=num>0</td><td>–</td><td class=num>0</td></tr>
+<tr><td>old</td><td class=num>180</td><td>12 at once</td><td class=num>2 (frame 0; frames 0, 1)</td><td class=num>22, 23</td><td class=num>0</td></tr>
+<tr><td>old</td><td class=num>360</td><td>12 at once</td><td class=num>1 (frames 0–9)</td><td class=num>30</td><td class=num>0</td></tr>
+<tr><td>new</td><td class=num>360</td><td>12 at once</td><td class=num>25 re-requests</td><td class=num>29</td><td class="num ok">0</td></tr>
+</table>
+<p>In the old reader's 360-run batch the re-requests came from <b>output 7</b>, still in flight after 15–20 later outputs had finished (<code>data/untracked-rerequest-run.log</code>). On the M1 the lag never passed the window; the Windows runner's 70 did. No fixed window bounds the lag: it is how late one output frame runs.</p>
+
+<h3>Deterministic repro</h3>
+<p><code>scripts/late_output.vpy</code> makes the late request happen every time: output 0 reads source 0 at once and again through a <code>FrameEval(prop_src=heavy)</code> whose <code>heavy[0]</code> takes about a second of C filtering, with the pipe node's cache held to one frame. (A Python sleep in a FrameEval does not work: it held every other output's FrameEval call, and the reader got only 8 frames ahead.)</p>
+<table>
+<tr><th>Reader</th><th>Runs</th><th>Result</th></tr>
+<tr><td>old</td><td class=num>10</td><td class=no>10 × "frame 0 was asked for after it left the cache (read up to frame 119 …)"</td></tr>
+<tr><td>new</td><td class=num>10</td><td class=ok>10 complete, all 120 frames byte-exact against the source</td></tr>
+</table>
+<p>The same script is a push-gate test in <code>app/test/pipe_source_order_test.dart</code>, which also requires that the late request did reach the reader past the window (otherwise it would prove nothing), and drives the reader directly in the nightly's order.</p>
+
+<h3>Cost</h3>
+<p><code>scripts/ovh.vpy</code>: a bare 1080p pipe, 300 frames, three runs each: 352, 359, 356 fps without the tracker, 345, 359, 356 with. Two Python callbacks per output frame, within noise; real jobs run far below these rates.</p>
+
+<h2>The pitch-auto row: a hang</h2>
+<p><code>stabilize/pitchMode=auto</code>, <code>720x480/yuv444p16le/prog</code>, from the nightly's <code>format-sweep-*</code> artifacts (<code>scripts/rows.py</code>):</p>
+<table>
+<tr><th>Night</th><th>windows-x64</th><th>windows-x64-v2</th><th>linux-x64-v2</th><th>macos-x64</th></tr>
+<tr><td>2026-11-24</td><td class=num>3.9 s</td><td class=num>4.1 s</td><td></td><td></td></tr>
+<tr><td>2026-11-25</td><td class=num>4.4 s</td><td class="num no">360.1 s (killed)</td><td class=num>2.3 s</td><td class=num>3.5 s</td></tr>
+</table>
+<p>Over 80 times its usual time on the same tier, with every other row of the variant passing: a hang. <code>scripts/pitch.vpy</code> / <code>ploop.sh</code> (the same shape: weave + pitch auto, radius 10, one output frame) ran 300 times, 12 at once, on the M1: none hung, the slowest took 10 s. A preview's decoder writes <code>frames.raw</code> before vspipe starts, so the hang is inside vspipe. Suspects, not shown: <code>stabilize._apply_per_frame</code> creates resize nodes inside concurrent FrameEval callbacks (the pattern that spun vspipe for 97 minutes with akarin nodes), and mutates its node LRU from several threads.</p>
+<p>It said nothing because <code>WorkerHarness.runPreview</code> killed on timeout without <code>describeHang</code>, and <code>describeHang</code> listed nothing on Windows. Now <code>runPreview</code> samples the tree and keeps the worker's last stderr lines in the error, which the sweep writes into its results JSON; on Windows <code>describeHang</code> lists the tree through Win32_Process and attaches the SDK's <code>cdb</code> non-invasively when it is installed.</p>
+
+<h2>Not measured</h2>
+<ul>
+<li>Nothing was run on Windows. <code>.github/workflows/repro-windows-stabilize.yml</code> loops both cases (<code>app/test/repro_stabilize_test.dart</code>, <code>VAPOURBOX_REPRO_STABILIZE=N</code>) on both Windows tiers under load, with <code>baseline_ref</code> to run the old reader on the same runners. Its counts belong here once it has run.</li>
+<li>Whether the runner images carry <code>cdb.exe</code>: the workflow prints it.</li>
+<li>The thread-pool reordering was measured on an M1 only.</li>
+</ul>
+
+<h2>Run it</h2>
+<pre>cd scripts
+FFMPEG=&lt;deps&gt;/ffmpeg/ffmpeg REPO=&lt;repo&gt; ./make_inputs.sh
+export VB_TEMPLATES=&lt;repo&gt;/worker/templates VSPIPE=&lt;deps&gt;/vapoursynth/vspipe
+mkdir -p L; for j in $(seq 12); do ./tloop.sh $j 30 &amp; done; wait
+python3 order.py L; python3 order2.py L
+VB_PIPE_SOURCE_DIR=$VB_TEMPLATES $VSPIPE late_output.vpy -c y4m - &lt; raw64.yuv &gt; /dev/null</pre>
+<p><code>loop.sh</code> runs <code>stab.vpy</code> (no tracker; with the new reader it is the old rule). For the old reader itself, point <code>VB_TEMPLATES</code> / <code>VB_PIPE_SOURCE_DIR</code> at a copy of <code>worker/templates</code> from <code>bd1ed4b2</code>.</p>
+</body>
+</html>

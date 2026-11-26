@@ -6454,3 +6454,38 @@ VapourSynth; the cause is in graphengine, not in VapourSynth or our build.
   at every commit, the good one included. That has not been examined (task #115).
 
 Report: [docs/reports/task-109-graphengine-tmp-overrun](reports/task-109-graphengine-tmp-overrun/index.html).
+
+### pipe_source dropped a frame a late output frame still needed (task #120, 2026-11-26)
+
+- **Symptom.** Once, on a Windows v2 nightly runner (Zen 5): Stab's
+  end-to-end job failed with `pipe_source: frame 0 was asked for after it
+  left the cache (read up to frame 70, oldest frame not yet served 71,
+  window 42)`. Stab's reach (n−8…n+9) is declared correctly.
+- **Cause.** Task #58's reader kept a served frame for a window counted back
+  from the oldest *source* frame not yet served. A served frame is asked for
+  again whenever VapourSynth's cache drops it between the requests of the
+  several nodes that read it, and vspipe R78 requests the next output frame
+  whenever any frame completes, so one late output frame lets the reader run
+  arbitrarily far ahead before its own requests arrive. On an M1 under load
+  the instrumented Stab graph re-asked for served frames 22–30 frames after
+  they were read, once for frames 0–9 from output 7 while 15–20 later outputs
+  had finished. MVTools' Depan requests everything in `arInitial`; not the
+  missing FFTW DLL (task #116).
+- **Fix.** `pipe_source.track_output(clip)`, the last node of the template:
+  it records when vspipe requests each output frame and when it completes,
+  and the reader keeps every frame within the window of `_low` as it was when
+  the oldest output still in flight was requested. Since vspipe requests in
+  order, `_low ≤ src(m−1) + R + 1` at output m's request, inside the window
+  (2R + 24) of what m can need; no output→source map is involved. VapourSynth
+  runs the requests' first steps out of order (up to 14 outputs, 428 times in
+  360 runs), so a late-registered output inherits the in-flight minimum; the
+  snapshots then stayed within R + 1 of their frame. 0 failures in 360 loaded
+  runs; a deterministic repro (`late_output.vpy`, also a push-gate test) fails
+  10/10 on the old reader. Overhead within noise at 350 fps.
+- **Open.** The same night's format sweep row `stabilize/pitchMode=auto`
+  720x480 yuv444p16le hung past 360 s (2–4 s on every other night and
+  platform) and left no stacks. Not reproduced in 300 loaded runs on an M1.
+  `runPreview` now samples a hang (`describeHang`, with cdb stacks on
+  Windows), and `repro-windows-stabilize.yml` loops both cases on Windows.
+
+Report: [docs/reports/task-120-pipe-source-late-output](reports/task-120-pipe-source-late-output/index.html).
