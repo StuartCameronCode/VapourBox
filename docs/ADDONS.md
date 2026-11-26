@@ -139,6 +139,13 @@ files come from upstream (the AI runtime's wheels) still install. Use it to
 test an add-on whose files are converted locally and not uploaded yet. It
 applies to the app and to `WorkerHarness.ensureAddon`.
 
+The nightly uses it too (task #117): `.github/scripts/prefetch-addons.py`
+fetches every manifest's files into `.addon-mirror` before the tests, kept in
+one Actions cache entry keyed on the manifests, and the tests run with the
+mirror set, so no test's timeout covers a download. A new add-on needs
+nothing extra for this; its file's URL must just end in a name no other
+add-on file uses (`addon_prefetch_test.dart` checks).
+
 ## Hosting files we convert ourselves
 
 Where upstream publishes only a PyTorch checkpoint (`.pth`), we convert it to

@@ -2623,6 +2623,28 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
   its requirements with the app's own installer; `integration_ai_runtime_test.dart`
   (heavy) installs `ai-runtime` and runs the probe. `manifest_addon_test.dart`
   asserts the worker (`--list-addons`) compiled in the same manifests.
+- **The nightly never downloads an add-on inside a test's timeout (task
+  #117).** A `setUpAll` gets a fixed 12 minutes from package:test (the
+  file's `@Timeout` does not apply to it), and GitHub release downloads ran at
+  1.2-1.8 MB/s on the macOS x64 runners, so colorize's 1.3 GB setUpAll timed
+  out on 4 of 7 failing nightlies. So every nightly job first runs
+  `.github/scripts/prefetch-addons.py`: every file of every manifest, for
+  every platform, into `.addon-mirror` (resumed, retried on network errors
+  only, size and hash checked), kept as **one** Actions cache entry for every
+  OS (`addon-mirror-v1-<hash of the manifests>`, `enableCrossOsArchive`,
+  saved from main only), and the test step sets `VAPOURBOX_ADDON_MIRROR` to
+  it. The installer still copies, verifies, extracts and marks every add-on
+  on every leg; only the fetch moved. On a cache hit `--check-links` asks
+  each pinned URL for its first byte (a dead link or changed size fails the
+  job, a network failure warns). A file the step could not get is downloaded
+  by the test, through `HarnessDownloader` (`test/support/harness_downloader.dart`),
+  which retries a request on a transient error only (DNS, reset, stall,
+  429/5xx), never a 4xx, a size or a hash mismatch, and never a test.
+  `ensureAddon` installs each add-on under a lock file in `addons/`, since
+  test files run side by side in separate processes and share it. Never put
+  a download in a `setUpAll`, and never raise a timeout to absorb one;
+  `addon_prefetch_test.dart` and `harness_downloader_test.dart` (push gate)
+  hold the script, the wiring and the retry rules.
 
 ### Face Restoration
 
@@ -3467,6 +3489,9 @@ cd worker && cargo run --release -- --config test_job.json
 > 23-30 s there and failed 8 nightly legs (task #99, as task #95 did for
 > Descale). Don't raise the default in `dart_test.yaml`: it would hide real
 > hangs everywhere.
+> A `setUpAll` can't state one: package:test gives it 12 minutes, fixed,
+> which is why the nightly prefetches add-ons before the tests (task #117,
+> "Add-ons").
 
 > **The heavy tests run the worker BINARY, not the library**, and
 > `app/lib/**/*.g.dart` is gitignored — **run `cargo build` before the heavy
