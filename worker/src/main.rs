@@ -558,16 +558,27 @@ fn run_probe_gpu_plugin(plugin: gpu_plugin::GpuPlugin) -> ExitCode {
 /// tested, because several bundled plugins select a code path from these bits
 /// and a green run is otherwise silent about which path it took — the CTMF
 /// AVX-512 crash passed for days on non-AVX-512 runners before drawing one.
+///
+/// `ctmfOpt` is `script_generator::ctmf_opt()`, the SIMD level every template
+/// gives CTMF. A test that calls CTMF itself passes it (task #112), so it
+/// runs the kernel the app runs and never the 8-bit AVX-512 one that
+/// auto-detect picks.
 fn run_probe_cpu() -> ExitCode {
+    println!("{}", probe_cpu_json());
+    ExitCode::SUCCESS
+}
+
+/// The JSON `--probe-cpu` prints.
+fn probe_cpu_json() -> serde_json::Value {
     let mut out = serde_json::json!({
         "arch": std::env::consts::ARCH,
         "features": detected_cpu_features(),
+        "ctmfOpt": script_generator::ctmf_opt(),
     });
     if let Some(tier) = cpu::cpu_tier() {
         out["tier"] = serde_json::json!(tier.as_str());
     }
-    println!("{out}");
-    ExitCode::SUCCESS
+    out
 }
 
 /// The instruction set extensions that bundled plugins dispatch on, plus the
@@ -1578,6 +1589,17 @@ fn run_subtitle_generation(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_cpu_reports_the_templates_ctmf_opt() {
+        // Task #112: tests read this to call CTMF as the templates do. It is
+        // the one decision, never 0 (auto-detect, which reaches CTMF's broken
+        // 8-bit AVX-512 kernel) and never 4 (that kernel by name).
+        let json = probe_cpu_json();
+        let opt = json["ctmfOpt"].as_u64().expect("ctmfOpt is a number");
+        assert_eq!(opt, u64::from(script_generator::ctmf_opt()));
+        assert!(opt == 2 || opt == 3, "ctmfOpt {opt}");
+    }
 
     #[test]
     fn cpu_features_are_reported_and_plausible() {

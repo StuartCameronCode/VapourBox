@@ -908,7 +908,17 @@ left at the plugin's own auto-detect (`opt=0`).** Its AVX-512 kernel for 8-bit
 input crashes with an access violation on real hardware — auto-detect is
 exactly what selects that broken kernel. `script_generator::ctmf_opt` picks 3
 (AVX2) on a v3-tier CPU, else 2 (SSE2), never 0. This is independent of the
-tiers: a v3 machine can have AVX-512.
+tiers: a v3 machine can have AVX-512. The kernel (`ctmfHelper_avx512<uint8_t,
+16>`) steps 64-byte vectors over 32-byte histograms, so it faults on odd
+offsets and overruns every histogram even when it doesn't (task #112); at
+10 bits and up the histograms are 64 bytes and it is correct, and radius 2
+has its own kernel. **A test that calls CTMF at 8 bits passes the worker's
+value too** (`--probe-cpu`'s `ctmfOpt`, `WorkerHarness.ctmfOpt()`). Two
+routes pass no `opt` and are safe only while nothing reaches them at radius
+≠ 2 on 8-bit input: havsfunc's `MinBlur(r=3)` and `hybrid_mv.median_blur`.
+Today none does; exposing HQDeringmod's `nrmode=3`, TemporalDegrain2's
+`extraSharp` or a ContraSharpening radius of 3 would make one, and needs
+`opt` passed (or CTMF patched) first.
 
 See docs/ENGINEERING_NOTES.md for the specific plugin-by-plugin decisions,
 probe-round methodology, and dated write-ups behind all of the above.
@@ -2613,6 +2623,28 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
   its requirements with the app's own installer; `integration_ai_runtime_test.dart`
   (heavy) installs `ai-runtime` and runs the probe. `manifest_addon_test.dart`
   asserts the worker (`--list-addons`) compiled in the same manifests.
+- **The nightly never downloads an add-on inside a test's timeout (task
+  #117).** A `setUpAll` gets a fixed 12 minutes from package:test (the
+  file's `@Timeout` does not apply to it), and GitHub release downloads ran at
+  1.2-1.8 MB/s on the macOS x64 runners, so colorize's 1.3 GB setUpAll timed
+  out on 4 of 7 failing nightlies. So every nightly job first runs
+  `.github/scripts/prefetch-addons.py`: every file of every manifest, for
+  every platform, into `.addon-mirror` (resumed, retried on network errors
+  only, size and hash checked), kept as **one** Actions cache entry for every
+  OS (`addon-mirror-v1-<hash of the manifests>`, `enableCrossOsArchive`,
+  saved from main only), and the test step sets `VAPOURBOX_ADDON_MIRROR` to
+  it. The installer still copies, verifies, extracts and marks every add-on
+  on every leg; only the fetch moved. On a cache hit `--check-links` asks
+  each pinned URL for its first byte (a dead link or changed size fails the
+  job, a network failure warns). A file the step could not get is downloaded
+  by the test, through `HarnessDownloader` (`test/support/harness_downloader.dart`),
+  which retries a request on a transient error only (DNS, reset, stall,
+  429/5xx), never a 4xx, a size or a hash mismatch, and never a test.
+  `ensureAddon` installs each add-on under a lock file in `addons/`, since
+  test files run side by side in separate processes and share it. Never put
+  a download in a `setUpAll`, and never raise a timeout to absorb one;
+  `addon_prefetch_test.dart` and `harness_downloader_test.dart` (push gate)
+  hold the script, the wiring and the retry rules.
 
 ### Face Restoration
 
@@ -3457,6 +3489,9 @@ cd worker && cargo run --release -- --config test_job.json
 > 23-30 s there and failed 8 nightly legs (task #99, as task #95 did for
 > Descale). Don't raise the default in `dart_test.yaml`: it would hide real
 > hangs everywhere.
+> A `setUpAll` can't state one: package:test gives it 12 minutes, fixed,
+> which is why the nightly prefetches add-ons before the tests (task #117,
+> "Add-ons").
 
 > **The heavy tests run the worker BINARY, not the library**, and
 > `app/lib/**/*.g.dart` is gitignored — **run `cargo build` before the heavy
@@ -3966,7 +4001,9 @@ QTGMC's denoiser falls back to DFTTest.
 - `vapoursynth_integration_test.dart`'s `per-thread buffer maps (task #98)`
   group checks the markers (from deps 1.18.0-rc3) and the patches and
   scripts (push gate), and runs graphs of 1000 instances of each plus
-  `MinBlur(r=3)` (heavy).
+  `MinBlur(r=3)` (heavy). CTMF there takes the worker's `opt` and `memsize`,
+  and MinBlur runs at 10 bits, so neither reaches CTMF's 8-bit AVX-512
+  kernel (task #112); a failure names the race only for an abort.
 - **Before adding a plugin, look for the pattern:** `nm -C <plugin> | grep
   'unordered_map<std::__1::__thread_id'` on a macOS build, or grep its source
   for `thread::id`. A locked map (BM3D r12's `GetThreadBuffer`) is fine

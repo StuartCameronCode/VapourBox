@@ -32,7 +32,6 @@ import 'package:path/path.dart' as p;
 // don't load under the headless `flutter test` VM).
 import 'package:vapourbox/models/color_tags.dart';
 import 'package:vapourbox/models/source_model.dart';
-import 'package:vapourbox/services/addon_manager.dart';
 import 'package:vapourbox/services/addon_service.dart';
 import 'package:vapourbox/services/manifest_addon.dart';
 import 'package:vapourbox/services/process_tree.dart';
@@ -41,6 +40,7 @@ import 'package:vapourbox/services/dependency_manager.dart'
     show DepsVersionInfo, DependencyManager;
 
 import 'bounded_process.dart';
+import 'harness_downloader.dart';
 
 /// Static entry point used by every integration test's `setUpAll`/helpers.
 class WorkerHarness {
@@ -138,19 +138,22 @@ class WorkerHarness {
         as Map<String, dynamic>;
     final installer = AnimeJanaiInstaller(manifest, platform);
     if (installer.isInstalled(addons)) return target;
-    final archive = manifest['archive'] as Map<String, dynamic>;
-    stderr.writeln('[harness] downloading AnimeJaNai models from ${archive['url']}');
-    final bytes = await _httpGetBytes(archive['url'] as String);
-    final sha = sha256.convert(bytes).toString();
-    if (sha != archive['sha256']) {
-      throw StateError('AnimeJaNai download does not match the pinned hash: $sha');
-    }
-    final staging = Directory('${target.path}.new');
-    if (staging.existsSync()) staging.deleteSync(recursive: true);
-    await AnimeJanaiInstaller.extractModels(
-        bytes, (manifest['models'] as Map<String, dynamic>).cast<String, String>(), staging);
-    if (target.existsSync()) target.deleteSync(recursive: true);
-    staging.renameSync(target.path);
+    await _installExclusively(addons, AnimeJanaiInstaller.dirName, () async {
+      if (installer.isInstalled(addons)) return;
+      final archive = manifest['archive'] as Map<String, dynamic>;
+      stderr.writeln('[harness] downloading AnimeJaNai models from ${archive['url']}');
+      final bytes = await _httpGetBytes(archive['url'] as String);
+      final sha = sha256.convert(bytes).toString();
+      if (sha != archive['sha256']) {
+        throw StateError('AnimeJaNai download does not match the pinned hash: $sha');
+      }
+      final staging = Directory('${target.path}.new');
+      if (staging.existsSync()) staging.deleteSync(recursive: true);
+      await AnimeJanaiInstaller.extractModels(
+          bytes, (manifest['models'] as Map<String, dynamic>).cast<String, String>(), staging);
+      if (target.existsSync()) target.deleteSync(recursive: true);
+      staging.renameSync(target.path);
+    });
     return target;
   }
 
@@ -197,15 +200,38 @@ class WorkerHarness {
     for (final x in order) {
       final installer = ManifestAddonInstaller(manifests[x]!, platform);
       if (installer.isInstalled(addons)) continue;
-      final mirror = installer.mirror;
-      stderr.writeln('[harness] installing add-on $x into ${addons.path}'
-          '${mirror != null ? ' from mirror $mirror' : ''}');
-      await installer.install(addons, _IoDownloader());
-      if (!installer.isInstalled(addons)) {
-        throw StateError('Add-on $x did not install completely');
-      }
+      await _installExclusively(addons, x, () async {
+        if (installer.isInstalled(addons)) return; // another test file just did
+        final mirror = installer.mirror;
+        stderr.writeln('[harness] installing add-on $x into ${addons.path}'
+            '${mirror != null ? ' from mirror $mirror' : ''}');
+        await installer.install(addons, HarnessDownloader());
+        if (!installer.isInstalled(addons)) {
+          throw StateError('Add-on $x did not install completely');
+        }
+      });
     }
     return Directory(p.join(addons.path, id));
+  }
+
+  /// Run [install] holding an exclusive lock on `addons/.harness-install-<id>.lock`
+  /// (task #117). `flutter test` runs test files side by side, one process
+  /// each, and several install the same add-on (the AI runtime, DDColor, the
+  /// face models) into the one shared `addons/`: two installers at once
+  /// would write the same `.downloads/<id>-<version>/` file and staging
+  /// directory. [install] must check again whether the add-on is installed:
+  /// the process that held the lock may have just installed it. The lock
+  /// file is left in place (deleting it races with the next process).
+  static Future<void> _installExclusively(
+      Directory addons, String id, Future<void> Function() install) async {
+    addons.createSync(recursive: true);
+    final lock = await File(p.join(addons.path, '.harness-install-$id.lock')).open(mode: FileMode.append);
+    try {
+      await lock.lock(FileLock.blockingExclusive);
+      await install();
+    } finally {
+      await lock.close(); // releases the lock
+    }
   }
 
   /// Install the Whisper engine and one language model where the worker finds
@@ -224,8 +250,11 @@ class WorkerHarness {
         continue;
       }
       if (installer.isInstalled(addons)) continue;
-      stderr.writeln('[harness] installing $id into ${addons.path}');
-      await installer.install(addons, _IoDownloader());
+      await _installExclusively(addons, id, () async {
+        if (installer.isInstalled(addons)) return;
+        stderr.writeln('[harness] installing $id into ${addons.path}');
+        await installer.install(addons, HarnessDownloader());
+      });
     }
     return Directory(p.join(addons.path, WhisperAddonManager.dirName));
   }
@@ -364,6 +393,18 @@ class WorkerHarness {
     if (probe == null) return 'unknown';
     final features = (probe['features'] as List<dynamic>).cast<String>();
     return '${probe['arch']} [${features.isEmpty ? 'none detected' : features.join(' ')}]';
+  }
+
+  /// The `opt` (SIMD level) to give a CTMF call a test makes itself: the
+  /// worker's `--probe-cpu` `ctmfOpt`, which is `script_generator::ctmf_opt`,
+  /// what every template passes (3 on a v3 CPU, else 2). Never 0 (auto-detect)
+  /// or 4: both reach CTMF's 8-bit AVX-512 kernel, which steps 64-byte vectors
+  /// over 32-byte histograms and segfaults on AVX-512 machines (task #112).
+  /// Falls back to 2 (SSE2, the x86-64 baseline) when no worker answers or an
+  /// older one has no `ctmfOpt`; off x86 CTMF ignores it.
+  static Future<int> ctmfOpt() async {
+    final opt = (await _probeCpu())?['ctmfOpt'];
+    return opt is int && (opt == 2 || opt == 3) ? opt : 2;
   }
 
   /// The CPU's model name, so an intermittent crash can be matched to the
@@ -1258,44 +1299,8 @@ class WorkerHarness {
   /// to github.com hosts (and stripped on the redirect to the CDN). Works for
   /// public release assets anonymously; honors $GH_TOKEN / $GITHUB_TOKEN for
   /// private repos.
-  static Future<List<int>> _httpGetBytes(String url) async {
-    final token =
-        Platform.environment['GH_TOKEN'] ?? Platform.environment['GITHUB_TOKEN'];
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
-    try {
-      var current = Uri.parse(url);
-      for (var redirects = 0; redirects < 6; redirects++) {
-        final request = await client.getUrl(current);
-        request.followRedirects = false;
-        final isGitHub = current.host.endsWith('github.com');
-        if (token != null && isGitHub) {
-          request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
-        }
-        request.headers.set(HttpHeaders.acceptHeader, 'application/octet-stream');
-        final response = await request.close();
-
-        if (response.isRedirect) {
-          final loc = response.headers.value(HttpHeaders.locationHeader);
-          await response.drain<void>();
-          if (loc == null) throw StateError('redirect without Location ($current)');
-          current = current.resolve(loc);
-          continue;
-        }
-        if (response.statusCode != 200) {
-          await response.drain<void>();
-          throw HttpException('HTTP ${response.statusCode} for $current');
-        }
-        final builder = BytesBuilder(copy: false);
-        await for (final chunk in response) {
-          builder.add(chunk);
-        }
-        return builder.takeBytes();
-      }
-      throw StateError('too many redirects for $url');
-    } finally {
-      client.close(force: true);
-    }
-  }
+  static Future<List<int>> _httpGetBytes(String url) => harnessGetBytes(url,
+      token: Platform.environment['GH_TOKEN'] ?? Platform.environment['GITHUB_TOKEN']);
 
   /// Warn when the worker binary predates the Rust sources or templates.
   ///
@@ -1429,54 +1434,4 @@ class PreviewResult {
 
   @override
   String toString() => success ? 'SUCCESS (${png!.length} bytes)' : 'FAILED: $error\n$workerError';
-}
-
-/// [AddonManager] over dart:io, for [WorkerHarness.ensureAddon]: the app's
-/// downloader uses rhttp, whose native library does not load under the
-/// headless `flutter test` VM. Streams to the file (models run to hundreds of
-/// MB) and checks size and hash as the app's does.
-class _IoDownloader extends AddonManager {
-  @override
-  Future<void> downloadFile(String url, File destination,
-      {int? expectedSize, String? expectedSha256, Map<String, String>? extraHeaders}) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 30);
-    final partial = File('${destination.path}.partial');
-    try {
-      var current = Uri.parse(url);
-      for (var redirects = 0;; redirects++) {
-        if (redirects > 6) throw StateError('too many redirects for $url');
-        final request = await client.getUrl(current);
-        request.followRedirects = false;
-        extraHeaders?.forEach(request.headers.set);
-        final response = await request.close();
-        if (response.isRedirect) {
-          final loc = response.headers.value(HttpHeaders.locationHeader);
-          await response.drain<void>();
-          if (loc == null) throw StateError('redirect without Location ($current)');
-          current = current.resolve(loc);
-          continue;
-        }
-        if (response.statusCode != 200) {
-          await response.drain<void>();
-          throw HttpException('HTTP ${response.statusCode} for $current');
-        }
-        await response.pipe(partial.openWrite());
-        break;
-      }
-      if (expectedSize != null && await partial.length() != expectedSize) {
-        throw StateError('$url: got ${await partial.length()} bytes, expected $expectedSize');
-      }
-      if (expectedSha256 != null) {
-        final digest = (await sha256.bind(partial.openRead()).first).toString();
-        if (digest != expectedSha256) {
-          throw StateError('$url: SHA256 mismatch, expected $expectedSha256, got $digest');
-        }
-      }
-      if (await destination.exists()) await destination.delete();
-      await partial.rename(destination.path);
-    } finally {
-      client.close(force: true);
-      if (await partial.exists()) await partial.delete();
-    }
-  }
 }
