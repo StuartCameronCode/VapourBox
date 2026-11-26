@@ -6454,3 +6454,43 @@ VapourSynth; the cause is in graphengine, not in VapourSynth or our build.
   at every commit, the good one included. That has not been examined (task #115).
 
 Report: [docs/reports/task-109-graphengine-tmp-overrun](reports/task-109-graphengine-tmp-overrun/index.html).
+
+### #98's stress test reached CTMF's 8-bit AVX-512 kernel (task #112, 2026-11-26)
+
+Nightly 44983943673 (the 1.18.0-rc3 Linux bundle, job linux-x64 heavy, an
+Intel Xeon 6975P-C with avx512f) failed `per-thread buffer maps (task #98)
+… survive many instances` with CTMF exiting -11 (SIGSEGV), in
+`ctmfHelper_avx512<unsigned char, 16>` on a `vmovdqa64` load. The test's
+message called it "an unlocked per-thread buffer map, task #98?". It wasn't:
+the same `libctmf.so` had passed on AVX-512 runners (nightly 44940674293),
+and #98's race aborts (`unordered_map::at`); it doesn't segfault.
+
+- **Cause.** The test called `core.ctmf.CTMF(src, radius=3)` and
+  `haf.MinBlur(src, 3)` on 8-bit input with `opt` on auto, which is the
+  broken kernel of the 2026-08-25 entry. Read from CTMF r5's
+  `CTMF_AVX512.cpp`: the histogram helpers step `Vec32us` (64 bytes) with
+  aligned loads and stores, and at 8 bits a histogram is 16 bins, 32 bytes.
+  An odd column or bin is only 32-byte aligned, so an aligned move faults
+  there, and every add or subtract reads and writes 32 bytes of the next
+  histogram (past the buffer at the last one). It faults only when an
+  unfolded aligned move lands on an odd offset, which depends on the
+  compiler, the data and the heap: hence intermittent. At ≥ 10 bits the
+  histograms are 64 bytes or more and the kernel is correct.
+- **Users: not exposed.** The Noise Reduction block passes `ctmf_opt()`.
+  havsfunc's `MinBlur(r=2)` and `FineDehalo` use radius 2. `MinBlur(r=3)`
+  (havsfunc) and `hybrid_mv.median_blur` pass no `opt`, but no template
+  reaches them at radius 3 on 8-bit input: HQDeringmod's `nrmode` is not
+  exposed, ContraSharpening runs at radius 1/2, SMDegrain prefilters with
+  `MinBlur(r=0)`, MCTemporalDenoise's pfMode stays ≤ 2, and TemporalDegrain2's
+  `extraSharp` is never passed (at 16 bits hybrid_mv's radius-3 median runs
+  CTMF at 12 bits). CLAUDE.md's CTMF rule lists these as the changes that
+  would expose it.
+- **Fix (test only).** `--probe-cpu` reports `ctmfOpt` (= `ctmf_opt()`),
+  read by `WorkerHarness.ctmfOpt()` (2 if no worker answers). The stress test
+  calls CTMF with it and the templates' `memsize`, and runs MinBlur on a
+  10-bit clip, which still starts CTMF's per-thread maps under contention.
+  `_stressFailure` names the race only for an abort (SIGABRT,
+  `unordered_map::at`, 0xC0000409), reports a SIGSEGV / 0xC0000005 as a
+  native fault, and anything else as a plain failure; #96's DCTFilter test
+  uses it too. No deps or script change; not measured further (the source
+  settles it).

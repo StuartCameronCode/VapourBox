@@ -908,7 +908,17 @@ left at the plugin's own auto-detect (`opt=0`).** Its AVX-512 kernel for 8-bit
 input crashes with an access violation on real hardware — auto-detect is
 exactly what selects that broken kernel. `script_generator::ctmf_opt` picks 3
 (AVX2) on a v3-tier CPU, else 2 (SSE2), never 0. This is independent of the
-tiers: a v3 machine can have AVX-512.
+tiers: a v3 machine can have AVX-512. The kernel (`ctmfHelper_avx512<uint8_t,
+16>`) steps 64-byte vectors over 32-byte histograms, so it faults on odd
+offsets and overruns every histogram even when it doesn't (task #112); at
+10 bits and up the histograms are 64 bytes and it is correct, and radius 2
+has its own kernel. **A test that calls CTMF at 8 bits passes the worker's
+value too** (`--probe-cpu`'s `ctmfOpt`, `WorkerHarness.ctmfOpt()`). Two
+routes pass no `opt` and are safe only while nothing reaches them at radius
+≠ 2 on 8-bit input: havsfunc's `MinBlur(r=3)` and `hybrid_mv.median_blur`.
+Today none does; exposing HQDeringmod's `nrmode=3`, TemporalDegrain2's
+`extraSharp` or a ContraSharpening radius of 3 would make one, and needs
+`opt` passed (or CTMF patched) first.
 
 See docs/ENGINEERING_NOTES.md for the specific plugin-by-plugin decisions,
 probe-round methodology, and dated write-ups behind all of the above.
@@ -3950,7 +3960,9 @@ QTGMC's denoiser falls back to DFTTest.
 - `vapoursynth_integration_test.dart`'s `per-thread buffer maps (task #98)`
   group checks the markers (from deps 1.18.0-rc3) and the patches and
   scripts (push gate), and runs graphs of 1000 instances of each plus
-  `MinBlur(r=3)` (heavy).
+  `MinBlur(r=3)` (heavy). CTMF there takes the worker's `opt` and `memsize`,
+  and MinBlur runs at 10 bits, so neither reaches CTMF's 8-bit AVX-512
+  kernel (task #112); a failure names the race only for an abort.
 - **Before adding a plugin, look for the pattern:** `nm -C <plugin> | grep
   'unordered_map<std::__1::__thread_id'` on a macOS build, or grep its source
   for `thread::id`. A locked map (BM3D r12's `GetThreadBuffer`) is fine
