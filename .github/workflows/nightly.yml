@@ -110,6 +110,41 @@ jobs:
             "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" "deps/$PLATFORM"
           xattr -cr "deps/$PLATFORM" 2>/dev/null || true
 
+      # Add-ons (task #117): every add-on file is fetched here, outside any
+      # test's timeout, into one mirror shared by every OS and kept in the
+      # Actions cache; the tests install from it with the app's own installer
+      # (VAPOURBOX_ADDON_MIRROR, which still checks each file's size and hash).
+      # A file the step could not get is downloaded by the test, as before.
+      - name: Restore add-on mirror
+        id: addon-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .addon-mirror
+          key: addon-mirror-v1-${{ hashFiles('app/assets/addons/*.json') }}
+          restore-keys: addon-mirror-v1-
+          enableCrossOsArchive: true
+
+      - name: Prefetch add-ons
+        id: addon-prefetch
+        continue-on-error: true
+        timeout-minutes: 60
+        shell: bash
+        run: |
+          python3 .github/scripts/prefetch-addons.py --out .addon-mirror
+          df -h .
+
+      - name: Save add-on mirror
+        # From main only, as the other caches (task #84); only a complete mirror.
+        if: >-
+          github.ref == 'refs/heads/main' &&
+          steps.addon-cache.outputs.cache-hit != 'true' &&
+          steps.addon-prefetch.outputs.complete == 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .addon-mirror
+          key: ${{ steps.addon-cache.outputs.cache-primary-key }}
+          enableCrossOsArchive: true
+
       - name: Cache whisper model
         uses: actions/cache@v5
         with:
@@ -153,6 +188,8 @@ jobs:
           # A failing output conformance case keeps its output, job and log
           # here, uploaded below (task #99).
           VAPOURBOX_CONFORMANCE_KEEP: ${{ github.workspace }}/conformance-failures
+          # Add-ons from the mirror the prefetch step filled (task #117).
+          VAPOURBOX_ADDON_MIRROR: ${{ github.workspace }}/.addon-mirror
         # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
         # `sweep` tests are also `heavy`; each leg takes its own.
         run: >-
@@ -165,6 +202,14 @@ jobs:
         # did, so a failure of either never hides the other's result.
         if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.build.outcome == 'success' }}
         run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
+
+      - name: Check add-on links (task #117)
+        # On a cache hit nothing was downloaded, so ask each pinned URL for its
+        # first byte instead: a dead link or a changed size fails the job, a
+        # network failure only warns. Once per OS (the heavy legs).
+        if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.addon-cache.outputs.cache-hit == 'true' }}
+        shell: bash
+        run: python3 .github/scripts/prefetch-addons.py --check-links
 
       - name: Failing conformance cases (task #99)
         # Each failing case of integration_output_conformance_test.dart: its
@@ -268,6 +313,41 @@ jobs:
           bash .github/scripts/install-deps-bundle.sh "${{ matrix.asset }}" \
             "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/windows-x64
 
+      # Add-ons (task #117): every add-on file is fetched here, outside any
+      # test's timeout, into one mirror shared by every OS and kept in the
+      # Actions cache; the tests install from it with the app's own installer
+      # (VAPOURBOX_ADDON_MIRROR, which still checks each file's size and hash).
+      # A file the step could not get is downloaded by the test, as before.
+      - name: Restore add-on mirror
+        id: addon-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .addon-mirror
+          key: addon-mirror-v1-${{ hashFiles('app/assets/addons/*.json') }}
+          restore-keys: addon-mirror-v1-
+          enableCrossOsArchive: true
+
+      - name: Prefetch add-ons
+        id: addon-prefetch
+        continue-on-error: true
+        timeout-minutes: 60
+        shell: bash
+        run: |
+          python .github/scripts/prefetch-addons.py --out .addon-mirror
+          df -h .
+
+      - name: Save add-on mirror
+        # From main only, as the other caches (task #84); only a complete mirror.
+        if: >-
+          github.ref == 'refs/heads/main' &&
+          steps.addon-cache.outputs.cache-hit != 'true' &&
+          steps.addon-prefetch.outputs.complete == 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .addon-mirror
+          key: ${{ steps.addon-cache.outputs.cache-primary-key }}
+          enableCrossOsArchive: true
+
       - name: Cache whisper model
         uses: actions/cache@v5
         with:
@@ -307,6 +387,8 @@ jobs:
           # A failing output conformance case keeps its output, job and log
           # here, uploaded below (task #99).
           VAPOURBOX_CONFORMANCE_KEEP: ${{ github.workspace }}/conformance-failures
+          # Add-ons from the mirror the prefetch step filled (task #117).
+          VAPOURBOX_ADDON_MIRROR: ${{ github.workspace }}/.addon-mirror
         # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
         # `sweep` tests are also `heavy`; each leg takes its own.
         run: >-
@@ -319,6 +401,14 @@ jobs:
         # did, so a failure of either never hides the other's result.
         if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.build.outcome == 'success' }}
         run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
+
+      - name: Check add-on links (task #117)
+        # On a cache hit nothing was downloaded, so ask each pinned URL for its
+        # first byte instead: a dead link or a changed size fails the job, a
+        # network failure only warns. Once per OS (the heavy legs).
+        if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.addon-cache.outputs.cache-hit == 'true' }}
+        shell: bash
+        run: python .github/scripts/prefetch-addons.py --check-links
 
       - name: Failing conformance cases (task #99)
         # Each failing case of integration_output_conformance_test.dart: its
@@ -403,6 +493,41 @@ jobs:
           bash .github/scripts/install-deps-bundle.sh "${{ matrix.asset }}" \
             "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/linux-x64
 
+      # Add-ons (task #117): every add-on file is fetched here, outside any
+      # test's timeout, into one mirror shared by every OS and kept in the
+      # Actions cache; the tests install from it with the app's own installer
+      # (VAPOURBOX_ADDON_MIRROR, which still checks each file's size and hash).
+      # A file the step could not get is downloaded by the test, as before.
+      - name: Restore add-on mirror
+        id: addon-cache
+        uses: actions/cache/restore@v5
+        with:
+          path: .addon-mirror
+          key: addon-mirror-v1-${{ hashFiles('app/assets/addons/*.json') }}
+          restore-keys: addon-mirror-v1-
+          enableCrossOsArchive: true
+
+      - name: Prefetch add-ons
+        id: addon-prefetch
+        continue-on-error: true
+        timeout-minutes: 60
+        shell: bash
+        run: |
+          python3 .github/scripts/prefetch-addons.py --out .addon-mirror
+          df -h .
+
+      - name: Save add-on mirror
+        # From main only, as the other caches (task #84); only a complete mirror.
+        if: >-
+          github.ref == 'refs/heads/main' &&
+          steps.addon-cache.outputs.cache-hit != 'true' &&
+          steps.addon-prefetch.outputs.complete == 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: .addon-mirror
+          key: ${{ steps.addon-cache.outputs.cache-primary-key }}
+          enableCrossOsArchive: true
+
       - name: Cache whisper model
         uses: actions/cache@v5
         with:
@@ -448,6 +573,8 @@ jobs:
           # A failing output conformance case keeps its output, job and log
           # here, uploaded below (task #99).
           VAPOURBOX_CONFORMANCE_KEEP: ${{ github.workspace }}/conformance-failures
+          # Add-ons from the mirror the prefetch step filled (task #117).
+          VAPOURBOX_ADDON_MIRROR: ${{ github.workspace }}/.addon-mirror
         # Not @Tags(['gpu']): the hosted runners have no GPU (dart_test.yaml).
         # `sweep` tests are also `heavy`; each leg takes its own.
         run: >-
@@ -460,6 +587,14 @@ jobs:
         # did, so a failure of either never hides the other's result.
         if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.build.outcome == 'success' }}
         run: cd worker && cargo test --test subtitle_integration_test -- --ignored --nocapture
+
+      - name: Check add-on links (task #117)
+        # On a cache hit nothing was downloaded, so ask each pinned URL for its
+        # first byte instead: a dead link or a changed size fails the job, a
+        # network failure only warns. Once per OS (the heavy legs).
+        if: ${{ !cancelled() && matrix.suite == 'heavy' && steps.addon-cache.outputs.cache-hit == 'true' }}
+        shell: bash
+        run: python3 .github/scripts/prefetch-addons.py --check-links
 
       - name: Failing conformance cases (task #99)
         # Each failing case of integration_output_conformance_test.dart: its

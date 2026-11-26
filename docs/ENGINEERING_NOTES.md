@@ -6494,3 +6494,57 @@ and #98's race aborts (`unordered_map::at`); it doesn't segfault.
   native fault, and anything else as a plain failure; #96's DCTFilter test
   uses it too. No deps or script change; not measured further (the source
   settles it).
+
+### The nightly's add-on downloads leave the tests' timeouts (task #117, 2026-11-26)
+
+**Symptom.** macOS x64 nightly legs failed on add-on downloads, not on the
+code under test. `integration_colorize_test.dart (setUpAll)` timed out after
+12 minutes in 4 of the 7 failing nightlies from 2026-11-21 to 11-25 (runs
+44998535692, 45035605064, 45459637742, 45667413686; v2 and v3 bundles), and
+`integration_face_restore_test.dart (setUpAll)` once (44998535692). The same
+run's sweep leg failed four add-on variants within 0.4 s on
+`SocketException: Failed host lookup: 'github.com'`; the same installs worked
+25 s later.
+
+**Why.**
+
+- package:test gives every `setUpAll` a fixed 12 minutes
+  (`Declarer._timeout` in test_api); the file's `@Timeout(40/60 min)` does
+  not reach it. colorize's setUpAll installs ai-runtime + DDColor + DeOldify
+  (~1.27 GB), face_restore's the three face add-ons (~1.35 GB),
+  `integration_zimg_colour_tags_test.dart`'s DDColor + the face base
+  (~0.85 GB).
+- GitHub release downloads on the macos-15-intel runners ran at 1.2-1.8 MB/s
+  (from the `[harness] installing add-on` timestamps: DDColor 221 MB in 3 min,
+  DeOldify 873 MB in 9 min); Actions cache restores on the same jobs ran at
+  30-55 MB/s (pub 70 MB, whisper 424 MB in ~10 s).
+- The harness's downloader made one request: no retry, no stall timeout.
+- Every heavy and sweep leg on every platform downloaded ~2.4 GB a night
+  (12 legs).
+
+**Fix.** Every nightly job runs `.github/scripts/prefetch-addons.py` before
+the tests: every file of every manifest (2.78 GB, all platforms, so one
+cache entry serves every OS) into `.addon-mirror`, resumed with `Range`,
+retried with backoff on transient errors only, checked against size and
+SHA-256, unnamed files pruned. The mirror is one Actions cache entry
+(`addon-mirror-v1-<hash of app/assets/addons/*.json>`,
+`enableCrossOsArchive`, saved from main only, right after the prefetch so its
+tarball is gone before the tests use the disk), and the test step sets
+`VAPOURBOX_ADDON_MIRROR`: the app's installer still copies, verifies,
+extracts and marks every add-on. On a cache hit, `--check-links` keeps the
+"a pinned link stopped working" signal (first byte of each URL; 4xx or a
+changed size fails the job, a network failure warns). The harness's
+`HarnessDownloader` retries a request on DNS failure, reset, stall (120 s)
+and 429/5xx, never on another status or a mismatch, and `ensureAddon`
+installs under a lock file so test files running side by side cannot write
+the same `.downloads/` file. No timeout was raised.
+
+**Cache budget.** The repository was at 10.45 GB of 10 GB; 7.5 GB of it was
+the Flutter SDK caches (`flutter-*`) that `ci-test.yml` / `nightly.yml`
+stopped writing in task #84 but the release builds still write. They were
+deleted (to 2.83 GB) before the mirror's 2.8 GB; task #121 stops the
+release builds writing them.
+
+**Not measured.** Disk headroom on macos-15-intel with the mirror and the
+installed add-ons both present (~7 GB at peak); the prefetch step prints
+`df -h` for it.

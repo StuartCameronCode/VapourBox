@@ -118,6 +118,8 @@ BundledDependencies/Scripts/*.py
 
 # Add-ons (whisper binary + models, downloaded at runtime)
 /addons/
+# The nightly's add-on mirror (.github/scripts/prefetch-addons.py, task #117)
+/.addon-mirror/
 
 # Claude Code
 .claude/
