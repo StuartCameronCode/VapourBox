@@ -1,0 +1,13 @@
+-- files that differ
+  ./python/bin/cython
+  ./python/bin/cython3 (removed)
+  ./vapoursynth/libzimg.so (removed)
+  ./vapoursynth/libzimg.so.2 (removed)
+  ./vapoursynth/libzimg.so.2.0.0 (removed)
+  ./vapoursynth/plugins/libfmtconv.so
+  ./version.json
+-- ELF files whose NEEDED/RUNPATH differ
+-- ELF files in the branch bundle that NEED libzimg
+  (end)
+-- vapoursynth/libvapoursynth.so.4: 0 bytes differ
+-- vapoursynth/libvapoursynth.so.4: exported symbols identical (28)

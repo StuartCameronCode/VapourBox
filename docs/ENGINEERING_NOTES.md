@@ -6351,7 +6351,8 @@ rc2 passed.
 - **Cause.** R78's `subprojects/zimg.wrap` says `revision = HEAD`, and the Linux
   build makes meson use it. `meson setup` never receives `PKG_CONFIG_PATH` (or
   `CC=clang-18`): the `\` continuation before it ends on a comment line, so the
-  variables go to a bare `env`. That has been true since 0c805a7b (task #111).
+  variables go to a bare `env`. That has been true since 0c805a7b (task #111,
+  which kept that build and wrote it down: see its own entry).
   meson then logs "zimg found: NO … Executing subproject zimg" and links the
   day's zimg master statically into `libvapoursynth.so.4`. rc2's build
   (11-19) got `67e06032`; rc3's got `e2e43d09` "Update graphengine"
@@ -6820,3 +6821,45 @@ template's `sigma=[X]` ran on Windows (the r4 release DLL) as
 - **Output change:** Windows Shadow Detail moves ~10 levels at the default.
   No built-in preset turns it on.
 
+### A `\` continuation that ended on a comment, in both deps scripts (task #111, 2026-11-27)
+
+The environment written above VapourSynth's `meson setup` never reached it,
+on either platform, because the continuation ran onto a comment line and
+bash ended the command there.
+
+- **Linux (since 0c805a7b).** The command was a bare `env` (it printed
+  `PKG_CONFIG_PATH=…` into every build log), and meson ran with none of
+  PATH, PKG_CONFIG_PATH, LD_LIBRARY_PATH, CC, CXX. So it used the system
+  gcc 13.3 (not clang-18), apt's cython3 3.0.8 (not the wrappers the script
+  wrote), and found no zimg.pc, so it built R78's zimg wrap statically
+  (pinned by task #103). The standalone `libzimg.so` the script built and
+  shipped was loaded by nothing, and the Cython wrappers shipped in
+  `python/bin` with the build machine's path.
+- **macOS (since 3094c648, 2026-08-07).** The Cython-wrapper paragraph was
+  inserted between the "prefixes" and the command, so `PATH=…` and
+  `PKG_CONFIG_PATH=…` became assignments for the rest of the script. That is
+  load-bearing: every later plugin build runs the embedded python3.12 and
+  pip's meson (1.12.1, where Homebrew had 1.12.0), and every later
+  `PKG_CONFIG_PATH="…:${PKG_CONFIG_PATH:-}"` includes `$BUILD_DIR/pkgconfig`.
+  Joining the command would have changed those builds.
+- **Decision: keep both builds and say so** (option B). Making the Linux
+  variables apply would change the compiler, make zimg dynamic and leave
+  #103's pin dead, and take pip's unpinned Cython, an A/B across every resize
+  for nothing a user sees. Linux's setup is now one command with no
+  environment, after checks for gcc ≥ 13 and Cython 3; the clang selection,
+  wrappers, `.pc` files and standalone zimg are gone. macOS writes the two
+  assignments deliberately, unchanged in effect, still inside the
+  VapourSynth `if`.
+- **A/B, main and branch built together** (build-deps-linux 45908839004 /
+  45908835591, macos 45908845706 / 45908842510): `libvapoursynth.so.4`
+  byte-identical on x64 and arm64; only `libzimg.so*` and
+  `python/bin/cython3` gone and `python/bin/cython` back to pip's console
+  script; `libfmtconv.so`/`libvsncnn.so` differ only in their embedded
+  `/tmp/vapourbox-build-<pid>`; no NEEDED/RUNPATH change, nothing NEEDs
+  libzimg. Every meson line of every macOS build is identical.
+- **Guard.** `shell_line_continuation_test.dart` (push gate) scans every
+  script and workflow; on the old scripts it reports exactly these two
+  lines. `zimg_pin_test.dart` fails on a standalone zimg, an offered
+  `zimg.pc`, or PKG_CONFIG_PATH/CC/CXX on the setup.
+
+Report: [task-111-meson-setup-env](reports/task-111-meson-setup-env/index.html).

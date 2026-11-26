@@ -1,0 +1,55 @@
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C compiler for the host machine: cc (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 Cython compiler for the host machine: cython (cython 3.3.2)
+   1 Program python3 found: YES (/Users/runner/work/VapourBox/VapourBox/deps/macos-arm64/python/bin/python3.12)
+   1 Run-time dependency python found: YES 3.12
+   1 Run-time dependency zimg found: YES 3.0.6
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 Program python3 found: YES (/Users/runner/work/VapourBox/VapourBox/deps/macos-arm64/python/bin/python3.12)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 Program python3 found: YES (/Users/runner/work/VapourBox/VapourBox/deps/macos-arm64/python/bin/python3.12)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 Program python3 found: YES (/Users/runner/work/VapourBox/VapourBox/deps/macos-arm64/python/bin/python3.12)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 Program python3 found: YES (/Users/runner/work/VapourBox/VapourBox/deps/macos-arm64/python/bin/python3.12)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 Program python3 found: YES (/Users/runner/work/VapourBox/VapourBox/deps/macos-arm64/python/bin/python3.12)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 Program python3 found: YES (/Users/runner/work/VapourBox/VapourBox/deps/macos-arm64/python/bin/python3.12)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 Program python3 found: YES (/Users/runner/work/VapourBox/VapourBox/deps/macos-arm64/python/bin/python3.12)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (clang 17.0.0 "Apple clang version 17.0.0 (clang-1700.0.13.5)")
+   1 Version: 1.18.0-rc5
