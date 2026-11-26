@@ -108,10 +108,10 @@ void main() {
     // runJob always did; runPreview (the format sweep's every row) killed a
     // hung preview with nothing to show for it.
     final s = _read(p.join('support', 'worker_harness.dart'));
-    expect('describeHang(process.pid)'.allMatches(s).length, greaterThanOrEqualTo(2));
+    expect('describeHang(process.pid'.allMatches(s).length, greaterThanOrEqualTo(2));
     final preview = s.substring(s.indexOf('static Future<PreviewResult> runPreview('));
     final onTimeout = preview.substring(0, preview.indexOf('ProcessTree.killTree'));
-    expect(onTimeout, contains('describeHang(process.pid)'),
+    expect(onTimeout, contains('describeHang(process.pid'),
         reason: 'runPreview takes the stacks before it kills the tree');
   });
 

@@ -6482,10 +6482,13 @@ Report: [docs/reports/task-109-graphengine-tmp-overrun](reports/task-109-graphen
   snapshots then stayed within R + 1 of their frame. 0 failures in 360 loaded
   runs; a deterministic repro (`late_output.vpy`, also a push-gate test) fails
   10/10 on the old reader. Overhead within noise at 350 fps.
-- **Open.** The same night's format sweep row `stabilize/pitchMode=auto`
-  720x480 yuv444p16le hung past 360 s (2–4 s on every other night and
-  platform) and left no stacks. Not reproduced in 300 loaded runs on an M1.
-  `runPreview` now samples a hang (`describeHang`, with cdb stacks on
-  Windows), and `repro-windows-stabilize.yml` loops both cases on Windows.
+- **The other failure is not this.** The same night's sweep row
+  `stabilize/pitchMode=auto` 720x480 yuv444p16le hung past 360 s (2–4 s
+  elsewhere). `repro-windows-stabilize.yml` reproduced it: 3 of 80 previews on
+  windows-x64, with the old reader and the new alike, none on v2 runners.
+  cdb's stacks: vspipe's main has returned and its last thread sits in
+  `ExitProcess` → `NtTerminateProcess`, so its stdout pipe never closes and
+  ffmpeg's demuxer and the worker wait forever. Task #122. The pipe_source
+  error did not recur in 80 old-reader Windows encodes; it is rare there.
 
 Report: [docs/reports/task-120-pipe-source-late-output](reports/task-120-pipe-source-late-output/index.html).

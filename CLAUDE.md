@@ -1996,8 +1996,10 @@ Invariants that are easy to break:
   must stay the template's **last node** (test_270): a node after it is
   requested first. A preview that times out in the harness is sampled
   (`describeHang`, cdb stacks on Windows); `repro-windows-stabilize.yml`
-  loops Stab and the pitch-auto sweep row, whose 360 s hang on the same
-  night is unexplained (docs/reports/task-120-pipe-source-late-output).
+  loops Stab and the pitch-auto sweep row. That row's 360 s hang is a
+  separate fault: vspipe stuck in its own `ExitProcess` on Windows, holding
+  the pipe ffmpeg waits on (task #122;
+  docs/reports/task-120-pipe-source-late-output).
 
 Tests: `test_211`…`test_218` (script generation, legacy block, offsets, errors,
 cache size, field marking) and `app/test/integration_stabilize_test.dart`

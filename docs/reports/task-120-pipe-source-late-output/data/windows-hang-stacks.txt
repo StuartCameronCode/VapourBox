@@ -1,0 +1,400 @@
+  TimeoutException: pitch auto run 9 timed out after 180s
+  process tree at the timeout:
+    8344  D:\a\VapourBox\VapourBox\worker\target\debug\vapourbox-worker.exe --config <temp>\AppData\Local\Temp\vb_pv_79c97dbb-0c5e-43f2-8a9b-4d5ac0aa20f2_1732_1795688731875059_8.json --preview --frame 15 --sub-frame 0
+    4108  \??\C:\Windows\system32\conhost.exe 0x4
+    7032  "D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe" -c y4m <temp>\AppData\Local\Temp\vapourbox_preview_79c97dbb-0c5e-43f2-8a9b-4d5ac0aa20f2_9d1fdd3150574dce8371098cff89e14c\79c97dbb-0c5e-43f2-8a9b-4d5ac0aa20f2_preview.vpy -
+    5096  "D:\a\VapourBox\VapourBox\deps\windows-x64\ffmpeg\ffmpeg.exe" -f yuv4mpegpipe -i pipe:0 -vframes 1 -vf scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int -f image2pipe -vcodec png pipe:1
+  --- 8344 vapourbox-worker.exe ---
+     AllowParallelInitializationOfLocalRepositories : true
+     EnableRedirectToV8JsProvider : false
+  Microsoft (R) Windows Debugger Version 10.0.26100.9457 AMD64
+  Copyright (c) Microsoft Corporation. All rights reserved.
+  *** wait with pending attach
+  Response                         Time (ms)     Location
+  Deferred                                       srv*
+  Symbol search path is: srv*
+  Executable search path is: 
+  WARNING: Process 8344 is not attached as a debuggee
+           The process can be examined but debug events will not be received
+  ........
+  (2098.2188): Wake debugger - code 80000007 (first chance)
+  +------------------------------------------------------------------------+
+  | This target supports Hardware-enforced Stack Protection. A HW based    |
+  | "Shadow Stack" may be available to assist in debugging and analysis.   |
+  | See aka.ms/userhsp for more info.                                      |
+  |                                                                        |
+  | dps @ssp                                                               |
+  |                                                                        |
+  +------------------------------------------------------------------------+
+  ntdll!NtWaitForSingleObject+0x14:
+  00007fff`753822d4 c3              ret
+  0:000> cdb: Reading initial command '~*kb 40; qd'
+  .  0  Id: 2098.2188 Suspend: 1 Teb: 00000009`0e84d000 Unfrozen "main"
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`7280d01f     : 00000000`00000120 000001c6`1ccded80 000001c6`1cccaf80 00000000`00000120 : ntdll!NtWaitForSingleObject+0x14
+  *** WARNING: Unable to verify checksum for D:\a\VapourBox\VapourBox\worker\target\debug\vapourbox-worker.exe
+  00007ff7`bc420250     : 00000000`00000087 00000009`0e71a6d8 00007ff7`00000000 00000000`000000ec : KERNELBASE!WaitForSingleObjectEx+0xaf
+  00007ff7`bc41d786     : 00000000`00000000 ffffffff`ffffffff 00000000`00000134 00000000`000000d8 : vapourbox_worker+0x570250
+  00007ff7`bc18c12a     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x56d786
+  00007ff7`bc252479     : 00007ff7`bc4578e8 00000000`00000003 4bf2e9da`707ee6e0 a77070c6`16567310 : vapourbox_worker+0x2dc12a
+  00007ff7`bc256eaf     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x3a2479
+  00007ff7`bbf8d34b     : 00000000`00000003 00007fff`72894aec 00000000`00000000 00007ff7`bc4bf040 : vapourbox_worker+0x3a6eaf
+  00007ff7`bc1fdf8e     : 00000000`00150014 00007fff`752d1211 00000000`00000000 ffffffff`fffffffe : vapourbox_worker+0xdd34b
+  00007ff7`bbfa0321     : 00000000`00000000 00007fff`728c8370 00000000`00006000 00000009`0e716000 : vapourbox_worker+0x34df8e
+  00007ff7`bc4251f7     : 000001c6`1cccd360 00007ff7`bc456d38 00000009`0e71fb00 00000000`00000000 : vapourbox_worker+0xf0321
+  00007ff7`bbf9042a     : 00000000`00000000 00000000`00000000 00000000`00000000 00007fff`724d3230 : vapourbox_worker+0x5751f7
+  00007ff7`bc26f549     : 00000000`00000007 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0xe042a
+  00007ff7`bc44ce4f     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x3bf549
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x59ce4f
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+     1  Id: 2098.1a48 Suspend: 1 Teb: 00000009`0e85f000 Unfrozen
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`752f0fb4     : 00000000`00000000 00000009`0eefead0 00002ba0`2fad1efd 00000000`00001000 : ntdll!NtDelayExecution+0x14
+  00007fff`72818d61     : 00000000`00000001 00000000`00000000 00000009`0eefeb10 00007fff`73e57080 : ntdll!RtlDelayExecution+0x34
+  00007ff7`bc41450c     : 00000009`0eefeb50 00000009`00000001 80000000`00000000 00000000`00000440 : KERNELBASE!SleepEx+0x91
+  00007ff7`bc410bb7     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x56450c
+  00007ff7`bc413685     : 00000000`00000000 000001c6`1ccdf800 00000000`00000005 ffffffff`fffffffe : vapourbox_worker+0x560bb7
+  00007ff7`bc42f357     : 000001c6`1ccdf7d0 000001c6`1cccb6c0 00007ff7`bc4bcfd8 00000000`00000000 : vapourbox_worker+0x563685
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x57f357
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+     2  Id: 2098.6e0 Suspend: 1 Teb: 00000009`0e861000 Unfrozen
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`752f0fb4     : 00000000`00000000 00000009`0f0ff250 00002ba0`2e4d077d 00000000`00002000 : ntdll!NtDelayExecution+0x14
+  00007fff`72818d61     : 00000000`00000001 00000000`00000000 00000009`0f0ff290 00000009`0f0ff350 : ntdll!RtlDelayExecution+0x34
+  00007ff7`bc41471c     : 000001c6`1ccded80 000001c6`00000001 80000000`00000000 00007ff7`bc48aa40 : KERNELBASE!SleepEx+0x91
+  00007ff7`bc15d1bb     : 00000000`00000001 00000000`0000002b 00007ff7`bc4ab358 00000009`0f0ff688 : vapourbox_worker+0x56471c
+  00007ff7`bc231aa3     : 29000000`00000180 00000000`0000002a 00007ff7`bc4ab358 000001c6`1cccb929 : vapourbox_worker+0x2ad1bb
+  00007ff7`bc0a9bed     : 00000009`0f0ff688 00000000`00000001 00007ff7`bc4ab358 000001c6`1cccb929 : vapourbox_worker+0x381aa3
+  00007ff7`bc130131     : 00000000`00000001 00000000`00000001 000001c6`1cccb900 000001c6`1ccd8450 : vapourbox_worker+0x1f9bed
+  00007ff7`bc0ad757     : 00000000`0000002a 00000000`0000002a 00000000`00000000 00000000`0000002a : vapourbox_worker+0x280131
+  00007ff7`bc1851f5     : 00000009`0f0ff7e0 00007ff7`bc0ac2df 00000009`0f0ff850 00000000`00000008 : vapourbox_worker+0x1fd757
+  00007ff7`bbfd7f56     : 00000009`0f0ff7e0 00007ff7`bc35f3ae 00007ff7`bc4774ce 000001c6`1cccb900 : vapourbox_worker+0x2d51f5
+  00007ff7`bc185b0c     : 000001c6`1ccce730 00000000`00000000 00000009`0e84c000 00007fff`753ef950 : vapourbox_worker+0x127f56
+  00007ff7`bc1fea46     : 00000000`00000008 00000000`00000000 00000000`00000000 00007ff7`bc1fe9f9 : vapourbox_worker+0x2d5b0c
+  00007ff7`bc2a9ce3     : 00000200`002b0000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x34ea46
+  00007ff7`bc2b1fad     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x3f9ce3
+  00007ff7`bbf77eb6     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x401fad
+  00007ff7`bc2b2223     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0xc7eb6
+  00007ff7`bc2a2dbd     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x402223
+  00007ff7`bbf8539e     : 00000000`00001000 00000000`00000104 00000000`00006000 00000009`0f0f9000 : vapourbox_worker+0x3f2dbd
+  00007ff7`bc42f357     : 000001c6`1ccded80 000001c6`1cccafc0 00007ff7`bc48aa40 00000000`00000000 : vapourbox_worker+0xd539e
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x57f357
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+  quit:
+  --- 4108 conhost.exe ---
+     AllowParallelInitializationOfLocalRepositories : true
+     EnableRedirectToV8JsProvider : false
+  Microsoft (R) Windows Debugger Version 10.0.26100.9457 AMD64
+  Copyright (c) Microsoft Corporation. All rights reserved.
+  *** wait with pending attach
+  Response                         Time (ms)     Location
+  Deferred                                       srv*
+  Symbol search path is: srv*
+  Executable search path is: 
+  WARNING: Process 4108 is not attached as a debuggee
+           The process can be examined but debug events will not be received
+  .................
+  (100c.1278): Wake debugger - code 80000007 (first chance)
+  +------------------------------------------------------------------------+
+  | This target supports Hardware-enforced Stack Protection. A HW based    |
+  | "Shadow Stack" may be available to assist in debugging and analysis.   |
+  | See aka.ms/userhsp for more info.                                      |
+  |                                                                        |
+  | dps @ssp                                                               |
+  |                                                                        |
+  +------------------------------------------------------------------------+
+  ntdll!NtWaitForSingleObject+0x14:
+  00007fff`753822d4 c3              ret
+  0:000> cdb: Reading initial command '~*kb 40; qd'
+  .  0  Id: 100c.1278 Suspend: 1 Teb: 00000036`d8f17000 Unfrozen "Console Driver Message IO Thread"
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`728149c5     : 00000000`00000000 00000000`00000000 00000000`00000001 000004e4`00000000 : ntdll!NtWaitForSingleObject+0x14
+  00007fff`73e22715     : 00000000`00500006 00007ff6`32a6d72c 00000000`00000000 00000000`0000fde9 : KERNELBASE!DeviceIoControl+0x1e5
+  00007ff6`32a79ba6     : 00000205`ad7681e0 00000000`00000000 00000036`d927f670 00000000`00000000 : KERNEL32!DeviceIoControlImplementation+0x75
+  00007ff6`32a72ddf     : 00000000`00000000 00000036`d927f5c0 00007ff6`000000a8 00000000`00000050 : conhost!ConDrvDeviceComm::ReadIo+0x56
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : conhost!ConsoleIoThread+0xff
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 00000000`00000001 00000036`d92ff000 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+     1  Id: 100c.20ac Suspend: 1 Teb: 00000036`d8f19000 Unfrozen "Rendering Output Thread"
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`7280d01f     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!NtWaitForSingleObject+0x14
+  00007ff6`32a62dbd     : 00000205`ad778198 000004d0`fffffb30 00000050`00000000 00000000`00000118 : KERNELBASE!WaitForSingleObjectEx+0xaf
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : conhost!Microsoft::Console::Render::RenderThread::_ThreadProc+0x9d
+  00007fff`7525f2bc     : 00000000`00000001 00000036`d8def000 00000000`00000000 00000000`00000000 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+  quit:
+  --- 7032 vspipe.exe ---
+     AllowParallelInitializationOfLocalRepositories : true
+     EnableRedirectToV8JsProvider : false
+  Microsoft (R) Windows Debugger Version 10.0.26100.9457 AMD64
+  Copyright (c) Microsoft Corporation. All rights reserved.
+  *** wait with pending attach
+  Response                         Time (ms)     Location
+  Deferred                                       srv*
+  Symbol search path is: srv*
+  Executable search path is: 
+  WARNING: Process 7032 is not attached as a debuggee
+           The process can be examined but debug events will not be received
+  ................................................................
+  ..........................
+  Loading unloaded module list
+  ........
+  (1b78.16ac): Wake debugger - code 80000007 (first chance)
+  +------------------------------------------------------------------------+
+  | This target supports Hardware-enforced Stack Protection. A HW based    |
+  | "Shadow Stack" may be available to assist in debugging and analysis.   |
+  | See aka.ms/userhsp for more info.                                      |
+  |                                                                        |
+  | dps @ssp                                                               |
+  |                                                                        |
+  +------------------------------------------------------------------------+
+  ntdll!NtTerminateProcess+0x14:
+  00007fff`753827d4 c3              ret
+  0:000> cdb: Reading initial command '~*kb 40; qd'
+  .  0  Id: 1b78.16ac Suspend: 2 Teb: 00000059`31268000 Unfrozen
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`7525f3a7     : 00000000`00000000 00000059`323ff9a0 00000222`54131b70 00000222`54131b70 : ntdll!NtTerminateProcess+0x14
+  00007fff`73e419db     : 00000000`00000000 00000222`54131b70 ffffffff`fffffffe 00000000`00000000 : ntdll!RtlExitUserProcess+0x47
+  00007fff`725000b3     : 00000000`00000000 00000000`00000000 00000222`5412c298 00000059`323ff970 : KERNEL32!ExitProcessImplementation+0xb
+  *** WARNING: Unable to verify checksum for D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe
+  00007ff7`7bbb1b74     : 00000000`00000004 00007ff7`00000000 00007fff`00000000 00007ff7`7bbb1c01 : ucrtbase!common_exit+0xc7
+  00007ff7`7bbb1b9c     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b74
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b9c
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+  quit:
+  --- 5096 ffmpeg.exe ---
+     AllowParallelInitializationOfLocalRepositories : true
+     EnableRedirectToV8JsProvider : false
+  Microsoft (R) Windows Debugger Version 10.0.26100.9457 AMD64
+  Copyright (c) Microsoft Corporation. All rights reserved.
+  *** wait with pending attach
+  Response                         Time (ms)     Location
+  Deferred                                       srv*
+  Symbol search path is: srv*
+  Executable search path is: 
+  WARNING: Process 5096 is not attached as a debuggee
+           The process can be examined but debug events will not be received
+  ...............................................
+  (13e8.1030): Wake debugger - code 80000007 (first chance)
+  +------------------------------------------------------------------------+
+  | This target supports Hardware-enforced Stack Protection. A HW based    |
+  | "Shadow Stack" may be available to assist in debugging and analysis.   |
+  | See aka.ms/userhsp for more info.                                      |
+  |                                                                        |
+  | dps @ssp                                                               |
+  |                                                                        |
+  +------------------------------------------------------------------------+
+  ntdll!NtWaitForMultipleObjects+0x14:
+  00007fff`75382da4 c3              ret
+  0:000> cdb: Reading initial command '~*kb 40; qd'
+  .  0  Id: 13e8.1030 Suspend: 1 Teb: 000000c2`977b3000 Unfrozen
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`728138f3     : 00440074`00650047 00610048`006c006c 0065006c`0064006e 0052002d`00780045 : ntdll!NtWaitForMultipleObjects+0x14
+  00007fff`728137c1     : 000000c2`979ff2d0 00000000`00000000 000000c2`979ff360 000000c2`979ff350 : KERNELBASE!WaitForMultipleObjectsEx+0x123
+  00007ff6`b12be8d0     : 000000c2`979ff310 000000c2`979ff320 01dd7d90`e5ae8207 c65be657`13249051 : KERNELBASE!WaitForMultipleObjects+0x11
+  00007ff6`b12c067e     : 00000000`00000000 000000c2`979ff400 00007fff`7539b58c 000000c2`00000000 : ffmpeg+0x1d9e8d0
+  00007ff6`b12ba060     : 000002a8`9a4958b0 00007ff6`b12bc4c9 000002a8`9a4958c8 00007ff6`b12bc4c9 : ffmpeg+0x1da067e
+  00007ff6`b12ba125     : 000002a8`9a416e00 00007ff6`b12b9d95 000002a8`9a4abb40 000002a8`9a495890 : ffmpeg+0x1d9a060
+  00007ff6`b12bab79     : 00007ff6`00000004 00000000`00000000 000002a8`9a416e00 000002a8`9a491570 : ffmpeg+0x1d9a125
+  00007ff6`af549f00     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ffmpeg+0x1d9ab79
+  00007ff6`b75590eb     : 000000c2`0000003d 00000000`00000000 000000c2`979ff6f0 000002a8`9a491850 : ffmpeg+0x29f00
+  00007ff6`af5211a4     : 00007ff6`00000002 00000000`00000002 00007fff`72598e20 00007ff6`b1bb7430 : ffmpeg!cairo_dwrite_font_face_set_measuring_mode+0x3d9321b
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ffmpeg+0x11a4
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+     1  Id: 13e8.1544 Suspend: 1 Teb: 000000c2`977bd000 Unfrozen "vf#0:0"
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`728138f3     : 000002a8`9a4353f0 00007fff`7523e604 ffffffff`00000002 00000000`00000000 : ntdll!NtWaitForMultipleObjects+0x14
+  00007fff`728137c1     : 000002a8`9a495530 00007ff6`b12bc4c9 000000c2`983ff1b0 00007ff6`b9d29dd0 : KERNELBASE!WaitForMultipleObjectsEx+0x123
+  00007ff6`b12be8d0     : 000002a8`9a416e00 00000000`00000000 00000000`00000000 00000000`00000001 : KERNELBASE!WaitForMultipleObjects+0x11
+  00007ff6`b12c081a     : 00000000`00000000 000002a8`00000000 00000000`00000018 00007ff6`b0d4df4a : ffmpeg+0x1d9e8d0
+  00007ff6`b12ba060     : 000002a8`9a4aaaa0 00007ff6`b12bc4c9 000002a8`9a4aaab8 00007ff6`b12bc4c9 : ffmpeg+0x1da081a
+  00007ff6`b12ba125     : 00000000`00000000 00007ff6`b12b9d95 00000000`00000000 000002a8`9a4aaa80 : ffmpeg+0x1d9a060
+  00007ff6`b12ba910     : 000002a8`9a4180b0 000000c2`983ff520 00000000`00000001 00007ff6`af5986d7 : ffmpeg+0x1d9a125
+  00007ff6`af54fba1     : 00000000`00000000 000002a8`9a4ab280 000002a8`9a4ab1c0 000003e9`00007530 : ffmpeg+0x1d9a910
+  00007ff6`af54add8     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ffmpeg+0x2fba1
+  00007ff6`af5335a9     : 00000000`00000a30 00000000`00000000 00000000`00000000 00000000`00000076 : ffmpeg+0x2add8
+  00007ff6`af54786a     : 00000001`00000000 00000000`00000000 00000000`00000003 00000000`0000037f : ffmpeg+0x135a9
+  00007ff6`b12bf08a     : 00000000`00000000 00007fff`7246386d 00000000`00080001 00000000`00000001 : ffmpeg+0x2786a
+  00007fff`724637b0     : 000002a8`9a4b85e0 00000000`00000000 00000000`00000000 00000000`00000000 : ffmpeg+0x1d9f08a
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ucrtbase!thread_start<unsigned int (__cdecl*)(void *),1>+0x30
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+     2  Id: 13e8.1354 Suspend: 1 Teb: 000000c2`977bf000 Unfrozen "dec0:0:rawvideo"
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`728138f3     : 000002a8`9a400000 00000000`00000000 00000000`00000000 000002a8`9a400000 : ntdll!NtWaitForMultipleObjects+0x14
+  00007fff`728137c1     : 000002a8`9a435e30 00007fff`7523e604 000000c2`985ff5c0 00007ff6`b9d29dd0 : KERNELBASE!WaitForMultipleObjectsEx+0x123
+  00007ff6`b12be8d0     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000001 : KERNELBASE!WaitForMultipleObjects+0x11
+  00007ff6`b12c081a     : 00000000`00000002 00000000`00000000 00000000`0000005f 00007fff`7523e744 : ffmpeg+0x1d9e8d0
+  00007ff6`b12ba060     : 000002a8`9a4aa9e0 00007ff6`b12bc4c9 000002a8`9a4aa9f8 00007ff6`b12bc4c9 : ffmpeg+0x1da081a
+  00007ff6`b12ba125     : 00000000`00000000 00007ff6`b12b9d95 000002a8`9a4ad5c0 000002a8`9a4aa9c0 : ffmpeg+0x1d9a060
+  00007ff6`b12ba910     : 000002a8`9a4aa9d8 000002a8`9a491970 00000000`00000000 c65be657`13249051 : ffmpeg+0x1d9a125
+  00007ff6`af54fba1     : 00000000`00000000 00000000`00000000 000002a8`9a4ad5c0 00000000`00000000 : ffmpeg+0x1d9a910
+  00007ff6`af54a77a     : 000002a8`9a4a9400 000002a8`9a4ada00 000002a8`9a4bec40 00000000`00000000 : ffmpeg+0x2fba1
+  00007ff6`af522a2b     : 00000000`00000000 00007ff6`b7f00020 000002a8`9a4aab80 00000000`000000a0 : ffmpeg+0x2a77a
+  00007ff6`af54786a     : 00000001`00000000 00000000`00000000 00000000`00000003 00000000`0000037f : ffmpeg+0x2a2b
+  00007ff6`b12bf08a     : 00000000`00000000 00007fff`7246386d 00000000`00080001 00000000`00000001 : ffmpeg+0x2786a
+  00007fff`724637b0     : 000002a8`9a4b9aa0 00000000`00000000 00000000`00000000 00000000`00000000 : ffmpeg+0x1d9f08a
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ucrtbase!thread_start<unsigned int (__cdecl*)(void *),1>+0x30
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+     3  Id: 13e8.410 Suspend: 1 Teb: 000000c2`977c1000 Unfrozen "dmx0:yuv4mpegpi"
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`72813c9d     : 00000000`0000000a 00000000`00000000 000002a8`9a4a9580 00000000`000000af : ntdll!NtReadFile+0x14
+  00007fff`72498c5c     : 00000000`00000000 00000000`00000003 00000000`00000000 000000c2`987ff650 : KERNELBASE!ReadFile+0x8d
+  00007fff`72472c83     : 00000000`00000000 00000000`00000003 000002a8`9a501500 000002a8`9a500200 : ucrtbase!_read_nolock+0x12c
+  00007ff6`afc13b8c     : 00000000`00000003 000002a8`9a492300 00000000`00000005 00000000`00000000 : ucrtbase!_read+0xb3
+  00007ff6`afa562fd     : 00007fff`725988b0 00007fff`72470139 00000000`00000007 00000000`000000af : ffmpeg+0x6f3b8c
+  00007ff6`afa5e0e8     : 00000000`00000068 00007ff6`b0d4dcb2 000002a8`9a400000 00000000`0000008f : ffmpeg+0x5362fd
+  00007ff6`afbf6429     : 000002a8`9a417a80 00007fff`7523e604 00000000`00000048 00007ff6`b0d4dcb2 : ffmpeg+0x53e0e8
+  00007ff6`afa80927     : 00000000`00000000 00007ff6`b12b9d95 00000000`00000000 000002a8`9a418490 : ffmpeg+0x6d6429
+  00007ff6`afa80ab9     : 00003912`1b5ca5f7 000002a8`9a4a9580 000002a8`9a4a9580 00007ff6`b00cf469 : ffmpeg+0x560927
+  00007ff6`afa817bd     : 000002a8`9a4a9580 00007ff6`af560d17 000002a8`9a48e470 00000000`00000010 : ffmpeg+0x560ab9
+  00007ff6`af526fba     : 00000000`00000000 00000000`00000000 00000000`00000020 00000000`00000000 : ffmpeg+0x5617bd
+  00007ff6`af54786a     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`0000037f : ffmpeg+0x6fba
+  00007ff6`b12bf08a     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ffmpeg+0x2786a
+  00007fff`724637b0     : 000002a8`9a4bb130 00000000`00000000 00000000`00000000 00000000`00000000 : ffmpeg+0x1d9f08a
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ucrtbase!thread_start<unsigned int (__cdecl*)(void *),1>+0x30
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+     4  Id: 13e8.15c0 Suspend: 1 Teb: 000000c2`977c3000 Unfrozen
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`728138f3     : 00000000`00000070 ffffffff`ffffffff ffffffff`ffffffff 00007fff`7522c1d0 : ntdll!NtWaitForMultipleObjects+0x14
+  00007fff`728137c1     : 00000000`00000000 000002a8`9a500cc0 000000c2`989ff940 00007ff6`b9d29dd0 : KERNELBASE!WaitForMultipleObjectsEx+0x123
+  00007ff6`b12be8d0     : 00000000`00000002 00000000`00000004 00000000`00000018 00000000`00000001 : KERNELBASE!WaitForMultipleObjects+0x11
+  00007ff6`b12c081a     : 00000000`00000018 00000000`00000000 00000000`00000000 00000000`00000000 : ffmpeg+0x1d9e8d0
+  00007ff6`b12ba060     : 000002a8`9a495b50 00007ff6`b12bc4c9 000002a8`9a495b68 00007ff6`b12bc4c9 : ffmpeg+0x1da081a
+  00007ff6`b12ba125     : 000002a8`9a495b60 00007ff6`b12b9d95 00000000`00000000 000002a8`9a495b30 : ffmpeg+0x1d9a060
+  00007ff6`b12ba910     : 000002a8`9a495b58 00007ff6`b12bc4c9 00000000`00000000 00000000`00000000 : ffmpeg+0x1d9a125
+  00007ff6`b0d6f5af     : 000002a8`9a4b9450 c65be657`13249051 000002a8`9a4c2ea8 00007ff6`b12bc4c9 : ffmpeg+0x1d9a910
+  00007ff6`b12bf08a     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ffmpeg+0x184f5af
+  …
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\repro_stabilize_test.dart 87:9                 main.<fn>
+06:43 +48 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 10 of 40)
+pitch auto run 10: 3256 ms
+06:46 +49 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 11 of 40)
+pitch auto run 11: 3198 ms
+06:50 +50 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 12 of 40)
+pitch auto run 12: 3349 ms
+06:53 +51 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 13 of 40)
+pitch auto run 13: 3393 ms
+06:56 +52 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 14 of 40)
+pitch auto run 14: 3185 ms
+07:00 +53 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 15 of 40)
+pitch auto run 15: 3150 ms
+07:03 +54 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 16 of 40)
+pitch auto run 16: 3147 ms
+07:06 +55 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 17 of 40)
+pitch auto run 17: 3144 ms
+07:09 +56 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 18 of 40)
+pitch auto run 18: 3406 ms
+07:12 +57 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 19 of 40)
+pitch auto run 19: 3227 ms
+07:16 +58 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 20 of 40)
+pitch auto run 20: 3123 ms
+07:19 +59 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 21 of 40)
+pitch auto run 21: 3159 ms
+07:22 +60 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 22 of 40)
+pitch auto run 22: 3191 ms
+07:25 +61 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 23 of 40)
+pitch auto run 23: 3158 ms
+07:28 +62 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 24 of 40)
+pitch auto run 24: 3225 ms
+07:32 +63 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 25 of 40)
+pitch auto run 25: 3159 ms
+07:35 +64 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 26 of 40)
+pitch auto run 26: 3150 ms
+07:38 +65 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 27 of 40)
+pitch auto run 27: 3189 ms
+07:41 +66 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 28 of 40)
+pitch auto run 28: 3229 ms
+07:44 +67 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 29 of 40)
+pitch auto run 29: 3142 ms
+07:47 +68 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 30 of 40)
+pitch auto run 30: 196999 ms
+11:04 +68 -2: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 30 of 40) [E]
+  Expected: true
+    Actual: <false>
+  TimeoutException: pitch auto run 30 timed out after 180s
+  process tree at the timeout:
+    884  D:\a\VapourBox\VapourBox\worker\target\debug\vapourbox-worker.exe --config <temp>\AppData\Local\Temp\vb_pv_bd48890b-5da2-40e0-85e5-0957a105e06f_1732_1795688987341428_29.json --preview --frame 15 --sub-frame 0
+    7412  \??\C:\Windows\system32\conhost.exe 0x4
+    3396  "D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe" -c y4m <temp>\AppData\Local\Temp\vapourbox_preview_bd48890b-5da2-40e0-85e5-0957a105e06f_a015327f734c43259f2e6d2229996c49\bd48890b-5da2-40e0-85e5-0957a105e06f_preview.vpy -
+    4136  "D:\a\VapourBox\VapourBox\deps\windows-x64\ffmpeg\ffmpeg.exe" -f yuv4mpegpipe -i pipe:0 -vframes 1 -vf scale=in_range=tv:out_range=pc:flags=accurate_rnd+full_chroma_int -f image2pipe -vcodec png pipe:1
+  --- 884 vapourbox-worker.exe ---
+     AllowParallelInitializationOfLocalRepositories : true
+     EnableRedirectToV8JsProvider : false
+  Microsoft (R) Windows Debugger Version 10.0.26100.9457 AMD64
+  Copyright (c) Microsoft Corporation. All rights reserved.
+  *** wait with pending attach
+  Response                         Time (ms)     Location
+  Deferred                                       srv*
+  Symbol search path is: srv*
+  Executable search path is: 
+  WARNING: Process 884 is not attached as a debuggee
+           The process can be examined but debug events will not be received
+  ........
+  (374.22b4): Wake debugger - code 80000007 (first chance)
+  +------------------------------------------------------------------------+
+  | This target supports Hardware-enforced Stack Protection. A HW based    |
+  | "Shadow Stack" may be available to assist in debugging and analysis.   |
+  | See aka.ms/userhsp for more info.                                      |
+  |                                                                        |
+  | dps @ssp                                                               |
+  |                                                                        |
+  +------------------------------------------------------------------------+
+  ntdll!NtWaitForSingleObject+0x14:
+  00007fff`753822d4 c3              ret
+  0:000> cdb: Reading initial command '~*kb 40; qd'
+  .  0  Id: 374.22b4 Suspend: 1 Teb: 000000d4`4418f000 Unfrozen "main"
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`7280d01f     : 00000000`00000128 000001f0`3fe4cda0 000001f0`3fe39ae0 00000000`00000128 : ntdll!NtWaitForSingleObject+0x14
+  *** WARNING: Unable to verify checksum for D:\a\VapourBox\VapourBox\worker\target\debug\vapourbox-worker.exe
+  00007ff7`bc420250     : 00000000`00000087 000000d4`43f6a4a8 00007ff7`00000000 00000000`000000a4 : KERNELBASE!WaitForSingleObjectEx+0xaf
+  00007ff7`bc41d786     : 00000000`00000000 ffffffff`ffffffff 00000000`00000140 00000000`00000138 : vapourbox_worker+0x570250
+  00007ff7`bc18c12a     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x56d786
+  00007ff7`bc252479     : 00007ff7`bc4578e8 00000000`00000003 4bf2e9da`707ee6e0 a77070c6`16567310 : vapourbox_worker+0x2dc12a
+  00007ff7`bc256eaf     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x3a2479
+  00007ff7`bbf8d34b     : 00000000`00000003 00007fff`72894aec 00000000`00000000 00007ff7`bc4bf040 : vapourbox_worker+0x3a6eaf
+  00007ff7`bc1fdf8e     : 00000000`00150014 00007fff`752d1211 00000000`00000000 ffffffff`fffffffe : vapourbox_worker+0xdd34b
+  00007ff7`bbfa0321     : 00000000`00000000 00007fff`728c8370 00000000`00006000 000000d4`43f66000 : vapourbox_worker+0x34df8e
+  00007ff7`bc4251f7     : 000001f0`3fe3b880 00007ff7`bc456d38 000000d4`43f6f8d0 00000000`00000000 : vapourbox_worker+0xf0321
+  00007ff7`bbf9042a     : 00000000`00000000 00000000`00000000 00000000`00000000 00007fff`724d3230 : vapourbox_worker+0x5751f7
+  00007ff7`bc26f549     : 00000000`00000007 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0xe042a
+  00007ff7`bc44ce4f     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x3bf549
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x59ce4f
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+     1  Id: 374.2244 Suspend: 1 Teb: 000000d4`441a1000 Unfrozen
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`752f0fb4     : 00000000`00000000 000000d4`446fe910 00005913`881ae1e4 00000000`00001000 : ntdll!NtDelayExecution+0x14
+  00007fff`72818d61     : 00000000`00000001 00000000`00000000 000000d4`446fe950 00007fff`73e57080 : ntdll!RtlDelayExecution+0x34
+  00007ff7`bc41450c     : 000000d4`446fe990 000000d4`00000001 80000000`00000000 00000000`00000440 : KERNELBASE!SleepEx+0x91
+  00007ff7`bc410bb7     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x56450c
+  00007ff7`bc413685     : 00000000`00000000 000001f0`3fe4c380 00000000`00000005 ffffffff`fffffffe : vapourbox_worker+0x560bb7
+  00007ff7`bc42f357     : 000001f0`3fe4c350 000001f0`3fe39460 00007ff7`bc4bcfd8 00000000`00000000 : vapourbox_worker+0x563685
+  00007fff`73e2dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x57f357
+  00007fff`7525f2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+  00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+     2  Id: 374.27a8 Suspend: 1 Teb: 000000d4`441a3000 Unfrozen
+  RetAddr               : Args to Child                                                           : Call Site
+  00007fff`752f0fb4     : 00000000`00000000 000000d4`448feb50 00005913`88faef24 00000000`00002000 : ntdll!NtDelayExecution+0x14
+  00007fff`72818d61     : 00000000`00000001 00000000`00000000 000000d4`448feb90 000000d4`448fec50 : ntdll!RtlDelayExecution+0x34
+  00007ff7`bc41471c     : 000001f0`3fe4cda0 000001f0`00000001 80000000`00000000 00007ff7`bc48aa40 : KERNELBASE!SleepEx+0x91
+  00007ff7`bc15d1bb     : 00000000`00000001 00000000`0000002b 00007ff7`bc4ab358 000000d4`448fef88 : vapourbox_worker+0x56471c
+  00007ff7`bc231aa3     : 29000000`00000180 00000000`0000002a 00007ff7`bc4ab358 000001f0`3fe3d899 : vapourbox_worker+0x2ad1bb
+  00007ff7`bc0a9bed     : 000000d4`448fef88 00000000`00000001 00007ff7`bc4ab358 000001f0`3fe3d899 : vapourbox_worker+0x381aa3
+  00007ff7`bc130131     : 00000000`00000001 00000000`00000001 000001f0`3fe3d870 000001f0`3fe4bcd0 : vapourbox_worker+0x1f9bed
+  00007ff7`bc0ad757     : 00000000`0000002a 00000000`0000002a 00000000`00000000 00000000`0000002a : vapourbox_worker+0x280131
+  00007ff7`bc1851f5     : 000000d4`448ff0e0 00007ff7`bc0ac2df 000000d4`448ff150 00000000`00000008 : vapourbox_worker+0x1fd757
+  00007ff7`bbfd7f56     : 000000d4`448ff0e0 00007ff7`bc35f3ae 00007ff7`bc4774ce 000001f0`3fe3d870 : vapourbox_worker+0x2d51f5
+  00007ff7`bc185b0c     : 000001f0`3fe48ee0 00000000`00000000 000000d4`4418e000 00007fff`753ef950 : vapourbox_worker+0x127f56
+  00007ff7`bc1fea46     : 00000000`00000008 00000000`00000000 00000000`00000000 00007ff7`bc1fe9f9 : vapourbox_worker+0x2d5b0c
+  00007ff7`bc2a9ce3     : 00000200`002b0000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x34ea46
+  00007ff7`bc2b1fad     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vapourbox_worker+0x3f9ce3

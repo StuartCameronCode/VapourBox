@@ -168,10 +168,19 @@ Future<String> describeHang(int pid,
         b.writeln('(no ${cmd.first}: no stacks)');
         break;
       }
-      final lines = text.split('\n').where((l) => l.trim().isNotEmpty).toList();
-      // `sample`'s call graph starts at "Call graph:"; its header is noise.
-      final start = lines.indexWhere((l) => l.startsWith('Call graph:'));
-      final body = start < 0 ? lines : lines.sublist(start);
+      final lines = text
+          .replaceAll('\r\n', '\n')
+          .split('\n')
+          .where((l) => l.trim().isNotEmpty)
+          .toList();
+      // `sample`'s call graph starts at "Call graph:", cdb's stacks at its
+      // command echo ("Reading initial command"); what comes before is
+      // banner. cdb's own unload chatter at the end is noise too.
+      var start = lines.indexWhere((l) => l.startsWith('Call graph:'));
+      if (start < 0) start = lines.indexWhere((l) => l.contains('Reading initial command'));
+      final body = (start < 0 ? lines : lines.sublist(start))
+          .where((l) => !l.startsWith('NatVis script unloaded'))
+          .toList();
       b.writeln('--- $p $name ---');
       b.writeln((body.length > maxLinesEach ? [...body.take(maxLinesEach), '…'] : body)
           .join('\n'));

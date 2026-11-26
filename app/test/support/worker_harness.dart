@@ -802,7 +802,11 @@ class WorkerHarness {
         // Where each process of the tree is stuck, before it is killed, and
         // what the worker had said (task #120: the sweep's pitch-auto row
         // hung on a Windows runner and said nothing at all).
-        final hang = await describeHang(process.pid);
+        // cdb takes 5-10 s to attach to each process of the tree on the
+        // Windows runners (task #120), so the default 20 s budget cut the
+        // vspipe stacks short.
+        final hang = await describeHang(process.pid,
+            budget: const Duration(seconds: 75), perProcess: const Duration(seconds: 25));
         await ProcessTree.killTree(process, ProcessSignal.sigkill);
         final said = await stderrFuture
             .timeout(const Duration(seconds: 5), onTimeout: () => '');
