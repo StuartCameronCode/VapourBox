@@ -366,6 +366,18 @@ class WorkerHarness {
     return '${probe['arch']} [${features.isEmpty ? 'none detected' : features.join(' ')}]';
   }
 
+  /// The `opt` (SIMD level) to give a CTMF call a test makes itself: the
+  /// worker's `--probe-cpu` `ctmfOpt`, which is `script_generator::ctmf_opt`,
+  /// what every template passes (3 on a v3 CPU, else 2). Never 0 (auto-detect)
+  /// or 4: both reach CTMF's 8-bit AVX-512 kernel, which steps 64-byte vectors
+  /// over 32-byte histograms and segfaults on AVX-512 machines (task #112).
+  /// Falls back to 2 (SSE2, the x86-64 baseline) when no worker answers or an
+  /// older one has no `ctmfOpt`; off x86 CTMF ignores it.
+  static Future<int> ctmfOpt() async {
+    final opt = (await _probeCpu())?['ctmfOpt'];
+    return opt is int && (opt == 2 || opt == 3) ? opt : 2;
+  }
+
   /// The CPU's model name, so an intermittent crash can be matched to the
   /// runner it drew (task #66: two runs of one row on `avx512f` runners, one
   /// crashing, said nothing about whether they were the same part). Read from

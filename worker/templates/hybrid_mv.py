@@ -234,6 +234,10 @@ def median_blur(clip: vs.VideoNode, radius: Union[int, Sequence[int]] = 2,
         planes = [planes]
 
     if hasattr(core, 'ctmf'):
+        # No `opt` is passed, so CTMF auto-detects its SIMD level. At 8 bits
+        # and a radius other than 2 that picks its broken AVX-512 kernel on an
+        # AVX-512 CPU (task #112, CLAUDE.md "CTMF's `opt`"). No template calls
+        # this so today; one that does must pass `opt` (the worker's ctmf_opt).
         kwargs.setdefault('memsize', _CTMF_MEMSIZE)
         return core.ctmf.CTMF(clip, radius=radius, planes=planes, **kwargs)
     if hasattr(core, 'zsmooth'):
