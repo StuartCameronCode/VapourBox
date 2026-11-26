@@ -56,7 +56,7 @@ jobs:
       ITER: ${{ inputs.iterations || '40' }}
       CASES: ${{ inputs.cases || 'encode,sweep' }}
       LOAD: ${{ inputs.load == false && 'false' || 'true' }}
-      BASELINE: ${{ inputs.baseline_ref }}
+      BASELINE: ${{ inputs.baseline_ref || 'bd1ed4b2' }}
     steps:
       - uses: actions/checkout@v5
         with:
