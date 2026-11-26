@@ -908,7 +908,17 @@ left at the plugin's own auto-detect (`opt=0`).** Its AVX-512 kernel for 8-bit
 input crashes with an access violation on real hardware — auto-detect is
 exactly what selects that broken kernel. `script_generator::ctmf_opt` picks 3
 (AVX2) on a v3-tier CPU, else 2 (SSE2), never 0. This is independent of the
-tiers: a v3 machine can have AVX-512.
+tiers: a v3 machine can have AVX-512. The kernel (`ctmfHelper_avx512<uint8_t,
+16>`) steps 64-byte vectors over 32-byte histograms, so it faults on odd
+offsets and overruns every histogram even when it doesn't (task #112); at
+10 bits and up the histograms are 64 bytes and it is correct, and radius 2
+has its own kernel. **A test that calls CTMF at 8 bits passes the worker's
+value too** (`--probe-cpu`'s `ctmfOpt`, `WorkerHarness.ctmfOpt()`). Two
+routes pass no `opt` and are safe only while nothing reaches them at radius
+≠ 2 on 8-bit input: havsfunc's `MinBlur(r=3)` and `hybrid_mv.median_blur`.
+Today none does; exposing HQDeringmod's `nrmode=3`, TemporalDegrain2's
+`extraSharp` or a ContraSharpening radius of 3 would make one, and needs
+`opt` passed (or CTMF patched) first.
 
 See docs/ENGINEERING_NOTES.md for the specific plugin-by-plugin decisions,
 probe-round methodology, and dated write-ups behind all of the above.
@@ -2626,6 +2636,28 @@ by `AddonService.addonsDir`), only when the user asks. Rules:
   its requirements with the app's own installer; `integration_ai_runtime_test.dart`
   (heavy) installs `ai-runtime` and runs the probe. `manifest_addon_test.dart`
   asserts the worker (`--list-addons`) compiled in the same manifests.
+- **The nightly never downloads an add-on inside a test's timeout (task
+  #117).** A `setUpAll` gets a fixed 12 minutes from package:test (the
+  file's `@Timeout` does not apply to it), and GitHub release downloads ran at
+  1.2-1.8 MB/s on the macOS x64 runners, so colorize's 1.3 GB setUpAll timed
+  out on 4 of 7 failing nightlies. So every nightly job first runs
+  `.github/scripts/prefetch-addons.py`: every file of every manifest, for
+  every platform, into `.addon-mirror` (resumed, retried on network errors
+  only, size and hash checked), kept as **one** Actions cache entry for every
+  OS (`addon-mirror-v1-<hash of the manifests>`, `enableCrossOsArchive`,
+  saved from main only), and the test step sets `VAPOURBOX_ADDON_MIRROR` to
+  it. The installer still copies, verifies, extracts and marks every add-on
+  on every leg; only the fetch moved. On a cache hit `--check-links` asks
+  each pinned URL for its first byte (a dead link or changed size fails the
+  job, a network failure warns). A file the step could not get is downloaded
+  by the test, through `HarnessDownloader` (`test/support/harness_downloader.dart`),
+  which retries a request on a transient error only (DNS, reset, stall,
+  429/5xx), never a 4xx, a size or a hash mismatch, and never a test.
+  `ensureAddon` installs each add-on under a lock file in `addons/`, since
+  test files run side by side in separate processes and share it. Never put
+  a download in a `setUpAll`, and never raise a timeout to absorb one;
+  `addon_prefetch_test.dart` and `harness_downloader_test.dart` (push gate)
+  hold the script, the wiring and the retry rules.
 
 ### Face Restoration
 
@@ -3470,6 +3502,9 @@ cd worker && cargo run --release -- --config test_job.json
 > 23-30 s there and failed 8 nightly legs (task #99, as task #95 did for
 > Descale). Don't raise the default in `dart_test.yaml`: it would hide real
 > hangs everywhere.
+> A `setUpAll` can't state one: package:test gives it 12 minutes, fixed,
+> which is why the nightly prefetches add-ons before the tests (task #117,
+> "Add-ons").
 
 > **The heavy tests run the worker BINARY, not the library**, and
 > `app/lib/**/*.g.dart` is gitignored — **run `cargo build` before the heavy
@@ -3686,6 +3721,14 @@ probe (task #84: it is `heavy`, and `deps-sensitive.sh` answers true for any
 probe, the heavy encodes and the format sweep need `nightly.yml` with the same
 `deps_run_id`; dispatch both for any deps change.
 
+**Publish only what was built from every merged deps fix (task #116).**
+deps-v1.18.0-rc3's Windows assets came from a `build-deps-windows` run
+whose head predated task #90's FFTW fix, merged three hours later, and
+uploaded straight to the release. Before passing `release_tag`, check
+(`git merge-base --is-ancestor`) that the commit you build from holds every
+deps fix, and test either that run's artifacts with `deps_run_id` or the
+prerelease through the PR that pins it.
+
 **2. Release-candidate prereleases** — needed only when the thing under test is
 the download path itself (an installed app has no token and can't read
 artifacts): `gh release create deps-vX.Y.Z-rc1 --prerelease`, point
@@ -3738,7 +3781,8 @@ the Python module reports must be the same file. Consequences:
   `vapoursynth/plugins` itself, and setting it too double-loads every plugin.
   **Windows still needs the variable** (its plugins live in `vs-plugins`, not
   the autoload directory). `vspipe_environment_test` (Rust) runs vspipe under
-  the worker's environment and fails on any "already loaded" line (task #61).
+  the worker's environment and fails on any "already loaded" line (task #61)
+  or any "Failed to load" line (task #116).
 
 **vspipe is R78 plus one backported fix (task #68).** R78's vspipe counted a
 frame done before writing it, so its main thread could free the script under
@@ -3902,7 +3946,14 @@ Deblock_QED calls it), at any frame size; the format sweep is what saw it.
   a plugin finds its DLLs only in its own directory, not `vapoursynth\`.
   r2's 7z used to put it there; with the source build, section 4b of
   `download-deps-windows.ps1` installs it and fails the build without it.
-  Missing, DCTFilter, DFTTest and FFT3DFilter all fail to load (error 126).
+  Missing, DCTFilter, DFTTest and FFT3DFilter all fail to load (error 126):
+  deps-v1.18.0-rc3's Windows assets, built before that fix, shipped so
+  (task #116). **Present is not loadable**, so `package-deps-windows.ps1`
+  step [4c/5] (`check-deps-plugins-load.ps1` → `check-plugins-load.py`)
+  loads every expected plugin in the staged tree's own `vspipe.exe` with the
+  worker's environment and fails on any "Failed to load". The v2 CPU gate
+  can't see this class: it loads plugins through `vapoursynth\python.exe`,
+  and Windows searches the executable's directory, where FFTW also sits.
 - `vapoursynth_integration_test.dart`'s `dctfilter thread safety` group
   checks the bundle's DCTFilter is ≥ 3.2 and that the patch and scripts are
   in place (push gate), and runs 10 graphs of 1000 instances and 3 of 300
@@ -3963,7 +4014,9 @@ QTGMC's denoiser falls back to DFTTest.
 - `vapoursynth_integration_test.dart`'s `per-thread buffer maps (task #98)`
   group checks the markers (from deps 1.18.0-rc3) and the patches and
   scripts (push gate), and runs graphs of 1000 instances of each plus
-  `MinBlur(r=3)` (heavy).
+  `MinBlur(r=3)` (heavy). CTMF there takes the worker's `opt` and `memsize`,
+  and MinBlur runs at 10 bits, so neither reaches CTMF's 8-bit AVX-512
+  kernel (task #112); a failure names the race only for an abort.
 - **Before adding a plugin, look for the pattern:** `nm -C <plugin> | grep
   'unordered_map<std::__1::__thread_id'` on a macOS build, or grep its source
   for `thread::id`. A locked map (BM3D r12's `GetThreadBuffer`) is fine
@@ -4529,4 +4582,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |
 | 1.16.0 | 2026-11-09 | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Published as the tested `deps-v1.16.0-rc2` bundles with only the version changed (`Scripts/promote-deps-rc.py`) |
 | 1.17.0 | rc1 2026-11-15, rc2 2026-11-16, rc3 2026-11-17 | **Task #36**: macOS arm64 libdvdread built from 6.1.3 source (patched to find a user's libdvdcss in `/opt/homebrew/lib`, `/usr/local/lib`, `/opt/local/lib`) instead of Homebrew's bottle, which linked `/opt/homebrew/opt/libdvdcss/…` and failed to load on Macs without it; macOS x64 gets the same patched build. Absolute build-machine rpaths stripped from libvapoursynth, vapoursynth.abi3.so, libfftw3f*, libboost_charconv, bm3d, dctfilter and mvtools (inert: nothing used `@rpath`). Windows and Linux binaries unchanged; libdvdread is now a required file on every platform. **rc2** (task #45): macOS x64 FFmpeg evermeet 9.0.1 → martin-riedl 9.0.2 (build 1789931006, pinned by SHA-256), which has SVT-AV1, so AV1 output works on Intel Macs; x264/x265/MP3 bitstreams change there, native codecs byte-identical. **rc3** (task #60): **Bifrost** v3.0 → **4.0** from its PyPI wheels on every platform (was the v3.0 tag's `bifrost.c` built from source on macOS/Linux, v3.0's 7z on Windows), under the same file names; v3.0 left chroma past the last whole 4x4 block uninitialised (different output run to run at width 98, 720x486), v4.0 initialises it and runs at 8–16 bits natively. No AVX, so `_tierFiles` unchanged |
-| 1.18.0 | rc1 2026-11-19, rc2 2026-11-20, rc3 2026-11-22, rc4 (pending) | **Task #62**: FFT3DFilter built from source at R2 with `patches/fft3dfilter-r2-determinism.patch` on every platform (Windows: Zig cross-compile replacing the R2 release DLL; macOS arm64: replacing yuygfgg's prebuilt), so its output no longer differs from run to run. One build for both x64 tiers; file names unchanged. **Task #68**: vspipe R78 with upstream's frame-done count fix (`patches/vapoursynth-r78-vspipe-frame-done-count.patch`, 4ff3f8a0) on every platform (Windows: Zig build replacing the wheel's `vspipe.exe`), so a one-frame preview can no longer be torn down under its last frame's callback (SIGSEGV). VapourSynth stays R78: R80 dropped API 3, which 12 bundled plugins need. **rc2** (task #80): the FFT3DFilter patch also makes `measure=0` (FFTW_ESTIMATE) the default; FFTW_MEASURE timed its plans per process, so on x86 two processes (a preview and its encode) could filter differently. File names unchanged. **rc3** (task #82): havsfunc patch 8, LUTDeCrawl/LUTDeRainbow's mask ANDs as `Expr 'x y min'` instead of Python Lut2 tables, bit-identical (10-bit preview with both on: ~18 s → 0.33 s on an M1). Also **task #96**: DCTFilter built from source at r3.2 with `patches/dctfilter-r3.2-thread-safety.patch` (upstream's c924a7a) on every platform (Windows: Zig build replacing the r2 release DLL; macOS x64: replacing Stefan-Olt's r2.1; macOS arm64/Linux: pinned, were unpinned HEAD, the same code). r2/r2.1 aborted about one run in a hundred under threads (0xC0000409 on Windows). Same output sample for sample; file names unchanged. Also **task #98**: DFTTest (bc5e018; macOS arm64 yuygfgg's fork e6f580a), LGhost r1, CTMF r5, TCanny 14ac2ce and (macOS arm64, Linux) EEDI3m r10 built from source with `patches/<plugin>-<ver>-thread-safety.patch`, which locks their per-thread buffer maps (aborts with `unordered_map::at` / 0xC0000409) and marks the plugin's name; replaces the Windows release DLLs, Stefan-Olt's macOS prebuilts, yuygfgg's arm64 DFTTest and Stefan-Olt's Linux x64 LGhost. Same output (macOS measured); file names unchanged. macOS arm64's FFmpeg is now pinned to martin-riedl build 1789931890 (9.0.2, the binary rc2 shipped) after `latest` moved to 9.1. Also **task #103**: Linux VapourSynth's statically linked zimg (R78's `subprojects/zimg.wrap`, `revision = HEAD`) pinned to 67e06032 / graphengine cb5b2ce1, what rc2's build cloned; rc3's first Linux build had cloned master's `e2e43d09` and aborted in every resize ("double free or corruption"), so rc3's Linux assets were replaced with the pinned build. **rc4** (task #101): `patches/dfttest-bc5e018-fftw-estimate.patch`, applied after task #98's, makes DFTTest plan with FFTW_ESTIMATE instead of FFTW_PATIENT (PATIENT timed its plans per process, so on x86 a preview and its encode could differ by 1-2 levels); marker `FFTW_ESTIMATE, task #101` in its name. File names unchanged |
+| 1.18.0 | rc1 2026-11-19, rc2 2026-11-20, rc3 2026-11-22, rc4 2026-11-26 | **Task #62**: FFT3DFilter built from source at R2 with `patches/fft3dfilter-r2-determinism.patch` on every platform (Windows: Zig cross-compile replacing the R2 release DLL; macOS arm64: replacing yuygfgg's prebuilt), so its output no longer differs from run to run. One build for both x64 tiers; file names unchanged. **Task #68**: vspipe R78 with upstream's frame-done count fix (`patches/vapoursynth-r78-vspipe-frame-done-count.patch`, 4ff3f8a0) on every platform (Windows: Zig build replacing the wheel's `vspipe.exe`), so a one-frame preview can no longer be torn down under its last frame's callback (SIGSEGV). VapourSynth stays R78: R80 dropped API 3, which 12 bundled plugins need. **rc2** (task #80): the FFT3DFilter patch also makes `measure=0` (FFTW_ESTIMATE) the default; FFTW_MEASURE timed its plans per process, so on x86 two processes (a preview and its encode) could filter differently. File names unchanged. **rc3** (task #82): havsfunc patch 8, LUTDeCrawl/LUTDeRainbow's mask ANDs as `Expr 'x y min'` instead of Python Lut2 tables, bit-identical (10-bit preview with both on: ~18 s → 0.33 s on an M1). Also **task #96**: DCTFilter built from source at r3.2 with `patches/dctfilter-r3.2-thread-safety.patch` (upstream's c924a7a) on every platform (Windows: Zig build replacing the r2 release DLL; macOS x64: replacing Stefan-Olt's r2.1; macOS arm64/Linux: pinned, were unpinned HEAD, the same code). r2/r2.1 aborted about one run in a hundred under threads (0xC0000409 on Windows). Same output sample for sample; file names unchanged. Also **task #98**: DFTTest (bc5e018; macOS arm64 yuygfgg's fork e6f580a), LGhost r1, CTMF r5, TCanny 14ac2ce and (macOS arm64, Linux) EEDI3m r10 built from source with `patches/<plugin>-<ver>-thread-safety.patch`, which locks their per-thread buffer maps (aborts with `unordered_map::at` / 0xC0000409) and marks the plugin's name; replaces the Windows release DLLs, Stefan-Olt's macOS prebuilts, yuygfgg's arm64 DFTTest and Stefan-Olt's Linux x64 LGhost. Same output (macOS measured); file names unchanged. macOS arm64's FFmpeg is now pinned to martin-riedl build 1789931890 (9.0.2, the binary rc2 shipped) after `latest` moved to 9.1. Also **task #103**: Linux VapourSynth's statically linked zimg (R78's `subprojects/zimg.wrap`, `revision = HEAD`) pinned to 67e06032 / graphengine cb5b2ce1, what rc2's build cloned; rc3's first Linux build had cloned master's `e2e43d09` and aborted in every resize ("double free or corruption"), so rc3's Linux assets were replaced with the pinned build. **rc4** (task #101): `patches/dfttest-bc5e018-fftw-estimate.patch`, applied after task #98's, makes DFTTest plan with FFTW_ESTIMATE instead of FFTW_PATIENT (PATIENT timed its plans per process, so on x86 a preview and its encode could differ by 1-2 levels); marker `FFTW_ESTIMATE, task #101` in its name. File names unchanged. Also **task #116**: rc3's Windows assets had been built before task #90's fix, so `libfftw3f-3.dll` was missing from `vs-plugins\` and DCTFilter, DFTTest and FFT3DFilter failed to load (error 126); rc4's Windows bundle has it there, and `package-deps-windows.ps1` now loads every plugin under `vspipe.exe` before zipping. All three platforms are built from one commit |

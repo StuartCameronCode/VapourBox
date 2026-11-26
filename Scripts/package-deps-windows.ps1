@@ -189,6 +189,15 @@ if ($MissingExtra.Count -gt 0) {
     exit 1
 }
 
+# Present is not loadable (task #116): rc3 shipped DCTFilter, DFTTest and
+# FFT3DFilter without the FFTW DLL beside them, and every check above passed.
+# Load each one in the staged tree's own vspipe.exe, as the worker runs it.
+Write-Host "[4c/5] Loading every plugin under vspipe.exe..." -ForegroundColor Yellow
+& (Join-Path $ScriptDir "check-deps-plugins-load.ps1") -DepsDir $PackageDir -PlatformKey $PlatformKey
+if ($LASTEXITCODE -ne 0) {
+    exit 1
+}
+
 # Create zip file
 Write-Host "[5/5] Creating zip archive..." -ForegroundColor Yellow
 $ZipFile = Join-Path $DistDir "$PackageName.zip"

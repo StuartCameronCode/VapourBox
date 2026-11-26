@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 
 import 'support/deps_version.dart';
+import 'support/worker_harness.dart';
 
 void main() {
   late String depsDir;
@@ -873,8 +874,7 @@ core.std.Splice([$call for _ in range($instances)]).set_output()''';
         final r = await _runVspipeScript(vspipePath, script,
             depsDir: depsDir, outputFrames: true);
         expect(r.exitCode, 0,
-            reason: '$name aborted (exit ${r.exitCode}): an unlocked per-thread '
-                'buffer map, task #96?\nstderr: ${r.stderr}');
+            reason: _stressFailure(name, r.exitCode, r.stderr.toString(), 'task #96'));
       }
     }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 5)));
   });
@@ -975,36 +975,63 @@ core.std.BlankClip().set_output()''';
     // 20 such graphs, LGhost 20 of 20, CTMF (radius 3) 18 of 20, TCanny 20 of
     // 20; patched, none in 40 each. havsfunc's MinBlur(r=3), which CTMF's
     // radius-3 kernel serves, runs the same way.
+    //
+    // CTMF is called as the templates call it (task #112): with the worker's
+    // `opt` (`--probe-cpu`'s ctmfOpt, 3 with AVX2, else 2) and memsize. Left
+    // at opt=0, auto-detect picks the 8-bit AVX-512 kernel on an AVX-512
+    // machine, which steps 64-byte vectors over 32-byte histograms: it
+    // segfaulted here on a Xeon 6975P-C (nightly 44983943673), which is not
+    // the race this tests. havsfunc's MinBlur can't pass `opt`, so it runs at
+    // 10 bits, where the histograms are 64 bytes and the AVX-512 kernel is
+    // correct, through the same per-thread maps. docs/ENGINEERING_NOTES.md,
+    // 2026-11-26.
     test('DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances '
         'starting together (task #98)', () async {
       if (depsVersionBefore(depsDir, '1.18.0-rc3')) {
         markTestSkipped(skipReason);
         return;
       }
-      String stress(String call, int instances) => '''
+      final opt = await WorkerHarness.ctmfOpt();
+      // ignore: avoid_print
+      print('CTMF opt=$opt on ${await WorkerHarness.describeCpu()}');
+      String stress(String call, int instances, {bool tenBit = false}) => '''
 import vapoursynth as vs
 import havsfunc as haf
 core = vs.core
 core.num_threads = 8
-src = core.std.BlankClip(width=96, height=64, format=vs.YUV420P8, length=20,
-                         color=[100, 120, 140])
+src = core.std.BlankClip(width=96, height=64, format=vs.${tenBit ? 'YUV420P10' : 'YUV420P8'}, length=20,
+                         color=${tenBit ? '[400, 480, 560]' : '[100, 120, 140]'})
 core.std.Splice([$call for _ in range($instances)]).set_output()''';
       final runs = [
         for (var i = 0; i < 4; i++) ('DFTTest', stress('core.dfttest.DFTTest(src)', 1000)),
         for (var i = 0; i < 8; i++)
           ('LGhost', stress('core.lghost.LGhost(src, mode=[1], shift=[3], intensity=[30])', 1000)),
-        for (var i = 0; i < 8; i++) ('CTMF', stress('core.ctmf.CTMF(src, radius=3)', 1000)),
+        for (var i = 0; i < 8; i++) ('CTMF', stress('core.ctmf.CTMF(src, radius=3, memsize=16777216, opt=$opt)', 1000)),
         for (var i = 0; i < 8; i++) ('TCanny', stress('core.tcanny.TCanny(src)', 1000)),
-        for (var i = 0; i < 3; i++) ('MinBlur(r=3)', stress('haf.MinBlur(src, 3)', 300)),
+        for (var i = 0; i < 3; i++) ('MinBlur(r=3), 10-bit', stress('haf.MinBlur(src, 3)', 300, tenBit: true)),
       ];
       for (final (name, script) in runs) {
         final r = await _runVspipeScript(vspipePath, script,
             depsDir: depsDir, outputFrames: true);
         expect(r.exitCode, 0,
-            reason: '$name aborted (exit ${r.exitCode}): an unlocked per-thread '
-                'buffer map, task #98?\nstderr: ${r.stderr}');
+            reason: _stressFailure(name, r.exitCode, r.stderr.toString(), 'task #98'));
       }
     }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 10)));
+  });
+
+  test('a stress test names the race only for an abort (task #112)', () {
+    String why(int code, [String err = '']) => _stressFailure('X', code, err, 'task #98');
+    const race = 'unlocked per-thread buffer map (task #98)';
+    expect(why(-6), contains(race));
+    expect(why(1, "terminate called after throwing an instance of 'std::out_of_range'\n"
+        '  what():  unordered_map::at'), contains(race));
+    expect(why(-1073740791), contains(race)); // 0xC0000409, signed
+    expect(why(0xC0000409), contains(race)); // unsigned
+    for (final segv in [-11, 139, -1073741819, 0xC0000005]) {
+      expect(why(segv), allOf(contains('invalid memory access'), isNot(contains(race))),
+          reason: 'exit $segv');
+    }
+    expect(why(1), allOf(contains('failed (exit 1)'), isNot(contains(race))));
   });
 
   // Task #101: DFTTest planned its FFTs with FFTW_PATIENT, which times
@@ -1387,4 +1414,26 @@ Future<ProcessResult> _runVspipeScript(
   } finally {
     await scriptFile.delete();
   }
+}
+
+/// Why a stress test's vspipe run failed, without assuming it was the race
+/// the test is for (task #112: a CTMF segfault in its 8-bit AVX-512 kernel
+/// read as task #98's abort). Only an abort, or `unordered_map::at` in
+/// stderr, names the race; Windows' exit codes are NTSTATUS values, which
+/// Dart may report signed or unsigned.
+String _stressFailure(String name, int exitCode, String stderr, String task) {
+  final nt = exitCode & 0xFFFFFFFF;
+  final aborted = stderr.contains('unordered_map::at') ||
+      exitCode == -6 || exitCode == 134 || // SIGABRT, direct or via a shell
+      nt == 0xC0000409; // fail-fast: every abort() on Windows
+  final invalidAccess = exitCode == -11 || exitCode == 139 || // SIGSEGV
+      nt == 0xC0000005; // access violation
+  final why = aborted
+      ? 'aborted: an unlocked per-thread buffer map ($task)?'
+      : invalidAccess
+          ? "crashed with an invalid memory access, not $task's abort: a "
+              "native fault in the plugin (CTMF's 8-bit AVX-512 kernel, if its "
+              'opt was left on auto; task #112)'
+          : 'failed';
+  return '$name $why (exit $exitCode)\nstderr: $stderr';
 }

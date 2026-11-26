@@ -6455,6 +6455,140 @@ VapourSynth; the cause is in graphengine, not in VapourSynth or our build.
 
 Report: [docs/reports/task-109-graphengine-tmp-overrun](reports/task-109-graphengine-tmp-overrun/index.html).
 
+### #98's stress test reached CTMF's 8-bit AVX-512 kernel (task #112, 2026-11-26)
+
+Nightly 44983943673 (the 1.18.0-rc3 Linux bundle, job linux-x64 heavy, an
+Intel Xeon 6975P-C with avx512f) failed `per-thread buffer maps (task #98)
+… survive many instances` with CTMF exiting -11 (SIGSEGV), in
+`ctmfHelper_avx512<unsigned char, 16>` on a `vmovdqa64` load. The test's
+message called it "an unlocked per-thread buffer map, task #98?". It wasn't:
+the same `libctmf.so` had passed on AVX-512 runners (nightly 44940674293),
+and #98's race aborts (`unordered_map::at`); it doesn't segfault.
+
+- **Cause.** The test called `core.ctmf.CTMF(src, radius=3)` and
+  `haf.MinBlur(src, 3)` on 8-bit input with `opt` on auto, which is the
+  broken kernel of the 2026-08-25 entry. Read from CTMF r5's
+  `CTMF_AVX512.cpp`: the histogram helpers step `Vec32us` (64 bytes) with
+  aligned loads and stores, and at 8 bits a histogram is 16 bins, 32 bytes.
+  An odd column or bin is only 32-byte aligned, so an aligned move faults
+  there, and every add or subtract reads and writes 32 bytes of the next
+  histogram (past the buffer at the last one). It faults only when an
+  unfolded aligned move lands on an odd offset, which depends on the
+  compiler, the data and the heap: hence intermittent. At ≥ 10 bits the
+  histograms are 64 bytes or more and the kernel is correct.
+- **Users: not exposed.** The Noise Reduction block passes `ctmf_opt()`.
+  havsfunc's `MinBlur(r=2)` and `FineDehalo` use radius 2. `MinBlur(r=3)`
+  (havsfunc) and `hybrid_mv.median_blur` pass no `opt`, but no template
+  reaches them at radius 3 on 8-bit input: HQDeringmod's `nrmode` is not
+  exposed, ContraSharpening runs at radius 1/2, SMDegrain prefilters with
+  `MinBlur(r=0)`, MCTemporalDenoise's pfMode stays ≤ 2, and TemporalDegrain2's
+  `extraSharp` is never passed (at 16 bits hybrid_mv's radius-3 median runs
+  CTMF at 12 bits). CLAUDE.md's CTMF rule lists these as the changes that
+  would expose it.
+- **Fix (test only).** `--probe-cpu` reports `ctmfOpt` (= `ctmf_opt()`),
+  read by `WorkerHarness.ctmfOpt()` (2 if no worker answers). The stress test
+  calls CTMF with it and the templates' `memsize`, and runs MinBlur on a
+  10-bit clip, which still starts CTMF's per-thread maps under contention.
+  `_stressFailure` names the race only for an abort (SIGABRT,
+  `unordered_map::at`, 0xC0000409), reports a SIGSEGV / 0xC0000005 as a
+  native fault, and anything else as a plain failure; #96's DCTFilter test
+  uses it too. No deps or script change; not measured further (the source
+  settles it).
+
+### The nightly's add-on downloads leave the tests' timeouts (task #117, 2026-11-26)
+
+**Symptom.** macOS x64 nightly legs failed on add-on downloads, not on the
+code under test. `integration_colorize_test.dart (setUpAll)` timed out after
+12 minutes in 4 of the 7 failing nightlies from 2026-11-21 to 11-25 (runs
+44998535692, 45035605064, 45459637742, 45667413686; v2 and v3 bundles), and
+`integration_face_restore_test.dart (setUpAll)` once (44998535692). The same
+run's sweep leg failed four add-on variants within 0.4 s on
+`SocketException: Failed host lookup: 'github.com'`; the same installs worked
+25 s later.
+
+**Why.**
+
+- package:test gives every `setUpAll` a fixed 12 minutes
+  (`Declarer._timeout` in test_api); the file's `@Timeout(40/60 min)` does
+  not reach it. colorize's setUpAll installs ai-runtime + DDColor + DeOldify
+  (~1.27 GB), face_restore's the three face add-ons (~1.35 GB),
+  `integration_zimg_colour_tags_test.dart`'s DDColor + the face base
+  (~0.85 GB).
+- GitHub release downloads on the macos-15-intel runners ran at 1.2-1.8 MB/s
+  (from the `[harness] installing add-on` timestamps: DDColor 221 MB in 3 min,
+  DeOldify 873 MB in 9 min); Actions cache restores on the same jobs ran at
+  30-55 MB/s (pub 70 MB, whisper 424 MB in ~10 s).
+- The harness's downloader made one request: no retry, no stall timeout.
+- Every heavy and sweep leg on every platform downloaded ~2.4 GB a night
+  (12 legs).
+
+**Fix.** Every nightly job runs `.github/scripts/prefetch-addons.py` before
+the tests: every file of every manifest (2.78 GB, all platforms, so one
+cache entry serves every OS) into `.addon-mirror`, resumed with `Range`,
+retried with backoff on transient errors only, checked against size and
+SHA-256, unnamed files pruned. The mirror is one Actions cache entry
+(`addon-mirror-v1-<hash of app/assets/addons/*.json>`,
+`enableCrossOsArchive`, saved from main only, right after the prefetch so its
+tarball is gone before the tests use the disk), and the test step sets
+`VAPOURBOX_ADDON_MIRROR`: the app's installer still copies, verifies,
+extracts and marks every add-on. On a cache hit, `--check-links` keeps the
+"a pinned link stopped working" signal (first byte of each URL; 4xx or a
+changed size fails the job, a network failure warns). The harness's
+`HarnessDownloader` retries a request on DNS failure, reset, stall (120 s)
+and 429/5xx, never on another status or a mismatch, and `ensureAddon`
+installs under a lock file so test files running side by side cannot write
+the same `.downloads/` file. No timeout was raised.
+
+**Cache budget.** The repository was at 10.45 GB of 10 GB; 7.5 GB of it was
+the Flutter SDK caches (`flutter-*`) that `ci-test.yml` / `nightly.yml`
+stopped writing in task #84 but the release builds still write. They were
+deleted (to 2.83 GB) before the mirror's 2.8 GB; task #121 stops the
+release builds writing them.
+
+**Not measured.** Disk headroom on macos-15-intel with the mirror and the
+installed add-ons both present (~7 GB at peak); the prefetch step prints
+`df -h` for it.
+
+### A Windows plugin that is present but can't load (task #116, 2026-11-26)
+
+ci-test's `flutter (windows-x64)` failed on main from 2026-11-22: under
+deps-v1.18.0-rc3, vspipe printed `Failed to load …\vs-plugins\DCTFilter.dll.
+GetLastError() returned 126` for DCTFilter, DFTTest and FFT3DFilter.
+
+- **Cause: build order.** Task #96 replaced DCTFilter r2's 7z, which carried
+  its own `libfftw3f-3.dll` into `vs-plugins\`, with a source build. Task #90
+  found that the three FFTW plugins then lose their DLL (VapourSynth
+  searches a plugin's directory and the default directories, not `PATH`) and
+  fixed `download-deps-windows.ps1` (PR #255, merged 2026-11-22 03:27 UTC).
+  rc3's Windows assets came from build-deps-windows 44965646994 at `5fb87850`,
+  started 00:14 UTC and uploaded by the same run. Its zip holds the DLL only
+  in `vapoursynth\`.
+- **Why every check passed.**
+  - `package-deps-windows.ps1` tested only that each expected file exists.
+  - The v2 CPU gate (`probe-plugin-compat.py`) reported all three **PASS**:
+    it loads plugins through `vapoursynth\python.exe`, and Windows searches
+    the executable's directory, which holds FFTW. The worker runs
+    `Lib\site-packages\vapoursynth\vspipe.exe`.
+  - `vspipe_environment_test` ran the worker's vspipe but looked only for
+    duplicate loads.
+- **Guards added.**
+  - `package-deps-windows.ps1` step [4c/5] (`check-deps-plugins-load.ps1`
+    with `check-plugins-load.py`) loads every expected plugin in the staged
+    tree's own `vspipe.exe`, with the worker's environment, before zipping.
+    It fails on any "Failed to load". A support DLL (libzstd) is told apart
+    by LoadPlugin's "No entry point found", so no allowlist is needed.
+  - `vspipe_environment_test` fails on any "Failed to load" line and
+    expects `dctf`, `dfttest` and `fft3dfilter`. That puts the check in the
+    push gate and every `deps_run_id` dispatch.
+  - Run through a temporary workflow (run 45777377026), the guard fails on
+    the published rc3 zip, naming all three plugins, and passes on task
+    #101's rc4 candidate (38 plugins load; libzstd.dll is a support DLL).
+    On macOS, the Python half fails on a bundle with its FFTW hidden.
+- **Fix.** deps 1.18.0-rc4, built from one commit on all three platforms
+  (which also ships task #101's DFTTest patch).
+
+No measurements, so no report.
+
 ### pipe_source dropped a frame a late output frame still needed (task #120, 2026-11-26)
 
 - **Symptom.** Once, on a Windows v2 nightly runner (Zen 5): Stab's
