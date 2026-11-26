@@ -1,0 +1,19 @@
+{
+ "dfttest_entries": 73,
+ "dfttest_problems": 73,
+ "errors": [],
+ "fft3d_entries": 38,
+ "fft3d_mixed_differs_from_fresh": [],
+ "fft3d_pictures_fresh": {
+  "fft3d_nr_bt3 720 16": 1,
+  "fft3d_nr_bt3 720 8": 1,
+  "fft3d_nr_bt3 96 16": 1,
+  "fft3d_nr_bt3 96 8": 1,
+  "fft3d_td2_spat 720 16": 1,
+  "fft3d_td2_spat 720 8": 1,
+  "fft3d_td2_spat 96 16": 1,
+  "fft3d_td2_spat 96 8": 1
+ },
+ "fft3d_problems": 38,
+ "shared_problems": []
+}

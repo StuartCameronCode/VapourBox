@@ -845,16 +845,27 @@ build_plugin() {
 # of this script) is removed so build_plugin builds it again, and the script
 # fails if the marker is missing afterwards. Keep the pins in step with
 # download-deps-macos.sh and download-deps-windows.ps1.
+# Task #101: DFTTest also takes patches/dfttest-bc5e018-fftw-estimate.patch,
+# applied after the thread-safety one (its context is that patch's name line),
+# which plans with FFTW_ESTIMATE instead of FFTW_PATIENT (PATIENT timed its
+# plans per process, so a preview and its encode could filter differently)
+# and adds DFTTEST_MARKER to the name: drop_unpatched / require_patched take
+# it as a second marker for libdfttest.so.
 TASK98_MARKER="locked per-thread buffers, task #98"
-drop_unpatched() {  # <plugin file>
-    if [ -f "$PLUGINS_DIR/$1" ] && ! grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/$1"; then
-        echo "  $1 predates task #98's thread-safety patch; rebuilding it"
+DFTTEST_MARKER="FFTW_ESTIMATE, task #101"
+has_markers() {  # <plugin file> [extra marker]
+    grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/$1" 2>/dev/null || return 1
+    [ -z "${2:-}" ] || grep -aqF "$2" "$PLUGINS_DIR/$1" 2>/dev/null
+}
+drop_unpatched() {  # <plugin file> [extra marker]
+    if [ -f "$PLUGINS_DIR/$1" ] && ! has_markers "$1" "${2:-}"; then
+        echo "  $1 predates its patches (task #98${2:+, $2}); rebuilding it"
         rm -f "$PLUGINS_DIR/$1"
     fi
 }
-require_patched() {  # <plugin file>
-    if ! grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/$1" 2>/dev/null; then
-        echo "  ERROR: $1 is missing or lacks task #98's thread-safety patch" >&2
+require_patched() {  # <plugin file> [extra marker]
+    if ! has_markers "$1" "${2:-}"; then
+        echo "  ERROR: $1 is missing or lacks its patches (task #98${2:+, $2})" >&2
         exit 1
     fi
 }
@@ -1028,14 +1039,15 @@ else
     echo "  fmtconv already exists, skipping"
 fi
 
-# DFTTest (FFT-based denoising), pinned with task #98's patch.
-drop_unpatched "libdfttest.so"
+# DFTTest (FFT-based denoising), pinned with task #98's patch and then task
+# #101's FFTW_ESTIMATE patch, in that order.
+drop_unpatched "libdfttest.so" "$DFTTEST_MARKER"
 build_plugin "dfttest" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest.git" \
     "libdfttest.so" \
-    "$(task98_patch dfttest-bc5e018-thread-safety.patch) && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$(task98_patch dfttest-bc5e018-thread-safety.patch) && $(task98_patch dfttest-bc5e018-fftw-estimate.patch) && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
     "$DFTTEST_COMMIT"
-require_patched "libdfttest.so"
+require_patched "libdfttest.so" "$DFTTEST_MARKER"
 
 # TTempSmooth (core.ttmpsm.TTempSmooth - used by havsfunc MCTemporalDenoise)
 build_plugin "ttempsmooth" \

@@ -1,0 +1,268 @@
+{
+ "counts": {
+  "dctfilter grain 16": [
+   20
+  ],
+  "dctfilter grain 8": [
+   20
+  ],
+  "dctfilter vhs 16": [
+   20
+  ],
+  "dctfilter vhs 8": [
+   20
+  ],
+  "fft3d_nr_bt3 grain 16": [
+   20
+  ],
+  "fft3d_nr_bt3 grain 8": [
+   20
+  ],
+  "fft3d_nr_bt3 vhs 16": [
+   20
+  ],
+  "fft3d_nr_bt3 vhs 8": [
+   20
+  ],
+  "fft3d_td2_spat grain 16": [
+   20
+  ],
+  "fft3d_td2_spat grain 8": [
+   20
+  ],
+  "fft3d_td2_spat vhs 16": [
+   20
+  ],
+  "fft3d_td2_spat vhs 8": [
+   20
+  ],
+  "nr_default grain 16": [
+   19,
+   1
+  ],
+  "nr_default grain 8": [
+   19,
+   1
+  ],
+  "nr_default vhs 16": [
+   19,
+   1
+  ],
+  "nr_default vhs 8": [
+   19,
+   1
+  ],
+  "nr_strong grain 16": [
+   14,
+   6
+  ],
+  "nr_strong grain 8": [
+   14,
+   6
+  ],
+  "nr_strong vhs 16": [
+   14,
+   6
+  ],
+  "nr_strong vhs 8": [
+   14,
+   6
+  ],
+  "qtgmc_dfttest vhs 8": [
+   19,
+   1
+  ],
+  "smdegrain_pf3 grain 8": [
+   20
+  ],
+  "smdegrain_pf3 vhs 8": [
+   20
+  ],
+  "tb1 grain 16": [
+   20
+  ],
+  "tb1 grain 8": [
+   20
+  ],
+  "tb1 vhs 16": [
+   20
+  ],
+  "tb1 vhs 8": [
+   20
+  ],
+  "tb1_sb12 grain 16": [
+   20
+  ],
+  "tb1_sb12 grain 8": [
+   20
+  ],
+  "tb1_sb12 vhs 16": [
+   20
+  ],
+  "tb1_sb12 vhs 8": [
+   20
+  ],
+  "tb3_sb12 grain 16": [
+   17,
+   3
+  ],
+  "tb3_sb12 grain 8": [
+   17,
+   3
+  ],
+  "tb3_sb12 vhs 16": [
+   17,
+   3
+  ],
+  "tb3_sb12 vhs 8": [
+   17,
+   3
+  ],
+  "td2_post3 grain 8": [
+   17,
+   3
+  ],
+  "td2_post3 vhs 8": [
+   17,
+   3
+  ]
+ },
+ "cpu_count": 4,
+ "diff_top_two": {
+  "nr_default grain 16": {
+   "max_abs": 1,
+   "max_abs_8bit": 0.00390625,
+   "pct_differ": 0.0968
+  },
+  "nr_default grain 8": {
+   "max_abs": 1,
+   "max_abs_8bit": 1.0,
+   "pct_differ": 0.0003
+  },
+  "nr_default vhs 16": {
+   "max_abs": 1,
+   "max_abs_8bit": 0.00390625,
+   "pct_differ": 0.0772
+  },
+  "nr_default vhs 8": {
+   "max_abs": 1,
+   "max_abs_8bit": 1.0,
+   "pct_differ": 0.0003
+  },
+  "nr_strong grain 16": {
+   "max_abs": 1,
+   "max_abs_8bit": 0.00390625,
+   "pct_differ": 0.1114
+  },
+  "nr_strong grain 8": {
+   "max_abs": 1,
+   "max_abs_8bit": 1.0,
+   "pct_differ": 0.0006
+  },
+  "nr_strong vhs 16": {
+   "max_abs": 1,
+   "max_abs_8bit": 0.00390625,
+   "pct_differ": 0.0861
+  },
+  "nr_strong vhs 8": {
+   "max_abs": 1,
+   "max_abs_8bit": 1.0,
+   "pct_differ": 0.0004
+  },
+  "qtgmc_dfttest vhs 8": {
+   "max_abs": 2,
+   "max_abs_8bit": 2.0,
+   "pct_differ": 0.0004
+  },
+  "tb3_sb12 grain 16": {
+   "max_abs": 1,
+   "max_abs_8bit": 0.00390625,
+   "pct_differ": 0.1313
+  },
+  "tb3_sb12 grain 8": {
+   "max_abs": 1,
+   "max_abs_8bit": 1.0,
+   "pct_differ": 0.0005
+  },
+  "tb3_sb12 vhs 16": {
+   "max_abs": 1,
+   "max_abs_8bit": 0.00390625,
+   "pct_differ": 0.0897
+  },
+  "tb3_sb12 vhs 8": {
+   "max_abs": 1,
+   "max_abs_8bit": 1.0,
+   "pct_differ": 0.0003
+  },
+  "td2_post3 grain 8": {
+   "max_abs": 2,
+   "max_abs_8bit": 2.0,
+   "pct_differ": 0.0006
+  },
+  "td2_post3 vhs 8": {
+   "max_abs": 2,
+   "max_abs_8bit": 2.0,
+   "pct_differ": 0.0002
+  }
+ },
+ "distinct": {
+  "dctfilter grain 16": 1,
+  "dctfilter grain 8": 1,
+  "dctfilter vhs 16": 1,
+  "dctfilter vhs 8": 1,
+  "fft3d_nr_bt3 grain 16": 1,
+  "fft3d_nr_bt3 grain 8": 1,
+  "fft3d_nr_bt3 vhs 16": 1,
+  "fft3d_nr_bt3 vhs 8": 1,
+  "fft3d_td2_spat grain 16": 1,
+  "fft3d_td2_spat grain 8": 1,
+  "fft3d_td2_spat vhs 16": 1,
+  "fft3d_td2_spat vhs 8": 1,
+  "nr_default grain 16": 2,
+  "nr_default grain 8": 2,
+  "nr_default vhs 16": 2,
+  "nr_default vhs 8": 2,
+  "nr_strong grain 16": 2,
+  "nr_strong grain 8": 2,
+  "nr_strong vhs 16": 2,
+  "nr_strong vhs 8": 2,
+  "qtgmc_dfttest vhs 8": 2,
+  "smdegrain_pf3 grain 8": 1,
+  "smdegrain_pf3 vhs 8": 1,
+  "tb1 grain 16": 1,
+  "tb1 grain 8": 1,
+  "tb1 vhs 16": 1,
+  "tb1 vhs 8": 1,
+  "tb1_sb12 grain 16": 1,
+  "tb1_sb12 grain 8": 1,
+  "tb1_sb12 vhs 16": 1,
+  "tb1_sb12 vhs 8": 1,
+  "tb3_sb12 grain 16": 2,
+  "tb3_sb12 grain 8": 2,
+  "tb3_sb12 vhs 16": 2,
+  "tb3_sb12 vhs 8": 2,
+  "td2_post3 grain 8": 2,
+  "td2_post3 vhs 8": 2
+ },
+ "keys_with_more_than_one": [
+  "nr_default grain 16",
+  "nr_default grain 8",
+  "nr_default vhs 16",
+  "nr_default vhs 8",
+  "nr_strong grain 16",
+  "nr_strong grain 8",
+  "nr_strong vhs 16",
+  "nr_strong vhs 8",
+  "qtgmc_dfttest vhs 8",
+  "tb3_sb12 grain 16",
+  "tb3_sb12 grain 8",
+  "tb3_sb12 vhs 16",
+  "tb3_sb12 vhs 8",
+  "td2_post3 grain 8",
+  "td2_post3 vhs 8"
+ ],
+ "machine": "macOS-15.7.9-x86_64-i386-64bit",
+ "plugin": "2D/3D frequency domain denoiser (VapourBox: locked per-thread buffers, task #98)",
+ "processes": 20,
+ "processor": "i386"
+}

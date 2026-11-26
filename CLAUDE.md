@@ -3945,8 +3945,8 @@ QTGMC's denoiser falls back to DFTTest.
   `_tierFiles` entry).
 - **Verified:** macOS arm64 and x64 (Rosetta) builds give the old builds'
   output byte for byte; the Windows DLLs build and export the init symbol
-  but can only be run in CI. DFTTest's own output varies between processes
-  (its `FFTW_PATIENT` planning, both builds alike; task #101).
+  but can only be run in CI. DFTTest's planning is task #101's (next
+  section).
 - `vapoursynth_integration_test.dart`'s `per-thread buffer maps (task #98)`
   group checks the markers (from deps 1.18.0-rc3) and the patches and
   scripts (push gate), and runs graphs of 1000 instances of each plus
@@ -3955,6 +3955,49 @@ QTGMC's denoiser falls back to DFTTest.
   'unordered_map<std::__1::__thread_id'` on a macOS build, or grep its source
   for `thread::id`. A locked map (BM3D r12's `GetThreadBuffer`) is fine
   (docs/reports/task-98-per-thread-buffer-maps).
+
+### DFTTest plans with FFTW_ESTIMATE (task #101)
+
+DFTTest planned its four FFTs (`dfttestCreate`) with `FFTW_PATIENT`, which
+times candidate plans **in each process**; plans round floats differently,
+so the same script gave one of several pictures depending on the process,
+and a preview and its encode (two processes) could disagree. FFT3DFilter's
+`measure=1` was the same fault (task #80). DFTTest has **no argument** that
+picks the planner, so:
+
+- **`Scripts/patches/dfttest-bc5e018-fftw-estimate.patch`, applied after
+  task #98's thread-safety patch on every platform** (its context is that
+  patch's name line; it applies to bc5e018 and yuygfgg's e6f580a alike),
+  plans with `FFTW_ESTIMATE` (one plan per machine, in every process) and
+  appends `; FFTW_ESTIMATE, task #101` to the plugin's name. All three
+  `download-deps-*` scripts require that marker (`DFTTEST_MARKER`,
+  `$DftMarker`) as well as task #98's, so a thread-safe build that still
+  plans with PATIENT is rebuilt, never shipped. No template change: there is
+  nothing to pass.
+- **Measured:** on every x86 machine (Linux, Windows and Intel Mac
+  runners, macOS x64 under Rosetta) the 3D plans (`tbsize` > 1: the Noise Reduction method,
+  QTGMC's dfttest denoiser and knlmeanscl fallback, TD2 postFFT 3) gave 2-3
+  pictures in 20-30 fresh processes, 1-2 levels apart in at most 0.13% of
+  samples; the 2D plans (`tbsize=1`, havsfunc's prefilters) and Apple
+  Silicon never did. ESTIMATE: one picture everywhere, no measurable speed
+  cost, and no FFTW problem shared with FFT3DFilter's
+  (docs/reports/task-101-dfttest-fftw-planning).
+- **DCTFilter stays `FFTW_PATIENT`** (the user's decision in task #96); its
+  8x8 r2r plans are a different FFTW problem from DFTTest's and
+  FFT3DFilter's.
+- **Before adding a plugin that uses FFTW, look for per-process planning:**
+  `FFTW_MEASURE`, `FFTW_PATIENT` or `FFTW_EXHAUSTIVE` in its source (or a
+  `measure`-style argument defaulting to them) means a preview can differ
+  from its encode. FFTW also reuses a more patient plan made earlier in the
+  process for a later ESTIMATE request of the same problem, so one such call
+  can undo the others.
+- `vapoursynth_integration_test.dart`'s `dfttest FFTW planning (task #101)`
+  group checks the marker and that a second process filters exactly as the
+  first (from deps 1.18.0-rc4), and the patch and scripts (push gate);
+  `integration_dfttest_determinism_test.dart` (heavy) checks six previews
+  and the lossless encode agree sample for sample for the Noise Reduction
+  DFTTest method, QTGMC's dfttest denoiser and TemporalDegrain2 postFFT 3
+  (with its FFT3DFilter spatial pass).
 
 ## Debugging Tips
 
@@ -4473,4 +4516,4 @@ Full write-ups (root causes, measurements) for each entry are in
 | 1.15.0 | 2026-11-03 | **Issue #144**: KNLMeansCL moves to Jaded Encoding Thaumaturgy's fork **v1.3** on every platform (Windows: PyPI wheel, replacing Khanattila's 2018 v1.1.1 zip, which refused 10-bit 4:2:0; macOS/Linux: the `v1.3` tag, replacing unpinned master, which gave unrepeatable results on Apple's OpenCL). Both meson patchers learn v1.3's assigned `run_command` include probe. Published as the tested `deps-v1.15.0-rc1` bundles with only the version changed |
 | 1.16.0 | 2026-11-09 | **vszip 22.1.0 → 24.0.0** on every platform (CPU `NLMeans` for Noise Reduction's NLMeans (CPU) and the vine dehalo; macOS x64 sdist now built with Zig 0.17.0). Adds **SangNom** r45 (PyPI wheels; MIT source, GPL-2.0 binaries) on every platform for Anti-aliasing's SangNom method. Both single-file on x64 (no AVX), so `_tierFiles` is unchanged. **rc2: the AI models leave the bundle** — RIFE 4.26's (now the `frame-rate-rife` add-on) and the Real-ESRGAN anime / Real-CUGAN ones (now `upscale-anime`); the plugins stay, and their probes run stand-in models. Published as the tested `deps-v1.16.0-rc2` bundles with only the version changed (`Scripts/promote-deps-rc.py`) |
 | 1.17.0 | rc1 2026-11-15, rc2 2026-11-16, rc3 2026-11-17 | **Task #36**: macOS arm64 libdvdread built from 6.1.3 source (patched to find a user's libdvdcss in `/opt/homebrew/lib`, `/usr/local/lib`, `/opt/local/lib`) instead of Homebrew's bottle, which linked `/opt/homebrew/opt/libdvdcss/…` and failed to load on Macs without it; macOS x64 gets the same patched build. Absolute build-machine rpaths stripped from libvapoursynth, vapoursynth.abi3.so, libfftw3f*, libboost_charconv, bm3d, dctfilter and mvtools (inert: nothing used `@rpath`). Windows and Linux binaries unchanged; libdvdread is now a required file on every platform. **rc2** (task #45): macOS x64 FFmpeg evermeet 9.0.1 → martin-riedl 9.0.2 (build 1789931006, pinned by SHA-256), which has SVT-AV1, so AV1 output works on Intel Macs; x264/x265/MP3 bitstreams change there, native codecs byte-identical. **rc3** (task #60): **Bifrost** v3.0 → **4.0** from its PyPI wheels on every platform (was the v3.0 tag's `bifrost.c` built from source on macOS/Linux, v3.0's 7z on Windows), under the same file names; v3.0 left chroma past the last whole 4x4 block uninitialised (different output run to run at width 98, 720x486), v4.0 initialises it and runs at 8–16 bits natively. No AVX, so `_tierFiles` unchanged |
-| 1.18.0 | rc1 2026-11-19, rc2 2026-11-20, rc3 2026-11-22 | **Task #62**: FFT3DFilter built from source at R2 with `patches/fft3dfilter-r2-determinism.patch` on every platform (Windows: Zig cross-compile replacing the R2 release DLL; macOS arm64: replacing yuygfgg's prebuilt), so its output no longer differs from run to run. One build for both x64 tiers; file names unchanged. **Task #68**: vspipe R78 with upstream's frame-done count fix (`patches/vapoursynth-r78-vspipe-frame-done-count.patch`, 4ff3f8a0) on every platform (Windows: Zig build replacing the wheel's `vspipe.exe`), so a one-frame preview can no longer be torn down under its last frame's callback (SIGSEGV). VapourSynth stays R78: R80 dropped API 3, which 12 bundled plugins need. **rc2** (task #80): the FFT3DFilter patch also makes `measure=0` (FFTW_ESTIMATE) the default; FFTW_MEASURE timed its plans per process, so on x86 two processes (a preview and its encode) could filter differently. File names unchanged. **rc3** (task #82): havsfunc patch 8, LUTDeCrawl/LUTDeRainbow's mask ANDs as `Expr 'x y min'` instead of Python Lut2 tables, bit-identical (10-bit preview with both on: ~18 s → 0.33 s on an M1). Also **task #96**: DCTFilter built from source at r3.2 with `patches/dctfilter-r3.2-thread-safety.patch` (upstream's c924a7a) on every platform (Windows: Zig build replacing the r2 release DLL; macOS x64: replacing Stefan-Olt's r2.1; macOS arm64/Linux: pinned, were unpinned HEAD, the same code). r2/r2.1 aborted about one run in a hundred under threads (0xC0000409 on Windows). Same output sample for sample; file names unchanged. Also **task #98**: DFTTest (bc5e018; macOS arm64 yuygfgg's fork e6f580a), LGhost r1, CTMF r5, TCanny 14ac2ce and (macOS arm64, Linux) EEDI3m r10 built from source with `patches/<plugin>-<ver>-thread-safety.patch`, which locks their per-thread buffer maps (aborts with `unordered_map::at` / 0xC0000409) and marks the plugin's name; replaces the Windows release DLLs, Stefan-Olt's macOS prebuilts, yuygfgg's arm64 DFTTest and Stefan-Olt's Linux x64 LGhost. Same output (macOS measured); file names unchanged. macOS arm64's FFmpeg is now pinned to martin-riedl build 1789931890 (9.0.2, the binary rc2 shipped) after `latest` moved to 9.1. Also **task #103**: Linux VapourSynth's statically linked zimg (R78's `subprojects/zimg.wrap`, `revision = HEAD`) pinned to 67e06032 / graphengine cb5b2ce1, what rc2's build cloned; rc3's first Linux build had cloned master's `e2e43d09` and aborted in every resize ("double free or corruption"), so rc3's Linux assets were replaced with the pinned build |
+| 1.18.0 | rc1 2026-11-19, rc2 2026-11-20, rc3 2026-11-22, rc4 (pending) | **Task #62**: FFT3DFilter built from source at R2 with `patches/fft3dfilter-r2-determinism.patch` on every platform (Windows: Zig cross-compile replacing the R2 release DLL; macOS arm64: replacing yuygfgg's prebuilt), so its output no longer differs from run to run. One build for both x64 tiers; file names unchanged. **Task #68**: vspipe R78 with upstream's frame-done count fix (`patches/vapoursynth-r78-vspipe-frame-done-count.patch`, 4ff3f8a0) on every platform (Windows: Zig build replacing the wheel's `vspipe.exe`), so a one-frame preview can no longer be torn down under its last frame's callback (SIGSEGV). VapourSynth stays R78: R80 dropped API 3, which 12 bundled plugins need. **rc2** (task #80): the FFT3DFilter patch also makes `measure=0` (FFTW_ESTIMATE) the default; FFTW_MEASURE timed its plans per process, so on x86 two processes (a preview and its encode) could filter differently. File names unchanged. **rc3** (task #82): havsfunc patch 8, LUTDeCrawl/LUTDeRainbow's mask ANDs as `Expr 'x y min'` instead of Python Lut2 tables, bit-identical (10-bit preview with both on: ~18 s → 0.33 s on an M1). Also **task #96**: DCTFilter built from source at r3.2 with `patches/dctfilter-r3.2-thread-safety.patch` (upstream's c924a7a) on every platform (Windows: Zig build replacing the r2 release DLL; macOS x64: replacing Stefan-Olt's r2.1; macOS arm64/Linux: pinned, were unpinned HEAD, the same code). r2/r2.1 aborted about one run in a hundred under threads (0xC0000409 on Windows). Same output sample for sample; file names unchanged. Also **task #98**: DFTTest (bc5e018; macOS arm64 yuygfgg's fork e6f580a), LGhost r1, CTMF r5, TCanny 14ac2ce and (macOS arm64, Linux) EEDI3m r10 built from source with `patches/<plugin>-<ver>-thread-safety.patch`, which locks their per-thread buffer maps (aborts with `unordered_map::at` / 0xC0000409) and marks the plugin's name; replaces the Windows release DLLs, Stefan-Olt's macOS prebuilts, yuygfgg's arm64 DFTTest and Stefan-Olt's Linux x64 LGhost. Same output (macOS measured); file names unchanged. macOS arm64's FFmpeg is now pinned to martin-riedl build 1789931890 (9.0.2, the binary rc2 shipped) after `latest` moved to 9.1. Also **task #103**: Linux VapourSynth's statically linked zimg (R78's `subprojects/zimg.wrap`, `revision = HEAD`) pinned to 67e06032 / graphengine cb5b2ce1, what rc2's build cloned; rc3's first Linux build had cloned master's `e2e43d09` and aborted in every resize ("double free or corruption"), so rc3's Linux assets were replaced with the pinned build. **rc4** (task #101): `patches/dfttest-bc5e018-fftw-estimate.patch`, applied after task #98's, makes DFTTest plan with FFTW_ESTIMATE instead of FFTW_PATIENT (PATIENT timed its plans per process, so on x86 a preview and its encode could differ by 1-2 levels); marker `FFTW_ESTIMATE, task #101` in its name. File names unchanged |

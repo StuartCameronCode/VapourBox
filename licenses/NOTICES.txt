@@ -497,10 +497,13 @@ DFTTest — GPL-3.0
   Copyright (C) 2007-2010 Kevin Stone (tritical); VapourSynth port by HolyWu
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest
   Licence text: GPL-3.0.txt
-  Built from source on every platform with VapourBox's patch
+  Built from source on every platform with VapourBox's patches
   Scripts/patches/dfttest-bc5e018-thread-safety.patch, which locks its
-  per-thread buffer maps (task #98); the patched source is the upstream
-  commit named in the patch plus that file.
+  per-thread buffer maps (task #98), and
+  Scripts/patches/dfttest-bc5e018-fftw-estimate.patch, which plans its FFTs
+  with FFTW_ESTIMATE instead of FFTW_PATIENT (task #101); the patched source
+  is the upstream commit named in the patches plus those files, applied in
+  that order.
   On Apple Silicon the source is yuygfgg's fork with an sse2neon port of the
   SSE2 kernels: https://github.com/yuygfgg/VapourSynth-DFTTest
 

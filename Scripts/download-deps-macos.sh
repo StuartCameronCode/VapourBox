@@ -1003,7 +1003,13 @@ PYEOF
 # download-deps-windows.ps1. DFTTest on arm64 is yuygfgg's fork (bc5e018 + an
 # sse2neon port of the SSE2 kernels), which the bundle has always shipped
 # prebuilt: upstream's scalar path gives a different picture there.
+# Task #101: DFTTest also takes patches/dfttest-bc5e018-fftw-estimate.patch,
+# applied after the thread-safety one (its context is that patch's name line),
+# which plans with FFTW_ESTIMATE instead of FFTW_PATIENT (PATIENT timed its
+# plans per process, so a preview and its encode could filter differently)
+# and adds DFTTEST_MARKER to the name, required here like TASK98_MARKER.
 TASK98_MARKER="locked per-thread buffers, task #98"
+DFTTEST_MARKER="FFTW_ESTIMATE, task #101"
 DFTTEST_COMMIT="bc5e0186a7f309556f20a8e9502f2238e39179b8"          # r7 + 2; no later tag
 DFTTEST_ARM64_COMMIT="e6f580aac37d3f8900c2a52b154ce75bf629c9bd"    # yuygfgg/VapourSynth-DFTTest
 LGHOST_TAG="r1"
@@ -1825,12 +1831,24 @@ fi
 # sse2neon SSE2 kernels with its own -Ofast. Hidden visibility, as meson builds
 # them: exported template code is merged by dyld with any other image's copy.
 FFTW_INC="$(brew --prefix fftw)/include"
-build_task98_plugin() {  # <Dir> <repo> <ref> <patch> <out dylib> <arm64 sources> <arm64 flags> [libs...]
-    local dir="$1" repo="$2" ref="$3" patch="$4" out="$5" arm_sources="$6" arm_flags="$7"
+# Every marker a build of <out dylib> must carry: TASK98_MARKER, and for
+# DFTTest also DFTTEST_MARKER (task #101), so a thread-safe build that still
+# plans with FFTW_PATIENT is rebuilt, never shipped.
+task98_has_markers() {  # <dylib path>
+    grep -aqF "$TASK98_MARKER" "$1" 2>/dev/null || return 1
+    if [ "$(basename "$1")" = libdfttest.dylib ]; then
+        grep -aqF "$DFTTEST_MARKER" "$1" 2>/dev/null || return 1
+    fi
+    return 0
+}
+# <patches> is a space-separated list under patches/, applied in order; the
+# build fails if any of them does not apply.
+build_task98_plugin() {  # <Dir> <repo> <ref> <patches> <out dylib> <arm64 sources> <arm64 flags> [libs...]
+    local dir="$1" repo="$2" ref="$3" patches="$4" out="$5" arm_sources="$6" arm_flags="$7"
     shift 7
     local libs=("$@")
     cd "$BUILD_DIR"
-    if [ "$FORCE" = false ] && grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/$out" 2>/dev/null; then
+    if [ "$FORCE" = false ] && task98_has_markers "$PLUGINS_DIR/$out"; then
         echo "  $dir (patched, task #98) already exists, skipping"
         return 0
     fi
@@ -1842,10 +1860,13 @@ build_task98_plugin() {  # <Dir> <repo> <ref> <patch> <out dylib> <arm64 sources
         echo "  ERROR: could not fetch $dir at $ref" >&2
         exit 1
     fi
-    (cd "$src" && git apply "$SCRIPT_DIR/patches/$patch") || {
-        echo "  ERROR: patches/$patch did not apply to $dir $ref - re-check the patch." >&2
-        exit 1
-    }
+    local patch
+    for patch in $patches; do
+        (cd "$src" && git apply "$SCRIPT_DIR/patches/$patch") || {
+            echo "  ERROR: patches/$patch did not apply to $dir $ref - re-check the patch." >&2
+            exit 1
+        }
+    done
     local upper
     upper=$(echo "$dir" | tr '[:lower:]' '[:upper:]')
     local cxx=(c++ -std=c++17 -O3 -fPIC -fvisibility=hidden -fno-math-errno -fno-trapping-math
@@ -1884,8 +1905,8 @@ build_task98_plugin() {  # <Dir> <repo> <ref> <patch> <out dylib> <arm64 sources
         install_name_tool -change "$ref" "@loader_path/../../lib/$(basename "$ref")" "$PLUGINS_DIR/$out"
     done
     codesign -s - -f "$PLUGINS_DIR/$out" 2>/dev/null || true
-    grep -aqF "$TASK98_MARKER" "$PLUGINS_DIR/$out" || {
-        echo "  ERROR: $out lacks the task #98 marker" >&2
+    task98_has_markers "$PLUGINS_DIR/$out" || {
+        echo "  ERROR: $out lacks the task #98 marker (or, for DFTTest, task #101's)" >&2
         exit 1
     }
     echo "  Built $dir -> $out"
@@ -1894,12 +1915,13 @@ build_task98_plugin() {  # <Dir> <repo> <ref> <patch> <out dylib> <arm64 sources
 
 if [ "$ARCH" = "arm64" ]; then
     build_task98_plugin DFTTest https://github.com/yuygfgg/VapourSynth-DFTTest.git \
-        "$DFTTEST_ARM64_COMMIT" dfttest-bc5e018-thread-safety.patch libdfttest.dylib \
+        "$DFTTEST_ARM64_COMMIT" "dfttest-bc5e018-thread-safety.patch dfttest-bc5e018-fftw-estimate.patch" libdfttest.dylib \
         "DFTTest.cpp DFTTest_SSE2.cpp VCL2/instrset_detect.cpp" "-Ofast -ftree-vectorize" \
         "$LIB_DIR/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
 else
     build_task98_plugin DFTTest https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DFTTest.git \
-        "$DFTTEST_COMMIT" dfttest-bc5e018-thread-safety.patch libdfttest.dylib "" "" \
+        "$DFTTEST_COMMIT" "dfttest-bc5e018-thread-safety.patch dfttest-bc5e018-fftw-estimate.patch" \
+        libdfttest.dylib "" "" \
         "$LIB_DIR/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
 fi
 build_task98_plugin LGhost https://github.com/HomeOfVapourSynthEvolution/VapourSynth-LGhost.git \

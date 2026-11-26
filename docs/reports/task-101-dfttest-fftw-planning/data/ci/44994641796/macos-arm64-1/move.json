@@ -1,0 +1,409 @@
+{
+ "dctfilter grain 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "dctfilter grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "dctfilter vhs 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "dctfilter vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "fft3d_nr_bt3 grain 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "fft3d_nr_bt3 grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "fft3d_nr_bt3 vhs 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "fft3d_nr_bt3 vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "fft3d_td2_spat grain 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "fft3d_td2_spat grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "fft3d_td2_spat vhs 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "fft3d_td2_spat vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "nr_default grain 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 0.00390625,
+    "pct_differ": 0.0917
+   }
+  ]
+ },
+ "nr_default grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 1.0,
+    "pct_differ": 0.0004
+   }
+  ]
+ },
+ "nr_default vhs 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 0.00390625,
+    "pct_differ": 0.0768
+   }
+  ]
+ },
+ "nr_default vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 1.0,
+    "pct_differ": 0.0002
+   }
+  ]
+ },
+ "nr_strong grain 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 0.00390625,
+    "pct_differ": 0.1082
+   }
+  ]
+ },
+ "nr_strong grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 1.0,
+    "pct_differ": 0.0005
+   }
+  ]
+ },
+ "nr_strong vhs 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 0.00390625,
+    "pct_differ": 0.0858
+   }
+  ]
+ },
+ "nr_strong vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 1.0,
+    "pct_differ": 0.0004
+   }
+  ]
+ },
+ "qtgmc_dfttest vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 2,
+    "max_abs_8bit": 2.0,
+    "pct_differ": 0.0008
+   }
+  ]
+ },
+ "smdegrain_pf3 grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "smdegrain_pf3 vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "tb1 grain 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "tb1 grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "tb1 vhs 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "tb1 vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "tb1_sb12 grain 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "tb1_sb12 grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "tb1_sb12 vhs 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "tb1_sb12 vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 0,
+    "max_abs_8bit": 0.0,
+    "pct_differ": 0.0
+   }
+  ]
+ },
+ "tb3_sb12 grain 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 0.00390625,
+    "pct_differ": 0.1297
+   }
+  ]
+ },
+ "tb3_sb12 grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 1.0,
+    "pct_differ": 0.0005
+   }
+  ]
+ },
+ "tb3_sb12 vhs 16": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 0.00390625,
+    "pct_differ": 0.0867
+   }
+  ]
+ },
+ "tb3_sb12 vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 1,
+    "max_abs_8bit": 1.0,
+    "pct_differ": 0.0003
+   }
+  ]
+ },
+ "td2_post3 grain 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 2,
+    "max_abs_8bit": 2.0,
+    "pct_differ": 0.0004
+   }
+  ]
+ },
+ "td2_post3 vhs 8": {
+  "estimate_pictures": 1,
+  "patient_pictures": 1,
+  "vs_patient": [
+   {
+    "max_abs": 2,
+    "max_abs_8bit": 2.0,
+    "pct_differ": 0.0005
+   }
+  ]
+ }
+}
