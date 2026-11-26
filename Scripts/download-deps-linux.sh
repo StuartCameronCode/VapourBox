@@ -211,20 +211,17 @@ PYTHON_LIB="$PYTHON_DIR/lib/libpython${PYTHON_MAJOR_MINOR}.so"
 PYTHON_INCLUDE="$PYTHON_DIR/include/python${PYTHON_MAJOR_MINOR}"
 
 # ============================================================================
-# Build zimg from source (VapourSynth dependency)
+# The zimg VapourSynth links (task #103)
 # ============================================================================
-echo ""
-echo "=== Building zimg ==="
-
-# The one zimg revision for this platform (task #103), used twice: this
-# standalone libzimg.so, and the zimg VapourSynth links statically from its
-# own subprojects/zimg.wrap (pinned in the VapourSynth block below). The
-# second is the one VapourSynth's resize runs: meson finds no zimg.pc there
-# (see the VapourSynth block), so it builds the wrap, whose revision is HEAD.
-# Unpinned, that cloned zimg master at build time: e2e43d09 "Update
-# graphengine" (2026-11-21) reached the 1.18.0-rc3 build and every job that
-# resized aborted with "double free or corruption" in vszimg::real_get_frame.
-# 67e06032 is what deps 1.18.0-rc2's build cloned, so output is unchanged.
+# VapourSynth's resize is zimg, linked statically from R78's own
+# subprojects/zimg.wrap: meson is deliberately offered no zimg.pc (see the
+# VapourSynth block), and no standalone libzimg.so is built or shipped (task
+# #111: the one built until then was loaded by nothing). The wrap says
+# `revision = HEAD`, so unpinned it cloned zimg master at build time:
+# e2e43d09 "Update graphengine" (2026-11-21) reached the 1.18.0-rc3 build
+# and every job that resized aborted with "double free or corruption" in
+# vszimg::real_get_frame. 67e06032 is what deps 1.18.0-rc2's build cloned,
+# so output is unchanged.
 # Git, not a release: R78 reads chromatic_adaptation (ZIMG_API_VERSION 2.5),
 # which no release has (patches/vapoursynth-r78-zimg-api-guard.patch).
 # Bumping either commit changes VapourSynth's own resize on Linux: test it
@@ -232,31 +229,9 @@ echo "=== Building zimg ==="
 ZIMG_COMMIT="67e0603271c080e22c8429856dd4a8a56587e61e"             # 2026-09-04
 ZIMG_GRAPHENGINE_COMMIT="cb5b2ce13384ec2491f0c37256ea210034799f69"  # its graphengine submodule
 
-if [ "$FORCE" = true ] || [ ! -f "$BUILD_PREFIX/lib/libzimg.so" ]; then
-    cd "$BUILD_DIR"
-    rm -rf zimg
-    git clone -q https://github.com/sekrit-twc/zimg.git zimg
-    git -C zimg checkout -q "$ZIMG_COMMIT"
-    # Only graphengine: test/extra/googletest is for --enable-unit-test.
-    git -C zimg submodule update --init graphengine
-    if [ "$(git -C zimg rev-parse HEAD)" != "$ZIMG_COMMIT" ] \
-        || [ "$(git -C zimg/graphengine rev-parse HEAD)" != "$ZIMG_GRAPHENGINE_COMMIT" ]; then
-        echo "  ERROR: zimg is not at $ZIMG_COMMIT with graphengine $ZIMG_GRAPHENGINE_COMMIT" >&2
-        exit 1
-    fi
-    echo "  zimg at ${ZIMG_COMMIT:0:8} (graphengine ${ZIMG_GRAPHENGINE_COMMIT:0:8})"
-    cd zimg
-    ./autogen.sh
-    ./configure --prefix="$BUILD_PREFIX"
-    make -j"$NPROC"
-    make install
-
-    # Copy to deps
-    cp "$BUILD_PREFIX/lib/libzimg.so"* "$DEPS_DIR/vapoursynth/"
-    echo "  Built zimg"
-else
-    echo "  zimg already built, skipping"
-fi
+# A deps/ tree built before task #111 still holds the standalone libzimg.so;
+# remove it so a re-run without --force matches a CI build.
+rm -f "$DEPS_DIR/vapoursynth/libzimg.so"*
 
 # ============================================================================
 # Build VapourSynth from source with embedded Python
@@ -306,9 +281,9 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.so" ] \
     echo "  Applied the vspipe frame-done count fix"
 
     # Pin the zimg VapourSynth links (task #103). R78's subprojects/zimg.wrap
-    # says `revision = HEAD`, and meson builds it because it finds no zimg.pc
-    # (the setup below never receives PKG_CONFIG_PATH: task #111), so
-    # unpinned it is whatever zimg master is that day. A SHA with `depth = 1`
+    # says `revision = HEAD`, and meson builds it because the setup below
+    # offers it no zimg.pc, on purpose (task #111), so unpinned it is
+    # whatever zimg master is that day. A SHA with `depth = 1`
     # needs a fetch by commit, so the shallow clone goes too (zimg is small).
     ZIMG_WRAP="$VS_BUILD_DIR/subprojects/zimg.wrap"
     if ! grep -qx 'revision = HEAD' "$ZIMG_WRAP"; then
@@ -318,89 +293,33 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.so" ] \
     sed -i -e "s/^revision = HEAD\$/revision = $ZIMG_COMMIT/" -e '/^depth = /d' "$ZIMG_WRAP"
     echo "  Pinned subprojects/zimg.wrap to ${ZIMG_COMMIT:0:8}"
 
-    # Install Cython in our embedded Python for building
-    echo "  Installing Cython in embedded Python..."
+    # meson for the setup below. (pip's Cython is installed alongside but not
+    # used here: meson takes apt's cython3, checked below.)
+    echo "  Installing meson in embedded Python..."
     "$PYTHON_BIN" -m pip install --quiet cython meson
 
-    # Create pkg-config file for our embedded Python
-    mkdir -p "$BUILD_DIR/pkgconfig"
-    cat > "$BUILD_DIR/pkgconfig/python3.pc" << EOF
-prefix=$PYTHON_DIR
-exec_prefix=\${prefix}
-libdir=\${prefix}/lib
-includedir=\${prefix}/include
-
-Name: Python
-Description: Embedded Python
-Version: $PYTHON_VERSION
-Libs: -L\${libdir} -lpython${PYTHON_MAJOR_MINOR}
-Cflags: -I\${includedir}/python${PYTHON_MAJOR_MINOR}
-EOF
-    cat > "$BUILD_DIR/pkgconfig/python-${PYTHON_MAJOR_MINOR}.pc" << EOF
-prefix=$PYTHON_DIR
-exec_prefix=\${prefix}
-libdir=\${prefix}/lib
-includedir=\${prefix}/include
-
-Name: Python
-Description: Embedded Python
-Version: $PYTHON_VERSION
-Libs: -L\${libdir} -lpython${PYTHON_MAJOR_MINOR}
-Cflags: -I\${includedir}/python${PYTHON_MAJOR_MINOR}
-EOF
-    cp "$BUILD_DIR/pkgconfig/python-${PYTHON_MAJOR_MINOR}.pc" "$BUILD_DIR/pkgconfig/python3-embed.pc"
-
-    # Copy zimg pkg-config from the build (has correct version)
-    if [ -f "$BUILD_PREFIX/lib/pkgconfig/zimg.pc" ]; then
-        cp "$BUILD_PREFIX/lib/pkgconfig/zimg.pc" "$BUILD_DIR/pkgconfig/"
+    # The toolchain is the system one, and that is deliberate (task #111):
+    # R78 needs GCC >= 13 (float16_helper.h uses _Float16 in C++ and
+    # averageframesfilter.cpp uses __builtin_roundevenf), which ubuntu-24.04
+    # has. Fail loudly rather than dying later inside a template error.
+    GCC_MAJOR=$(gcc -dumpversion 2>/dev/null | cut -d. -f1)
+    if [ -z "$GCC_MAJOR" ] || [ "$GCC_MAJOR" -lt 13 ]; then
+        echo "  ERROR: VapourSynth $VS_TAG needs GCC >= 13; found gcc ${GCC_MAJOR:-unknown}." >&2
+        exit 1
     fi
 
-    # meson looks for a "cython3" program before "cython", so apt's cython3
-    # (0.29 on jammy) wins over the Cython 3.x we just installed into the
-    # embedded interpreter no matter how PATH is ordered — and R78's
-    # vapoursynth.pyx uses Cython 3 syntax, failing with "Syntax error in C
-    # variable declaration" on `noexcept`. Provide both names as wrappers that
-    # run the module, which also sidesteps the console script's baked-in
-    # shebang (it points at the machine that built the interpreter).
-    for cy in cython cython3; do
-        cat > "$PYTHON_DIR/bin/$cy" << CYEOF
-#!/bin/bash
-exec "$PYTHON_DIR/bin/python3" -m cython "\$@"
-CYEOF
-        chmod +x "$PYTHON_DIR/bin/$cy"
-    done
-
-    # R78 needs a newer C++ toolchain than Ubuntu 22.04's default gcc 11:
-    # float16_helper.h uses _Float16 in C++ and averageframesfilter.cpp uses
-    # __builtin_roundevenf. Use a newer clang for VapourSynth alone if one is
-    # installed, leaving every other component on the system compiler. Fail
-    # loudly rather than dying later inside a confusing template error.
-    VS_CC=""; VS_CXX=""
-    for v in 19 18 17; do
-        if command -v "clang-$v" >/dev/null 2>&1; then
-            VS_CC="clang-$v"; VS_CXX="clang++-$v"; break
-        fi
-    done
-    if [ -z "$VS_CC" ]; then
-        GCC_MAJOR=$(gcc -dumpversion 2>/dev/null | cut -d. -f1)
-        if [ -z "$GCC_MAJOR" ] || [ "$GCC_MAJOR" -lt 13 ]; then
-            echo "  ERROR: VapourSynth $VS_TAG needs clang >= 17 or GCC >= 13." >&2
-            echo "  Found gcc ${GCC_MAJOR:-unknown} and no suitable clang." >&2
-            exit 1
-        fi
+    # R78's vapoursynth.pyx uses Cython 3 syntax (`noexcept`), and meson
+    # takes the system's cython3 (apt's 3.0.8 on ubuntu-24.04). An older one
+    # fails with "Syntax error in C variable declaration".
+    CYTHON_MAJOR=$(cython3 --version 2>&1 | sed -n 's/.*version \([0-9][0-9]*\)\..*/\1/p' | head -1)
+    if [ -z "$CYTHON_MAJOR" ] || [ "$CYTHON_MAJOR" -lt 3 ]; then
+        echo "  ERROR: VapourSynth $VS_TAG needs Cython 3 as cython3; found: $(cython3 --version 2>&1 | head -1)" >&2
+        echo "  Install it with: sudo apt install cython3 (ubuntu-24.04 has 3.0.8)" >&2
+        exit 1
     fi
-    [ -n "$VS_CC" ] && echo "  Using $VS_CC for VapourSynth"
+    echo "  VapourSynth builds with gcc $GCC_MAJOR, $(cython3 --version 2>&1 | head -1)"
 
     echo "  Configuring VapourSynth..."
-    # CC/CXX go through `env` rather than as assignment prefixes: bash only
-    # treats an assignment as one when it is literal at parse time, so
-    # ${VS_CC:+CC=...} would expand into a command word and fail with
-    # "CC=clang-19: command not found". Only `meson setup` needs them — the
-    # compiler is recorded in the build directory, so ninja does not.
-    PATH="$PYTHON_DIR/bin:$PATH" \
-    PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BUILD_PREFIX/lib/pkgconfig" \
-    LD_LIBRARY_PATH="$PYTHON_DIR/lib:$BUILD_PREFIX/lib:${LD_LIBRARY_PATH:-}" \
-    env ${VS_CC:+CC="$VS_CC"} ${VS_CXX:+CXX="$VS_CXX"} \
     # Run meson with the EMBEDDED python, not whatever meson happens to be
     # installed under. R78 locates Python with
     # `import('python').find_installation()`, which resolves to the interpreter
@@ -408,8 +327,16 @@ CYEOF
     # -Dpython3_bin option that used to override it was removed. Left alone,
     # meson picks the runner's system python: on Linux that has no development
     # headers, so configuration dies with "Header 'Python.h' could not be
-    # found", and on macOS it silently builds and installs against Homebrew's
-    # python instead of the one we ship.
+    # found".
+    #
+    # No environment is passed, on purpose (task #111): the system gcc, the
+    # system cython3, and no PKG_CONFIG_PATH, so meson finds no zimg.pc and
+    # builds the pinned subprojects/zimg.wrap into libvapoursynth statically.
+    # This is how every Linux bundle has been built since deps 1.8.0: until
+    # task #111 the script meant to pass clang, a zimg.pc and Cython
+    # wrappers through a `\` continuation that ended on a comment, so meson
+    # never saw them. Adding PKG_CONFIG_PATH here would link a zimg.pc
+    # instead and change every resize (zimg_pin_test.dart fails on it).
     "$PYTHON_BIN" -m mesonbuild.mesonmain setup build \
         --prefix="$VS_INSTALL_DIR" \
         --buildtype=release \
@@ -419,18 +346,18 @@ CYEOF
     if [ "$(git -C subprojects/zimg rev-parse HEAD 2>/dev/null)" != "$ZIMG_COMMIT" ] \
         || [ "$(git -C subprojects/zimg/graphengine rev-parse HEAD 2>/dev/null)" != "$ZIMG_GRAPHENGINE_COMMIT" ]; then
         echo "  ERROR: VapourSynth's zimg subproject is not at $ZIMG_COMMIT with graphengine $ZIMG_GRAPHENGINE_COMMIT" >&2
-        echo "  If meson now finds zimg.pc (task #111 fixed), there is no subproject: VapourSynth links the" >&2
-        echo "  standalone libzimg.so built above; re-check which zimg it links and move this check (task #103)." >&2
+        echo "  meson must build R78's subprojects/zimg.wrap (pinned above). If it found a system zimg.pc" >&2
+        echo "  instead, there is no subproject and VapourSynth links that zimg: a bug (tasks #103, #111)." >&2
         exit 1
     fi
     echo "  VapourSynth links zimg ${ZIMG_COMMIT:0:8} (graphengine ${ZIMG_GRAPHENGINE_COMMIT:0:8})"
 
     echo "  Building VapourSynth..."
     PATH="$PYTHON_DIR/bin:$PATH" \
-    LD_LIBRARY_PATH="$PYTHON_DIR/lib:$BUILD_PREFIX/lib:${LD_LIBRARY_PATH:-}" \
+    LD_LIBRARY_PATH="$PYTHON_DIR/lib:${LD_LIBRARY_PATH:-}" \
     ninja -C build
     PATH="$PYTHON_DIR/bin:$PATH" \
-    LD_LIBRARY_PATH="$PYTHON_DIR/lib:$BUILD_PREFIX/lib:${LD_LIBRARY_PATH:-}" \
+    LD_LIBRARY_PATH="$PYTHON_DIR/lib:${LD_LIBRARY_PATH:-}" \
     ninja -C build install
 
     echo "  Copying VapourSynth files..."

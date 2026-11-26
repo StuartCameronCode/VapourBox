@@ -539,10 +539,6 @@ Cflags: -I\${includedir}/python${PYTHON_MAJOR_MINOR}
 EOF
     cp "$BUILD_DIR/pkgconfig/python-${PYTHON_MAJOR_MINOR}.pc" "$BUILD_DIR/pkgconfig/python3-embed.pc"
 
-    echo "  Configuring VapourSynth..."
-    # Configure with no system plugin path and using our embedded Python
-    PATH="$PYTHON_DIR/bin:$BREW_PREFIX/opt/cython/bin:$PATH" \
-    PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BREW_PREFIX/lib/pkgconfig" \
     # meson looks for a "cython3" program before "cython", so apt's cython3
     # (0.29 on jammy) wins over the Cython 3.x we just installed into the
     # embedded interpreter no matter how PATH is ordered — and R78's
@@ -558,6 +554,26 @@ CYEOF
         chmod +x "$PYTHON_DIR/bin/$cy"
     done
 
+    # These two are plain assignments, not prefixes of the meson command, and
+    # they stay in effect for the REST OF THE SCRIPT (task #111). They were
+    # written as prefixes, but from 3094c648 (2026-08-07) a comment ended the
+    # `\` continuation before meson, which made them assignments; every deps
+    # bundle since was built this way, so they are kept as they behave:
+    #  - PATH is already exported, so from here on the embedded Python's bin
+    #    comes first: meson finds the Cython wrappers above, and every later
+    #    plugin build runs pip's meson and the embedded python3 rather than
+    #    Homebrew's.
+    #  - PKG_CONFIG_PATH is NOT exported (keep it that way: exporting it would
+    #    hand it to the meson setup below and change its python lookup), so
+    #    meson setup does not see it, but every later
+    #    `PKG_CONFIG_PATH="…:${PKG_CONFIG_PATH:-}"` prefix includes it.
+    # They are inside the VapourSynth `if`, which CI always enters; a local
+    # re-run that skips VapourSynth builds the plugins with Homebrew's meson
+    # and python3 instead.
+    PATH="$PYTHON_DIR/bin:$BREW_PREFIX/opt/cython/bin:$PATH"
+    PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BREW_PREFIX/lib/pkgconfig"
+
+    echo "  Configuring VapourSynth..."
     # Run meson with the EMBEDDED python, not whatever meson happens to be
     # installed under. R78 locates Python with
     # `import('python').find_installation()`, which resolves to the interpreter
