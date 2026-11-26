@@ -210,6 +210,10 @@ def fetch(f: dict, out: Path, args) -> str:
             return "kept"
         dest.unlink()
     partial = out / (f["name"] + ".partial")
+    if partial.exists() and partial.stat().st_size == f["size"] and matches(partial, f):
+        # An earlier run got every byte but stopped before the rename.
+        os.replace(partial, dest)
+        return "kept"
     t0 = time.monotonic()
     log(f"downloading {f['name']} ({f['size'] / 1e6:.0f} MB, add-on {f['addon']}) from {f['url']}")
 
