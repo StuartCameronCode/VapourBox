@@ -6488,8 +6488,8 @@ GetLastError() returned 126` for DCTFilter, DFTTest and FFT3DFilter.
     push gate and every `deps_run_id` dispatch.
   - Run through a temporary workflow (run 45777377026), the guard fails on
     the published rc3 zip, naming all three plugins, and passes on task
-    #101's rc4 candidate (38 plugins load; libzstd.dll is a support DLL). On macOS, the Python half fails on
-    a bundle with its FFTW hidden.
+    #101's rc4 candidate (38 plugins load; libzstd.dll is a support DLL).
+    On macOS, the Python half fails on a bundle with its FFTW hidden.
 - **Fix.** deps 1.18.0-rc4, built from one commit on all three platforms
   (which also ships task #101's DFTTest patch).
 
