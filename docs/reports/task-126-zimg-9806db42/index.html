@@ -50,8 +50,8 @@ run 45918802024 · every number below comes from <code>scripts/</code> and task 
 <code>data/</code>.</p>
 
 <div class="card">
-<p><strong>Outcome: the fixed commit is clean and draws the same pictures as our pin. It will be pinned in deps
-1.18.0-rc5, after task #111 merges.</strong> Upstream fixed task #109's overrun in graphengine <code>308d3735</code>
+<p><strong>Outcome: the fixed commit is clean and draws the same pictures as our pin. It is pinned from deps
+1.18.0-rc5 (task #127), after a VapourSynth bundle A/B that found nothing (below).</strong> Upstream fixed task #109's overrun in graphengine <code>308d3735</code>
 (zimg master <code>9806db42</code>, 2026-11-22). Built the way VapourSynth R78 builds its zimg subproject and run over
 #109's 158 graphs on four Linux runner/compiler pairs and on macOS arm64, it has <strong>no overrun, no guard-page
 assertion and no new ASan report</strong>; the 36 error-diffusion graphs, which all failed from graphengine
@@ -151,21 +151,40 @@ everything #109 measured, draws identical pictures, uses less memory, and is wha
 built from its wrap now get. Against: our pin is good and nothing is broken today, and it changes
 <code>libvapoursynth.so.4</code> on Linux, so it needs a deps release. The arm64 gcc ASan reports are the same at both
 commits, so they don't weigh either way.</p>
-<p>Still to do, in task #127 once task #111 (which rewrites the same block of <code>download-deps-linux.sh</code> and
-<code>zimg_pin_test.dart</code>) has merged:</p>
+<p>Done in task #127, after task #111 merged: the two pins and their comment in
+<code>download-deps-linux.sh</code>, a guard in <code>zimg_pin_test.dart</code> that refuses task #109's bad graphengine
+range (<code>f6211289</code> … <code>e9b10267</code>), and the bundle A/B below.</p>
+
+<h2>Bundle A/B (task #127, 2026-11-27)</h2>
+<p>The numbers above are zimg's C API. This is the same change in a VapourSynth bundle, the way users get it.
+Run ids and results are in <code>data/linux/45996817597/</code> (<code>runs.tsv</code>).</p>
 <ul>
-<li>the two pins and their comment, and a guard in <code>zimg_pin_test.dart</code> against task #109's bad graphengine
-range;</li>
-<li>an A/B of the built bundle through <code>deps_run_id</code> (<code>ci-test.yml</code> and <code>nightly.yml</code>,
-linux-x64 v3 and v2 and linux-arm64), as task #103 did: these numbers are zimg's C API, not VapourSynth;</li>
-<li>task #109's <code>vs_confirm.sh</code> against the candidate bundle.</li>
+<li><strong>Build.</strong> <code>build-deps-linux.yml</code> run 45994495018 (<code>arch=both</code>, no release) built
+x64 v3, x64 v2 and arm64. Each build's log has <code>Executing subproject zimg</code> and the script's own check,
+<code>VapourSynth links zimg 9806db42 (graphengine 308d3735)</code>. The v2 delta passed its SDE gate.</li>
+<li><strong>vs_confirm.sh</strong> (task #109's: <code>repro.vpy</code>'s conversions through the bundle's own
+<code>vspipe</code>, 50 plain runs each and one under valgrind; job <code>vs-confirm</code> of
+<code>zimg-9806db42-check.yml</code>, run 45996817597). It ran on the candidate (C) and on the published rc4 bundle (B),
+x64 and arm64. Result: 0 aborts in 2400 runs and 0 invalid writes under valgrind, at both commits. On arm64 only,
+valgrind reports uninitialised reads in <code>YUV444PS→YUV420P8</code> error diffusion, the same count at B and C
+(8783 at 96x64, 222824 at 720x480; <code>valgrind-summary.tsv</code>). That is not this change; it looks like the 4:2:0
+family task #115 is following.</li>
+<li><strong>ci-test.yml</strong> (run 45996818589, <code>deps_run_id</code> = the build): linux-x64 <code>rust</code>
+(<code>zimg_colorspace_test.rs</code> included) and <code>flutter</code> passed.</li>
+<li><strong>nightly.yml</strong> (run 45996823325): the format sweep passed on linux-x64 v3 and v2. The heavy suite had
+1255 passed and 3 failed on both tiers. All three are in <code>integration_field_order_test.dart</code> (720x486, task
+#92), where the fixture's own ffmpeg step fails in swscale ("The bottom field has fewer chroma rows than its height
+requires"). Main's scheduled nightly on the published rc4 (run 45867504513) fails the same three in the same way, so
+they are not the candidate's: rc4's Linux FFmpeg refuses that conversion (task #123).</li>
 </ul>
+<p>Not covered: neither <code>ci-test.yml</code> nor <code>nightly.yml</code> has a linux-arm64 row, so arm64's only
+bundle-level check is <code>vs_confirm.sh</code>. The other platforms are unaffected (they don't build this zimg).</p>
 
 <h2>Limits</h2>
 <ul>
-<li><strong>The pictures are compared through zimg's C API</strong>, built as R78 builds it, not through a VapourSynth
-bundle. The same library goes into <code>libvapoursynth.so.4</code>, but the bundle-level A/B above is still to
-come.</li>
+<li><strong>The pictures are compared through zimg's C API</strong>, built as R78 builds it. The same library goes
+into <code>libvapoursynth.so.4</code>. The bundle A/B (task #127) checks that the bundle runs and passes the test
+suites; it does not compare pictures byte for byte.</li>
 <li>Each graph converts one seeded random frame. A difference that only some content would show is not ruled out,
 but zimg's own code is unchanged and graphengine's changes are to buffer planning, which the 158 graphs exercise.</li>
 <li>The canary sees writes past either end of the buffer, and the guard pages writes between its regions; neither

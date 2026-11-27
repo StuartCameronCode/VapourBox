@@ -1,0 +1,7 @@
+workflow	run	bundle	legs	result	note
+build-deps-linux.yml	45994495018	candidate (zimg 9806db42 / graphengine 308d3735)	x64 v3, x64 v2, arm64	success	each build logs "Executing subproject zimg" and "VapourSynth links zimg 9806db42 (graphengine 308d3735)"
+zimg-9806db42-check.yml (vs-confirm)	45996817597	candidate and published rc4	x64, arm64	success	no abort in 2400 vspipe runs; no invalid write under valgrind
+ci-test.yml	45996818589	candidate	linux-x64 rust, linux-x64 flutter	success	other platforms have no artifact in this run id
+nightly.yml	45996823325	candidate	linux-x64 sweep, linux-x64-v2 sweep	success	
+nightly.yml	45996823325	candidate	linux-x64 heavy, linux-x64-v2 heavy	1255 passed, 3 failed	integration_field_order_test 720x486 (task #92): the fixture's own ffmpeg (swscale) step fails
+nightly.yml	45867504513	published rc4 (main, scheduled)	linux-x64 heavy, linux-x64-v2 heavy	1255 passed, 3 failed	the same 3 tests, the same way: not the candidate's (rc4's FFmpeg, task #123)

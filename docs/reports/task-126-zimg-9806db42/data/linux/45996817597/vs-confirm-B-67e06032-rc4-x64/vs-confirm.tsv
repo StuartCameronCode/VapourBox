@@ -1,0 +1,13 @@
+bundle	conversion	size	runs	aborts	abort_message	vg_invalid_writes	vg_first_frame
+B-67e06032-rc4-x64	GRAY16>GRAY8/error_diffusion	96x64	50	0	-	0	-
+B-67e06032-rc4-x64	GRAY16>GRAY8/error_diffusion	720x480	50	0	-	0	-
+B-67e06032-rc4-x64	YUV420P16>YUV420P8/error_diffusion	96x64	50	0	-	0	-
+B-67e06032-rc4-x64	YUV420P16>YUV420P8/error_diffusion	720x480	50	0	-	0	-
+B-67e06032-rc4-x64	YUV444PS>YUV444P16/error_diffusion	96x64	50	0	-	0	-
+B-67e06032-rc4-x64	YUV444PS>YUV444P16/error_diffusion	720x480	50	0	-	0	-
+B-67e06032-rc4-x64	YUV444PS>YUV420P8/error_diffusion	96x64	50	0	-	0	-
+B-67e06032-rc4-x64	YUV444PS>YUV420P8/error_diffusion	720x480	50	0	-	0	-
+B-67e06032-rc4-x64	GRAY16>GRAY8/none	96x64	50	0	-	0	-
+B-67e06032-rc4-x64	GRAY16>GRAY8/none	720x480	50	0	-	0	-
+B-67e06032-rc4-x64	YUV420P16>YUV420P8/none	96x64	50	0	-	0	-
+B-67e06032-rc4-x64	YUV420P16>YUV420P8/none	720x480	50	0	-	0	-
