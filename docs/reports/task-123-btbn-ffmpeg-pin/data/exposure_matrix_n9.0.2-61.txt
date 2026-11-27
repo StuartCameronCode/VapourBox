@@ -1,0 +1,72 @@
+OK   src=yuv420p top=1 -pix_fmt yuv420p +ildct
+OK   src=yuv420p top=1 -pix_fmt nv12 +ildct
+OK   src=yuv420p top=1 -pix_fmt p010le +ildct
+OK   src=yuv420p top=1 -pix_fmt yuv422p10le +ildct
+OK   src=yuv420p top=1 -pix_fmt yuv444p10le +ildct
+OK   src=yuv420p top=1 -pix_fmt rgb24 +ildct
+OK   src=yuv420p top=1 preview scale to rgb48be
+OK   src=yuv420p top=1 pad, format, crop
+OK   src=yuv420p top=1 CONTROL scale=interl=-1 to yuv422p
+OK   src=yuv420p top=0 -pix_fmt yuv420p +ildct
+OK   src=yuv420p top=0 -pix_fmt nv12 +ildct
+OK   src=yuv420p top=0 -pix_fmt p010le +ildct
+OK   src=yuv420p top=0 -pix_fmt yuv422p10le +ildct
+OK   src=yuv420p top=0 -pix_fmt yuv444p10le +ildct
+OK   src=yuv420p top=0 -pix_fmt rgb24 +ildct
+OK   src=yuv420p top=0 preview scale to rgb48be
+OK   src=yuv420p top=0 pad, format, crop
+OK   src=yuv420p top=0 CONTROL scale=interl=-1 to yuv422p
+OK   src=yuv422p top=1 -pix_fmt yuv420p +ildct
+OK   src=yuv422p top=1 -pix_fmt nv12 +ildct
+OK   src=yuv422p top=1 -pix_fmt p010le +ildct
+OK   src=yuv422p top=1 -pix_fmt yuv422p10le +ildct
+OK   src=yuv422p top=1 -pix_fmt yuv444p10le +ildct
+OK   src=yuv422p top=1 -pix_fmt rgb24 +ildct
+OK   src=yuv422p top=1 preview scale to rgb48be
+OK   src=yuv422p top=1 pad, format, crop
+OK   src=yuv422p top=1 CONTROL scale=interl=-1 to yuv422p
+OK   src=yuv422p top=0 -pix_fmt yuv420p +ildct
+OK   src=yuv422p top=0 -pix_fmt nv12 +ildct
+OK   src=yuv422p top=0 -pix_fmt p010le +ildct
+OK   src=yuv422p top=0 -pix_fmt yuv422p10le +ildct
+OK   src=yuv422p top=0 -pix_fmt yuv444p10le +ildct
+OK   src=yuv422p top=0 -pix_fmt rgb24 +ildct
+OK   src=yuv422p top=0 preview scale to rgb48be
+OK   src=yuv422p top=0 pad, format, crop
+OK   src=yuv422p top=0 CONTROL scale=interl=-1 to yuv422p
+OK   src=yuv422p10le top=1 -pix_fmt yuv420p +ildct
+OK   src=yuv422p10le top=1 -pix_fmt nv12 +ildct
+OK   src=yuv422p10le top=1 -pix_fmt p010le +ildct
+OK   src=yuv422p10le top=1 -pix_fmt yuv422p10le +ildct
+OK   src=yuv422p10le top=1 -pix_fmt yuv444p10le +ildct
+OK   src=yuv422p10le top=1 -pix_fmt rgb24 +ildct
+OK   src=yuv422p10le top=1 preview scale to rgb48be
+OK   src=yuv422p10le top=1 pad, format, crop
+OK   src=yuv422p10le top=1 CONTROL scale=interl=-1 to yuv422p
+OK   src=yuv422p10le top=0 -pix_fmt yuv420p +ildct
+OK   src=yuv422p10le top=0 -pix_fmt nv12 +ildct
+OK   src=yuv422p10le top=0 -pix_fmt p010le +ildct
+OK   src=yuv422p10le top=0 -pix_fmt yuv422p10le +ildct
+OK   src=yuv422p10le top=0 -pix_fmt yuv444p10le +ildct
+OK   src=yuv422p10le top=0 -pix_fmt rgb24 +ildct
+OK   src=yuv422p10le top=0 preview scale to rgb48be
+OK   src=yuv422p10le top=0 pad, format, crop
+OK   src=yuv422p10le top=0 CONTROL scale=interl=-1 to yuv422p
+OK   src=yuv420p10le top=1 -pix_fmt yuv420p +ildct
+OK   src=yuv420p10le top=1 -pix_fmt nv12 +ildct
+OK   src=yuv420p10le top=1 -pix_fmt p010le +ildct
+OK   src=yuv420p10le top=1 -pix_fmt yuv422p10le +ildct
+OK   src=yuv420p10le top=1 -pix_fmt yuv444p10le +ildct
+OK   src=yuv420p10le top=1 -pix_fmt rgb24 +ildct
+OK   src=yuv420p10le top=1 preview scale to rgb48be
+OK   src=yuv420p10le top=1 pad, format, crop
+OK   src=yuv420p10le top=1 CONTROL scale=interl=-1 to yuv422p
+OK   src=yuv420p10le top=0 -pix_fmt yuv420p +ildct
+OK   src=yuv420p10le top=0 -pix_fmt nv12 +ildct
+OK   src=yuv420p10le top=0 -pix_fmt p010le +ildct
+OK   src=yuv420p10le top=0 -pix_fmt yuv422p10le +ildct
+OK   src=yuv420p10le top=0 -pix_fmt yuv444p10le +ildct
+OK   src=yuv420p10le top=0 -pix_fmt rgb24 +ildct
+OK   src=yuv420p10le top=0 preview scale to rgb48be
+OK   src=yuv420p10le top=0 pad, format, crop
+OK   src=yuv420p10le top=0 CONTROL scale=interl=-1 to yuv422p

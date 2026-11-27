@@ -1,0 +1,7 @@
+old yuv420p: exit 0 
+new yuv420p: exit 0 
+old yuv422p: exit 0 
+new yuv422p: exit 0 
+new_yuv420p.mkv: 720,486,yuv420p
+new_yuv422p.mkv: 720,486,yuv422p
+4:2:2: old and new identical (framemd5)
