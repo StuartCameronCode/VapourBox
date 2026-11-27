@@ -11,6 +11,8 @@
 // This checks the script, with no bundle: the pin variables, the standalone
 // clone's checkout, and the wrap's. zimg_colorspace_test.rs checks the
 // bundle's behaviour (docs/reports/task-103-linux-zimg-pin).
+// Every other source clone and download is checked by source_pin_test.dart
+// (task #110).
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';

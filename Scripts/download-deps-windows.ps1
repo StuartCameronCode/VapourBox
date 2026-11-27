@@ -1370,7 +1370,11 @@ if (-not (Test-Path "$SitePackagesDir\havsfunc.py")) {
 # mvsfunc
 if (-not (Test-Path "$SitePackagesDir\mvsfunc")) {
     Write-Host "  Downloading mvsfunc..." -ForegroundColor Gray
-    $MvsfuncUrl = "https://github.com/HomeOfVapourSynthEvolution/mvsfunc/archive/refs/heads/master.zip"
+    # Pinned (task #110): keep MvsfuncCommit, AdjustCommit and Znedi3Commit in
+    # step with MVSFUNC_COMMIT, ADJUST_COMMIT and ZNEDI3_COMMIT in
+    # download-deps-{linux,macos}.sh (app/test/source_pin_test.dart).
+    $MvsfuncCommit = "865c7486ca860d323754ec4774bc4cca540a7076"
+    $MvsfuncUrl = "https://github.com/HomeOfVapourSynthEvolution/mvsfunc/archive/$MvsfuncCommit.zip"
     $MvsfuncZip = Join-Path $TempDir "mvsfunc.zip"
 
     Download-File -Url $MvsfuncUrl -OutFile $MvsfuncZip
@@ -1391,7 +1395,8 @@ if (-not (Test-Path "$SitePackagesDir\mvsfunc")) {
 # adjust
 if (-not (Test-Path "$SitePackagesDir\adjust.py")) {
     Write-Host "  Downloading adjust..." -ForegroundColor Gray
-    $AdjustUrl = "https://raw.githubusercontent.com/dubhater/vapoursynth-adjust/master/adjust.py"
+    $AdjustCommit = "a3af7cb57cb37747b0667346375536e65b1fed17"
+    $AdjustUrl = "https://raw.githubusercontent.com/dubhater/vapoursynth-adjust/$AdjustCommit/adjust.py"
     Download-File -Url $AdjustUrl -OutFile "$SitePackagesDir\adjust.py"
     Write-Host "    Copied: adjust.py" -ForegroundColor Gray
 } else {
@@ -1639,7 +1644,10 @@ Write-Host "[6/7] Verifying NNEDI3 weights..." -ForegroundColor Yellow
 $WeightsPath = "$PluginsDir\nnedi3_weights.bin"
 if (-not (Test-Path $WeightsPath)) {
     Write-Host "  Downloading nnedi3_weights.bin..." -ForegroundColor Gray
-    $WeightsUrl = "https://github.com/sekrit-twc/znedi3/raw/master/znedi3/nnedi3_weights.bin"
+    # Pinned (task #110). The file is at the repo's root: the old
+    # raw/master/znedi3/ path does not exist, so this fallback never worked.
+    $Znedi3Commit = "34b2aa9f5d10c31775469b7a358f1ff52375ed1e"
+    $WeightsUrl = "https://github.com/sekrit-twc/znedi3/raw/$Znedi3Commit/nnedi3_weights.bin"
     Download-File -Url $WeightsUrl -OutFile $WeightsPath
     Write-Host "  NNEDI3 weights installed" -ForegroundColor Green
 } else {
