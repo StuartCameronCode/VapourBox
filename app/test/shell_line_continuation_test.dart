@@ -33,7 +33,8 @@ String _repoRoot() {
   return dir.path;
 }
 
-final _heredoc = RegExp(r'''<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1''');
+// `<<<` is a here-string, not a heredoc: its word is not a terminator.
+final _heredoc = RegExp(r'''(?<!<)<<(?!<)-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1''');
 
 /// The line numbers (1-based) of lines that end in an unescaped `\` and are
 /// followed by a blank or comment line, outside heredoc bodies.
@@ -122,6 +123,14 @@ void main() {
 
     test(r'passes an escaped backslash (\\) at the end of a line', () {
       expect(brokenContinuations('echo a\\\\\n# comment\n'), isEmpty);
+    });
+
+    test('a here-string is not a heredoc', () {
+      const text = 'grep x <<< word\n'
+          'make \\\n'
+          '# comment\n'
+          'word\n';
+      expect(brokenContinuations(text), [2]);
     });
 
     test('passes a continuation onto a command', () {
