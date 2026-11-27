@@ -38,6 +38,7 @@ Suites: noble noble-updates noble-security
 Components: main universe
 Architectures: $(dpkg --print-architecture)
 Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+Targets: Packages
 EOF
 
 {
@@ -48,7 +49,11 @@ EOF
     done
 } | sudo tee /etc/apt/preferences.d/vapourbox-deps-pins >/dev/null
 
-sudo apt-get update
+# Only the Packages indexes from the snapshot: apt needs nothing else to
+# install by version, and the runner's apt fails the whole update on any index
+# it cannot fetch (a 503 on the snapshot's command-not-found metadata failed
+# the first arm64 build). Retries cover the snapshot's transient 503s.
+sudo apt-get update -o Acquire::Retries=5
 WANT=()
 for line in "${PINNED[@]}"; do
     read -r pkg version role <<<"$line"
