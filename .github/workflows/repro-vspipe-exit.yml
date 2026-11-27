@@ -1,0 +1,137 @@
+name: Measure the Windows vspipe exit hang
+
+# Task #122: on Windows runners vspipe sometimes hangs in ExitProcess after
+# the format sweep's Stabilize pitch-auto preview (720x480/yuv444p16le/prog;
+# 3 of 80 under load in task #120's repro). This runs that preview through
+# the worker directly, a few seconds a run, in arms that each change one
+# thing (WER, Defender, the wheel's vspipe, the job), and examines every
+# hang before touching it (.github/scripts/repro-vspipe-exit.ps1).
+#
+# Dispatch it, or push a change to this file on a `stuart/122-probe-*`
+# branch: a workflow not on the default branch cannot be dispatched, and a
+# push runs it with the defaults below.
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Runs per arm'
+        default: '200'
+      arms:
+        description: 'Comma-separated arms (see the script header)'
+        default: 'baseline,localdumps,weroff,defenderoff,wheelvspipe,weave,passthrough,guard'
+      load:
+        description: 'Keep every core but one busy, as the nightly''s concurrent test files do'
+        type: boolean
+        default: true
+  push:
+    branches: ['stuart/122-probe-*']
+    paths: ['.github/workflows/repro-vspipe-exit.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        asset: [windows-x64, windows-x64-v2]
+    name: measure (${{ matrix.asset }})
+    runs-on: windows-latest
+    timeout-minutes: 300
+    env:
+      VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/windows-x64
+      VAPOURBOX_WORKER: ${{ github.workspace }}\worker\target\debug\vapourbox-worker.exe
+      ITER: ${{ inputs.iterations || '200' }}
+      ARMS: ${{ inputs.arms || 'baseline,localdumps,weroff,defenderoff,wheelvspipe,weave,passthrough,guard' }}
+      LOAD: ${{ inputs.load == false && 'false' || 'true' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Resolve deps tag
+        id: deps
+        shell: bash
+        run: |
+          TAG=$(python -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: false
+          pub-cache-path: ${{ runner.temp }}/pub-cache
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Download dependencies (${{ matrix.asset }})
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bash .github/scripts/install-deps-bundle.sh "${{ matrix.asset }}" \
+            "${{ steps.deps.outputs.tag }}" "${{ steps.deps.outputs.ver }}" deps/windows-x64
+
+      - name: Build worker and generate Dart serialization
+        run: |
+          cd worker
+          cargo build
+          cd ../app
+          flutter pub get
+          dart run build_runner build --delete-conflicting-outputs
+
+      - name: Write the preview jobs
+        shell: bash
+        run: |
+          cd app
+          VAPOURBOX_REPRO_DUMP="$GITHUB_WORKSPACE/repro-jobs" flutter test test/repro_stabilize_test.dart
+          ls ../repro-jobs
+
+      - name: The wheel's own vspipe.exe (arm wheelvspipe)
+        shell: bash
+        run: |
+          python -m pip download vapoursynth==78 --no-deps --only-binary=:all: \
+            --platform win_amd64 --python-version 3.12 -d wheel
+          VS=deps/windows-x64/vapoursynth/Lib/site-packages/vapoursynth
+          python - "$VS" <<'PY'
+          import glob, sys, zipfile
+          whl = glob.glob('wheel/vapoursynth-78-*.whl')[0]
+          with zipfile.ZipFile(whl) as z:
+              data = z.read('vapoursynth/vspipe.exe')
+          open(sys.argv[1] + '/vspipe-wheel.exe', 'wb').write(data)
+          PY
+          "$VS/vspipe.exe" --version | tail -2
+          "$VS/vspipe-wheel.exe" --version | tail -2
+
+      - name: Machine
+        shell: pwsh
+        run: |
+          Get-CimInstance Win32_Processor | Select-Object Name, NumberOfLogicalProcessors | Format-List
+          Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AMRunningMode, IsTamperProtected | Format-List
+          Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\Windows Error Reporting' | Format-List
+          $cdb = 'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe'
+          if (Test-Path $cdb) { "cdb: $cdb" } else { "cdb: not installed (a hang is reported without stacks)" }
+
+      - name: Measure
+        shell: bash
+        run: |
+          if [ "$LOAD" = true ]; then
+            N=$(nproc); for i in $(seq $((N - 1))); do yes > /dev/null & done
+          fi
+          pwsh -NoProfile -File .github/scripts/repro-vspipe-exit.ps1 \
+            -Worker "$VAPOURBOX_WORKER" -JobsDir repro-jobs -OutDir repro-out \
+            -Arms "$ARMS" -Iterations "$ITER" -TimeoutSec 60 \
+            -WheelVspipe "$GITHUB_WORKSPACE/deps/windows-x64/vapoursynth/Lib/site-packages/vapoursynth/vspipe-wheel.exe" \
+            || echo "::warning::the measuring script failed"
+          if [ "$LOAD" = true ]; then pkill yes || true; fi
+          cat repro-out/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - uses: actions/upload-artifact@v5
+        if: ${{ always() }}
+        with:
+          name: repro-vspipe-exit-${{ matrix.asset }}
+          path: |
+            repro-out
+            repro-jobs
