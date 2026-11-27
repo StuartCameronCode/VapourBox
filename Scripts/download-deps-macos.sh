@@ -10,7 +10,9 @@
 #   - pipe_source.py (raw frame reader for VapourSynth)
 #
 # Prerequisites:
-# - Homebrew (for build tools only, not runtime)
+# - Homebrew, for build tools only (cmake, meson, ninja, nasm, autotools,
+#   pkg-config). No library the bundle carries or compiles against comes from
+#   it: zimg, fftw and boost are built from SHA-256-checked releases (task #114).
 # - Xcode Command Line Tools
 #
 # Usage: ./scripts/download-deps-macos.sh [--force] [--tier v3|v2]
@@ -24,6 +26,21 @@ set -e
 # command, and the retries (any error, transfer cut short included) ride out a
 # transient outage. Output is rewritten from the start on each attempt.
 curl() { command curl --fail --retry 6 --retry-delay 15 --retry-all-errors "$@"; }
+
+# The version Scripts/pins/pip-<name>.txt pins <name> to (task #114).
+pip_pin() {  # <name>
+    sed -n "s/^$1==\([^ ]*\).*/\1/p" "$SCRIPT_DIR/pins/pip-$1.txt"
+}
+# Exit unless <python> has exactly the pinned Cython and meson.
+check_pip_pins() {  # <python>
+    local got
+    got=$("$1" -c 'import Cython, mesonbuild.coredata as c; print(Cython.__version__, c.version)')
+    if [ "$got" != "$(pip_pin cython) $(pip_pin meson)" ]; then
+        echo "  ERROR: $1 has Cython and meson '$got', Scripts/pins/ says '$(pip_pin cython) $(pip_pin meson)'" >&2
+        exit 1
+    fi
+    echo "  Cython $(pip_pin cython), meson $(pip_pin meson) (Scripts/pins/)"
+}
 
 FORCE=false
 TIER=v3
@@ -246,20 +263,16 @@ BREW_PREFIX=$(brew --prefix)
 # ============================================================================
 echo "=== Installing Homebrew build dependencies ==="
 
+# Build tools only (task #114). Never a library: Homebrew installs whatever
+# version its bottle is that day, so a library from here made a rebuild of the
+# same deps version ship (or compile against) something else. zimg, fftw and
+# boost are built from pinned, SHA-256-checked releases below ("srclib");
+# libdvdread is built from source (task #36); ffmpeg is martin-riedl's static
+# build. Homebrew's ffmpeg was installed "for convenience", used by nothing,
+# and pulled zimg back in as its dependency. source_pin_test.dart keeps zimg,
+# fftw, boost and ffmpeg out of this list.
 BREW_DEPS=(
-    # Build tools
     cmake meson ninja nasm autoconf automake libtool pkg-config cython
-    # Libraries needed to build (will be copied, not linked at runtime from homebrew)
-    zimg
-    # Support libraries bundled into deps/.../lib (copied, not linked from homebrew):
-    #   fftw       -> libfftw3f.3 + libfftw3f_threads.3 (dfttest)
-    #   boost      -> libboost_filesystem + libboost_atomic (nnedi3cl)
-    # libdvdread is NOT taken from Homebrew: its bottle links libdvdcss by
-    # absolute path (task #36). It is built from source below.
-    fftw boost
-    # FFmpeg (build-time convenience only; at runtime both arches ship static
-    # ffmpeg downloaded from martin-riedl.de)
-    ffmpeg
 )
 
 for dep in "${BREW_DEPS[@]}"; do
@@ -282,55 +295,108 @@ for dep in "${BREW_DEPS[@]}"; do
 done
 
 # ============================================================================
-# Build redistributable support libraries from source (x64 only, issue #39)
+# Build the support libraries from pinned releases, both arches (#39, #114)
 # ============================================================================
-# On the only available Intel runner (macos-15-intel) `brew install` pours
-# minos 14/15 bottles that won't load on macOS 12. Build the few libraries we
-# *bundle* from source so they inherit MACOSX_DEPLOYMENT_TARGET (12.0):
-#   zimg/fftw                - stable C ABIs; dropped in over the Homebrew
-#                              copies just before the repoint pass.
-# (libdvdread is built from source on both arches, see "libdvdread" below.)
-#   boost (filesystem,atomic) - ABI-sensitive, so the OpenCL plugins
-#                              (nnedi3cl/knlmeanscl) are ALSO compiled against
-#                              this build via BOOST_ROOT="$SRCLIB" below.
-# arm64 is untouched (no deployment-target pin -> this whole block is skipped).
-SRCLIB="$BUILD_DIR/srclib"
+# zimg (VapourSynth's resize: vapoursynth/libzimg.dylib), boost
+# filesystem+atomic (NNEDI3CL: lib/libboost_*.dylib) and fftw (the headers
+# and .pc every FFTW plugin compiles against; x64 also ships its library,
+# arm64 ships yuygfgg's 3.3.10, pinned by YUYGFGG_COMMIT) are built here from
+# release tarballs, each checked against its SHA-256 before it is unpacked.
+# Everything that compiles against them is pointed at $SRCLIB: VapourSynth's
+# meson setup (PKG_CONFIG_PATH, checked after), the meson plugins
+# (PKG_CONFIG_PATH, BOOST_ROOT) and the directly compiled FFTW plugins
+# (FFTW_INC).
+#
+# Until task #114, arm64 took all three from Homebrew bottles (whatever
+# version Homebrew had that day) and x64 built them here pinned by version
+# only, yet still compiled VapourSynth against Homebrew's zimg headers.
+#
+# The versions are what deps 1.18.0-rc4 shipped, which is why the arches
+# differ: arm64 had Homebrew's zimg 3.0.6 and boost 1.92.0, x64 built 3.0.5
+# and 1.85.0 (issue #39: the x64 bundle targets macOS 12). Changing either
+# zimg changes VapourSynth's resize: A/B it through deps_run_id first.
+# fftw's headers are 3.3.10 on both, the version both arches ship (Homebrew's
+# 3.3.11 headers only add fftw_copy_plan, which nothing calls).
+ZIMG_VERSION_ARM64="3.0.6"
+ZIMG_SHA256_ARM64="be89390f13a5c9b2388ce0f44a5e89364a20c1c57ce46d382b1fcc3967057577"
+ZIMG_VERSION_X64="3.0.5"
+ZIMG_SHA256_X64="a9a0226bf85e0d83c41a8ebe4e3e690e1348682f6a2a7838f1b8cbff1b799bcf"
+BOOST_VERSION_ARM64="1.92.0"
+BOOST_SHA256_ARM64="5c1d40cb8e19adbf740a4ec2da35b3e58f3f5804b1dce44deb53df72193cbc6c"
+BOOST_VERSION_X64="1.85.0"
+BOOST_SHA256_X64="7009fe1faa1697476bdc7027703a2badb84e849b7b0baad5086b087b971f8617"
+FFTW_VERSION="3.3.10"
+FFTW_SHA256="56c932549852cddcfafdab3820b0200c7742675be92179e59e6215b340e26467"
 if [ "$ARCH" = "x86_64" ]; then
+    ZIMG_VERSION="$ZIMG_VERSION_X64";   ZIMG_SHA256="$ZIMG_SHA256_X64"
+    BOOST_VERSION="$BOOST_VERSION_X64"; BOOST_SHA256="$BOOST_SHA256_X64"
+    SRCLIB_MINOS="$MACOS_MIN_VERSION"
+else
+    ZIMG_VERSION="$ZIMG_VERSION_ARM64";   ZIMG_SHA256="$ZIMG_SHA256_ARM64"
+    BOOST_VERSION="$BOOST_VERSION_ARM64"; BOOST_SHA256="$BOOST_SHA256_ARM64"
+    SRCLIB_MINOS="15.0"   # what the arm64 bundle's bottles were, and its plugins are
+fi
+
+# <url> <file> <sha256>: download, and exit unless the file has that hash.
+fetch_verified() {
+    local url="$1" out="$2" want="$3" got
+    curl -fsSL "$url" -o "$out"
+    got=$(shasum -a 256 "$out" | awk '{print $1}')
+    if [ "$got" != "$want" ]; then
+        echo "  ERROR: $out from $url has SHA-256 $got, expected $want (task #114)." >&2
+        echo "  Upstream replaced the file, or the download is corrupt: check before changing the pin." >&2
+        exit 1
+    fi
+}
+
+SRCLIB="$BUILD_DIR/srclib"
+SRCLIB_STAMP="zimg $ZIMG_VERSION $ZIMG_SHA256; boost $BOOST_VERSION $BOOST_SHA256; fftw $FFTW_VERSION $FFTW_SHA256; minos $SRCLIB_MINOS"
+if [ "$FORCE" = false ] && [ "$(cat "$SRCLIB/.vapourbox-pins" 2>/dev/null)" = "$SRCLIB_STAMP" ]; then
     echo ""
-    echo "=== Building support libraries from source (target $MACOS_MIN_VERSION) ==="
+    echo "=== Support libraries already built from the pinned sources ($SRCLIB) ==="
+else
+    echo ""
+    echo "=== Building support libraries from pinned sources (target macOS $SRCLIB_MINOS) ==="
     NPROC=$(sysctl -n hw.ncpu)
     SRC_TMP="$BUILD_DIR/srclib-src"
+    rm -rf "$SRCLIB" "$SRC_TMP"
     mkdir -p "$SRCLIB" "$SRC_TMP"
+    (
+    # x64 exports this near the top already; arm64 sets it for these builds only.
+    export MACOSX_DEPLOYMENT_TARGET="$SRCLIB_MINOS"
     cd "$SRC_TMP"
 
-    # fftw 3.3.10, single precision + threads -> libfftw3f.3 + libfftw3f_threads.3
-    echo "  Building fftw (3.3.10, float)..."
-    curl -fsSL "https://www.fftw.org/fftw-3.3.10.tar.gz" -o fftw.tar.gz
-    tar xzf fftw.tar.gz && cd fftw-3.3.10
+    # fftw, single precision + threads -> libfftw3f.3 + libfftw3f_threads.3
+    echo "  Building fftw ($FFTW_VERSION, float)..."
+    fetch_verified "https://www.fftw.org/fftw-$FFTW_VERSION.tar.gz" fftw.tar.gz "$FFTW_SHA256"
+    tar xzf fftw.tar.gz && cd "fftw-$FFTW_VERSION"
     ./configure --prefix="$SRCLIB" --enable-float --enable-threads --enable-shared \
         --disable-static --disable-fortran --disable-doc -q
     make -j"$NPROC" >/dev/null && make install >/dev/null
     cd "$SRC_TMP"
 
-    # zimg 3.0.5 -> libzimg.2.dylib (VapourSynth core resize; stable C ABI)
-    echo "  Building zimg (3.0.5)..."
-    curl -fsSL "https://github.com/sekrit-twc/zimg/archive/refs/tags/release-3.0.5.tar.gz" -o zimg.tar.gz
-    tar xzf zimg.tar.gz && cd zimg-release-3.0.5
+    # zimg -> libzimg.2.dylib (VapourSynth core resize; stable C ABI)
+    echo "  Building zimg ($ZIMG_VERSION)..."
+    fetch_verified "https://github.com/sekrit-twc/zimg/archive/refs/tags/release-$ZIMG_VERSION.tar.gz" \
+        zimg.tar.gz "$ZIMG_SHA256"
+    tar xzf zimg.tar.gz && cd "zimg-release-$ZIMG_VERSION"
     ./autogen.sh
     ./configure --prefix="$SRCLIB" --enable-shared --disable-static -q
     make -j"$NPROC" >/dev/null && make install >/dev/null
     cd "$SRC_TMP"
 
-    # boost 1.85.0, just filesystem + atomic -> libboost_filesystem/_atomic.dylib
-    echo "  Building boost (1.85.0: filesystem, atomic)..."
-    curl -fsSL "https://archives.boost.io/release/1.85.0/source/boost_1_85_0.tar.bz2" -o boost.tar.bz2
-    tar xjf boost.tar.bz2 && cd boost_1_85_0
+    # boost, just filesystem + atomic -> libboost_filesystem/_atomic.dylib
+    echo "  Building boost ($BOOST_VERSION: filesystem, atomic)..."
+    BOOST_DIR="boost_${BOOST_VERSION//./_}"
+    fetch_verified "https://archives.boost.io/release/$BOOST_VERSION/source/$BOOST_DIR.tar.bz2" \
+        boost.tar.bz2 "$BOOST_SHA256"
+    tar xjf boost.tar.bz2 && cd "$BOOST_DIR"
     ./bootstrap.sh --with-libraries=filesystem,atomic --prefix="$SRCLIB" >/dev/null
     ./b2 -j"$NPROC" --with-filesystem --with-atomic link=shared \
-        cxxflags="-mmacosx-version-min=$MACOS_MIN_VERSION" \
-        linkflags="-mmacosx-version-min=$MACOS_MIN_VERSION" \
+        cxxflags="-mmacosx-version-min=$SRCLIB_MINOS" \
+        linkflags="-mmacosx-version-min=$SRCLIB_MINOS" \
         install >/dev/null
-    cd "$BUILD_DIR"
+    )
 
     # boost is linked by the OpenCL plugins built later; give it an @rpath id so
     # those plugins record a *repointable* reference (the repoint pass skips refs
@@ -339,10 +405,21 @@ if [ "$ARCH" = "x86_64" ]; then
     for b in libboost_filesystem libboost_atomic; do
         [ -f "$SRCLIB/lib/$b.dylib" ] && install_name_tool -id "@rpath/$b.dylib" "$SRCLIB/lib/$b.dylib"
     done
+    for f in libzimg.2.dylib libfftw3f.3.dylib libfftw3f_threads.3.dylib \
+             libboost_filesystem.dylib libboost_atomic.dylib \
+             pkgconfig/zimg.pc pkgconfig/fftw3f.pc; do
+        if [ ! -f "$SRCLIB/lib/$f" ]; then
+            echo "  ERROR: the support library build left no $SRCLIB/lib/$f" >&2
+            exit 1
+        fi
+    done
+    echo "$SRCLIB_STAMP" > "$SRCLIB/.vapourbox-pins"
+    rm -rf "$SRC_TMP"
 
     echo "  Built support libs:"
     ls -1 "$SRCLIB"/lib/*.dylib 2>/dev/null | sed 's/^/    /'
 fi
+cd "$BUILD_DIR"
 
 # ============================================================================
 # Download and embed Python framework
@@ -507,9 +584,12 @@ PYEOF
         done
     fi
 
-    # Install Cython in our embedded Python for building
-    echo "  Installing Cython in embedded Python..."
-    "$PYTHON_BIN" -m pip install --quiet cython meson
+    # Cython and meson in our embedded Python, at the versions and wheel hashes
+    # in Scripts/pins/ (task #114): unpinned, a rebuild took whatever PyPI had.
+    echo "  Installing Cython and meson in embedded Python (Scripts/pins/)..."
+    "$PYTHON_BIN" -m pip install --quiet --only-binary :all: --require-hashes \
+        -r "$SCRIPT_DIR/pins/pip-cython.txt" -r "$SCRIPT_DIR/pins/pip-meson.txt"
+    check_pip_pins "$PYTHON_BIN"
 
     # Create pkg-config file for our embedded Python
     mkdir -p "$BUILD_DIR/pkgconfig"
@@ -570,8 +650,10 @@ CYEOF
     # They are inside the VapourSynth `if`, which CI always enters; a local
     # re-run that skips VapourSynth builds the plugins with Homebrew's meson
     # and python3 instead.
+    #  - Its library part names $SRCLIB's pkg-config files (zimg, fftw3f),
+    #    the pinned builds, where it named Homebrew's (task #114).
     PATH="$PYTHON_DIR/bin:$BREW_PREFIX/opt/cython/bin:$PATH"
-    PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BREW_PREFIX/lib/pkgconfig"
+    PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$SRCLIB/lib/pkgconfig"
 
     echo "  Configuring VapourSynth..."
     # Run meson with the EMBEDDED python, not whatever meson happens to be
@@ -583,10 +665,25 @@ CYEOF
     # headers, so configuration dies with "Header 'Python.h' could not be
     # found", and on macOS it silently builds and installs against Homebrew's
     # python instead of the one we ship.
-    "$PYTHON_BIN" -m mesonbuild.mesonmain setup build \
+    #
+    # PKG_CONFIG_PATH names only $SRCLIB's zimg.pc (and fftw3f.pc), so meson
+    # links the pinned zimg (task #114): without it meson found whichever zimg
+    # Homebrew had, on x64 too, which compiled against Homebrew's headers and
+    # loaded the source build. Not the python .pc files above (see the note on
+    # PKG_CONFIG_PATH). Homebrew's pkg-config still searches its own prefix
+    # after this, so the checks below fail the build if meson took any other
+    # zimg, or none (R78's zimg.wrap, unpinned master, task #103).
+    PKG_CONFIG_PATH="$SRCLIB/lib/pkgconfig" "$PYTHON_BIN" -m mesonbuild.mesonmain setup build \
         --prefix="$VS_INSTALL_DIR" \
         --buildtype=release \
         -Dlibdir=lib
+    if ! grep -qF "Run-time dependency zimg found: YES $ZIMG_VERSION" build/meson-logs/meson-log.txt \
+       || grep -q "Executing subproject zimg" build/meson-logs/meson-log.txt; then
+        echo "  ERROR: VapourSynth's meson setup did not find the pinned zimg $ZIMG_VERSION in $SRCLIB:" >&2
+        grep -E "dependency zimg|subproject zimg" build/meson-logs/meson-log.txt >&2 || true
+        exit 1
+    fi
+    echo "  VapourSynth compiles against zimg $ZIMG_VERSION ($SRCLIB)"
 
     echo "  Building VapourSynth..."
     PATH="$PYTHON_DIR/bin:$PATH" ninja -C build
@@ -641,8 +738,8 @@ CYEOF
 
     write_vapoursynth_shim
 
-    # Copy zimg from Homebrew (will fix paths to be relative)
-    cp "$BREW_PREFIX/lib/libzimg.2.dylib" "$DEPS_DIR/vapoursynth/libzimg.dylib"
+    # The pinned zimg libvapoursynth was linked against (checked below).
+    cp "$SRCLIB/lib/libzimg.2.dylib" "$DEPS_DIR/vapoursynth/libzimg.dylib"
 
     echo "  Fixing library paths..."
     cd "$DEPS_DIR/vapoursynth"
@@ -682,11 +779,14 @@ CYEOF
         done
     done
 
-    # Fix zimg references
-    install_name_tool -change "$BREW_PREFIX/opt/zimg/lib/libzimg.2.dylib" \
-        "@loader_path/libzimg.dylib" libvapoursynth.dylib
-    install_name_tool -change "$BREW_PREFIX/opt/zimg/lib/libzimg.2.dylib" \
-        "@loader_path/libzimg.dylib" libvapoursynth.4.dylib
+    # Fix the zimg reference: libvapoursynth must name $SRCLIB's, the zimg
+    # copied above, and nothing else (task #114).
+    VS_ZIMG_REF=$(otool -L libvapoursynth.4.dylib | awk 'NR > 1 && /libzimg/ {print $1}')
+    if [ "$VS_ZIMG_REF" != "$SRCLIB/lib/libzimg.2.dylib" ]; then
+        echo "  ERROR: libvapoursynth links zimg as '$VS_ZIMG_REF', not $SRCLIB/lib/libzimg.2.dylib" >&2
+        exit 1
+    fi
+    install_name_tool -change "$VS_ZIMG_REF" "@loader_path/libzimg.dylib" libvapoursynth.4.dylib
 
     # Create wrapper script (generates config dynamically with absolute path)
     cat > "$DEPS_DIR/vapoursynth/vspipe" << 'WRAPPER_EOF'
@@ -882,16 +982,6 @@ if [ "$ARCH" = "arm64" ]; then
     codesign -s - -f "$LIB_DIR/libfftw3f.3.dylib" 2>/dev/null
     codesign -s - -f "$LIB_DIR/libfftw3f_threads.3.dylib" 2>/dev/null
 
-    # Boost libraries (required by NNEDI3CL)
-    echo "  Copying Boost libraries for NNEDI3CL..."
-    cp "$BREW_PREFIX/lib/libboost_filesystem.dylib" "$LIB_DIR/"
-    cp "$BREW_PREFIX/lib/libboost_atomic.dylib" "$LIB_DIR/"
-    install_name_tool -id "@loader_path/libboost_filesystem.dylib" "$LIB_DIR/libboost_filesystem.dylib"
-    install_name_tool -id "@loader_path/libboost_atomic.dylib" "$LIB_DIR/libboost_atomic.dylib"
-    install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_atomic.dylib" "@loader_path/libboost_atomic.dylib" "$LIB_DIR/libboost_filesystem.dylib"
-    codesign -s - -f "$LIB_DIR/libboost_filesystem.dylib" 2>/dev/null
-    codesign -s - -f "$LIB_DIR/libboost_atomic.dylib" 2>/dev/null
-
     # neo_f3kdb (optimized ARM64 build)
     curl -fsL "$YUYGFGG_BASE/lib/libneo-f3kdb.dylib" -o "$PLUGINS_DIR/libneo-f3kdb.dylib"
     install_name_tool -id "@loader_path/libneo-f3kdb.dylib" "$PLUGINS_DIR/libneo-f3kdb.dylib"
@@ -912,31 +1002,27 @@ if [ "$ARCH" = "arm64" ]; then
 
     echo "  Downloaded pre-built ARM64 plugins from yuygfgg"
 else
-    # x86_64: no yuygfgg equivalent. Source the support libraries from the
-    # (Intel) Homebrew prefix; neo-f3kdb / dfttest / vivtc are built from source
-    # below (see the "$ARCH" != "arm64" branches).
-    echo "  Sourcing x86_64 support libraries from Homebrew ($BREW_PREFIX)..."
-
-    # FFTW (required for dfttest, which is built from source on x86_64)
-    cp "$BREW_PREFIX/lib/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f.3.dylib"
-    cp "$BREW_PREFIX/lib/libfftw3f_threads.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
-    install_name_tool -id "@loader_path/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f.3.dylib"
-    install_name_tool -id "@loader_path/libfftw3f_threads.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib"
-    install_name_tool -change "$BREW_PREFIX/opt/fftw/lib/libfftw3f.3.dylib" "@loader_path/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f_threads.3.dylib" 2>/dev/null || true
-    codesign -s - -f "$LIB_DIR/libfftw3f.3.dylib" 2>/dev/null
-    codesign -s - -f "$LIB_DIR/libfftw3f_threads.3.dylib" 2>/dev/null
-
-    # Boost (required by NNEDI3CL)
-    cp "$BREW_PREFIX/lib/libboost_filesystem.dylib" "$LIB_DIR/"
-    cp "$BREW_PREFIX/lib/libboost_atomic.dylib" "$LIB_DIR/"
-    install_name_tool -id "@loader_path/libboost_filesystem.dylib" "$LIB_DIR/libboost_filesystem.dylib"
-    install_name_tool -id "@loader_path/libboost_atomic.dylib" "$LIB_DIR/libboost_atomic.dylib"
-    install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_atomic.dylib" "@loader_path/libboost_atomic.dylib" "$LIB_DIR/libboost_filesystem.dylib" 2>/dev/null || true
-    codesign -s - -f "$LIB_DIR/libboost_filesystem.dylib" 2>/dev/null
-    codesign -s - -f "$LIB_DIR/libboost_atomic.dylib" 2>/dev/null
-
-    echo "  Sourced x86_64 support libraries"
+    # x86_64: no yuygfgg equivalent. FFTW is the pinned source build (srclib,
+    # minos 12.0); neo-f3kdb / dfttest / vivtc are built from source below
+    # (see the "$ARCH" != "arm64" branches).
+    for libname in libfftw3f.3.dylib libfftw3f_threads.3.dylib; do
+        cp -f "$SRCLIB/lib/$libname" "$LIB_DIR/$libname"
+        install_name_tool -id "@loader_path/$libname" "$LIB_DIR/$libname"
+        codesign -s - -f "$LIB_DIR/$libname" 2>/dev/null
+    done
+    echo "  FFTW $FFTW_VERSION -> lib/ (srclib)"
 fi
+
+# Boost filesystem + atomic for NNEDI3CL, both arches: the pinned source build
+# NNEDI3CL compiles against (BOOST_ROOT="$SRCLIB"), never Homebrew's (task
+# #114). The repoint passes near the end of this script set their sibling
+# reference and NNEDI3CL's to @loader_path, by basename, and sign them.
+for libname in libboost_filesystem.dylib libboost_atomic.dylib; do
+    cp -f "$SRCLIB/lib/$libname" "$LIB_DIR/$libname"
+    install_name_tool -id "@loader_path/$libname" "$LIB_DIR/$libname"
+    codesign -s - -f "$LIB_DIR/$libname" 2>/dev/null
+done
+echo "  Boost $BOOST_VERSION -> lib/ (srclib)"
 
 # libdvdread (DVD title extraction in the worker; the worker dlopens it from
 # deps/.../lib) - built from source on BOTH arches, never the Homebrew bottle
@@ -1212,12 +1298,12 @@ build_mvtools_no_avx2() {
         echo "  ERROR: patches/mvtools-v24-no-avx2.patch did not apply to MVTools v24." >&2
         exit 1
     }
-    if PKG_CONFIG_PATH="$VS_PC_DIR:$BREW_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
+    if PKG_CONFIG_PATH="$VS_PC_DIR:$SRCLIB/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
             meson setup mvtools/build mvtools --buildtype=release \
        && ninja -C mvtools/build; then
         cp mvtools/build/libmvtools.dylib "$PLUGINS_DIR/libmvtools.dylib"
         install_name_tool -id "@loader_path/libmvtools.dylib" "$PLUGINS_DIR/libmvtools.dylib"
-        # Link against Homebrew's fftw at build time, load the bundled copy.
+        # Link against the pinned fftw ($SRCLIB) at build time, load the bundled copy.
         for dep in $(otool -L "$PLUGINS_DIR/libmvtools.dylib" | awk '/libfftw3f/ {print $1}'); do
             install_name_tool -change "$dep" "@loader_path/../../lib/$(basename "$dep")" \
                 "$PLUGINS_DIR/libmvtools.dylib"
@@ -1346,7 +1432,7 @@ if [ "$ARCH" = "x86_64" ]; then
         cd "$BUILD_DIR"
     fi
 
-    # nnedi3cl (meson; finds VapourSynth via pkg-config, boost via Homebrew)
+    # nnedi3cl (meson; finds VapourSynth via pkg-config, boost in $SRCLIB)
     if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libnnedi3cl.dylib" ]; then
         echo ""; echo "=== Building NNEDI3CL (x86_64) ==="
         rm -rf nnedi3cl
@@ -1357,9 +1443,8 @@ if [ "$ARCH" = "x86_64" ]; then
             lib=$(find nnedi3cl/build -name "*.dylib" -type f | head -1)
             if [ -n "$lib" ]; then
                 cp "$lib" "$PLUGINS_DIR/libnnedi3cl.dylib"
-                # Repoint its Homebrew boost reference at the bundled copy in lib/.
-                install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_filesystem.dylib" \
-                    "@loader_path/../../lib/libboost_filesystem.dylib" "$PLUGINS_DIR/libnnedi3cl.dylib" 2>/dev/null || true
+                # Its @rpath boost reference is repointed at lib/ by the
+                # generic pass near the end of this script.
                 codesign -s - -f "$PLUGINS_DIR/libnnedi3cl.dylib" 2>/dev/null || true
                 echo "  Built NNEDI3CL"
             else echo "  no dylib"; FAILED_PLUGINS+=("nnedi3cl"); fi
@@ -1456,7 +1541,7 @@ s = re.sub(r"run_command\(.*?\)\.stdout\(\)\.strip\(\)",
            repr(inc), s, flags=re.S)
 open(path, "w").write(s)
 PYEOF
-            if PKG_CONFIG_PATH="$VS_PC_DIR:$BREW_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
+            if PKG_CONFIG_PATH="$VS_PC_DIR:$SRCLIB/lib/pkgconfig:${PKG_CONFIG_PATH:-}" \
                  meson setup bm3d/build bm3d --buildtype=release \
                && ninja -C bm3d/build; then
                 lib=$(find bm3d/build -name "*.dylib" -type f | head -1)
@@ -1480,10 +1565,9 @@ PYEOF
     # is set to "knlmeanscl" (havsfunc). Stefan-Olt doesn't ship an
     # x86_64 build, so build from source like the arm64 path does. Its meson.build
     # needs BOTH the VapourSynth headers (via pkg-config) AND Boost
-    # filesystem/system (via Homebrew, same as the nnedi3cl build), so set
-    # BOOST_ROOT and defensively repoint any Homebrew boost reference at the
-    # bundled copy in lib/ (the arm64 build links boost statically and ends up
-    # with no boost dylib reference; the repoints below are no-ops in that case).
+    # filesystem/system (the pinned build in $SRCLIB, as for nnedi3cl), so set
+    # BOOST_ROOT. It ends up with no boost dylib reference (header-only use);
+    # if it ever has one, the generic repoint pass points it at lib/.
     if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libknlmeanscl.dylib" ]; then
         echo ""; echo "=== Building KNLMeansCL (x86_64) ==="
         rm -rf knlmeanscl
@@ -1496,10 +1580,6 @@ PYEOF
             if [ -n "$lib" ]; then
                 cp "$lib" "$PLUGINS_DIR/libknlmeanscl.dylib"
                 install_name_tool -id "@loader_path/libknlmeanscl.dylib" "$PLUGINS_DIR/libknlmeanscl.dylib" 2>/dev/null || true
-                install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_filesystem.dylib" \
-                    "@loader_path/../../lib/libboost_filesystem.dylib" "$PLUGINS_DIR/libknlmeanscl.dylib" 2>/dev/null || true
-                install_name_tool -change "$BREW_PREFIX/opt/boost/lib/libboost_atomic.dylib" \
-                    "@loader_path/../../lib/libboost_atomic.dylib" "$PLUGINS_DIR/libknlmeanscl.dylib" 2>/dev/null || true
                 codesign -s - -f "$PLUGINS_DIR/libknlmeanscl.dylib" 2>/dev/null || true
                 echo "  Built KNLMeansCL"
             else echo "  no dylib"; FAILED_PLUGINS+=("knlmeanscl"); fi
@@ -1564,7 +1644,7 @@ build_plugin "nnedi3" \
 build_plugin "nnedi3cl" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL.git" \
     "libnnedi3cl.dylib" \
-    "meson setup build --buildtype=release && ninja -C build" \
+    "BOOST_ROOT=\"\$SRCLIB\" meson setup build --buildtype=release && ninja -C build" \
     "$NNEDI3CL_TAG"
 
 # EEDI3m (edge-directed interpolation). x86_64 takes Stefan-Olt's r8 above,
@@ -1651,7 +1731,7 @@ build_plugin "bm3d" \
 build_plugin "knlmeanscl" \
     "$KNLM_REPO" \
     "libknlmeanscl.dylib" \
-    "meson setup build --buildtype=release && ninja -C build" \
+    "BOOST_ROOT=\"\$SRCLIB\" meson setup build --buildtype=release && ninja -C build" \
     "$KNLM_TAG"
 
 # DeScratch (vertical scratch removal - core.descratch.DeScratch)
@@ -1799,7 +1879,7 @@ fi
 #
 # Compiled directly rather than through its meson.build, whose fftw3f_threads
 # probe does not find the library on arm64: four .cpp files, upstream's own
-# flags (release -O3, C++17, hidden visibility), FFTW's header from Homebrew,
+# flags (release -O3, C++17, hidden visibility), FFTW's header from $SRCLIB,
 # linked against the bundle's own lib/libfftw3f{,_threads}.3.dylib and then
 # repointed at them through @loader_path. Plain C++ with no intrinsics, so one
 # build serves both x64 tiers (no _tierFiles entry); MACOSX_DEPLOYMENT_TARGET
@@ -1817,7 +1897,7 @@ if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libfft3dfilter.dylib" ]; then
         echo "  FFT3DFilter $FFT3DFILTER_TAG may have changed upstream - re-check the patch." >&2
         exit 1
     }
-    FFTW_INC="$(brew --prefix fftw)/include"
+    FFTW_INC="$SRCLIB/include"
     if c++ -std=c++17 -O3 -fPIC -fvisibility=hidden -dynamiclib \
             -I"$VS_INC_DIR" -I"$FFTW_INC" \
             fft3dfilter/FFT3DFilter.cpp fft3dfilter/FFT3DFilterTransform.cpp \
@@ -1854,7 +1934,7 @@ fi
 # download-deps-windows.ps1.
 #
 # One .cpp file, compiled directly the way FFT3DFilter is above: FFTW's header
-# from Homebrew, linked against the bundle's own lib/libfftw3f.3.dylib and
+# from $SRCLIB (task #114), linked against the bundle's own lib/libfftw3f.3.dylib and
 # repointed at it through @loader_path. No intrinsics, so one build serves both
 # x64 tiers (no _tierFiles entry); MACOSX_DEPLOYMENT_TARGET sets its minos
 # (12.0 on x64: PyPI's x86_64 wheel needs 15.0). r3.2 is API 4 and exports
@@ -1873,7 +1953,7 @@ if [ "$FORCE" = true ] || ! nm -gU "$PLUGINS_DIR/libdctfilter.dylib" 2>/dev/null
         echo "  DCTFilter $DCTFILTER_TAG may have changed upstream - re-check the patch." >&2
         exit 1
     }
-    FFTW_INC="$(brew --prefix fftw)/include"
+    FFTW_INC="$SRCLIB/include"
     if c++ -std=c++17 -O3 -fPIC -fvisibility=hidden -dynamiclib \
             -I"$VS_INC_DIR" -I"$FFTW_INC" \
             dctfilter/DCTFilter/DCTFilter.cpp \
@@ -1904,7 +1984,7 @@ fi
 # (no _tierFiles entry); on arm64 the C path, plus for DFTTest the fork's
 # sse2neon SSE2 kernels with its own -Ofast. Hidden visibility, as meson builds
 # them: exported template code is merged by dyld with any other image's copy.
-FFTW_INC="$(brew --prefix fftw)/include"
+FFTW_INC="$SRCLIB/include"
 # Every marker a build of <out dylib> must carry: TASK98_MARKER, and for
 # DFTTest also DFTTEST_MARKER (task #101), so a thread-safe build that still
 # plans with FFTW_PATIENT is rebuilt, never shipped.
@@ -3269,45 +3349,10 @@ EOF
 fi
 
 # ============================================================================
-# Replace the bundled Homebrew support libs with the source builds (x64, #39)
-# ============================================================================
-# The copies above pulled Homebrew bottles (minos 14/15). Overwrite them with
-# the minos-12 source builds from $SRCLIB so the x64 bundle loads on macOS 12.
-# Done here -- after all plugin builds, before the repoint passes -- so the
-# existing @loader_path rewiring and signing apply to them uniformly. The
-# OpenCL plugins were already compiled against this same boost (BOOST_ROOT).
-if [ "$ARCH" = "x86_64" ] && [ -d "$SRCLIB/lib" ]; then
-    echo ""
-    echo "=== Replacing Homebrew support libs with source builds (target $MACOS_MIN_VERSION) ==="
-    # zimg sits next to libvapoursynth and isn't covered by the repoint passes,
-    # so set its id explicitly here. libvapoursynth already refers to it via
-    # @loader_path/libzimg.dylib, and zimg's C ABI (libzimg.2) is a safe drop-in.
-    if [ -f "$SRCLIB/lib/libzimg.2.dylib" ]; then
-        cp -f "$SRCLIB/lib/libzimg.2.dylib" "$DEPS_DIR/vapoursynth/libzimg.dylib"
-        install_name_tool -id "@loader_path/libzimg.dylib" "$DEPS_DIR/vapoursynth/libzimg.dylib" 2>/dev/null || true
-        codesign -s - -f "$DEPS_DIR/vapoursynth/libzimg.dylib" 2>/dev/null || true
-        echo "  zimg -> vapoursynth/libzimg.dylib"
-    fi
-    # The remaining libs live in lib/; the repoint passes below normalize their
-    # ids and inter-references. cp -f follows the versioned symlinks.
-    for libname in libfftw3f.3.dylib libfftw3f_threads.3.dylib \
-                   libboost_filesystem.dylib libboost_atomic.dylib; do
-        if [ -f "$SRCLIB/lib/$libname" ]; then
-            cp -f "$SRCLIB/lib/$libname" "$LIB_DIR/$libname"
-            codesign -s - -f "$LIB_DIR/$libname" 2>/dev/null || true
-            echo "  $libname -> lib/$libname"
-        else
-            echo "  ERROR: expected source lib $SRCLIB/lib/$libname is missing" >&2
-            exit 1
-        fi
-    done
-fi
-
-# ============================================================================
 # Repoint plugin support-lib references at the bundled copies in lib/
 # ============================================================================
-# Source-built plugins (mvtools, bm3d, dctfilter, nnedi3cl, ...) link Homebrew's
-# fftw/boost by absolute path (e.g. /opt/homebrew/opt/fftw/lib/libfftw3f.3.dylib).
+# Source-built plugins (mvtools, bm3d, dctfilter, nnedi3cl, ...) link $SRCLIB's
+# fftw/boost by absolute or @rpath name (Homebrew's, before task #114).
 # Those paths don't exist on users' machines, so the plugin would fail to load.
 # The libs are already bundled in $LIB_DIR; rewrite every such reference at the
 # bundled copy. Also normalize each plugin's own install id to @loader_path so
@@ -3558,7 +3603,7 @@ else
     echo "The MACOSX_DEPLOYMENT_TARGET export fixes everything built from source here."
     echo "Anything still flagged is a *prebuilt* artifact this script only copies, so"
     echo "it needs its own fix:"
-    echo "  - Homebrew bottles (zimg/fftw/boost): the macos-15 runner"
+    echo "  - zimg/fftw/boost: built from pinned, SHA-256-checked releases (task #114)"
     echo "    installs Sequoia bottles. Build these from source with the target set,"
     echo "    or fetch older-OS bottles."
     echo "  - ffmpeg (martin-riedl.de) and Python (python-build-standalone):"
