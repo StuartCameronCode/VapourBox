@@ -36,6 +36,7 @@ mod cpu;
 mod dependency_locator;
 mod dvd_reader;
 mod pipeline_executor;
+mod vspipe_exit;
 mod vspipe_failure;
 mod pixel_format;
 mod ffprobe_run;
