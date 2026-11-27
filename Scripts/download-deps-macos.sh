@@ -783,7 +783,7 @@ NNEDI3CL_TAG="r8"
 TTEMPSMOOTH_TAG="r4.1"                                          # x64 (arm64: yuygfgg's prebuilt)
 MISCFILTERS_COMMIT="07e0589a381f7deb3bf533bb459a94482bccc5c7"  # 2022-01-24; no tag; arm64
 REMOVEGRAIN_COMMIT="89ca38a6971e371bdce2778291393258daa5f03b"  # 2022-10-28; no tag; arm64
-RETINEX_COMMIT="6bfbdd429159c85075dc4b08e0ac4e706470916b"      # r4 + sigma fix (2021-10-18); see Retinex below
+RETINEX_COMMIT="6bfbdd429159c85075dc4b08e0ac4e706470916b"      # r4 + sigma fix (2021-10-18); every platform (task #113)
 ADDGRAIN_TAG="r10"                                              # arm64
 VIVTC_COMMIT="e55cac584d4968def77b99e661194387002cdae3"        # R2 + n (2026-07-27); x64 (arm64: yuygfgg's)
 NEO_F3KDB_TAG="r11"                                             # x64 (arm64: yuygfgg's)
@@ -2095,18 +2095,31 @@ PYEOF2
 fi
 
 # Retinex (core.retinex.MSRCP) - multi-scale retinex, used here to lift shadow
-# detail out of underexposed footage. Pinned to RETINEX_COMMIT, r4 + "Fix
-# unexpected appending when sigma is specified", which is what this script
-# built (unpinned master) before task #110; the comment here used to say r4.
-# Windows ships the r4 DLL, so the platforms differ where the template passes
-# sigma (task #113). Ordinary meson build; it finds the VapourSynth
+# detail out of underexposed footage. Built at RETINEX_COMMIT on every platform
+# (Windows too, with Zig), never r4: r4 starts MSRCP's sigma list from its
+# defaults and appends ours, so the template's sigma=[X] ran as
+# [25, 80, 250, X], about 10 levels from this build at the default (task #113,
+# docs/reports/task-113-retinex-sigma). patches/retinex-6bfbdd4-vapourbox-marker.patch
+# changes no code: it adds RETINEX_MARKER to the plugin's description, so an
+# unmarked dylib (an older run of this script) is rebuilt and the script fails
+# without it. Keep RETINEX_COMMIT in step with download-deps-linux.sh and
+# download-deps-windows.ps1. Ordinary meson build; it finds the VapourSynth
 # headers through pkg-config, which build_plugin already points at our
 # from-source install.
+RETINEX_MARKER="sigma not appended, task #113"
+if [ -f "$PLUGINS_DIR/libretinex.dylib" ] && ! grep -aqF "$RETINEX_MARKER" "$PLUGINS_DIR/libretinex.dylib"; then
+    echo "  libretinex.dylib predates its marker (task #113); rebuilding it"
+    rm -f "$PLUGINS_DIR/libretinex.dylib"
+fi
 build_plugin "retinex" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" \
     "libretinex.dylib" \
-    "meson setup build --buildtype=release && ninja -C build" \
+    "{ git apply \"$SCRIPT_DIR/patches/retinex-6bfbdd4-vapourbox-marker.patch\" || { echo '  ERROR: patches/retinex-6bfbdd4-vapourbox-marker.patch did not apply.' >&2; exit 1; }; } && meson setup build --buildtype=release && ninja -C build" \
     "$RETINEX_COMMIT"
+if ! grep -aqF "$RETINEX_MARKER" "$PLUGINS_DIR/libretinex.dylib" 2>/dev/null; then
+    echo "  ERROR: libretinex.dylib is missing or lacks its marker (task #113)" >&2
+    exit 1
+fi
 
 # zsmooth — exactly one build, in the autoload directory
 #
