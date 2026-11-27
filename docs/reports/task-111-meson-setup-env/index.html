@@ -145,7 +145,21 @@ is in the environment, and that environment is what these lines record.</li>
 </ul>
 
 <h2>Tests against the branch's bundles</h2>
-<p id="ci">CI_RESULTS</p>
+<p id="ci">The branch's macOS and Linux bundles (45908842510, 45908835591), with rc4's Windows bundle (45777579605, unchanged
+by this task), through <code>deps_run_id</code>. Main's last nightly (45867504513, rc4) is the comparison.</p>
+<table>
+<tr><th>run</th><th>result</th></tr>
+<tr><td>ci-test 45913431153</td><td class="ok">all 8 jobs pass, including <code>zimg_colorspace_test.rs</code>, the sweep smoke rows and the quick
+plugin format probe on linux-x64</td></tr>
+<tr><td>nightly 45913434555, sweep</td><td class="ok">all 7 legs pass (linux-x64 v3/v2, macOS arm64/x64/x64-v2, Windows v3/v2)</td></tr>
+<tr><td>nightly, heavy, Linux v3 / v2</td><td class="warn">1255 passed, 3 failed, 2 skipped on each, the same as main: the three
+<code>integration_field_order_test</code> 720x486 (task #92) cases, which BtbN's FFmpeg has refused since 2026-11-25
+(task #123)</td></tr>
+<tr><td>nightly, heavy, macOS arm64 / x64 / x64-v2</td><td class="ok">pass</td></tr>
+<tr><td>nightly, heavy, Windows v3 / v2</td><td class="warn">the same three #123 cases, plus "dctfilter thread safety … many
+instances" timing out at 5 minutes (task #124, on the rc4 Windows bundle, which this task does not change)</td></tr>
+</table>
+<p>No failure is new against main, and none is in a Linux or macOS bundle this task changed.</p>
 
 <h2>Limits</h2>
 <ul>

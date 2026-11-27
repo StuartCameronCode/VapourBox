@@ -6857,6 +6857,10 @@ bash ended the command there.
   script; `libfmtconv.so`/`libvsncnn.so` differ only in their embedded
   `/tmp/vapourbox-build-<pid>`; no NEEDED/RUNPATH change, nothing NEEDs
   libzimg. Every meson line of every macOS build is identical.
+- **Tests.** ci-test 45913431153 green on every platform; nightly
+  45913434555: every sweep leg green, heavy failures only the ones main
+  already has (#123's three 720x486 field-order cases on Linux and Windows,
+  #124's DCTFilter stress timeout on Windows, whose bundle is unchanged).
 - **Guard.** `shell_line_continuation_test.dart` (push gate) scans every
   script and workflow; on the old scripts it reports exactly these two
   lines. `zimg_pin_test.dart` fails on a standalone zimg, an offered
