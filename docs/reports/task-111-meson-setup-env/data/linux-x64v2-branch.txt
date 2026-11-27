@@ -1,0 +1,88 @@
+   1   VapourSynth builds with gcc 13, Cython version 3.0.8
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C compiler for the host machine: cc (gcc 13.3.0 "cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Cython compiler for the host machine: cython (cython 3.0.8)
+   1 Program python3 found: YES (/home/runner/work/VapourBox/VapourBox/deps/linux-x64/python/bin/python3.12)
+   1 Run-time dependency python found: YES 3.12
+   1 Run-time dependency zimg found: NO  (tried pkg-config and cmake)
+   1 Executing subproject zimg for machine: host 
+   1 zimg| C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1   VapourSynth links zimg 67e06032 (graphengine cb5b2ce1)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Program python3 found: YES (/usr/bin/python3)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Program python3 found: YES (/usr/bin/python3)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Program python3 found: YES (/usr/bin/python3)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Program python3 found: YES (/usr/bin/python3)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Program python3 found: YES (/usr/bin/python3)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Program python3 found: YES (/usr/bin/python3)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Program python3 found: YES (/usr/bin/python3)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Program python3 found: YES (/usr/bin/python3)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Program python3 found: YES (/usr/bin/python3)
+   1 The Meson build system
+   1 Version: 1.12.1
+   1 C++ compiler for the host machine: c++ (gcc 13.3.0 "c++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0")
+   1 Version: 1.18.0-rc5

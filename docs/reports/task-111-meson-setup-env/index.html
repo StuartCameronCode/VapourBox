@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Meson setup environment</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  td.warn { background: var(--warn-bg); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Deps scripts: a <code>\</code> continuation that ended on a comment</h1>
+<p class="meta">2026-11-27 · task #111 (found by task #103) · measured on GitHub Actions <code>build-deps-*</code> runs
+of this branch and of main, dispatched together · every number below comes from <code>scripts/</code> run against
+the run IDs given, and the raw output is in <code>data/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: the scripts now say what they build, and the builds are unchanged.</strong> In both
+<code>download-deps-linux.sh</code> and <code>download-deps-macos.sh</code>, the environment written above
+VapourSynth's <code>meson setup</code> never reached it, because the <code>\</code> continuation ran onto a comment
+line. On Linux that meant meson always used the system gcc, apt's Cython and the zimg subproject. That is now the
+written-down build, and the dead parts are gone. On macOS the two "prefixes" became script-wide assignments that the
+later plugin builds depend on. They are now written as assignments, with the same effect. A/B against main, built
+together: Linux's <code>libvapoursynth.so.4</code> is <strong>byte-identical</strong> on x64 and arm64. Linux loses only
+the standalone <code>libzimg.so*</code>, which nothing loaded, and the Cython wrappers. Every meson line of every macOS
+build is identical. A push-gate lint now fails on any continuation that runs into a comment or blank line.</p>
+</div>
+
+<h2>The two lines</h2>
+<p><strong>Linux</strong>, since <code>0c805a7b</code>:</p>
+<pre>PATH="$PYTHON_DIR/bin:$PATH" \
+PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BUILD_PREFIX/lib/pkgconfig" \
+LD_LIBRARY_PATH="$PYTHON_DIR/lib:$BUILD_PREFIX/lib:${LD_LIBRARY_PATH:-}" \
+env ${VS_CC:+CC="$VS_CC"} ${VS_CXX:+CXX="$VS_CXX"} \
+# Run meson with the EMBEDDED python, …        &lt;- the command ends here: a bare `env`
+"$PYTHON_BIN" -m mesonbuild.mesonmain setup build …   &lt;- runs with none of the above</pre>
+<p>The bare <code>env</code> printed the environment into every build log (<code>PKG_CONFIG_PATH=…</code>,
+<code>LD_LIBRARY_PATH=…</code>), and that was the only visible sign.</p>
+<p><strong>macOS</strong>, since <code>3094c648</code> (2026-08-07), which inserted the Cython-wrapper paragraph between
+the "prefixes" and the command:</p>
+<pre>PATH="$PYTHON_DIR/bin:$BREW_PREFIX/opt/cython/bin:$PATH" \
+PKG_CONFIG_PATH="$BUILD_DIR/pkgconfig:$BREW_PREFIX/lib/pkgconfig" \
+# meson looks for a "cython3" program …        &lt;- the two become plain assignments</pre>
+<p>PATH was already exported, so from that point every later command saw the embedded Python's <code>bin</code>
+first. PKG_CONFIG_PATH became an unexported shell variable: <code>meson setup</code> doesn't see it, but every later
+<code>PKG_CONFIG_PATH="…:${PKG_CONFIG_PATH:-}"</code> prefix expands it.</p>
+
+<h2>What the builds actually used</h2>
+<p>From <code>scripts/meson_lines.sh</code> over the job logs (<code>data/linux-*</code>, <code>data/macos-*</code>).</p>
+<table>
+<tr><th></th><th>The script meant</th><th>Linux meson used (main and branch)</th><th>macOS meson used (main and branch)</th></tr>
+<tr><td>Compiler</td><td>Linux: <code>clang-18</code></td><td>gcc 13.3.0</td><td>Apple clang 17.0.0</td></tr>
+<tr><td>zimg</td><td>Linux: the standalone <code>libzimg.so</code> through <code>zimg.pc</code></td>
+<td><code>found: NO</code> → subproject at 67e06032 / cb5b2ce1, static</td><td><code>found: YES 3.0.6</code> (Homebrew's .pc)</td></tr>
+<tr><td>Cython</td><td>the wrappers in <code>$PYTHON_DIR/bin</code></td><td>cython 3.0.8 (apt's <code>cython3</code>)</td>
+<td>cython 3.3.2 (the wrappers, via the leaked PATH)</td></tr>
+<tr><td>Later plugin builds</td><td>—</td><td>unaffected (system python3, apt's meson for some)</td>
+<td>embedded python3.12 and pip's meson 1.12.1, via the leaked PATH</td></tr>
+</table>
+<p>So joining the macOS command would have <em>changed</em> every later plugin build (Homebrew's meson and python3, and
+one fewer PKG_CONFIG_PATH entry). Making the Linux variables apply would have changed the compiler, made zimg a
+dynamic library (needing an RPATH, and leaving task #103's wrap pin dead), and swapped Cython for pip's unpinned
+latest. Neither fixes anything a user sees, so the decision (option B) was to keep the builds and fix the
+scripts.</p>
+
+<h2>The change</h2>
+<ul>
+<li><strong>Linux:</strong> <code>meson setup</code> is one command with no environment. Before it, the script
+fails unless <code>gcc -dumpversion</code> ≥ 13 and <code>cython3</code> is Cython 3, which is what R78 needs. Removed:
+the clang selection, the Cython wrappers (they were shipped in <code>python/bin</code>, with the build machine's
+path in their <code>exec</code> line), the <code>python*.pc</code> and <code>zimg.pc</code> files (no meson run read them),
+the standalone zimg build, and <code>$BUILD_PREFIX/lib</code> from ninja's <code>LD_LIBRARY_PATH</code>. A stale
+<code>libzimg.so*</code> is deleted from an existing <code>deps/</code> on a re-run.</li>
+<li><strong>macOS:</strong> the wrapper loop moves above the two lines, which become deliberate assignments with
+a comment saying they last for the rest of the script. PKG_CONFIG_PATH stays unexported. They stay inside the
+VapourSynth <code>if</code>; a local re-run that skips VapourSynth builds the plugins with Homebrew's meson and
+python3, as it did before.</li>
+<li><strong>Guards:</strong> <code>shell_line_continuation_test.dart</code> scans every shell script under
+<code>Scripts/</code>, <code>.github/scripts/</code> and <code>packaging/</code> and every workflow file. Heredoc bodies
+are skipped. On the old scripts it reports exactly <code>download-deps-linux.sh:403</code> and
+<code>download-deps-macos.sh:545</code> and nothing else. <code>zimg_pin_test.dart</code> now fails on a standalone zimg
+clone or copy, on an offered <code>zimg.pc</code>, and on a <code>PKG_CONFIG_PATH</code>, <code>CC</code> or
+<code>CXX</code> on VapourSynth's setup.</li>
+</ul>
+
+<h2>A/B: main and the branch, built together</h2>
+<p>build-deps-linux 45908839004 (main <code>eef7531d</code>) and 45908835591 (this branch); build-deps-macos 45908845706
+(main) and 45908842510 (branch). They were dispatched within a minute of each other, so moving inputs (BtbN's
+FFmpeg, pip's meson and Cython) were the same in both. All four runs passed, including the v2 delta gates.
+<code>scripts/compare_bundles.sh</code> over the published-shape zips:</p>
+<table>
+<tr><th>bundle</th><th>files only in main</th><th>files that differ</th><th><code>libvapoursynth.so.4</code></th><th>NEEDED / RUNPATH changes</th><th>anything NEEDing libzimg</th></tr>
+<tr><td>linux-x64 (v3)</td><td><code>vapoursynth/libzimg.so</code>, <code>.so.2</code>, <code>.so.2.0.0</code>; <code>python/bin/cython3</code></td>
+<td><code>python/bin/cython</code>; <code>version.json</code> (install time); <code>libfmtconv.so</code> (322 bytes) and <code>ncnn/libvsncnn.so</code> (192 bytes)</td>
+<td class="ok">0 bytes differ; 28 exported symbols, identical</td><td class="ok">none</td><td class="ok">none</td></tr>
+<tr><td>linux-arm64</td><td>the same four</td>
+<td><code>python/bin/cython</code>; <code>version.json</code>; <code>libfmtconv.so</code> (22 bytes)</td>
+<td class="ok">0 bytes differ; 28 exported symbols, identical</td><td class="ok">none</td><td class="ok">none</td></tr>
+<tr><td>linux-x64 v2 delta</td><td colspan="5">identical except <code>version.json</code> (it records the base bundle's SHA-256); zsmooth byte-identical</td></tr>
+</table>
+<ul>
+<li><code>python/bin/cython</code> is now pip's own console script (installed by <code>pip install cython</code>). The
+wrapper used to overwrite it. Nothing runs it.</li>
+<li><code>libfmtconv.so</code> and <code>libvsncnn.so</code> embed their build directory, <code>/tmp/vapourbox-build-&lt;pid&gt;</code>
+(main 2957 vs branch 3090 on x64, 3111 vs 3146 on arm64). The differing bytes are those digits and what is derived
+from them. Every other binary is byte-identical.</li>
+<li>On macOS, every meson line of VapourSynth's and every plugin's setup (compilers, Cython, zimg, the python3
+each plugin found, and the meson version) is identical between main and the branch, on arm64, x64 v3 and x64 v2
+(<code>data/macos-*</code>). The macOS bundle was not diffed. macOS's script change is a reordering whose only effect
+is in the environment, and that environment is what these lines record.</li>
+</ul>
+
+<h2>Tests against the branch's bundles</h2>
+<p id="ci">The branch's macOS and Linux bundles (45908842510, 45908835591), with rc4's Windows bundle (45777579605, unchanged
+by this task), through <code>deps_run_id</code>. Main's last nightly (45867504513, rc4) is the comparison.</p>
+<table>
+<tr><th>run</th><th>result</th></tr>
+<tr><td>ci-test 45913431153</td><td class="ok">all 8 jobs pass, including <code>zimg_colorspace_test.rs</code>, the sweep smoke rows and the quick
+plugin format probe on linux-x64</td></tr>
+<tr><td>nightly 45913434555, sweep</td><td class="ok">all 7 legs pass (linux-x64 v3/v2, macOS arm64/x64/x64-v2, Windows v3/v2)</td></tr>
+<tr><td>nightly, heavy, Linux v3 / v2</td><td class="warn">1255 passed, 3 failed, 2 skipped on each, the same as main: the three
+<code>integration_field_order_test</code> 720x486 (task #92) cases, which BtbN's FFmpeg has refused since 2026-11-25
+(task #123)</td></tr>
+<tr><td>nightly, heavy, macOS arm64 / x64 / x64-v2</td><td class="ok">pass</td></tr>
+<tr><td>nightly, heavy, Windows v3 / v2</td><td class="warn">the same three #123 cases, plus "dctfilter thread safety … many
+instances" timing out at 5 minutes (task #124, on the rc4 Windows bundle, which this task does not change)</td></tr>
+</table>
+<p>No failure is new against main, and none is in a Linux or macOS bundle this task changed.</p>
+
+<h2>Limits</h2>
+<ul>
+<li>The bundle diff shows the shipped binaries are unchanged. It doesn't run them; the CI runs above do.</li>
+<li>The lint is a text scan. It sees a continuation running into a comment or blank line, outside heredocs. It doesn't
+parse shell, so a <code>\</code> at the end of a line inside a quoted multi-line string would count as a continuation.
+None exists today.</li>
+<li>The macOS Cython wrappers still carry the build machine's path, as the Linux ones did. They are used during the
+build only, so this is a cosmetic defect, left as it is.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul>
+<li><code>scripts/meson_lines.sh &lt;run&gt; &lt;job name&gt;</code>: the compiler, Cython, zimg, python3 and meson lines
+of a build-deps job log. <code>data/*-main.txt</code> and <code>data/*-branch.txt</code> are its output, with build
+directory numbers normalised.</li>
+<li><code>scripts/compare_bundles.sh &lt;main.zip&gt; &lt;branch.zip&gt;</code>: the file, NEEDED/RUNPATH, libzimg and
+<code>libvapoursynth.so.4</code> comparison. <code>data/bundle-diff-*.txt</code> is its output.</li>
+<li>The repo scan is the test itself, <code>app/test/shell_line_continuation_test.dart</code>.</li>
+</ul>
+
+</main>
+</body>
+</html>
