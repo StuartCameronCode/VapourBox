@@ -59,7 +59,7 @@ frames() {
         name=$(basename "$f" .err)
         access=$(grep -m1 -oE '(READ|WRITE) of size [0-9]+' "$f" | awk '{print $1}')
         size=$(grep -m1 -oE '(READ|WRITE) of size [0-9]+' "$f" | awk '{print $4}')
-        place=$(grep -m1 -oE '[0-9]+ bytes (to the right|to the left|inside) of' "$f" | sed 's/ of$//')
+        place=$(grep -m1 -oE '[0-9]+ bytes (after|before|to the right of|to the left of|inside of)' "$f" | sed 's/ of$//')
         region=$(grep -m1 -oE '[0-9]+-byte region' "$f" | cut -d- -f1)
         frame0=$(grep -m1 -E '^ *#0 ' "$f" | sed -E 's/^ *#0 0x[0-9a-f]+ in //; s/ \/.*$//; s/\(float const\*.*$//' | cut -c1-120)
         alloc=$(sed -n '/allocated by thread/,/^$/p' "$f" | grep -m1 -E 'zimg::' | sed -E 's/^ *#[0-9]+ 0x[0-9a-f]+ in //; s/\(.*$//' | cut -c1-120)
@@ -112,6 +112,25 @@ run master-asan-gcc-patched master-asan-gcc-patched --exact
 for c in swatch-yuv420p8 cs-to-rgbs-yuv420p8-96x64p; do
     cp "$OUT/err/asan-gcc/$c.err" "$OUT/report-$c.txt" 2>/dev/null || echo "no report for $c" > "$OUT/report-$c.txt"
 done
+
+# The upstream draft's minimal repro, against the unpatched and patched ASan
+# builds' zimg library.
+printf 'build\tcase\texit\tfirst_line\tframe0\n' > "$OUT/upstream-repro.tsv"
+for b in asan-gcc asan-gcc-patched; do
+    [ -d "$B/$b/build" ] || continue
+    libs=$(find "$B/$b/build/subprojects" -name '*.a' | sort)
+    # shellcheck disable=SC2086
+    g++-13 -O2 -g -fsanitize=address -I"$B/$b/src/subprojects/zimg/src/zimg/api" -x c "$HERE/upstream_repro.c" -x none \
+        -Wl,--start-group $libs -Wl,--end-group -o "$B/$b/upstream_repro" 2> "$OUT/upstream-repro-$b.build.log" || continue
+    for c in down up; do
+        rc=0
+        "$B/$b/upstream_repro" "$c" > "$OUT/upstream-repro-$b-$c.txt" 2>&1 || rc=$?
+        first=$(grep -m1 -E 'ERROR: AddressSanitizer|processed' "$OUT/upstream-repro-$b-$c.txt" | cut -c1-120)
+        frame=$(grep -m1 -E '^ *#0 ' "$OUT/upstream-repro-$b-$c.txt" | sed -E 's/^ *#0 0x[0-9a-f]+ in //; s/ \/.*$//; s/ \.\..*$//')
+        printf '%s\t%s\t%s\t%s\t%s\n' "$b" "$c" "$rc" "$first" "${frame:--}" >> "$OUT/upstream-repro.tsv"
+    done
+done
+cat "$OUT/upstream-repro.tsv"
 
 # Does the patch change a pixel? Destination CRCs, built as VapourSynth does.
 run vs-gcc vs-gcc --exact --crc

@@ -1,0 +1,159 @@
+case	cpu	tmp_size	tail_changed	tail_max	head_changed	status	detail
+swatch-yuv420p8	auto64	-	-	-	-	abort:134	==9484==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5040000001b0 at pc 0xab59dd939cd0 bp 0xfffffd842f30 sp 0xfffffd842f20
+swatch-yuv420p10	auto64	-	-	-	-	abort:134	==9505==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5040000001b0 at pc 0xab8e35d99cd0 bp 0xffffdd0f2d70 sp 0xffffdd0f2d60
+swatch-yuv422p10	auto64	2688	-	-	-	ran	
+swatch-yuv444p16	auto64	1280	-	-	-	ran	
+cs-to-yuv420p8-96x64p	auto64	-	-	-	-	abort:134	==9535==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000000880 at pc 0xaae1d7279cd0 bp 0xffffdeaca2e0 sp 0xffffdeaca2d0
+cs-to-rgbs-yuv420p8-96x64p	auto64	-	-	-	-	abort:134	==9559==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x519000000e80 at pc 0xab3f9d5b7d4c bp 0xffffc8ae8580 sp 0xffffc8ae8570
+cs-from-rgbs-yuv420p8-96x64p	auto64	25792	-	-	-	ran	
+colorize-yuv420p8-96x64p	auto64	10496	-	-	-	ran	
+cs-to-yuv420p10-96x64p	auto64	-	-	-	-	abort:134	==9589==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000000880 at pc 0xab5cffb19cd0 bp 0xffffd9356110 sp 0xffffd9356100
+cs-to-rgbs-yuv420p10-96x64p	auto64	-	-	-	-	abort:134	==9613==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x519000000e80 at pc 0xab7506867d4c bp 0xffffe5d4ae40 sp 0xffffe5d4ae30
+cs-from-rgbs-yuv420p10-96x64p	auto64	25792	-	-	-	ran	
+colorize-yuv420p10-96x64p	auto64	10496	-	-	-	ran	
+cs-to-yuv422p10-96x64p	auto64	9024	-	-	-	ran	
+cs-to-rgbs-yuv422p10-96x64p	auto64	3264	-	-	-	ran	
+cs-from-rgbs-yuv422p10-96x64p	auto64	8640	-	-	-	ran	
+colorize-yuv422p10-96x64p	auto64	7168	-	-	-	ran	
+cs-to-yuv444p16-96x64p	auto64	2240	-	-	-	ran	
+cs-to-rgbs-yuv444p16-96x64p	auto64	704	-	-	-	ran	
+cs-from-rgbs-yuv444p16-96x64p	auto64	1856	-	-	-	ran	
+colorize-yuv444p16-96x64p	auto64	3136	-	-	-	ran	
+cs-rgbs-yuv444ps-96x64p	auto64	384	-	-	-	ran	
+deband-up-yuv420p8-96x64p	auto64	640	-	-	-	ran	
+deband-up-yuv420p10-96x64p	auto64	640	-	-	-	ran	
+deband-up-yuv422p10-96x64p	auto64	640	-	-	-	ran	
+deband-down-96x64p	auto64	2368	-	-	-	ran	
+bm3d-up-96x64p	auto64	384	-	-	-	ran	
+bm3d-down-96x64p	auto64	1216	-	-	-	ran	
+descale-96x64p	auto64	4608	-	-	-	ran	
+bt709-96x64p	auto64	-	-	-	-	abort:134	==9693==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x519000000e80 at pc 0xab7b94b47d4c bp 0xffffc441d2a0 sp 0xffffc441d290
+cs-to-yuv420p8-96x64i	auto64	-	-	-	-	abort:134	==9716==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x512000000a40 at pc 0xab6f02e89cd0 bp 0xffffcec82970 sp 0xffffcec82960
+cs-to-rgbs-yuv420p8-96x64i	auto64	-	-	-	-	abort:134	==9740==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000001480 at pc 0xab9e97da7d4c bp 0xfffffd17a360 sp 0xfffffd17a350
+cs-from-rgbs-yuv420p8-96x64i	auto64	25792	-	-	-	ran	
+colorize-yuv420p8-96x64i	auto64	10496	-	-	-	ran	
+cs-to-yuv420p10-96x64i	auto64	-	-	-	-	abort:134	==9770==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x512000000a40 at pc 0xabaa32dd9cd0 bp 0xffffd0eeeaf0 sp 0xffffd0eeeae0
+cs-to-rgbs-yuv420p10-96x64i	auto64	-	-	-	-	abort:134	==9794==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000001480 at pc 0xab53a33c7d4c bp 0xffffc16ce9f0 sp 0xffffc16ce9e0
+cs-from-rgbs-yuv420p10-96x64i	auto64	25792	-	-	-	ran	
+colorize-yuv420p10-96x64i	auto64	10496	-	-	-	ran	
+cs-to-yuv422p10-96x64i	auto64	9024	-	-	-	ran	
+cs-to-rgbs-yuv422p10-96x64i	auto64	3264	-	-	-	ran	
+cs-from-rgbs-yuv422p10-96x64i	auto64	8640	-	-	-	ran	
+colorize-yuv422p10-96x64i	auto64	7168	-	-	-	ran	
+cs-to-yuv444p16-96x64i	auto64	2240	-	-	-	ran	
+cs-to-rgbs-yuv444p16-96x64i	auto64	704	-	-	-	ran	
+cs-from-rgbs-yuv444p16-96x64i	auto64	1856	-	-	-	ran	
+colorize-yuv444p16-96x64i	auto64	3136	-	-	-	ran	
+cs-rgbs-yuv444ps-96x64i	auto64	384	-	-	-	ran	
+deband-up-yuv420p8-96x64i	auto64	640	-	-	-	ran	
+deband-up-yuv420p10-96x64i	auto64	640	-	-	-	ran	
+deband-up-yuv422p10-96x64i	auto64	640	-	-	-	ran	
+deband-down-96x64i	auto64	2368	-	-	-	ran	
+bm3d-up-96x64i	auto64	384	-	-	-	ran	
+bm3d-down-96x64i	auto64	1216	-	-	-	ran	
+descale-96x64i	auto64	4608	-	-	-	ran	
+bt709-96x64i	auto64	-	-	-	-	abort:134	==9875==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000001d80 at pc 0xab3c8b227d4c bp 0xffffd4140110 sp 0xffffd4140100
+cs-to-yuv420p8-98x64p	auto64	-	-	-	-	abort:134	==9896==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000000880 at pc 0xab736b7b9cd0 bp 0xfffff0559fb0 sp 0xfffff0559fa0
+cs-to-rgbs-yuv420p8-98x64p	auto64	-	-	-	-	abort:134	==9920==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x519000000e80 at pc 0xaad8ba7d7d4c bp 0xffffecbac760 sp 0xffffecbac750
+cs-from-rgbs-yuv420p8-98x64p	auto64	29952	-	-	-	ran	
+colorize-yuv420p8-98x64p	auto64	12096	-	-	-	ran	
+cs-to-yuv420p10-98x64p	auto64	-	-	-	-	abort:134	==9950==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000000880 at pc 0xab2f72e79cd0 bp 0xffffc653cfb0 sp 0xffffc653cfa0
+cs-to-rgbs-yuv420p10-98x64p	auto64	-	-	-	-	abort:134	==9974==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x519000000e80 at pc 0xaacd78717d4c bp 0xfffff44f5180 sp 0xfffff44f5170
+cs-from-rgbs-yuv420p10-98x64p	auto64	29952	-	-	-	ran	
+colorize-yuv420p10-98x64p	auto64	12096	-	-	-	ran	
+cs-to-yuv422p10-98x64p	auto64	10368	-	-	-	ran	
+cs-to-rgbs-yuv422p10-98x64p	auto64	3840	-	-	-	ran	
+cs-from-rgbs-yuv422p10-98x64p	auto64	9984	-	-	-	ran	
+colorize-yuv422p10-98x64p	auto64	8256	-	-	-	ran	
+cs-to-yuv444p16-98x64p	auto64	2432	-	-	-	ran	
+cs-to-rgbs-yuv444p16-98x64p	auto64	704	-	-	-	ran	
+cs-from-rgbs-yuv444p16-98x64p	auto64	2048	-	-	-	ran	
+colorize-yuv444p16-98x64p	auto64	3136	-	-	-	ran	
+cs-rgbs-yuv444ps-98x64p	auto64	384	-	-	-	ran	
+deband-up-yuv420p8-98x64p	auto64	640	-	-	-	ran	
+deband-up-yuv420p10-98x64p	auto64	640	-	-	-	ran	
+deband-up-yuv422p10-98x64p	auto64	640	-	-	-	ran	
+deband-down-98x64p	auto64	2368	-	-	-	ran	
+bm3d-up-98x64p	auto64	384	-	-	-	ran	
+bm3d-down-98x64p	auto64	1216	-	-	-	ran	
+descale-98x64p	auto64	5632	-	-	-	ran	
+bt709-98x64p	auto64	-	-	-	-	abort:134	==10053==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x519000000e80 at pc 0xaab4fcc67d4c bp 0xfffff2456ad0 sp 0xfffff2456ac0
+cs-to-yuv420p8-98x64i	auto64	-	-	-	-	abort:134	==10076==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x512000000a40 at pc 0xaaca1c9d9cd0 bp 0xffffc711c3a0 sp 0xffffc711c390
+cs-to-rgbs-yuv420p8-98x64i	auto64	-	-	-	-	abort:134	==10100==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000001480 at pc 0xab60de0f7d4c bp 0xfffff70df460 sp 0xfffff70df450
+cs-from-rgbs-yuv420p8-98x64i	auto64	29952	-	-	-	ran	
+colorize-yuv420p8-98x64i	auto64	12096	-	-	-	ran	
+cs-to-yuv420p10-98x64i	auto64	-	-	-	-	abort:134	==10130==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x512000000a40 at pc 0xab72189f9cd0 bp 0xffffcd059150 sp 0xffffcd059140
+cs-to-rgbs-yuv420p10-98x64i	auto64	-	-	-	-	abort:134	==10154==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000001480 at pc 0xab98a4547d4c bp 0xffffc5cd0650 sp 0xffffc5cd0640
+cs-from-rgbs-yuv420p10-98x64i	auto64	29952	-	-	-	ran	
+colorize-yuv420p10-98x64i	auto64	12096	-	-	-	ran	
+cs-to-yuv422p10-98x64i	auto64	10368	-	-	-	ran	
+cs-to-rgbs-yuv422p10-98x64i	auto64	3840	-	-	-	ran	
+cs-from-rgbs-yuv422p10-98x64i	auto64	9984	-	-	-	ran	
+colorize-yuv422p10-98x64i	auto64	8256	-	-	-	ran	
+cs-to-yuv444p16-98x64i	auto64	2432	-	-	-	ran	
+cs-to-rgbs-yuv444p16-98x64i	auto64	704	-	-	-	ran	
+cs-from-rgbs-yuv444p16-98x64i	auto64	2048	-	-	-	ran	
+colorize-yuv444p16-98x64i	auto64	3136	-	-	-	ran	
+cs-rgbs-yuv444ps-98x64i	auto64	384	-	-	-	ran	
+deband-up-yuv420p8-98x64i	auto64	640	-	-	-	ran	
+deband-up-yuv420p10-98x64i	auto64	640	-	-	-	ran	
+deband-up-yuv422p10-98x64i	auto64	640	-	-	-	ran	
+deband-down-98x64i	auto64	2368	-	-	-	ran	
+bm3d-up-98x64i	auto64	384	-	-	-	ran	
+bm3d-down-98x64i	auto64	1216	-	-	-	ran	
+descale-98x64i	auto64	5632	-	-	-	ran	
+bt709-98x64i	auto64	-	-	-	-	abort:134	==10235==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x516000001d80 at pc 0xab8e3b597d4c bp 0xffffcd0ecc00 sp 0xffffcd0ecbf0
+cs-to-yuv420p8-720x480p	auto64	-	-	-	-	abort:134	==10256==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x520000002f80 at pc 0xab587fa69cd0 bp 0xffffcda29210 sp 0xffffcda29200
+cs-to-rgbs-yuv420p8-720x480p	auto64	-	-	-	-	abort:134	==10280==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x52400000df00 at pc 0xab4f0c717d4c bp 0xffffc26f9920 sp 0xffffc26f9910
+cs-from-rgbs-yuv420p8-720x480p	auto64	185792	-	-	-	ran	
+colorize-yuv420p8-720x480p	auto64	70912	-	-	-	ran	
+cs-to-yuv420p10-720x480p	auto64	-	-	-	-	abort:134	==10310==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x520000002f80 at pc 0xaae869759cd0 bp 0xffffd04b2220 sp 0xffffd04b2210
+cs-to-rgbs-yuv420p10-720x480p	auto64	-	-	-	-	abort:134	==10334==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x52400000df00 at pc 0xab696a387d4c bp 0xfffff8392920 sp 0xfffff8392910
+cs-from-rgbs-yuv420p10-720x480p	auto64	185792	-	-	-	ran	
+colorize-yuv420p10-720x480p	auto64	70912	-	-	-	ran	
+cs-to-yuv422p10-720x480p	auto64	59200	-	-	-	ran	
+cs-to-rgbs-yuv422p10-720x480p	auto64	18496	-	-	-	ran	
+cs-from-rgbs-yuv422p10-720x480p	auto64	58816	-	-	-	ran	
+colorize-yuv422p10-720x480p	auto64	47616	-	-	-	ran	
+cs-to-yuv444p16-720x480p	auto64	9728	-	-	-	ran	
+cs-to-rgbs-yuv444p16-720x480p	auto64	704	-	-	-	ran	
+cs-from-rgbs-yuv444p16-720x480p	auto64	9344	-	-	-	ran	
+colorize-yuv444p16-720x480p	auto64	18112	-	-	-	ran	
+cs-rgbs-yuv444ps-720x480p	auto64	384	-	-	-	ran	
+deband-up-yuv420p8-720x480p	auto64	640	-	-	-	ran	
+deband-up-yuv420p10-720x480p	auto64	640	-	-	-	ran	
+deband-up-yuv422p10-720x480p	auto64	640	-	-	-	ran	
+deband-down-720x480p	auto64	12352	-	-	-	ran	
+bm3d-up-720x480p	auto64	384	-	-	-	ran	
+bm3d-down-720x480p	auto64	6208	-	-	-	ran	
+descale-720x480p	auto64	31744	-	-	-	ran	
+bt709-720x480p	auto64	-	-	-	-	abort:134	==10416==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x52400000df00 at pc 0xaaebe2867d4c bp 0xfffff214f400 sp 0xfffff214f3f0
+cs-to-yuv420p8-720x480i	auto64	-	-	-	-	abort:134	==10438==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x51d000004400 at pc 0xab3b7c1c9cd0 bp 0xffffd288a1c0 sp 0xffffd288a1b0
+cs-to-rgbs-yuv420p8-720x480i	auto64	-	-	-	-	abort:134	==10462==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x520000006f80 at pc 0xaad2bb927d4c bp 0xffffdea9aee0 sp 0xffffdea9aed0
+cs-from-rgbs-yuv420p8-720x480i	auto64	185792	-	-	-	ran	
+colorize-yuv420p8-720x480i	auto64	70912	-	-	-	ran	
+cs-to-yuv420p10-720x480i	auto64	-	-	-	-	abort:134	==10493==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x51d000004400 at pc 0xab257b9c9cd0 bp 0xfffffd78c2a0 sp 0xfffffd78c290
+cs-to-rgbs-yuv420p10-720x480i	auto64	-	-	-	-	abort:134	==10517==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x520000006f80 at pc 0xab2c8afc7d4c bp 0xffffcbc8a5d0 sp 0xffffcbc8a5c0
+cs-from-rgbs-yuv420p10-720x480i	auto64	185792	-	-	-	ran	
+colorize-yuv420p10-720x480i	auto64	70912	-	-	-	ran	
+cs-to-yuv422p10-720x480i	auto64	59200	-	-	-	ran	
+cs-to-rgbs-yuv422p10-720x480i	auto64	18496	-	-	-	ran	
+cs-from-rgbs-yuv422p10-720x480i	auto64	58816	-	-	-	ran	
+colorize-yuv422p10-720x480i	auto64	47616	-	-	-	ran	
+cs-to-yuv444p16-720x480i	auto64	9728	-	-	-	ran	
+cs-to-rgbs-yuv444p16-720x480i	auto64	704	-	-	-	ran	
+cs-from-rgbs-yuv444p16-720x480i	auto64	9344	-	-	-	ran	
+colorize-yuv444p16-720x480i	auto64	18112	-	-	-	ran	
+cs-rgbs-yuv444ps-720x480i	auto64	384	-	-	-	ran	
+deband-up-yuv420p8-720x480i	auto64	640	-	-	-	ran	
+deband-up-yuv420p10-720x480i	auto64	640	-	-	-	ran	
+deband-up-yuv422p10-720x480i	auto64	640	-	-	-	ran	
+deband-down-720x480i	auto64	12352	-	-	-	ran	
+bm3d-up-720x480i	auto64	384	-	-	-	ran	
+bm3d-down-720x480i	auto64	6208	-	-	-	ran	
+descale-720x480i	auto64	31744	-	-	-	ran	
+bt709-720x480i	auto64	-	-	-	-	abort:134	==10598==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x520000008f80 at pc 0xab55feb37d4c bp 0xffffcea41b10 sp 0xffffcea41b00
+resize-sd-hd-p	auto64	386496	-	-	-	ran	
+resize-down-p	auto64	73088	-	-	-	ran	
+resize-sd-hd-i	auto64	386496	-	-	-	ran	
+resize-down-i	auto64	73088	-	-	-	ran	

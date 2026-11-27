@@ -1,0 +1,2 @@
+valgrind	vs-gcc	158 cases, 0 with invalid reads, 0 with invalid writes
+valgrind	vs-gcc-patched	158 cases, 0 with invalid reads, 0 with invalid writes

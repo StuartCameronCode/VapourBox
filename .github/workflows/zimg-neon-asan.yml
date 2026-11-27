@@ -8,6 +8,7 @@ name: zimg NEON float resize over-read (linux-arm64)
 #                    zimg patch, CRCs of the output with and without it,
 #                    disassembly and valgrind of the build VapourSynth makes,
 #                    and the same at zimg 9806db42 / graphengine 308d3735.
+#                    upstream_repro.c, the upstream draft's repro, both builds.
 #   bundle_check.sh  the shipped linux-arm64 deps bundle's vspipe under
 #                    valgrind, on the two resizes ASan flags.
 #

@@ -1,0 +1,520 @@
+000000000021673c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)>:
+  21673c:	stp	x29, x30, [sp, #-64]!
+  216740:	stp	x24, x23, [sp, #16]
+  216744:	stp	x22, x21, [sp, #32]
+  216748:	stp	x20, x19, [sp, #48]
+  21674c:	mov	x29, sp
+  216750:	lsr	x8, x1, #3
+  216754:	mov	x9, #0x1000000000          	// #68719476736
+  216758:	ldrb	w8, [x8, x9]
+  21675c:	cbnz	w8, 216ecc <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x790>
+  216760:	mov	x8, x1
+  216764:	ldr	x12, [x8], #8
+  216768:	lsr	x10, x8, #3
+  21676c:	ldrb	w9, [x10, x9]
+  216770:	cbnz	w9, 216ed4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x798>
+  216774:	add	x8, x1, #0x10
+  216778:	mov	x9, #0x1000000000          	// #68719476736
+  21677c:	lsr	x10, x8, #3
+  216780:	ldrb	w10, [x10, x9]
+  216784:	cbnz	w10, 216edc <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x7a0>
+  216788:	add	x8, x1, #0x18
+  21678c:	lsr	x10, x8, #3
+  216790:	ldrb	w9, [x10, x9]
+  216794:	cbnz	w9, 216ee4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x7a8>
+  216798:	lsr	x9, x0, #3
+  21679c:	mov	x13, #0x1000000000          	// #68719476736
+  2167a0:	ldp	x11, x10, [x1, #8]
+  2167a4:	ldrsb	w14, [x9, x13]
+  2167a8:	ldr	x9, [x8]
+  2167ac:	cbnz	w14, 216c58 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x51c>
+  2167b0:	mov	x8, x0
+  2167b4:	ld1r	{v0.4s}, [x8], #4
+  2167b8:	lsr	x14, x8, #3
+  2167bc:	ldrsb	w13, [x14, x13]
+  2167c0:	cbnz	w13, 216c6c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x530>
+  2167c4:	add	x8, x0, #0x8
+  2167c8:	add	x15, x0, #0x4
+  2167cc:	mov	x13, #0x1000000000          	// #68719476736
+  2167d0:	lsr	x14, x8, #3
+  2167d4:	ld1r	{v1.4s}, [x15]
+  2167d8:	ldrsb	w14, [x14, x13]
+  2167dc:	cbnz	w14, 216c84 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x548>
+  2167e0:	add	x8, x0, #0xc
+  2167e4:	ldr	s2, [x0, #8]
+  2167e8:	lsr	x14, x8, #3
+  2167ec:	ldrsb	w13, [x14, x13]
+  2167f0:	cbnz	w13, 216c9c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x560>
+  2167f4:	add	w13, w3, #0x3
+  2167f8:	ldr	s3, [x8]
+  2167fc:	and	w15, w13, #0xfffffffc
+  216800:	cmp	w15, w3
+  216804:	b.eq	216930 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x1f4>  // b.none
+  216808:	sub	w14, w15, #0x4
+  21680c:	mov	x16, #0x1000000000          	// #68719476736
+  216810:	add	x0, x12, w14, uxtw #2
+  216814:	lsr	x8, x0, #3
+  216818:	ldrsb	w8, [x8, x16]
+  21681c:	cbnz	w8, 216cb4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x578>
+  216820:	add	x8, x0, #0xf
+  216824:	lsr	x17, x8, #3
+  216828:	ldrsb	w16, [x17, x16]
+  21682c:	cbnz	w16, 216cc8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x58c>
+  216830:	add	x8, x11, x14, lsl #2
+  216834:	mov	x16, #0x1000000000          	// #68719476736
+  216838:	ldr	q4, [x0]
+  21683c:	lsr	x17, x8, #3
+  216840:	ldrsb	w17, [x17, x16]
+  216844:	cbnz	w17, 216ce0 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x5a4>
+  216848:	add	x0, x8, #0xf
+  21684c:	lsr	x17, x0, #3
+  216850:	ldrsb	w16, [x17, x16]
+  216854:	cbnz	w16, 216cf8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x5bc>
+  216858:	add	x0, x10, x14, lsl #2
+  21685c:	mov	x16, #0x1000000000          	// #68719476736
+  216860:	ldr	q5, [x8]
+  216864:	lsr	x17, x0, #3
+  216868:	ldrsb	w17, [x17, x16]
+  21686c:	cbnz	w17, 216d0c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x5d0>
+  216870:	add	x8, x0, #0xf
+  216874:	lsr	x17, x8, #3
+  216878:	ldrsb	w16, [x17, x16]
+  21687c:	cbnz	w16, 216d20 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x5e4>
+  216880:	add	x8, x9, x14, lsl #2
+  216884:	mov	x14, #0x1000000000          	// #68719476736
+  216888:	ldr	q6, [x0]
+  21688c:	lsr	x16, x8, #3
+  216890:	ldrsb	w16, [x16, x14]
+  216894:	cbnz	w16, 216d38 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x5fc>
+  216898:	add	x0, x8, #0xf
+  21689c:	lsr	x16, x0, #3
+  2168a0:	ldrsb	w14, [x16, x14]
+  2168a4:	cbnz	w14, 216d50 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x614>
+  2168a8:	add	x16, x2, w15, uxtw #2
+  2168ac:	mov	x17, #0x1000000000          	// #68719476736
+  2168b0:	ldr	q7, [x8]
+  2168b4:	sub	x0, x16, #0x10
+  2168b8:	lsr	x14, x0, #3
+  2168bc:	ldrsb	w18, [x14, x17]
+  2168c0:	cbnz	w18, 216d64 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x628>
+  2168c4:	sub	x8, x16, #0x1
+  2168c8:	lsr	x16, x8, #3
+  2168cc:	ldrsb	w16, [x16, x17]
+  2168d0:	cbnz	w16, 216d78 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x63c>
+  2168d4:	adrp	x16, 29e000 <_GLOBAL_OFFSET_TABLE_+0x11a0>
+  2168d8:	ubfiz	w8, w3, #2, #2
+  2168dc:	ldr	x16, [x16, #3728]
+  2168e0:	add	x8, x16, w8, uxtw #4
+  2168e4:	mov	x16, #0x1000000000          	// #68719476736
+  2168e8:	lsr	x17, x8, #3
+  2168ec:	ldrh	w17, [x17, x16]
+  2168f0:	cbnz	w17, 216f48 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x80c>
+  2168f4:	ldrsb	w14, [x14, x16]
+  2168f8:	ldr	q16, [x0]
+  2168fc:	ldr	q17, [x8]
+  216900:	cbnz	w14, 216d90 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x654>
+  216904:	add	x8, x0, #0xf
+  216908:	lsr	x14, x8, #3
+  21690c:	ldrsb	w14, [x14, x16]
+  216910:	cbnz	w14, 216da4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x668>
+  216914:	fmul	v4.4s, v0.4s, v4.4s
+  216918:	fmul	v5.4s, v1.4s, v5.4s
+  21691c:	fmla	v4.4s, v6.4s, v2.s[0]
+  216920:	fmla	v5.4s, v7.4s, v3.s[0]
+  216924:	fadd	v4.4s, v4.4s, v5.4s
+  216928:	bit	v4.16b, v16.16b, v17.16b
+  21692c:	str	q4, [x0]
+  216930:	and	w14, w4, #0xfffffffc
+  216934:	cmp	w15, w14
+  216938:	b.cs	216b1c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x3e0>  // b.hs, b.nlast
+  21693c:	lsl	x8, x13, #2
+  216940:	mov	x16, #0x1000000000          	// #68719476736
+  216944:	and	w15, w13, #0xfffffffc
+  216948:	mov	x1, x2
+  21694c:	mov	x17, x2
+  216950:	mov	x5, x9
+  216954:	and	x8, x8, #0x3fffffff0
+  216958:	mov	x18, x9
+  21695c:	mov	x20, x10
+  216960:	add	x0, x12, x8
+  216964:	mov	x3, x10
+  216968:	mov	x21, x11
+  21696c:	add	x19, x16, x0, lsr #3
+  216970:	mov	x6, x11
+  216974:	mov	x22, x12
+  216978:	mov	x7, x12
+  21697c:	ldrsb	w23, [x19]
+  216980:	add	x0, x8, x7
+  216984:	cbnz	w23, 216a88 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x34c>
+  216988:	add	x0, x0, #0xf
+  21698c:	lsr	x23, x0, #3
+  216990:	and	w24, w0, #0x7
+  216994:	ldrsb	w23, [x23, x16]
+  216998:	cmp	w23, #0x0
+  21699c:	ccmp	w24, w23, #0x8, ne	// ne = any
+  2169a0:	b.ge	216ec4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x788>  // b.tcont
+  2169a4:	add	x0, x8, x6
+  2169a8:	ldr	q4, [x22, x8]
+  2169ac:	lsr	x23, x0, #3
+  2169b0:	ldrsb	w23, [x23, x16]
+  2169b4:	cbnz	w23, 216a98 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x35c>
+  2169b8:	add	x0, x0, #0xf
+  2169bc:	lsr	x23, x0, #3
+  2169c0:	ldrsb	w23, [x23, x16]
+  2169c4:	cbnz	w23, 216aa8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x36c>
+  2169c8:	add	x0, x8, x3
+  2169cc:	ldr	q5, [x21, x8]
+  2169d0:	lsr	x23, x0, #3
+  2169d4:	ldrsb	w23, [x23, x16]
+  2169d8:	cbnz	w23, 216ab8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x37c>
+  2169dc:	add	x0, x0, #0xf
+  2169e0:	lsr	x23, x0, #3
+  2169e4:	ldrsb	w23, [x23, x16]
+  2169e8:	cbnz	w23, 216ac8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x38c>
+  2169ec:	add	x0, x8, x18
+  2169f0:	ldr	q6, [x20, x8]
+  2169f4:	lsr	x23, x0, #3
+  2169f8:	ldrsb	w23, [x23, x16]
+  2169fc:	cbnz	w23, 216ad8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x39c>
+  216a00:	add	x0, x0, #0xf
+  216a04:	lsr	x23, x0, #3
+  216a08:	ldrsb	w23, [x23, x16]
+  216a0c:	cbnz	w23, 216ae8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x3ac>
+  216a10:	add	x0, x8, x17
+  216a14:	ldr	q7, [x5, x8]
+  216a18:	lsr	x23, x0, #3
+  216a1c:	ldrsb	w23, [x23, x16]
+  216a20:	cbnz	w23, 216af8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x3bc>
+  216a24:	add	x0, x0, #0xf
+  216a28:	lsr	x23, x0, #3
+  216a2c:	ldrsb	w23, [x23, x16]
+  216a30:	cbnz	w23, 216b08 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x3cc>
+  216a34:	fmul	v4.4s, v0.4s, v4.4s
+  216a38:	fmul	v5.4s, v1.4s, v5.4s
+  216a3c:	add	x15, x15, #0x4
+  216a40:	add	x7, x7, #0x10
+  216a44:	add	x19, x19, #0x2
+  216a48:	add	x22, x22, #0x10
+  216a4c:	add	x6, x6, #0x10
+  216a50:	add	x21, x21, #0x10
+  216a54:	add	x3, x3, #0x10
+  216a58:	add	x20, x20, #0x10
+  216a5c:	add	x18, x18, #0x10
+  216a60:	cmp	x15, x14
+  216a64:	fmla	v4.4s, v6.4s, v2.s[0]
+  216a68:	fmla	v5.4s, v7.4s, v3.s[0]
+  216a6c:	add	x5, x5, #0x10
+  216a70:	add	x17, x17, #0x10
+  216a74:	fadd	v4.4s, v4.4s, v5.4s
+  216a78:	str	q4, [x1, x8]
+  216a7c:	add	x1, x1, #0x10
+  216a80:	b.cc	21697c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x240>  // b.lo, b.ul, b.last
+  216a84:	b	216b1c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x3e0>
+  216a88:	and	w24, w0, #0x7
+  216a8c:	cmp	w24, w23
+  216a90:	b.lt	216988 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x24c>  // b.tstop
+  216a94:	b	216efc <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x7c0>
+  216a98:	and	w24, w0, #0x7
+  216a9c:	cmp	w24, w23
+  216aa0:	b.lt	2169b8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x27c>  // b.tstop
+  216aa4:	b	216f10 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x7d4>
+  216aa8:	and	w24, w0, #0x7
+  216aac:	cmp	w24, w23
+  216ab0:	b.lt	2169c8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x28c>  // b.tstop
+  216ab4:	b	216eec <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x7b0>
+  216ab8:	and	w24, w0, #0x7
+  216abc:	cmp	w24, w23
+  216ac0:	b.lt	2169dc <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x2a0>  // b.tstop
+  216ac4:	b	216f1c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x7e0>
+  216ac8:	and	w24, w0, #0x7
+  216acc:	cmp	w24, w23
+  216ad0:	b.lt	2169ec <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x2b0>  // b.tstop
+  216ad4:	b	216ef4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x7b8>
+  216ad8:	and	w24, w0, #0x7
+  216adc:	cmp	w24, w23
+  216ae0:	b.lt	216a00 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x2c4>  // b.tstop
+  216ae4:	b	216f28 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x7ec>
+  216ae8:	and	w24, w0, #0x7
+  216aec:	cmp	w24, w23
+  216af0:	b.lt	216a10 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x2d4>  // b.tstop
+  216af4:	b	216f34 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x7f8>
+  216af8:	and	w24, w0, #0x7
+  216afc:	cmp	w24, w23
+  216b00:	b.lt	216a24 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x2e8>  // b.tstop
+  216b04:	b	216f3c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x800>
+  216b08:	and	w24, w0, #0x7
+  216b0c:	cmp	w24, w23
+  216b10:	b.lt	216a34 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x2f8>  // b.tstop
+  216b14:	mov	w1, #0x10                  	// #16
+  216b18:	bl	eae2c <__asan_report_store_n>
+  216b1c:	cmp	w14, w4
+  216b20:	b.eq	216c44 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x508>  // b.none
+  216b24:	add	x0, x12, w14, uxtw #2
+  216b28:	mov	x12, #0x1000000000          	// #68719476736
+  216b2c:	lsr	x8, x0, #3
+  216b30:	ldrsb	w8, [x8, x12]
+  216b34:	cbnz	w8, 216dbc <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x680>
+  216b38:	add	x8, x0, #0xf
+  216b3c:	lsr	x13, x8, #3
+  216b40:	ldrsb	w12, [x13, x12]
+  216b44:	cbnz	w12, 216dd0 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x694>
+  216b48:	add	x8, x11, x14, lsl #2
+  216b4c:	mov	x11, #0x1000000000          	// #68719476736
+  216b50:	ldr	q4, [x0]
+  216b54:	lsr	x12, x8, #3
+  216b58:	ldrsb	w12, [x12, x11]
+  216b5c:	cbnz	w12, 216de8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x6ac>
+  216b60:	add	x0, x8, #0xf
+  216b64:	lsr	x12, x0, #3
+  216b68:	ldrsb	w11, [x12, x11]
+  216b6c:	cbnz	w11, 216e00 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x6c4>
+  216b70:	add	x0, x10, x14, lsl #2
+  216b74:	mov	x10, #0x1000000000          	// #68719476736
+  216b78:	ldr	q5, [x8]
+  216b7c:	lsr	x11, x0, #3
+  216b80:	ldrsb	w11, [x11, x10]
+  216b84:	cbnz	w11, 216e14 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x6d8>
+  216b88:	add	x8, x0, #0xf
+  216b8c:	lsr	x11, x8, #3
+  216b90:	ldrsb	w10, [x11, x10]
+  216b94:	cbnz	w10, 216e28 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x6ec>
+  216b98:	add	x8, x9, x14, lsl #2
+  216b9c:	mov	x9, #0x1000000000          	// #68719476736
+  216ba0:	ldr	q6, [x0]
+  216ba4:	lsr	x10, x8, #3
+  216ba8:	ldrsb	w10, [x10, x9]
+  216bac:	cbnz	w10, 216e40 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x704>
+  216bb0:	add	x0, x8, #0xf
+  216bb4:	lsr	x10, x0, #3
+  216bb8:	ldrsb	w9, [x10, x9]
+  216bbc:	cbnz	w9, 216e58 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x71c>
+  216bc0:	add	x0, x2, x14, lsl #2
+  216bc4:	mov	x10, #0x1000000000          	// #68719476736
+  216bc8:	ldr	q7, [x8]
+  216bcc:	lsr	x9, x0, #3
+  216bd0:	ldrsb	w11, [x9, x10]
+  216bd4:	cbnz	w11, 216e6c <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x730>
+  216bd8:	add	x8, x0, #0xf
+  216bdc:	lsr	x11, x8, #3
+  216be0:	ldrsb	w10, [x11, x10]
+  216be4:	cbnz	w10, 216e80 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x744>
+  216be8:	adrp	x10, 29e000 <_GLOBAL_OFFSET_TABLE_+0x11a0>
+  216bec:	ubfiz	w8, w4, #2, #2
+  216bf0:	ldr	x10, [x10, #3728]
+  216bf4:	add	x8, x10, w8, uxtw #4
+  216bf8:	mov	x10, #0x1000000000          	// #68719476736
+  216bfc:	lsr	x11, x8, #3
+  216c00:	ldrh	w11, [x11, x10]
+  216c04:	cbnz	w11, 216f50 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x814>
+  216c08:	ldrsb	w9, [x9, x10]
+  216c0c:	ldr	q16, [x0]
+  216c10:	ldr	q17, [x8]
+  216c14:	cbnz	w9, 216e98 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x75c>
+  216c18:	add	x8, x0, #0xf
+  216c1c:	lsr	x9, x8, #3
+  216c20:	ldrsb	w9, [x9, x10]
+  216c24:	cbnz	w9, 216eac <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x770>
+  216c28:	fmul	v0.4s, v0.4s, v4.4s
+  216c2c:	fmul	v1.4s, v1.4s, v5.4s
+  216c30:	fmla	v0.4s, v6.4s, v2.s[0]
+  216c34:	fmla	v1.4s, v7.4s, v3.s[0]
+  216c38:	fadd	v0.4s, v0.4s, v1.4s
+  216c3c:	bif	v0.16b, v16.16b, v17.16b
+  216c40:	str	q0, [x0]
+  216c44:	ldp	x20, x19, [sp, #48]
+  216c48:	ldp	x22, x21, [sp, #32]
+  216c4c:	ldp	x24, x23, [sp, #16]
+  216c50:	ldp	x29, x30, [sp], #64
+  216c54:	ret
+  216c58:	and	w8, w0, #0x7
+  216c5c:	add	w8, w8, #0x3
+  216c60:	cmp	w8, w14
+  216c64:	b.lt	2167b0 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x74>  // b.tstop
+  216c68:	bl	ea694 <__asan_report_load4>
+  216c6c:	and	w14, w8, #0x7
+  216c70:	add	w14, w14, #0x3
+  216c74:	cmp	w14, w13
+  216c78:	b.lt	2167c4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x88>  // b.tstop
+  216c7c:	mov	x0, x8
+  216c80:	bl	ea694 <__asan_report_load4>
+  216c84:	and	w15, w8, #0x7
+  216c88:	add	w15, w15, #0x3
+  216c8c:	cmp	w15, w14
+  216c90:	b.lt	2167e0 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0xa4>  // b.tstop
+  216c94:	mov	x0, x8
+  216c98:	bl	ea694 <__asan_report_load4>
+  216c9c:	and	w14, w8, #0x7
+  216ca0:	add	w14, w14, #0x3
+  216ca4:	cmp	w14, w13
+  216ca8:	b.lt	2167f4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0xb8>  // b.tstop
+  216cac:	mov	x0, x8
+  216cb0:	bl	ea694 <__asan_report_load4>
+  216cb4:	and	w17, w0, #0x7
+  216cb8:	cmp	w17, w8
+  216cbc:	b.lt	216820 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0xe4>  // b.tstop
+  216cc0:	mov	w1, #0x10                  	// #16
+  216cc4:	bl	ead54 <__asan_report_load_n>
+  216cc8:	and	w17, w8, #0x7
+  216ccc:	cmp	w17, w16
+  216cd0:	b.lt	216830 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0xf4>  // b.tstop
+  216cd4:	mov	x0, x8
+  216cd8:	mov	w1, #0x10                  	// #16
+  216cdc:	bl	ead54 <__asan_report_load_n>
+  216ce0:	and	w18, w8, #0x7
+  216ce4:	cmp	w18, w17
+  216ce8:	b.lt	216848 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x10c>  // b.tstop
+  216cec:	mov	x0, x8
+  216cf0:	mov	w1, #0x10                  	// #16
+  216cf4:	bl	ead54 <__asan_report_load_n>
+  216cf8:	and	w17, w0, #0x7
+  216cfc:	cmp	w17, w16
+  216d00:	b.lt	216858 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x11c>  // b.tstop
+  216d04:	mov	w1, #0x10                  	// #16
+  216d08:	bl	ead54 <__asan_report_load_n>
+  216d0c:	and	w8, w0, #0x7
+  216d10:	cmp	w8, w17
+  216d14:	b.lt	216870 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x134>  // b.tstop
+  216d18:	mov	w1, #0x10                  	// #16
+  216d1c:	bl	ead54 <__asan_report_load_n>
+  216d20:	and	w17, w8, #0x7
+  216d24:	cmp	w17, w16
+  216d28:	b.lt	216880 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x144>  // b.tstop
+  216d2c:	mov	x0, x8
+  216d30:	mov	w1, #0x10                  	// #16
+  216d34:	bl	ead54 <__asan_report_load_n>
+  216d38:	and	w17, w8, #0x7
+  216d3c:	cmp	w17, w16
+  216d40:	b.lt	216898 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x15c>  // b.tstop
+  216d44:	mov	x0, x8
+  216d48:	mov	w1, #0x10                  	// #16
+  216d4c:	bl	ead54 <__asan_report_load_n>
+  216d50:	and	w16, w0, #0x7
+  216d54:	cmp	w16, w14
+  216d58:	b.lt	2168a8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x16c>  // b.tstop
+  216d5c:	mov	w1, #0x10                  	// #16
+  216d60:	bl	ead54 <__asan_report_load_n>
+  216d64:	and	w8, w0, #0x7
+  216d68:	cmp	w8, w18
+  216d6c:	b.lt	2168c4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x188>  // b.tstop
+  216d70:	mov	w1, #0x10                  	// #16
+  216d74:	bl	ead54 <__asan_report_load_n>
+  216d78:	and	w17, w8, #0x7
+  216d7c:	cmp	w17, w16
+  216d80:	b.lt	2168d4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x198>  // b.tstop
+  216d84:	mov	x0, x8
+  216d88:	mov	w1, #0x10                  	// #16
+  216d8c:	bl	ead54 <__asan_report_load_n>
+  216d90:	and	w8, w0, #0x7
+  216d94:	cmp	w8, w14
+  216d98:	b.lt	216904 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x1c8>  // b.tstop
+  216d9c:	mov	w1, #0x10                  	// #16
+  216da0:	bl	eae2c <__asan_report_store_n>
+  216da4:	and	w16, w8, #0x7
+  216da8:	cmp	w16, w14
+  216dac:	b.lt	216914 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x1d8>  // b.tstop
+  216db0:	mov	x0, x8
+  216db4:	mov	w1, #0x10                  	// #16
+  216db8:	bl	eae2c <__asan_report_store_n>
+  216dbc:	and	w13, w0, #0x7
+  216dc0:	cmp	w13, w8
+  216dc4:	b.lt	216b38 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x3fc>  // b.tstop
+  216dc8:	mov	w1, #0x10                  	// #16
+  216dcc:	bl	ead54 <__asan_report_load_n>
+  216dd0:	and	w13, w8, #0x7
+  216dd4:	cmp	w13, w12
+  216dd8:	b.lt	216b48 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x40c>  // b.tstop
+  216ddc:	mov	x0, x8
+  216de0:	mov	w1, #0x10                  	// #16
+  216de4:	bl	ead54 <__asan_report_load_n>
+  216de8:	and	w13, w8, #0x7
+  216dec:	cmp	w13, w12
+  216df0:	b.lt	216b60 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x424>  // b.tstop
+  216df4:	mov	x0, x8
+  216df8:	mov	w1, #0x10                  	// #16
+  216dfc:	bl	ead54 <__asan_report_load_n>
+  216e00:	and	w12, w0, #0x7
+  216e04:	cmp	w12, w11
+  216e08:	b.lt	216b70 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x434>  // b.tstop
+  216e0c:	mov	w1, #0x10                  	// #16
+  216e10:	bl	ead54 <__asan_report_load_n>
+  216e14:	and	w8, w0, #0x7
+  216e18:	cmp	w8, w11
+  216e1c:	b.lt	216b88 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x44c>  // b.tstop
+  216e20:	mov	w1, #0x10                  	// #16
+  216e24:	bl	ead54 <__asan_report_load_n>
+  216e28:	and	w11, w8, #0x7
+  216e2c:	cmp	w11, w10
+  216e30:	b.lt	216b98 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x45c>  // b.tstop
+  216e34:	mov	x0, x8
+  216e38:	mov	w1, #0x10                  	// #16
+  216e3c:	bl	ead54 <__asan_report_load_n>
+  216e40:	and	w11, w8, #0x7
+  216e44:	cmp	w11, w10
+  216e48:	b.lt	216bb0 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x474>  // b.tstop
+  216e4c:	mov	x0, x8
+  216e50:	mov	w1, #0x10                  	// #16
+  216e54:	bl	ead54 <__asan_report_load_n>
+  216e58:	and	w10, w0, #0x7
+  216e5c:	cmp	w10, w9
+  216e60:	b.lt	216bc0 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x484>  // b.tstop
+  216e64:	mov	w1, #0x10                  	// #16
+  216e68:	bl	ead54 <__asan_report_load_n>
+  216e6c:	and	w8, w0, #0x7
+  216e70:	cmp	w8, w11
+  216e74:	b.lt	216bd8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x49c>  // b.tstop
+  216e78:	mov	w1, #0x10                  	// #16
+  216e7c:	bl	ead54 <__asan_report_load_n>
+  216e80:	and	w11, w8, #0x7
+  216e84:	cmp	w11, w10
+  216e88:	b.lt	216be8 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x4ac>  // b.tstop
+  216e8c:	mov	x0, x8
+  216e90:	mov	w1, #0x10                  	// #16
+  216e94:	bl	ead54 <__asan_report_load_n>
+  216e98:	and	w8, w0, #0x7
+  216e9c:	cmp	w8, w9
+  216ea0:	b.lt	216c18 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x4dc>  // b.tstop
+  216ea4:	mov	w1, #0x10                  	// #16
+  216ea8:	bl	eae2c <__asan_report_store_n>
+  216eac:	and	w10, w8, #0x7
+  216eb0:	cmp	w10, w9
+  216eb4:	b.lt	216c28 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x4ec>  // b.tstop
+  216eb8:	mov	x0, x8
+  216ebc:	mov	w1, #0x10                  	// #16
+  216ec0:	bl	eae2c <__asan_report_store_n>
+  216ec4:	mov	w1, #0x10                  	// #16
+  216ec8:	bl	ead54 <__asan_report_load_n>
+  216ecc:	mov	x0, x1
+  216ed0:	bl	ea76c <__asan_report_load8>
+  216ed4:	mov	x0, x8
+  216ed8:	bl	ea76c <__asan_report_load8>
+  216edc:	mov	x0, x8
+  216ee0:	bl	ea76c <__asan_report_load8>
+  216ee4:	mov	x0, x8
+  216ee8:	bl	ea76c <__asan_report_load8>
+  216eec:	mov	w1, #0x10                  	// #16
+  216ef0:	bl	ead54 <__asan_report_load_n>
+  216ef4:	mov	w1, #0x10                  	// #16
+  216ef8:	bl	ead54 <__asan_report_load_n>
+  216efc:	lsl	x8, x13, #2
+  216f00:	mov	w1, #0x10                  	// #16
+  216f04:	and	x8, x8, #0x3fffffff0
+  216f08:	add	x0, x8, x7
+  216f0c:	bl	ead54 <__asan_report_load_n>
+  216f10:	add	x0, x8, x6
+  216f14:	mov	w1, #0x10                  	// #16
+  216f18:	bl	ead54 <__asan_report_load_n>
+  216f1c:	add	x0, x8, x3
+  216f20:	mov	w1, #0x10                  	// #16
+  216f24:	bl	ead54 <__asan_report_load_n>
+  216f28:	add	x0, x8, x18
+  216f2c:	mov	w1, #0x10                  	// #16
+  216f30:	bl	ead54 <__asan_report_load_n>
+  216f34:	mov	w1, #0x10                  	// #16
+  216f38:	bl	ead54 <__asan_report_load_n>
+  216f3c:	add	x0, x8, x17
+  216f40:	mov	w1, #0x10                  	// #16
+  216f44:	bl	eae2c <__asan_report_store_n>
+  216f48:	mov	x0, x8
+  216f4c:	bl	ea844 <__asan_report_load16>
+  216f50:	mov	x0, x8
+  216f54:	bl	ea844 <__asan_report_load16>
