@@ -5,13 +5,13 @@
 // Run with: flutter test test/vapoursynth_integration_test.dart
 // Note: Requires platform-specific deps to be present with all plugins.
 
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 
 import 'support/deps_version.dart';
+import 'support/vspipe_process.dart';
 import 'support/worker_harness.dart';
 
 void main() {
@@ -109,7 +109,9 @@ void main() {
 
   group('VapourSynth Plugin Loading', () {
     test('vspipe executes successfully', () async {
-      final result = await Process.run(vspipePath, ['--version']);
+      final result = (await runVspipe(vspipePath, ['--version'],
+          label: 'vspipe --version', timeout: const Duration(minutes: 1)))
+          .result;
       expect(result.exitCode, 0);
       expect(result.stdout.toString(), contains('VapourSynth'));
     });
@@ -128,7 +130,9 @@ void main() {
             '(task #68); enforced from deps 1.18.0');
         return;
       }
-      final result = await Process.run(vspipePath, ['--version']);
+      final result = (await runVspipe(vspipePath, ['--version'],
+          label: 'vspipe --version', timeout: const Duration(minutes: 1)))
+          .result;
       expect(result.exitCode, 0, reason: 'stderr: ${result.stderr}');
       expect(result.stdout.toString(),
           contains('VapourBox patch: vspipe frame-done count (task #68)'));
@@ -870,11 +874,8 @@ core.std.Splice([$call for _ in range($instances)]).set_output()''';
         for (var i = 0; i < 3; i++)
           ('Deblock_QED', stress('haf.Deblock_QED(src)', 300, 8)),
       ];
-      for (final (name, script) in runs) {
-        final r = await _runVspipeScript(vspipePath, script,
-            depsDir: depsDir, outputFrames: true);
-        expect(r.exitCode, 0,
-            reason: _stressFailure(name, r.exitCode, r.stderr.toString(), 'task #96'));
+      for (final (i, (name, script)) in runs.indexed) {
+        await _runStressGraph(vspipePath, depsDir, name, i, script, 'task #96');
       }
     }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 5)));
   });
@@ -1010,11 +1011,8 @@ core.std.Splice([$call for _ in range($instances)]).set_output()''';
         for (var i = 0; i < 8; i++) ('TCanny', stress('core.tcanny.TCanny(src)', 1000)),
         for (var i = 0; i < 3; i++) ('MinBlur(r=3), 10-bit', stress('haf.MinBlur(src, 3)', 300, tenBit: true)),
       ];
-      for (final (name, script) in runs) {
-        final r = await _runVspipeScript(vspipePath, script,
-            depsDir: depsDir, outputFrames: true);
-        expect(r.exitCode, 0,
-            reason: _stressFailure(name, r.exitCode, r.stderr.toString(), 'task #98'));
+      for (final (i, (name, script)) in runs.indexed) {
+        await _runStressGraph(vspipePath, depsDir, name, i, script, 'task #98');
       }
     }, tags: ['heavy'], timeout: const Timeout(Duration(minutes: 10)));
   });
@@ -1518,95 +1516,90 @@ Future<ProcessResult> _runVspipeScript(
   required String depsDir,
   String? stdinFile,
   bool outputFrames = false,
+}) async =>
+    (await _runVspipeTimed(vspipePath, script,
+            depsDir: depsDir, stdinFile: stdinFile, outputFrames: outputFrames))
+        .result;
+
+/// [script] through vspipe with [runVspipe] (task #124): a vspipe that
+/// prints its final line but does not exit is stopped after the worker's
+/// grace (task #122), and one that runs past [timeout] is described and
+/// killed rather than holding the test until package:test's own timeout.
+Future<VspipeRun> _runVspipeTimed(
+  String vspipePath,
+  String script, {
+  required String depsDir,
+  String? stdinFile,
+  bool outputFrames = false,
+  String label = 'vspipe',
+  Duration timeout = const Duration(minutes: 10),
 }) async {
-  // Write script to temp file
-  final scriptFile = File(path.join(
-    Directory.systemTemp.path,
-    'vapourbox_test_${DateTime.now().millisecondsSinceEpoch}.vpy',
-  ));
+  // A directory of its own: two scripts written in the same millisecond
+  // (the old name) would have been one file.
+  final dir = await Directory.systemTemp.createTemp('vapourbox_test_');
+  final scriptFile = File(path.join(dir.path, 'script.vpy'));
   await scriptFile.writeAsString(script);
-
   try {
-    // Use -p for progress mode when we want to process frames
-    // Use -i for info only (validates script without outputting frames)
+    // -p shows progress and ends with "Output N frames in …", `.` discards
+    // the output; -i only validates the script (and prints no final line).
     final args = outputFrames
-        ? ['-p', scriptFile.path, '.'] // -p shows progress, . means discard output
+        ? ['-p', scriptFile.path, '.']
         : ['-i', scriptFile.path, '-'];
-
-    // Build platform-specific environment
-    final Map<String, String> environment;
-
-    if (Platform.isWindows) {
-      final vsDir = path.join(depsDir, 'vapoursynth');
-      environment = {
-        'PYTHONHOME': vsDir,
-        'PYTHONPATH': path.join(vsDir, 'Lib', 'site-packages'),
-        // R74 replaced VAPOURSYNTH_PLUGIN_PATH with this; under the old name the
-        // bundled plugins are simply not autoloaded and every filter fails with
-        // "No attribute with the name <ns> exists". Matches
-        // DependencyLocator::build_environment in the worker.
-        'VAPOURSYNTH_EXTRA_PLUGIN_PATH': path.join(vsDir, 'vs-plugins'),
-      };
-    } else {
-      // macOS/Linux - the vspipe wrapper script handles most env setup
-      environment = {
-        'PYTHONPATH': path.join(depsDir, 'python-packages'),
-      };
-    }
-
-    if (stdinFile != null) {
-      // Pipe raw file to vspipe's stdin
-      final rawFile = File(stdinFile);
-      final process = await Process.start(
-        vspipePath,
-        args,
-        environment: environment,
-      );
-
-      final rawBytes = await rawFile.readAsBytes();
-
-      // Start draining BEFORE writing stdin, and never await the write.
-      //
-      // These scripts ask for a single frame, so vspipe reads a fraction of the
-      // raw file and exits; the rest of the write has nowhere to go. Awaiting
-      // `stdin.close()` first then deadlocks — the write blocks on a pipe nobody
-      // is reading, so the drain that would let vspipe finish never starts.
-      //
-      // R73 hid this: it spent ~1.4s evaluating the script, long enough for the
-      // whole 60 KB to land in the OS pipe buffer before vspipe exited. R78
-      // evaluates in ~0.01s and loses the race every time. It was always a race,
-      // not a version difference, so don't "fix" it by reordering back.
-      final stdout = StringBuffer();
-      final stderr = StringBuffer();
-      final drained = Future.wait([
-        process.stdout.transform(const SystemEncoding().decoder).forEach(stdout.write),
-        process.stderr.transform(const SystemEncoding().decoder).forEach(stderr.write),
-      ]);
-
-      unawaited(() async {
-        try {
-          process.stdin.add(rawBytes);
-          await process.stdin.close();
-        } catch (_) {
-          // Broken pipe: vspipe got the frames it needed and exited.
-        }
-      }());
-
-      await drained;
-      final exitCode = await process.exitCode;
-
-      return ProcessResult(process.pid, exitCode, stdout.toString(), stderr.toString());
-    } else {
-      final result = await Process.run(
-        vspipePath,
-        args,
-        environment: environment,
-      );
-      return result;
-    }
+    return await runVspipe(
+      vspipePath,
+      args,
+      label: label,
+      environment: _vspipeEnvironment(depsDir),
+      timeout: timeout,
+      // These scripts ask for a single frame, so vspipe reads a fraction of
+      // the raw file and exits: runVspipe drains both pipes before writing
+      // and never awaits the write (CLAUDE.md, "Feeding a test clip").
+      stdin: stdinFile == null ? null : await File(stdinFile).readAsBytes(),
+    );
   } finally {
-    await scriptFile.delete();
+    await dir.delete(recursive: true);
   }
+}
+
+/// The environment these tests run vspipe in.
+Map<String, String> _vspipeEnvironment(String depsDir) {
+  if (Platform.isWindows) {
+    final vsDir = path.join(depsDir, 'vapoursynth');
+    return {
+      'PYTHONHOME': vsDir,
+      'PYTHONPATH': path.join(vsDir, 'Lib', 'site-packages'),
+      // R74 replaced VAPOURSYNTH_PLUGIN_PATH with this; under the old name the
+      // bundled plugins are simply not autoloaded and every filter fails with
+      // "No attribute with the name <ns> exists". Matches
+      // DependencyLocator::build_environment in the worker.
+      'VAPOURSYNTH_EXTRA_PLUGIN_PATH': path.join(vsDir, 'vs-plugins'),
+    };
+  }
+  // macOS/Linux - the vspipe wrapper script handles most env setup
+  return {'PYTHONPATH': path.join(depsDir, 'python-packages')};
+}
+
+/// A stress graph's limit. Each takes a few seconds (the measurement is in
+/// docs/reports/task-124-dctfilter-stress-timeout); the limit only has to
+/// name a hang well inside the test's own timeout.
+const _stressGraphLimit = Duration(seconds: 90);
+
+/// One graph of a stress test (tasks #96, #98, #124): bounded by [limit],
+/// so a hang names its graph instead of running into the test's timeout,
+/// and timed, so the nightly log shows each graph's time on every platform.
+Future<void> _runStressGraph(String vspipePath, String depsDir, String name,
+    int index, String script, String task,
+    {Duration limit = _stressGraphLimit}) async {
+  final label = 'stress $name #$index';
+  final run = await _runVspipeTimed(vspipePath, script,
+      depsDir: depsDir, outputFrames: true, label: label, timeout: limit);
+  final r = run.result;
+  // ignore: avoid_print
+  print('$label: ${(run.elapsed.inMilliseconds / 1000).toStringAsFixed(1)} s, '
+      'exit ${r.exitCode}${run.exitStuck ? ' (stopped after its final line, task #122)' : ''}'
+      '${run.outputSummary == null ? '' : '; ${run.outputSummary}'}');
+  expect(r.exitCode, 0,
+      reason: _stressFailure(name, r.exitCode, r.stderr.toString(), task));
 }
 
 /// Why a stress test's vspipe run failed, without assuming it was the race

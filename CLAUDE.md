@@ -4002,7 +4002,10 @@ Deblock_QED calls it), at any frame size; the format sweep is what saw it.
   checks the bundle's DCTFilter is ≥ 3.2 and that the patch and scripts are
   in place (push gate), and runs 10 graphs of 1000 instances and 3 of 300
   Deblock_QEDs (heavy; r2 aborted half such graphs). Both bundle checks run
-  from deps 1.18.0-rc3.
+  from deps 1.18.0-rc3. Each graph (here and in task #98's test) is bounded
+  at 90 s and prints its time (`_runStressGraph`); a Windows vspipe that
+  Defender holds in its exit is stopped after its final line, not counted
+  as the race (task #124, Debugging Tips #10).
 - **The class of bug:** any `fmParallel` plugin that keeps per-thread
   buffers in an unlocked map aborts intermittently
   (docs/reports/task-96-dctfilter-thread-race). Five more are patched
@@ -4180,6 +4183,15 @@ sigma slider moved the picture a seventh as far. macOS/Linux built
     runners; with it off, none did. It is on by default on users'
     machines, so **never remove the guard**. `repro-vspipe-exit.yml`
     measures the hang (docs/reports/task-122-vspipe-exit-hang).
+    **A test that runs vspipe itself goes through `runVspipe`**
+    (`app/test/support/vspipe_process.dart`, task #124), never
+    `Process.run`/`Process.start`: it applies the same rule (a Dart twin of
+    `vspipe_exit::final_kind`, pinned by `vspipe_process_test.dart`, which
+    also lints `app/test` for direct calls), so a stuck exit is stopped, its
+    stacks taken, and the run counted as its final line says. A vspipe with
+    no final line past its limit is a `BoundedTimeout` with stacks. The
+    DCTFilter stress test, 13 unbounded vspipes, timed out on Windows
+    nightlies this way (docs/reports/task-124-dctfilter-stress-timeout).
 11. **A vspipe failure is reported as vspipe's, not the encoder's (task #28).**
     When vspipe dies before writing the Y4M header, the encoder ffmpeg says only
     `Header too large`; `vspipe_failure::blame` then reports vspipe instead (it

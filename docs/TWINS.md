@@ -48,6 +48,7 @@ the same way:
 | Test file | What | Worker side | Pinned by |
 |---|---|---|---|
 | `app/test/support/worker_harness.dart` | `previewScaleFilter` / `previewScaleFlags`: the preview's YUV -> RGB `scale` for a picture's tags, so a heavy test decodes the side it compares with a preview as the preview converts (task #67) | `preview_scale_filter`, `ColorMetadata::swscale_input_opts`, `is_full_range` | `preview_scale_filter_test.dart` (parses both Rust functions; the matrix list through `ColorTags.matrices`, pinned by `color_tags_test.dart`) |
+| `app/test/support/vspipe_process.dart` | `vspipeFinalKind`, `vspipeFinalErrorPrefixes`, the exit grace and its variable (`runVspipe`, for tests that run vspipe without the worker, task #124) | `vspipe_exit::final_kind`, `ERROR_PREFIXES`, `DEFAULT_GRACE`, `GRACE_ENV` | `vspipe_process_test.dart` (parses the Rust: prefixes in order, constants, the Rust test's lines) |
 
 ## Deleted or single-sourced
 
