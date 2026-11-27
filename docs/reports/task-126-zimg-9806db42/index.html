@@ -57,7 +57,7 @@ run 45918802024 · every number below comes from <code>scripts/</code> and task 
 assertion and no new ASan report</strong>; the 36 error-diffusion graphs, which all failed from graphengine
 <code>f6211289</code> to <code>e9b10267</code>, all pass. <strong>Every destination picture is byte-identical</strong> to
 <code>67e06032</code>'s (158 of 158, with the SIMD kernels and with the C kernels, on every platform). Every graph asks
-for a smaller temporary buffer (median 11% smaller), which is what graphengine's range was for.</p>
+for a smaller temporary buffer (median 11% smaller on x64, 14% on arm64), which is what graphengine's range was for.</p>
 </div>
 
 <h2>What changes</h2>
@@ -140,8 +140,9 @@ false positive, is task #115's question; it does not separate A from B.</p>
 
 <h3>Temporary buffer size</h3>
 <p>B asks for less on every graph (158 of 158, every platform): from 0.04× (<code>cs-to-rgbs-yuv444p16-720x480i</code>,
-17984 → 704 bytes) to 0.998× (<code>cs-from-rgbs-yuv420p8-720x480p</code>), median 0.89× (<code>bm3d-down-720x480i</code>,
-6976 → 6208); the 158 together 5.09 MB → 4.61 MB on macOS arm64. That is graphengine's range doing what it set out to
+17984 → 704 bytes, everywhere) to 0.998× on Linux x64 and 0.992× on arm64 (<code>cs-from-rgbs-yuv420p8-720x480p</code>),
+median 0.89× on Linux x64 (<code>bm3d-down-720x480i</code>, 6976 → 6208) and 0.86× on arm64, Linux and macOS;
+the 158 together 5.09 MB → 4.61 MB on macOS arm64. That is graphengine's range doing what it set out to
 (fused nodes no longer get cache buffers), now with the contexts counted.</p>
 
 <h2>Decision</h2>
@@ -150,7 +151,7 @@ everything #109 measured, draws identical pictures, uses less memory, and is wha
 built from its wrap now get. Against: our pin is good and nothing is broken today, and it changes
 <code>libvapoursynth.so.4</code> on Linux, so it needs a deps release. The arm64 gcc ASan reports are the same at both
 commits, so they don't weigh either way.</p>
-<p>Still to do, in task #126 once task #111 (which rewrites the same block of <code>download-deps-linux.sh</code> and
+<p>Still to do, in task #127 once task #111 (which rewrites the same block of <code>download-deps-linux.sh</code> and
 <code>zimg_pin_test.dart</code>) has merged:</p>
 <ul>
 <li>the two pins and their comment, and a guard in <code>zimg_pin_test.dart</code> against task #109's bad graphengine

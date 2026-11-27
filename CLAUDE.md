@@ -3835,7 +3835,7 @@ left out of `get_tmp_size()`, so every error-diffusion conversion writes past
 the buffer. Upstream fixed it in graphengine `308d3735` (zimg master
 `9806db42` = `67e06032` + that graphengine, 2026-11-22); task #126 found it
 clean and every picture identical to the pin's, and it is to be pinned in
-deps 1.18.0-rc5 once task #111 has merged. **Bump `ZIMG_COMMIT` /
+deps 1.18.0-rc5 (task #127) once task #111 has merged. **Bump `ZIMG_COMMIT` /
 `ZIMG_GRAPHENGINE_COMMIT` only to a commit that passes #109's cases**:
 `docs/reports/task-126-zimg-9806db42/scripts/compare.sh` builds the pin and
 the candidate with #109's `build.sh` and runs `cases.tsv` in the `vs`,

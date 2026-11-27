@@ -6670,13 +6670,14 @@ the fix); `e2e43d09` is no longer on master. No zimg release has it.
   gcc 13 and clang 18 (run 45918802024), macOS arm64 locally. B: no
   overrun, no guard-page abort (the 36 error-diffusion graphs included), no
   new ASan report, **every picture byte-identical to A's** with the SIMD
-  and the C kernels, and a smaller tmp buffer on every graph (median 0.89x;
+  and the C kernels, and a smaller tmp buffer on every graph (median 0.89x on x64,
+  0.86x on arm64;
   `upstream_repro.c` 1344 → 1216 bytes).
 - **#115's arm64 ASan reports** are the same 32 graphs at A and B (4:2:0
   conversions that change matrix from an integer format), with gcc 13 only:
   clang 18 on the same runner reports none.
-- **Decision.** Pin it in deps 1.18.0-rc5 (the user's choice of release),
-  after task #111 merges (it rewrites the same block and `zimg_pin_test.dart`),
+- **Decision.** Pin it in deps 1.18.0-rc5 (the user's choice of release;
+  task #127), after task #111 merges (it rewrites the same block and `zimg_pin_test.dart`),
   with the bundle A/B'd through `deps_run_id` as task #103 did. The numbers
   are zimg's C API, not a VapourSynth bundle yet. macOS x86_64 was not run
   (no Rosetta on the machine used).
