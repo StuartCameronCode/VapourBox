@@ -5703,6 +5703,46 @@ platform-specific runtime fault in one pass still fails the PR; that adds an
 estimated 1–2 min to macOS x64's flutter job, not yet measured. Report:
 [docs/reports/task-84-pr-ci-time](reports/task-84-pr-ci-time/index.html).
 
+### The release builds cache nothing (task #121, 2026-11-27)
+
+Task #84 took the Flutter SDK cache out of `ci-test.yml` and `nightly.yml`,
+but `build-macos.yml`, `build-linux.yml` (x64), `build-windows.yml` and
+`repro-native-crash.yml` still had `cache: true`. Each release wrote 2.0 GB
+(macOS), 1.8 GB (Windows) and 1.6 GB (Linux) of SDK, which pushed the
+repository to 10.45 GB of its 10 GB (task #117). Their Cargo caches
+(`~/.cargo` and `worker/target/`) were keyed on `hashFiles('**/Cargo.lock')`.
+`worker/Cargo.lock` is gitignored, so the key never changed. Every logged
+release run missed, because the entry had been evicted in the week or more
+since the last release, and then saved a new one. An exact hit would have
+restored a stale `target/` and never saved a newer one.
+
+All three caches are gone now: SDK `cache: false`, no pub cache, no Cargo
+cache. `workflow_caches_test.dart` (push gate) fails on any
+`subosito/flutter-action` step without `cache: false`, and on any step keyed
+on `Cargo.lock`. It reads every workflow, so a new workflow can't bring the
+SDK cache back the way these four did.
+
+Step times, last release (runs 43768573245 / 43767524151 / 43767527470; SDK
+and pub cache hits, Cargo misses) against this branch's dispatch (runs
+45917248048 / 45917251342 / 45917254332, nothing cached except a pub
+restore from ci-test's entries):
+
+| Job | Setup Flutter | Build Rust worker | Build Flutter app |
+|---|---|---|---|
+| macOS arm64 | 56 → 83 s | 66 → 59 s | 490 → 449 s |
+| macOS x64 | 51 → 74 s | 67 → 66 s | 492 → 485 s |
+| Windows | 104 → 93 s | 92 → 95 s | 323 → 232 s |
+| Linux x64 | 18 → 72 s | 48 → 68 s | 145 → 138 s |
+
+So the SDK costs 20–55 s more per macOS/Linux job, once a release, and
+nothing on Windows. Saving the Cargo cache had also cost 4–21 s a job.
+`flutter pub get` took about 1 s with a pub cache both times; the pub
+restore cost 2–8 s, and the one job with no pub cache (Linux arm64) resolved
+140 packages in ~4 s. So the pub restore helped nothing measurable and was
+removed after the measurement. That final form was not dispatched again.
+No `flutter-*` or `*-cargo-*` entry was written by the dispatched runs.
+Linux arm64 clones Flutter itself and was never cached. It was not run.
+
 ### havsfunc's mask ANDs as one Expr: 10-bit LUTDeCrawl/LUTDeRainbow previews in 0.33 s, not ~18 s (task #82, 2026-11-20)
 
 Report: [docs/reports/task-82-havsfunc-mask-and](reports/task-82-havsfunc-mask-and/index.html).
@@ -6542,8 +6582,8 @@ the same `.downloads/` file. No timeout was raised.
 **Cache budget.** The repository was at 10.45 GB of 10 GB; 7.5 GB of it was
 the Flutter SDK caches (`flutter-*`) that `ci-test.yml` / `nightly.yml`
 stopped writing in task #84 but the release builds still write. They were
-deleted (to 2.83 GB) before the mirror's 2.8 GB; task #121 stops the
-release builds writing them.
+deleted (to 2.83 GB) before the mirror's 2.8 GB; task #121 stopped the
+release builds writing them (see "The release builds cache nothing").
 
 **Not measured.** Disk headroom on macos-15-intel with the mirror and the
 installed add-ons both present (~7 GB at peak); the prefetch step prints

@@ -145,10 +145,14 @@ jobs:
           echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Flutter
+        # Not cached (tasks #84, #121): ~2 GB a platform overflowed the
+        # repository's 10 GB of caches and saved under a minute on a hit.
+        # No pub cache either: an uncached `flutter pub get` takes ~4 s,
+        # about what restoring ci-test's cost (2-8 s).
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
+          cache: false
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
