@@ -25,6 +25,9 @@ Arms (comma-separated in -Arms; each restores what it changed):
   localdumps    + WER LocalDumps for vspipe.exe (full dumps into -OutDir)
   weroff        + WER disabled (Disabled=1, DontShowUI=1)
   defenderoff   + Defender real-time monitoring off
+  defenderon    + Defender real-time monitoring on (the hosted image ships
+                  with it off; the one hang in run 45920512665 was in the
+                  guard arm, which a teardown bug had left with it on)
   wheelvspipe   + the VapourSynth R78 wheel's own vspipe.exe instead of
                   the bundle's Zig build (task #68), via VAPOURBOX_VSPIPE
   weave         the weave-only job (pitch off), guard off
@@ -190,7 +193,13 @@ function Arm-Setup([string] $arm) {
             Set-ItemProperty -Path $werKey -Name DontShowUI -Value 1 -Type DWord
         }
         'defenderoff' {
+            # Restored to what it was, not to "on": the hosted image ships with it off.
+            $script:defenderWasOn = [bool](Get-MpComputerStatus -ErrorAction SilentlyContinue).RealTimeProtectionEnabled
             try { Set-MpPreference -DisableRealtimeMonitoring $true } catch { "Set-MpPreference failed: $_" }
+        }
+        'defenderon' {
+            $script:defenderWasOn = [bool](Get-MpComputerStatus -ErrorAction SilentlyContinue).RealTimeProtectionEnabled
+            try { Set-MpPreference -DisableRealtimeMonitoring $false } catch { "Set-MpPreference failed: $_" }
         }
         'wheelvspipe' {
             if (-not $WheelVspipe -or -not (Test-Path $WheelVspipe)) { throw "wheelvspipe needs -WheelVspipe" }
@@ -207,7 +216,8 @@ function Arm-Teardown([string] $arm) {
             Remove-ItemProperty -Path $werKey -Name Disabled -ErrorAction SilentlyContinue
             Remove-ItemProperty -Path $werKey -Name DontShowUI -ErrorAction SilentlyContinue
         }
-        'defenderoff' { try { Set-MpPreference -DisableRealtimeMonitoring $false } catch {} }
+        'defenderoff' { if ($script:defenderWasOn) { try { Set-MpPreference -DisableRealtimeMonitoring $false } catch {} } }
+        'defenderon' { if (-not $script:defenderWasOn) { try { Set-MpPreference -DisableRealtimeMonitoring $true } catch {} } }
     }
 }
 
