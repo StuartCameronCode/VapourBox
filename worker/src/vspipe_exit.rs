@@ -2,8 +2,12 @@
 //!
 //! On Windows runners vspipe was seen stuck in `ExitProcess`
 //! (`NtTerminateProcess`, its last thread suspended), so the worker's
-//! `vspipe.wait()` never returned and the preview never came back. Whatever
-//! the cause, a vspipe that has printed the line R78's `main` prints just
+//! `vspipe.wait()` never returned and the preview never came back. The
+//! cause is Windows Defender's real-time protection: it suspends vspipe's
+//! last thread during exit and does not resume it (347 of 3,000 previews
+//! with it on, none with it off; docs/reports/task-122-vspipe-exit-hang).
+//! vspipe does nothing wrong, so the fix is here. A vspipe that has printed
+//! the line R78's `main` prints just
 //! before it returns is given [`DEFAULT_GRACE`] to exit and is then stopped,
 //! and the job says so. A vspipe that is still working is never touched: the
 //! guard only starts counting at a final line.

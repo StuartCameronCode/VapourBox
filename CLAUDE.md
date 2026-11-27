@@ -2024,7 +2024,8 @@ Invariants that are easy to break:
   (`describeHang`, cdb stacks on Windows); `repro-windows-stabilize.yml`
   loops Stab and the pitch-auto sweep row. That row's 360 s hang is a
   separate fault: vspipe stuck in its own `ExitProcess` on Windows, holding
-  the pipe ffmpeg waits on (task #122;
+  the pipe ffmpeg waits on. Defender suspends vspipe there, and the worker
+  now stops it after 30 s (task #122, Debugging Tips #10;
   docs/reports/task-120-pipe-source-late-output).
 
 Tests: `test_211`…`test_218` (script generation, legacy block, offsets, errors,
@@ -4173,9 +4174,12 @@ sigma slider moved the picture a seventh as far. macOS/Linux built
     written. A vspipe a kill cannot end fails the job, never hangs it. The
     preview echoes vspipe's stderr as it arrives (`vspipe: +<ms> ms …`;
     the app leaves those lines out of a failed preview's error text,
-    `previewErrorText`). It was seen on Windows runners, vspipe stuck in
-    ExitProcess after a pitch-auto preview; `repro-vspipe-exit.yml`
-    measures it (docs/reports/task-122-vspipe-exit-hang).
+    `previewErrorText`). The cause is Windows Defender's real-time
+    protection, which suspends vspipe's last thread while the process
+    exits and never resumes it. With it on, about 1 run in 9 hung on CI
+    runners; with it off, none did. It is on by default on users'
+    machines, so **never remove the guard**. `repro-vspipe-exit.yml`
+    measures the hang (docs/reports/task-122-vspipe-exit-hang).
 11. **A vspipe failure is reported as vspipe's, not the encoder's (task #28).**
     When vspipe dies before writing the Y4M header, the encoder ffmpeg says only
     `Header too large`; `vspipe_failure::blame` then reports vspipe instead (it

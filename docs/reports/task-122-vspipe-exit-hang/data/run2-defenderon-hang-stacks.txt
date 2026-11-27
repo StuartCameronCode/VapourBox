@@ -1,0 +1,108 @@
+== windows-x64 defenderon run 1006: cdb -pv (non-invasive; adds 1 to each thread's suspend count)
+.  0  Id: 1bc4.171c Suspend: 2 Teb: 00000002`ac5a2000 Unfrozen
+RetAddr               : Args to Child                                                           : Call Site
+00007ff9`c3cdf3a7     : 00000000`00000000 00000002`ad5ffd00 00000196`5a1266d0 00000196`5a1266d0 : ntdll!NtTerminateProcess+0x14
+00007ff9`c2cd19db     : 00000000`00000000 00000196`5a1266d0 ffffffff`fffffffe 00000000`00000000 : ntdll!RtlExitUserProcess+0x47
+00007ff9`c12b00b3     : 00000000`00000000 00000000`00000000 00000196`5a11e768 00000002`ad5ffcd0 : KERNEL32!ExitProcessImplementation+0xb
+*** WARNING: Unable to verify checksum for D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe
+00007ff7`37fb1b74     : 00000000`00000004 00007ff7`00000000 00007ff9`00000000 00007ff7`37fb1c01 : ucrtbase!common_exit+0xc7
+00007ff7`37fb1b9c     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b74
+00007ff9`c2cbdd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b9c
+00007ff9`c3cdf2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+
+== experiment a: NtResumeProcess
+NtResumeProcess status 0x00000000
+exited after resume: '0' s (empty = still there)
+worker: returned after 0.11 s
+== verdict
+final_line=vspipe: +   988 ms Output 1 frames in 0.71 seconds (1.40 fps)
+vspipe=7108
+resumed_exit_s=0
+killed_exit_s=
+worker_after_kill=returned after 0.11 s
+wer=0
+
+== windows-x64-v2 defenderon hang1203: the thread suspended elsewhere in the exit path
+.  0  Id: 17b4.1c38 Suspend: 2 Teb: 00000056`02935000 Unfrozen
+RetAddr               : Args to Child                                                           : Call Site
+00007fff`fe296f94     : 00000056`039ff2d0 000001da`230002c0 00000000`00000000 00000056`039ff2d0 : ntdll!RtlLeaveCriticalSection+0x6e
+00007fff`fe29716a     : 000001da`23cc0bd0 00000056`039ff270 00000056`039ff280 00000056`039ff2d0 : MpOav!__crt_seh_guarded_call<void>::operator()<<lambda_f2e299630e499de9f9a165e60fcd3db5>,<lambda_2ae9d31cdba2644fcbeaf08da7c24588> &,<lambda_40d01ff24d0e7b3814fdbdcee8eab3c7> >+0x54
+00007fff`fe297082     : 000001da`23000140 00000000`00001000 000001da`00000005 00007ff8`00000005 : MpOav!destroy_ptd_array+0xda
+00007ff8`0fcc28d7     : 000001da`23000000 00000000`00000000 00007ff8`0fe4ae30 00000000`00000001 : MpOav!destroy_fls+0x12
+00007ff8`0ceb055b     : 00000056`039ff544 000001da`23c6f100 00000000`00000001 00000056`039ff544 : ntdll!RtlpFlsFree+0x113
+00007fff`fe2974b4     : 00000000`00000000 00007fff`fe260000 00007fff`fe282e60 00000056`039ff544 : KERNELBASE!FlsFree+0xb
+00007fff`fe296505     : ffffffff`fffffffe 00000056`039ff588 00000056`039ff590 00000056`039ff598 : MpOav!_acrt_uninitialize_ptd+0x14
+00007fff`fe283043     : 00000000`00000000 00007fff`00000000 00000000`00000001 000001da`23c1b900 : MpOav!_acrt_uninitialize_critical+0x9
+00007fff`fe282d1a     : 00000000`00000000 00007fff`fe262c27 00000000`00000000 00000000`00000001 : MpOav!_scrt_dllmain_uninitialize_critical+0xb
+00007fff`fe282e0d     : 00000000`00000001 000001da`233027c0 00000000`00000000 00007ff8`0fc8adbf : MpOav!dllmain_crt_process_detach+0x72
+00007ff8`0fddffce     : 00007fff`fe260000 000001da`00000000 00000000`00000001 00000000`7ffe0385 : MpOav!dllmain_dispatch+0xe1
+00007ff8`0fc8c3be     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!LdrpCallInitRoutineInternal+0x22
+00007ff8`0fcc022f     : 000001da`23c80690 00007fff`fe260000 00000000`00000000 00000000`00000000 : ntdll!LdrpCallInitRoutine+0x10e
+00007ff8`0fcbf3fe     : 00000000`00000000 000001da`23125820 000001da`2311da08 00000000`00000005 : ntdll!LdrShutdownProcess+0x17f
+00007ff8`0ef919db     : 00000000`00000000 000001da`23125820 ffffffff`fffffffe 00000000`00000000 : ntdll!RtlExitUserProcess+0x9e
+00007ff8`0d2e00b3     : 00000000`00000000 00000000`00000000 000001da`2311da08 00000056`039ff880 : KERNEL32!ExitProcessImplementation+0xb
+*** WARNING: Unable to verify checksum for D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe
+00007ff7`ee2f1b74     : 00000000`00000004 00007ff7`00000000 00007ff8`00000000 00007ff7`ee2f1c01 : ucrtbase!common_exit+0xc7
+00007ff7`ee2f1b9c     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b74
+00007ff8`0ef7dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b9c
+00007ff8`0fcbf2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+
+== windows-x64-v2 defenderon hang374: the thread suspended elsewhere in the exit path
+.  0  Id: c8c.1478 Suspend: 2 Teb: 0000000a`246ec000 Unfrozen
+RetAddr               : Args to Child                                                           : Call Site
+00007ff8`0d28b897     : 0000000a`257f0001 0000000a`257ffa28 0000000a`257ffd40 00007ff8`0d3788c0 : ucrtbase!<lambda_f03950bc5685219e0bcd2087efbe011e>::operator()+0x8c
+00007ff8`0d28b84d     : 00000000`00000000 00007ff8`0d28b810 ffffffff`fffffffe 0000000a`257ffa18 : ucrtbase!__crt_seh_guarded_call<int>::operator()<<lambda_7777bce6b2f8c936911f934f8298dc43>,<lambda_f03950bc5685219e0bcd2087efbe011e> &,<lambda_3883c3dff614d5e0c5f61bb1ac94921c> >+0x3b
+00007ff8`0d2b2e7c     : 00007ff8`0ccb33a0 00007fff`0000000d 00000000`0000000d 0000000a`257ffa10 : ucrtbase!execute_onexit_table+0x3d
+00007ff8`0cc9ef85     : 00000000`00000000 00000000`00000001 00000000`00000000 00000000`00000001 : ucrtbase!__crt_state_management::wrapped_invoke<int (__cdecl*)(int * __ptr64),int * __ptr64,int>+0x2c
+00007ff8`0cc9f0ae     : 00000000`00000001 00000117`db3027c0 00000000`00000000 00007ff8`0fc8adbf : profapi!dllmain_crt_process_detach+0x45
+00007ff8`0fddffce     : 00007ff8`0cc90000 00000117`00000000 00000000`00000001 00000000`7ffe0385 : profapi!dllmain_dispatch+0xe6
+00007ff8`0fc8c3be     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!LdrpCallInitRoutineInternal+0x22
+00007ff8`0fcc022f     : 00000117`dbc89050 00007ff8`0cc90000 00000000`00000000 00007fff`fe282e60 : ntdll!LdrpCallInitRoutine+0x10e
+00007ff8`0fcbf3fe     : 00000000`00000000 00000117`db1267e0 00000117`db11e938 00000000`00000005 : ntdll!LdrShutdownProcess+0x17f
+00007ff8`0ef919db     : 00000000`00000000 00000117`db1267e0 ffffffff`fffffffe 00000000`00000000 : ntdll!RtlExitUserProcess+0x9e
+00007ff8`0d2e00b3     : 00000000`00000000 00000000`00000000 00000117`db11e938 0000000a`257ffd10 : KERNEL32!ExitProcessImplementation+0xb
+*** WARNING: Unable to verify checksum for D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe
+00007ff7`ee2f1b74     : 00000000`00000004 00007ff7`00000000 00007ff8`00000000 00007ff7`ee2f1c01 : ucrtbase!common_exit+0xc7
+00007ff7`ee2f1b9c     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b74
+00007ff8`0ef7dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b9c
+00007ff8`0fcbf2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+
+== windows-x64-v2 defenderon hang858: the thread suspended elsewhere in the exit path
+.  0  Id: 21a0.12d8 Suspend: 2 Teb: 0000002e`f48b6000 Unfrozen
+RetAddr               : Args to Child                                                           : Call Site
+00007ff8`0fcc442f     : 00000000`00000013 00000000`00000015 000001d7`1f3026a0 000001d7`1f11d7b0 : msvcrt!freefls+0x9
+00007ff8`0fcc02f5     : 0000002e`f48b5000 00000000`00001ee0 00000000`00000001 00000000`00000000 : ntdll!RtlpFlsDataCleanup+0xff
+00007ff8`0fcbf3fe     : 00000000`00000000 000001d7`1f125820 000001d7`1f11da08 00000000`00000005 : ntdll!LdrShutdownProcess+0x245
+00007ff8`0ef919db     : 00000000`00000000 000001d7`1f125820 ffffffff`fffffffe 00000000`00000000 : ntdll!RtlExitUserProcess+0x9e
+00007ff8`0d2e00b3     : 00000000`00000000 00000000`00000000 000001d7`1f11da08 0000002e`f59ffd90 : KERNEL32!ExitProcessImplementation+0xb
+*** WARNING: Unable to verify checksum for D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe
+00007ff7`ee2f1b74     : 00000000`00000004 00007ff7`00000000 00007ff8`00000000 00007ff7`ee2f1c01 : ucrtbase!common_exit+0xc7
+00007ff7`ee2f1b9c     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b74
+00007ff8`0ef7dd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b9c
+00007ff8`0fcbf2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c
+
+== windows-x64 defenderon hang427: the thread suspended elsewhere in the exit path
+.  0  Id: a08.1dac Suspend: 2 Teb: 0000005a`3fcad000 Unfrozen
+RetAddr               : Args to Child                                                           : Call Site
+00007ff9`c125bc75     : 00000251`5bcd8a30 00007ff9`c13488c0 000052d2`e2d2def3 00007ff9`c12243a1 : profapi!`dynamic atexit destructor for 'g_srwNetworkServiceLock''
+00007ff9`c125b897     : 0000005a`40df0001 0000005a`40dff5d8 0000005a`40dff8f0 00007ff9`c13488c0 : ucrtbase!<lambda_f03950bc5685219e0bcd2087efbe011e>::operator()+0xa5
+00007ff9`c125b84d     : 00000000`00000000 00007ff9`c125b810 ffffffff`fffffffe 0000005a`40dff5c8 : ucrtbase!__crt_seh_guarded_call<int>::operator()<<lambda_7777bce6b2f8c936911f934f8298dc43>,<lambda_f03950bc5685219e0bcd2087efbe011e> &,<lambda_3883c3dff614d5e0c5f61bb1ac94921c> >+0x3b
+00007ff9`c1282e7c     : 00007ff9`c0cd33a0 00007ff9`0000000d 00000000`0000000d 0000005a`40dff5c0 : ucrtbase!execute_onexit_table+0x3d
+00007ff9`c0cbef85     : 00000000`00000000 00000000`00000001 00000000`00000000 00000000`00000001 : ucrtbase!__crt_state_management::wrapped_invoke<int (__cdecl*)(int * __ptr64),int * __ptr64,int>+0x2c
+00007ff9`c0cbf0ae     : 00000000`00000001 00000251`5b3027c0 00000000`00000000 00007ff9`c3caadbf : profapi!dllmain_crt_process_detach+0x45
+00007ff9`c3dfffce     : 00007ff9`c0cb0000 00000251`00000000 00000000`00000001 00000000`7ffe0385 : profapi!dllmain_dispatch+0xe6
+00007ff9`c3cac3be     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!LdrpCallInitRoutineInternal+0x22
+00007ff9`c3ce022f     : 00000251`5bce5a90 00007ff9`c0cb0000 00000000`00000000 00007ff9`b5982e60 : ntdll!LdrpCallInitRoutine+0x10e
+00007ff9`c3cdf3fe     : 00000000`00000000 00000251`5b127850 00000251`5b11fad8 00000000`00000005 : ntdll!LdrShutdownProcess+0x17f
+00007ff9`c2cd19db     : 00000000`00000000 00000251`5b127850 ffffffff`fffffffe 00000000`00000000 : ntdll!RtlExitUserProcess+0x9e
+00007ff9`c12b00b3     : 00000000`00000000 00000000`00000000 00000251`5b11fad8 0000005a`40dff8c0 : KERNEL32!ExitProcessImplementation+0xb
+*** WARNING: Unable to verify checksum for D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\Lib\site-packages\vapoursynth\vspipe.exe
+00007ff7`37fb1b74     : 00000000`00000004 00007ff7`00000000 00007ff9`00000000 00007ff7`37fb1c01 : ucrtbase!common_exit+0xc7
+00007ff7`37fb1b9c     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b74
+00007ff9`c2cbdd37     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : vspipe+0x11b9c
+00007ff9`c3cdf2bc     : 00000000`00000000 00000000`00000000 000004f0`fffffb30 000004d0`fffffb30 : KERNEL32!BaseThreadInitThunk+0x17
+00000000`00000000     : 00000000`00000000 00000000`00000000 00000000`00000000 00000000`00000000 : ntdll!RtlUserThreadStart+0x2c

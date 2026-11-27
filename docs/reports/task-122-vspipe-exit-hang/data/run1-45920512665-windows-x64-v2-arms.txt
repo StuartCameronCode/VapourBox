@@ -1,0 +1,32 @@
+--- baseline
+Defender: RealTimeProtectionEnabled AMRunningMode
+------------------------- -------------
+                    False Normal
+--- localdumps
+Defender: RealTimeProtectionEnabled AMRunningMode
+------------------------- -------------
+                    False Normal
+--- weroff
+Defender: RealTimeProtectionEnabled AMRunningMode
+------------------------- -------------
+                    False Normal
+--- defenderoff
+Defender: RealTimeProtectionEnabled AMRunningMode
+------------------------- -------------
+                    False Normal
+--- wheelvspipe
+Defender: RealTimeProtectionEnabled AMRunningMode
+------------------------- -------------
+                    False Normal
+--- weave
+Defender: RealTimeProtectionEnabled AMRunningMode
+------------------------- -------------
+                     True Normal
+--- passthrough
+Defender: RealTimeProtectionEnabled AMRunningMode
+------------------------- -------------
+                     True Normal
+--- guard
+Defender: RealTimeProtectionEnabled AMRunningMode
+------------------------- -------------
+                     True Normal

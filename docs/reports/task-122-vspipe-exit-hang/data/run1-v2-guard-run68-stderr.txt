@@ -1,0 +1,27 @@
+Probed the source: 720x480, 30 frames at 29.970 fps
+Frames are placed on a 30000/1001 fps grid from the first picture (0.000000 s)
+Preview: source frame 15 (fps: 29.97)
+Preview: source frame 15 (window 0..35, local 15, output index 15, output 1 of 1, rate pad 0) seek 0.000000s (720x480 yuv444p16le, grid 30000/1001 from slot 0)
+Loaded template from: "D:\\a\\VapourBox\\VapourBox\\worker\\target\\debug\\..\\..\\templates\\pipeline_template.vpy"
+Generated preview script: "C:\\Users\\<runner>\\AppData\\Local\\Temp\\vapourbox_preview_<id>\\<id>_preview.vpy"
+vspipe: +   142 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\CAS.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   143 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\CTMF.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   145 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\Deblock.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   148 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\DFTTest.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   148 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\LGhost.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   149 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\libawarpsharp2.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   150 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\libfillborders.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   150 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\libfluxsmooth.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   151 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\libmvtools.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   151 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\libtemporalmedian.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   151 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\neo-f3kdb.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   152 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\NNEDI3CL.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   152 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\Retinex.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   152 ms Warning: Plugin D:\a\VapourBox\VapourBox\deps\windows-x64\vapoursynth\vs-plugins\vsznedi3.dll is using API3 which is deprecated and will be removed shortly.
+vspipe: +   153 ms INPUT_INFO:frames=36,fps_num=30000,fps_den=1001
+vspipe: +   212 ms Warning: Explicitly instantiated a Cache. This is no longer possible and the original clip has been passed through instead.
+vspipe: +   215 ms Warning: Explicitly instantiated a Cache. This is no longer possible and the original clip has been passed through instead.
+vspipe: +   988 ms Output 1 frames in 0.75 seconds (1.33 fps)
+Preview: vspipe printed "Output 1 frames in 0.75 seconds (1.33 fps)" but had not exited 30s later; stopped it (task #122)
+PREVIEW_INFO:frame=15 sub_frame=0 sub_frames=1 generated=0
+
