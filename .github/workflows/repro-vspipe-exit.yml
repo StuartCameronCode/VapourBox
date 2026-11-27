@@ -16,10 +16,10 @@ on:
     inputs:
       iterations:
         description: 'Runs per arm'
-        default: '200'
+        default: '1500'
       arms:
         description: 'Comma-separated arms (see the script header)'
-        default: 'baseline,localdumps,weroff,defenderoff,wheelvspipe,weave,passthrough,guard'
+        default: 'defenderon'
       load:
         description: 'Keep every core but one busy, as the nightly''s concurrent test files do'
         type: boolean
@@ -44,8 +44,10 @@ jobs:
     env:
       VAPOURBOX_DEPS_DIR: ${{ github.workspace }}/deps/windows-x64
       VAPOURBOX_WORKER: ${{ github.workspace }}\worker\target\debug\vapourbox-worker.exe
-      ITER: ${{ inputs.iterations || '200' }}
-      ARMS: ${{ inputs.arms || 'baseline,localdumps,weroff,defenderoff,wheelvspipe,weave,passthrough,guard' }}
+      # Run 2's defaults. Run 1 (45920512665) was every arm at 200:
+      # baseline,localdumps,weroff,defenderoff,wheelvspipe,weave,passthrough,guard
+      ITER: ${{ inputs.iterations || '1500' }}
+      ARMS: ${{ inputs.arms || 'defenderon' }}
       LOAD: ${{ inputs.load == false && 'false' || 'true' }}
     steps:
       - uses: actions/checkout@v5
