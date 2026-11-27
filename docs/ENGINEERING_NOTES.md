@@ -65,6 +65,12 @@ now the first step, and it disqualifies about half of them:
 > put back — colour comes through bit-identical. Verified working that way at
 > 8/10/12/16-bit and 4:2:2.
 >
+> *(Correction 2026-11-27, task #113: "Retinex r4" held only on Windows. macOS
+> and Linux built master, r4 + one commit that stops the parser appending the
+> caller's `sigma` to r4's defaults, so Windows' r4 DLL ran Shadow Detail as
+> four scales and ~10 levels away. Every platform now builds 6bfbdd42; see
+> "Retinex r4 appended our sigma on Windows".)*
+>
 > **bifrost includes `<vapoursynth/VapourSynth4.h>`**, not `<VapourSynth4.h>`,
 > so `-I"$VS_INC_DIR"` is not enough — the scripts stage an include root with a
 > `vapoursynth/` subdirectory and pass its parent.
@@ -6781,3 +6787,36 @@ rebuild of the same deps version with nothing in the build failing.
 
 No measurements, so no report; the A/B builds through `deps_run_id` are in
 the task.
+
+### Retinex r4 appended our sigma on Windows: 6bfbdd42 everywhere (task #113, 2026-11-27)
+
+Task #110, pinning macOS/Linux's untagged Retinex build, found it was never
+r4 there: it was master, `6bfbdd42`, the one commit after r4 ("Fix unexpected
+appending when sigma is specified"). r4's parser starts MSRCP's sigma list
+from its defaults {25, 80, 250} and pushes the caller's values onto it, so the
+template's `sigma=[X]` ran on Windows (the r4 release DLL) as
+`[25, 80, 250, X]`. Report: [docs/reports/task-113-retinex-sigma](reports/task-113-retinex-sigma/index.html).
+
+- **Size.** Nothing else differs between the two, so `sigma=[25, 80, 250, X]`
+  on 6bfbdd42 is r4's picture (checked: the r4 tag built on the same M1 gives
+  the same numbers exactly). Three 720x540 luma frames of `small_clip.mp4`:
+  9–11 8-bit levels mean (max 30–34) at the default sigma 100, 13–17 at 25,
+  7–11 at 250; 10-bit the same. On Windows the slider's whole 1–500 range
+  moved the picture 10–13 levels, against 74–102 elsewhere.
+- **Fix.** Windows builds `$RetinexCommit` (= `RETINEX_COMMIT`) with Zig in
+  `download-deps-windows.ps1` section 4b6 (five C++14 files, R78's API 3
+  headers under `vapoursynth/`, `-ffp-contract=off -mcpu=x86_64`); the r4 7z
+  entry is gone. `patches/retinex-6bfbdd4-vapourbox-marker.patch` changes no
+  code and adds `(VapourBox: 6bfbdd42, sigma not appended, task #113)` to the
+  plugin's description, so every script replaces an unmarked binary and fails
+  without it. macOS arm64's output with the patch is byte-identical to
+  rc4's. The DLL was cross-compiled on the M1 as a check (exports
+  `VapourSynthPluginInit`, imports only the UCRT) but has run only in CI.
+- **Test.** `vapoursynth_integration_test.dart`, group `retinex sigma (task
+  #113)`: the marker; `sigma=[100]` equals `[100, 100]` (exact under
+  6bfbdd42, 1.6 levels apart under r4, and independent of the compiler); and
+  the average within 0.5 levels of macOS arm64's (r4 is 8.5 away). Enforced
+  from deps 1.18.0-rc5; before that it prints which behaviour the bundle has.
+- **Output change:** Windows Shadow Detail moves ~10 levels at the default.
+  No built-in preset turns it on.
+

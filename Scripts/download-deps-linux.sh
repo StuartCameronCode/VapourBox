@@ -800,7 +800,7 @@ NNEDI3CL_TAG="r8"
 TTEMPSMOOTH_TAG="r4.1"
 MISCFILTERS_COMMIT="07e0589a381f7deb3bf533bb459a94482bccc5c7"  # 2022-01-24; no tag
 REMOVEGRAIN_COMMIT="89ca38a6971e371bdce2778291393258daa5f03b"  # 2022-10-28; no tag
-RETINEX_COMMIT="6bfbdd429159c85075dc4b08e0ac4e706470916b"      # r4 + sigma fix (2021-10-18); see Retinex below
+RETINEX_COMMIT="6bfbdd429159c85075dc4b08e0ac4e706470916b"      # r4 + sigma fix (2021-10-18); every platform (task #113)
 ADDGRAIN_TAG="r10"
 VIVTC_COMMIT="e55cac584d4968def77b99e661194387002cdae3"        # R2 + n (2026-07-27)
 NEO_F3KDB_TAG="r11"
@@ -1260,19 +1260,29 @@ PYEOF2
     fi
 fi
 
-# Retinex (core.retinex.MSRCP) - see the macOS script for the rationale.
-# RETINEX_COMMIT is r4 + "Fix unexpected appending when sigma is specified",
-# what this script built before it was pinned; Windows ships the r4 DLL, so
-# the platforms differ where the template passes sigma (task #113).
+# Retinex (core.retinex.MSRCP) - see the macOS script for the rationale:
+# RETINEX_COMMIT on every platform, never r4, which appends the template's sigma
+# to its defaults (task #113); the marker patch changes no code, and an
+# unmarked build is rebuilt. Keep RETINEX_COMMIT in step with the macOS and
+# Windows scripts.
 # It resolves VapourSynth through pkg-config, so it needs $PLUGIN_BUILD_ENV
 # like every other meson plugin here — the macOS script has no equivalent
 # prefix, so copying its invocation across drops PKG_CONFIG_PATH and meson
 # fails with 'Dependency "vapoursynth" not found'.
+RETINEX_MARKER="sigma not appended, task #113"
+if [ -f "$PLUGINS_DIR/libretinex.so" ] && ! grep -aqF "$RETINEX_MARKER" "$PLUGINS_DIR/libretinex.so"; then
+    echo "  libretinex.so predates its marker (task #113); rebuilding it"
+    rm -f "$PLUGINS_DIR/libretinex.so"
+fi
 build_plugin "retinex" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" \
     "libretinex.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$(task98_patch retinex-6bfbdd4-vapourbox-marker.patch) && $PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
     "$RETINEX_COMMIT"
+if ! grep -aqF "$RETINEX_MARKER" "$PLUGINS_DIR/libretinex.so" 2>/dev/null; then
+    echo "  ERROR: libretinex.so is missing or lacks its marker (task #113)" >&2
+    exit 1
+fi
 
 # AddGrain
 build_plugin "addgrain" \

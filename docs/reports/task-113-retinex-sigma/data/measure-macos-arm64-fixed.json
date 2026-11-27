@@ -1,0 +1,121 @@
+{
+ "plugin": "Implementation of Retinex algorithm for VapourSynth. (VapourBox: 6bfbdd42, sigma not appended, task #113)",
+ "synthetic": {
+  "8": {
+   "source_avg": 81.6798,
+   "sigma100_avg": 151.5335,
+   "r4_equivalent_avg": 160.054,
+   "repeated_scale_diff": 0.0
+  },
+  "16": {
+   "source_avg": 81.3619,
+   "sigma100_avg": 150.9437,
+   "r4_equivalent_avg": 159.4331,
+   "repeated_scale_diff": 0.0
+  }
+ },
+ "frames": {
+  "f3 8-bit sigma 100": {
+   "mean": 10.655,
+   "max": 30.0
+  },
+  "f3 8-bit sigma 25": {
+   "mean": 17.41,
+   "max": 61.0
+  },
+  "f3 8-bit sigma 250": {
+   "mean": 8.763,
+   "max": 34.0
+  },
+  "f3 10-bit sigma 100": {
+   "mean": 10.625,
+   "max": 29.9
+  },
+  "f3 10-bit sigma 25": {
+   "mean": 17.358,
+   "max": 60.8
+  },
+  "f3 10-bit sigma 250": {
+   "mean": 8.744,
+   "max": 34.4
+  },
+  "f8 8-bit sigma 100": {
+   "mean": 10.153,
+   "max": 34.0
+  },
+  "f8 8-bit sigma 25": {
+   "mean": 13.284,
+   "max": 67.0
+  },
+  "f8 8-bit sigma 250": {
+   "mean": 7.44,
+   "max": 42.0
+  },
+  "f8 10-bit sigma 100": {
+   "mean": 10.124,
+   "max": 33.7
+  },
+  "f8 10-bit sigma 25": {
+   "mean": 13.244,
+   "max": 66.8
+  },
+  "f8 10-bit sigma 250": {
+   "mean": 7.419,
+   "max": 41.4
+  },
+  "f14 8-bit sigma 100": {
+   "mean": 8.874,
+   "max": 31.0
+  },
+  "f14 8-bit sigma 25": {
+   "mean": 15.742,
+   "max": 60.0
+  },
+  "f14 8-bit sigma 250": {
+   "mean": 11.014,
+   "max": 48.0
+  },
+  "f14 10-bit sigma 100": {
+   "mean": 8.847,
+   "max": 30.9
+  },
+  "f14 10-bit sigma 25": {
+   "mean": 15.695,
+   "max": 59.8
+  },
+  "f14 10-bit sigma 250": {
+   "mean": 10.982,
+   "max": 47.9
+  }
+ },
+ "reach": {
+  "f3": {
+   "fixed_1_500": 89.38,
+   "r4_1_500": 10.04,
+   "fixed_25_250": 33.38,
+   "r4_25_250": 7.97
+  },
+  "f8": {
+   "fixed_1_500": 73.54,
+   "r4_1_500": 10.19,
+   "fixed_25_250": 26.96,
+   "r4_25_250": 7.26
+  },
+  "f14": {
+   "fixed_1_500": 101.66,
+   "r4_1_500": 13.46,
+   "fixed_25_250": 34.91,
+   "r4_25_250": 8.61
+  }
+ },
+ "hashes": {
+  "GRAY8 [100]": "4d748a8391b1bfcf3756cac2bb025f3f",
+  "GRAY8 [25]": "56b09a4dff91f2695f514d344ffa5056",
+  "GRAY8 [500]": "337d1aa9c44f8989fdd9db20a07b934d",
+  "GRAY8 [25, 80, 250]": "5f7694b892fb3d5ebbf608719cee3716",
+  "GRAY16 [100]": "c55c55ad06aca810f94c3c2b5c784a4c",
+  "GRAY16 [25]": "3b587e691a426bdd6ef1a953b006755c",
+  "GRAY16 [500]": "e410d90ba0c6c057472812a449559cc6",
+  "GRAY16 [25, 80, 250]": "60ba2493e4b727a9f77fb5a7e95d8e8c"
+ }
+}

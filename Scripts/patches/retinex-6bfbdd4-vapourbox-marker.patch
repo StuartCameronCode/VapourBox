@@ -1,0 +1,35 @@
+VapourSynth-Retinex at 6bfbdd429159c85075dc4b08e0ac4e706470916b (r4 + "Fix
+unexpected appending when sigma is specified", 2021-10-18, the last commit).
+VapourBox task #113, docs/reports/task-113-retinex-sigma.
+
+r4 (the only release with a Windows binary) starts MSR's sigma vector from the
+defaults {25, 80, 250} and pushes each value the caller passes onto it, so
+MSRCP(sigma=[X]) runs a four-scale retinex [25, 80, 250, X]. 6bfbdd42 starts
+from an empty vector, so it runs [X]. The template always passes sigma (Shadow
+Detail's slider), so the r4 DLL Windows used to ship filtered differently from
+the macOS/Linux builds: about 10 8-bit levels apart at the default sigma 100.
+Every platform now builds 6bfbdd42 from source.
+
+This patch changes no code. It appends "(VapourBox: 6bfbdd42, sigma not
+appended, task #113)" to the plugin's description (core.retinex.name), which is
+how the deps scripts (a byte search of the binary) replace an r4 build or an
+older unmarked one, and how the test tells this build from r4: API 3 plugins
+report no version.
+
+Applied by download-deps-{macos,linux}.sh and download-deps-windows.ps1 right
+after the clone; each build fails if it stops applying or the marker is
+missing afterwards.
+
+diff --git a/source/VSPlugin.cpp b/source/VSPlugin.cpp
+index fa76472..e64a15a 100644
+--- a/source/VSPlugin.cpp
++++ b/source/VSPlugin.cpp
+@@ -27,7 +27,7 @@
+ VS_EXTERNAL_API(void) VapourSynthPluginInit(VSConfigPlugin configFunc, VSRegisterFunction registerFunc, VSPlugin *plugin)
+ {
+     configFunc("com.vapoursynth.retinex", "retinex",
+-        "Implementation of Retinex algorithm for VapourSynth.",
++        "Implementation of Retinex algorithm for VapourSynth. (VapourBox: 6bfbdd42, sigma not appended, task #113)",
+         VAPOURSYNTH_API_VERSION, 1, plugin);
+ 
+     registerFunc("MSRCP", "input:clip;sigma:float[]:opt;lower_thr:float:opt;upper_thr:float:opt;fulls:int:opt;fulld:int:opt;chroma_protect:float:opt", MSRCPCreate, nullptr, plugin);

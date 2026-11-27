@@ -1,0 +1,121 @@
+{
+ "plugin": "Implementation of Retinex algorithm for VapourSynth.",
+ "synthetic": {
+  "8": {
+   "source_avg": 81.6798,
+   "sigma100_avg": 160.054,
+   "r4_equivalent_avg": 161.127,
+   "repeated_scale_diff": 1.598945
+  },
+  "16": {
+   "source_avg": 81.3619,
+   "sigma100_avg": 159.4331,
+   "r4_equivalent_avg": 160.4994,
+   "repeated_scale_diff": 1.592872
+  }
+ },
+ "frames": {
+  "f3 8-bit sigma 100": {
+   "mean": 1.843,
+   "max": 6.0
+  },
+  "f3 8-bit sigma 25": {
+   "mean": 2.266,
+   "max": 8.0
+  },
+  "f3 8-bit sigma 250": {
+   "mean": 1.362,
+   "max": 6.0
+  },
+  "f3 10-bit sigma 100": {
+   "mean": 1.838,
+   "max": 5.0
+  },
+  "f3 10-bit sigma 25": {
+   "mean": 2.261,
+   "max": 7.7
+  },
+  "f3 10-bit sigma 250": {
+   "mean": 1.356,
+   "max": 5.2
+  },
+  "f8 8-bit sigma 100": {
+   "mean": 1.583,
+   "max": 6.0
+  },
+  "f8 8-bit sigma 25": {
+   "mean": 2.076,
+   "max": 10.0
+  },
+  "f8 8-bit sigma 250": {
+   "mean": 1.305,
+   "max": 7.0
+  },
+  "f8 10-bit sigma 100": {
+   "mean": 1.577,
+   "max": 5.2
+  },
+  "f8 10-bit sigma 25": {
+   "mean": 2.07,
+   "max": 10.2
+  },
+  "f8 10-bit sigma 250": {
+   "mean": 1.301,
+   "max": 7.2
+  },
+  "f14 8-bit sigma 100": {
+   "mean": 1.363,
+   "max": 5.0
+  },
+  "f14 8-bit sigma 25": {
+   "mean": 1.968,
+   "max": 8.0
+  },
+  "f14 8-bit sigma 250": {
+   "mean": 1.823,
+   "max": 7.0
+  },
+  "f14 10-bit sigma 100": {
+   "mean": 1.359,
+   "max": 4.7
+  },
+  "f14 10-bit sigma 25": {
+   "mean": 1.963,
+   "max": 7.7
+  },
+  "f14 10-bit sigma 250": {
+   "mean": 1.818,
+   "max": 6.5
+  }
+ },
+ "reach": {
+  "f3": {
+   "fixed_1_500": 10.04,
+   "r4_1_500": 5.35,
+   "fixed_25_250": 7.97,
+   "r4_25_250": 4.51
+  },
+  "f8": {
+   "fixed_1_500": 10.19,
+   "r4_1_500": 5.36,
+   "fixed_25_250": 7.26,
+   "r4_25_250": 4.08
+  },
+  "f14": {
+   "fixed_1_500": 13.46,
+   "r4_1_500": 7.37,
+   "fixed_25_250": 8.61,
+   "r4_25_250": 4.92
+  }
+ },
+ "hashes": {
+  "GRAY8 [100]": "2d62f57c86f642df76e123b0e211a7c5",
+  "GRAY8 [25]": "f9b6464203a13deba91682ea38853adf",
+  "GRAY8 [500]": "1cd00c8a64d11d757eb82b628dec3e98",
+  "GRAY8 [25, 80, 250]": "5f7694b892fb3d5ebbf608719cee3716",
+  "GRAY16 [100]": "aa1267326679f36e327c7fcadf6984dd",
+  "GRAY16 [25]": "b35c447a419c7b8d2c9511809176ebdc",
+  "GRAY16 [500]": "51ae52d331f5b6e97629ad7f5a01f80e",
+  "GRAY16 [25, 80, 250]": "60ba2493e4b727a9f77fb5a7e95d8e8c"
+ }
+}

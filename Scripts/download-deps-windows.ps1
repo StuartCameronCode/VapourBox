@@ -307,13 +307,8 @@ $Plugins7z = @(
         Url = "https://github.com/dubhater/vapoursynth-awarpsharp2/releases/download/v4/vapoursynth-awarpsharp2-v4-win64.7z"
         Check = "libawarpsharp2.dll"
     },
-    @{
-        # Retinex (core.retinex.MSRCP) - lifts shadow detail out of
-        # underexposed footage. Ships Win32\ and x64\ folders.
-        Name = "retinex"
-        Url = "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex/releases/download/r4/Retinex-r4.7z"
-        Check = "Retinex.dll"
-    },
+    # Retinex is not here: r4's DLL appends the template's sigma to its own
+    # defaults, so it is built from source in 4b6 (task #113).
     @{
         # FluxSmooth (core.flux.SmoothT / SmoothST), and what havsfunc's STPresso
         # calls internally. Pinned to v2 on every platform: this is the newest
@@ -1046,6 +1041,91 @@ foreach ($P in $Task98Plugins) {
     if (-not (Test-Task98Markers "$PluginsDir\$($P.Dll)" $P)) {
         throw "$($P.Dll) is not the patched build ($($P.Markers -join '; '))"
     }
+}
+
+# =============================================================================
+# 4b6. Retinex at 6bfbdd42 (task #113)
+# =============================================================================
+# r4, the only Retinex release with a Windows DLL, starts MSRCP's sigma list
+# from its defaults {25, 80, 250} and appends the caller's values, so the
+# template's sigma=[X] (Shadow Detail) ran as [25, 80, 250, X]: about 10 8-bit
+# levels from macOS/Linux, which build 6bfbdd42 ("Fix unexpected appending when
+# sigma is specified", the commit after r4) and run [X]. So Windows builds
+# $RetinexCommit too, kept in step with RETINEX_COMMIT in
+# download-deps-{macos,linux}.sh, with patches/retinex-6bfbdd4-vapourbox-marker.patch,
+# which changes no code and adds $RetinexMarker to the plugin's description:
+# that is how an r4 DLL left by an older run of this script is replaced, and
+# how the test tells the builds apart (API 3 reports no version).
+# Five plain C++14 files, API 3, no FFTW; the 4b5 recipe otherwise. The meson
+# build's -msse2 -mfpmath=sse are x86-64's baseline already. Retinex includes
+# <vapoursynth/VapourSynth.h>, so the headers sit under vsinc\vapoursynth\.
+# One build serves both CPU tiers (no _tierFiles entry). Any failure throws:
+# shipping r4 would bring the per-OS difference back.
+# =============================================================================
+Write-Host ""
+Write-Host "[4b6/8] Building Retinex (6bfbdd42, task #113)..." -ForegroundColor Yellow
+
+$RetinexCommit = "6bfbdd429159c85075dc4b08e0ac4e706470916b"   # r4 + sigma fix (2021-10-18)
+$RetinexMarker = "sigma not appended, task #113"
+$RetinexOut = "$PluginsDir\Retinex.dll"
+if (Test-FileContainsAscii $RetinexOut $RetinexMarker) {
+    Write-Host "  Retinex.dll already built at 6bfbdd42" -ForegroundColor Gray
+} else {
+    $RtxWork = Join-Path $TempDir "retinex-build"
+    Remove-Item $RtxWork -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $RtxWork -Force | Out-Null
+    Push-Location $RtxWork
+    try {
+        $ZigZip = Join-Path $RtxWork "zig.zip"
+        Download-File -Url "https://ziglang.org/download/$ZigVersion/zig-x86_64-windows-$ZigVersion.zip" -OutFile $ZigZip
+        Expand-Archive -Path $ZigZip -DestinationPath (Join-Path $RtxWork "zig") -Force
+        $ZigExe = (Get-ChildItem -Path (Join-Path $RtxWork "zig") -Recurse -Filter "zig.exe" | Select-Object -First 1).FullName
+        if (-not $ZigExe) { throw "zig.exe not found in the toolchain archive" }
+
+        $VsIncRoot = Join-Path $RtxWork "vsinc"
+        $VsInc = Join-Path $VsIncRoot "vapoursynth"
+        New-Item -ItemType Directory -Path $VsInc -Force | Out-Null
+        foreach ($Hdr in @("VapourSynth.h", "VSHelper.h")) {
+            Download-File -Url "https://raw.githubusercontent.com/vapoursynth/vapoursynth/$VSRelease/include/$Hdr" -OutFile (Join-Path $VsInc $Hdr)
+        }
+
+        # LF on both sides, as for FFT3DFilter.
+        $Src = Join-Path $RtxWork "Retinex"
+        & git -c advice.detachedHead=false -c core.autocrlf=false clone --quiet "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" $Src
+        if ($LASTEXITCODE -ne 0) { throw "git clone of Retinex failed (exit $LASTEXITCODE)" }
+        & git -C $Src -c advice.detachedHead=false checkout --quiet $RetinexCommit
+        if ($LASTEXITCODE -ne 0) { throw "git checkout of Retinex $RetinexCommit failed (exit $LASTEXITCODE)" }
+        $PatchName = "retinex-6bfbdd4-vapourbox-marker.patch"
+        $Patch = Join-Path $RtxWork $PatchName
+        $PatchText = [IO.File]::ReadAllText((Join-Path $ScriptDir "patches\$PatchName")).Replace("`r`n", "`n")
+        [IO.File]::WriteAllText($Patch, $PatchText, (New-Object System.Text.UTF8Encoding($false)))
+        & git -C $Src apply $Patch
+        if ($LASTEXITCODE -ne 0) { throw "patches/$PatchName did not apply to Retinex $RetinexCommit - re-check the patch" }
+
+        $Common = @("-target", "x86_64-windows-gnu", "-std=c++14", "-O3", "-fvisibility=hidden",
+                    "-fno-math-errno", "-ffp-contract=off", "-mcpu=x86_64", "-DNDEBUG",
+                    "-I$(Join-Path $Src 'include')", "-I$VsIncRoot")
+        $Objs = @()
+        foreach ($Unit in @("Gaussian", "MSR", "MSRCP", "MSRCR", "VSPlugin")) {
+            $Obj = Join-Path $Src "obj-$Unit.o"
+            & $ZigExe c++ @Common -c (Join-Path $Src "source\$Unit.cpp") -o $Obj
+            if ($LASTEXITCODE -ne 0) { throw "zig c++ failed compiling Retinex source\$Unit.cpp (exit $LASTEXITCODE)" }
+            $Objs += $Obj
+        }
+        $Built = Join-Path $RtxWork "Retinex.dll"
+        & $ZigExe c++ -target x86_64-windows-gnu -shared @Objs -o $Built
+        if ($LASTEXITCODE -ne 0) { throw "zig c++ failed linking Retinex.dll (exit $LASTEXITCODE)" }
+        if (-not (Test-FileContainsAscii $Built "VapourSynthPluginInit")) { throw "the built Retinex.dll does not export VapourSynthPluginInit" }
+        if (-not (Test-FileContainsAscii $Built $RetinexMarker)) { throw "the built Retinex.dll lacks its marker ($RetinexMarker)" }
+        Copy-Item $Built $RetinexOut -Force
+        Write-Host "    Built: Retinex.dll (6bfbdd42, marked)" -ForegroundColor Gray
+    } finally {
+        Pop-Location
+        Remove-Item $RtxWork -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+if (-not (Test-FileContainsAscii $RetinexOut $RetinexMarker)) {
+    throw "Retinex.dll is not the 6bfbdd42 build ($RetinexMarker)"
 }
 
 # =============================================================================

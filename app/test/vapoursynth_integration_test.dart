@@ -1149,6 +1149,144 @@ src8.set_output()''';
     });
   });
 
+  // Task #113: Retinex r4 (the release DLL Windows shipped) starts MSRCP's
+  // sigma list from its defaults {25, 80, 250} and appends the caller's, so the
+  // template's sigma=[X] ran as [25, 80, 250, X] there, while macOS/Linux build
+  // 6bfbdd42 and run [X]: Shadow Detail was ~10 levels apart per OS. Every
+  // platform now builds 6bfbdd42, marked by patches/retinex-6bfbdd4-vapourbox-marker.patch.
+  // docs/reports/task-113-retinex-sigma.
+  group('retinex sigma (task #113)', () {
+    const marker = 'sigma not appended, task #113';
+    const commit = '6bfbdd429159c85075dc4b08e0ac4e706470916b';
+    const enforcedFrom = '1.18.0-rc5';
+
+    // Three checks on one synthetic picture (an underexposed ramp with fine
+    // texture, drawn in Python so every platform gets the same samples):
+    //  - the marker, the hard gate;
+    //  - a repeated scale changes nothing: MSR averages log ratios over its
+    //    scales, so sigma=[100, 100] is sigma=[100] exactly, but under r4 the
+    //    two are [25, 80, 250, 100] and [25, 80, 250, 100, 100], 1.6 levels
+    //    apart. Relative to the same build, so no float drift enters;
+    //  - the output's average against the value measured on macOS arm64 at
+    //    the template's call. r4 lands 8.5 levels above it; the tolerance only
+    //    has to absorb compilers (FMA fusing on arm64, none on x86).
+    // Before [enforcedFrom] it only prints what this bundle does: that is how
+    // CI confirmed the r4 DLL's behaviour on Windows before replacing it.
+    test('the bundle\'s Retinex takes sigma as given, on every platform '
+        '(task #113)', () async {
+      const script = r'''
+import ctypes
+import vapoursynth as vs
+core = vs.core
+print('PLUGIN ' + core.retinex.name)
+W, H = 320, 240
+rows = [bytes(min(255, 16 + 48 * x // W + (y % 7) * 3 + (x % 5) * 2 + 120 * x * y // (W * H))
+              for x in range(W)) for y in range(H)]
+def draw(n, f):
+    f = f.copy()
+    ptr, stride = f.get_write_ptr(0).value, f.get_stride(0)
+    for y, row in enumerate(rows):
+        ctypes.memmove(ptr + y * stride, row, W)
+    return f
+base = core.std.BlankClip(width=W, height=H, format=vs.GRAY8, length=1)
+pic8 = core.std.ModifyFrame(base, base, draw)
+for depth, pic in (('8', pic8), ('16', core.resize.Point(pic8, format=vs.GRAY16))):
+    def msrcp(sigma):
+        return core.retinex.MSRCP(pic, sigma=sigma, lower_thr=0.001, upper_thr=0.001)
+    one = msrcp([100])
+    dup = one.std.PlaneStats(msrcp([100, 100])).get_frame(0).props['PlaneStatsDiff'] * 255
+    avg = one.std.PlaneStats().get_frame(0).props['PlaneStatsAverage'] * 255
+    print(f'STATS {depth} dup {dup:.6f} avg {avg:.6f}')
+base.set_output()''';
+      final r = await _runVspipeScript(vspipePath, script, depsDir: depsDir);
+      expect(r.exitCode, 0, reason: 'stdout: ${r.stdout}\nstderr: ${r.stderr}');
+      final out = r.stdout.toString();
+      final name = RegExp(r'^PLUGIN (.*)$', multiLine: true).firstMatch(out)?.group(1) ?? '';
+      final stats = {
+        for (final m in RegExp(r'^STATS (\d+) dup (\S+) avg (\S+)', multiLine: true).allMatches(out))
+          m.group(1)!: (double.parse(m.group(2)!), double.parse(m.group(3)!)),
+      };
+      expect(stats.keys, unorderedEquals(['8', '16']), reason: out);
+      final appends = stats.values.any((s) => s.$1 > 0.5);
+      // ignore: avoid_print
+      print('retinex on $depsPlatform: '
+          '${appends ? 'appends sigma to its defaults (r4)' : 'takes sigma as given (6bfbdd42)'}; '
+          'repeated-scale difference ${stats['8']!.$1.toStringAsFixed(3)} levels, '
+          'average ${stats['8']!.$2.toStringAsFixed(3)} (8-bit), '
+          '${stats['16']!.$2.toStringAsFixed(3)} (16-bit); name "$name"');
+      if (depsVersionBefore(depsDir, enforcedFrom)) {
+        markTestSkipped('deps before $enforcedFrom may ship Retinex r4 on Windows '
+            '(task #113); this bundle ${appends ? 'appends sigma (r4)' : 'takes sigma as given'}');
+        return;
+      }
+      expect(name, contains(marker),
+          reason: 'Retinex is not the task #113 build (6bfbdd42 + marker)');
+      // Measured on macOS arm64 (deps 1.18.0-rc4's libretinex and the marked
+      // build alike, byte for byte), template thresholds 0.001 / 0.001.
+      const pinned = {'8': 151.5335, '16': 150.9437};
+      for (final depth in ['8', '16']) {
+        final (dup, avg) = stats[depth]!;
+        expect(dup, lessThan(0.05),
+            reason: '$depth-bit: sigma=[100] and [100, 100] differ by $dup levels: '
+                'this Retinex appends sigma to its defaults (r4, task #113)');
+        expect(avg, closeTo(pinned[depth]!, 0.5),
+            reason: '$depth-bit: MSRCP(sigma=[100]) averages $avg levels, not '
+                '${pinned[depth]} as on macOS arm64 (r4 gives ~8.5 more). If this is '
+                "a compiler's rounding, measure the spread across platforms and "
+                'record it in docs/reports/task-113-retinex-sigma before changing '
+                'the tolerance');
+      }
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
+    test('every deps script builds Retinex at the same commit with the marker '
+        'patch, and Windows no longer downloads r4 (task #113)', () {
+      String read(String rel) => File(path.join(Directory.current.path, '..', rel))
+          .readAsStringSync()
+          .replaceAll('\r\n', '\n');
+      const patchName = 'retinex-6bfbdd4-vapourbox-marker.patch';
+      final patch = read('Scripts/patches/$patchName');
+      final lines = patch.split('\n');
+      final added = lines.where((l) => l.startsWith('+') && !l.startsWith('+++')).toList();
+      final removed = lines.where((l) => l.startsWith('-') && !l.startsWith('---')).toList();
+      // One line changed, the description: no code.
+      expect(added, hasLength(1), reason: 'the marker patch must change no code');
+      expect(removed, hasLength(1), reason: 'the marker patch must change no code');
+      expect(added.single.substring(1),
+          equals(removed.single.substring(1).replaceFirst(
+              'VapourSynth.",', 'VapourSynth. (VapourBox: 6bfbdd42, $marker)",')));
+      expect(RegExp(r'^\+\+\+ b/source/VSPlugin\.cpp$', multiLine: true).hasMatch(patch),
+          isTrue);
+
+      final pins = <String, String>{};
+      for (final (script, pattern) in [
+        ('download-deps-macos.sh', r'^RETINEX_COMMIT="([0-9a-f]+)"'),
+        ('download-deps-linux.sh', r'^RETINEX_COMMIT="([0-9a-f]+)"'),
+        ('download-deps-windows.ps1', r'^\$RetinexCommit = "([0-9a-f]+)"'),
+      ]) {
+        final text = read('Scripts/$script');
+        final m = RegExp(pattern, multiLine: true).allMatches(text).toList();
+        expect(m, hasLength(1), reason: '$script defines the Retinex commit once');
+        pins[script] = m.single.group(1)!;
+        expect(text, contains(patchName), reason: '$script does not apply the marker patch');
+        expect(text, contains(marker), reason: '$script does not require the marker');
+      }
+      expect(pins.values.toSet(), equals({commit}),
+          reason: 'the three scripts must build the same Retinex: $pins');
+
+      final windows = read('Scripts/download-deps-windows.ps1');
+      expect(windows, isNot(contains('Retinex-r4')),
+          reason: 'Windows must not download the r4 DLL (it appends sigma)');
+      expect(windows, contains(r'checkout --quiet $RetinexCommit'));
+      for (final script in ['download-deps-macos.sh', 'download-deps-linux.sh']) {
+        final text = read('Scripts/$script');
+        final call = RegExp(r'build_plugin "retinex"[\s\S]*?"\$RETINEX_COMMIT"').firstMatch(text);
+        expect(call, isNotNull, reason: '$script builds retinex at RETINEX_COMMIT');
+        expect(call!.group(0), contains(patchName),
+            reason: '$script must apply the patch inside the retinex build');
+      }
+    });
+  });
+
   // Task #82: havsfunc patch 8 (download-deps-*) turns LUTDeCrawl's and
   // LUTDeRainbow's eight Lut2(function=lambda x, y: x & y) mask ANDs into
   // Expr 'x y min'. At 10 bits each of those tables was a million Python calls:
