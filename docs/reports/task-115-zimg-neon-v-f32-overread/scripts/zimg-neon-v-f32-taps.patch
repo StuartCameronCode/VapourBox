@@ -1,0 +1,31 @@
+diff --git a/src/zimg/resize/arm/resize_impl_neon.cpp b/src/zimg/resize/arm/resize_impl_neon.cpp
+index c563e9f..618814a 100644
+--- a/src/zimg/resize/arm/resize_impl_neon.cpp
++++ b/src/zimg/resize/arm/resize_impl_neon.cpp
+@@ -448,15 +448,18 @@ void resize_line_v_f32_neon(const float * RESTRICT filter_data, const float * co
+ 	unsigned vec_left = ceil_n(left, 4);
+ 	unsigned vec_right = floor_n(right, 4);
+ 
++	// Load only the taps this instance uses: a filter of 4 or fewer taps has
++	// a stride of 4 floats on ARM, so filter_data[4..7] of the last row are
++	// past the end of the coefficient vector.
+ 	const float32x4_t c[8] = {
+-		vdupq_n_f32(filter_data[0]),
+-		vdupq_n_f32(filter_data[1]),
+-		vdupq_n_f32(filter_data[2]),
+-		vdupq_n_f32(filter_data[3]),
+-		vdupq_n_f32(filter_data[4]),
+-		vdupq_n_f32(filter_data[5]),
+-		vdupq_n_f32(filter_data[6]),
+-		vdupq_n_f32(filter_data[7]),
++		vdupq_n_f32(Taps > 0 ? filter_data[0] : 0.0f),
++		vdupq_n_f32(Taps > 1 ? filter_data[1] : 0.0f),
++		vdupq_n_f32(Taps > 2 ? filter_data[2] : 0.0f),
++		vdupq_n_f32(Taps > 3 ? filter_data[3] : 0.0f),
++		vdupq_n_f32(Taps > 4 ? filter_data[4] : 0.0f),
++		vdupq_n_f32(Taps > 5 ? filter_data[5] : 0.0f),
++		vdupq_n_f32(Taps > 6 ? filter_data[6] : 0.0f),
++		vdupq_n_f32(Taps > 7 ? filter_data[7] : 0.0f),
+ 	};
+ 
+ #define XITER resize_line_v_f32_neon_xiter<Taps, Continue>
