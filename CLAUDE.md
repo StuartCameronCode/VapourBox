@@ -3519,9 +3519,14 @@ run touches the deps bundle, the probe table or the probe (or is a
 `deps_run_id` dispatch), the flutter job also runs the quick plugin format
 probe (`--tags heavy test/plugin_format_contracts_test.dart`). **Caches:**
 Cargo (`Swatinem/rust-cache`) and pub, saved from `main` only (or a dispatch
-with `save_caches`); **never the Flutter SDK**: ~2 GB a platform pushed the
-repository past its 10 GB, every cache was evicted in turn, and a hit saved
-under 30 s (docs/reports/task-84-pr-ci-time). Matrix: macOS **arm64** (`macos-15`), macOS **x64**
+with `save_caches`); **never the Flutter SDK, in any workflow** (the
+release builds and repro workflows too, task #121): ~2 GB a platform pushed
+the repository past its 10 GB, every cache was evicted in turn, and a hit
+saved under a minute (docs/reports/task-84-pr-ci-time). The release builds
+cache nothing: no pub cache (an uncached `flutter pub get` takes ~4 s) and no
+Cargo cache (always evicted between releases). `workflow_caches_test.dart` (push gate) fails on a
+`subosito/flutter-action` step without `cache: false` and on a cache keyed on
+`Cargo.lock`, which is gitignored. Matrix: macOS **arm64** (`macos-15`), macOS **x64**
 (`macos-15-intel`), **Windows x64**, **Linux x64** (`ubuntu-24.04`). The heavy
 full-encode integration tests run separately in `.github/workflows/nightly.yml`
 (cron + `workflow_dispatch`) via `flutter test --tags heavy --exclude-tags gpu,sweep` on the same

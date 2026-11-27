@@ -70,19 +70,12 @@ jobs:
       - name: Setup Flutter
         # Not cached (tasks #84, #121): ~2 GB a platform overflowed the
         # repository's 10 GB of caches and saved under a minute on a hit.
+        # No pub cache either: an uncached `flutter pub get` takes ~4 s,
+        # about what restoring ci-test's cost (2-8 s).
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
           cache: false
-          pub-cache-path: ${{ runner.temp }}/pub-cache
-
-      - name: Restore pub cache
-        # Saved by ci-test.yml on main; never saved here.
-        uses: actions/cache/restore@v5
-        with:
-          path: ${{ runner.temp }}/pub-cache
-          key: pub-macos-arm64-${{ hashFiles('app/pubspec.yaml') }}
-          restore-keys: pub-macos-arm64-
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
