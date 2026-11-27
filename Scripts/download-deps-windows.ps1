@@ -205,11 +205,52 @@ $FFmpegZip = Join-Path $TempDir "ffmpeg.zip"
 # This was `ffmpeg-master-latest-win64-gpl.zip` until 2026-08-31 — an UNPINNED
 # moving target, which is how Windows came to ship a post-9.0 master build
 # while Linux was still pinned at 7.1.
+#
+# The series is the cross-platform contract; the BUILD is pinned exactly, with
+# a SHA-256, the same build as download-deps-linux.sh (task #123). BtbN's
+# rolling `latest` moved within 9.0 between deps 1.18.0-rc3 and rc4 and broke
+# a heavy test. BtbN keeps a dated autobuild for only ~14 days, so the asset
+# is mirrored on our `ffmpeg-mirror-v1` release, tried first; BtbN's dated tag
+# is the fallback. See the pin block in download-deps-linux.sh for bumping.
 $FFmpegSeries = "9.0"
-$FFmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n$FFmpegSeries-latest-win64-gpl-$FFmpegSeries.zip"
+$FFmpegBtbnBuild = "n9.0.2-963-g4d831360c9"
+$FFmpegBtbnAutobuild = "autobuild-2026-11-25-12-41"
+$FFmpegBtbnMirror = "https://github.com/StuartCameronCode/VapourBox/releases/download/ffmpeg-mirror-v1"
+$FFmpegBtbnWin64Sha256 = "a6c8859872154486e18d674783debf7889d317462a98d6b847f9c3cce767993a"
+$FFmpegAsset = "ffmpeg-$FFmpegBtbnBuild-win64-gpl-$FFmpegSeries.zip"
+$FFmpegUrls = @(
+    "$FFmpegBtbnMirror/$FFmpegAsset",
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFmpegBtbnAutobuild/$FFmpegAsset"
+)
 
-if (-not (Test-Path "$FullTargetDir\ffmpeg\ffmpeg.exe")) {
-    Download-File -Url $FFmpegUrl -OutFile $FFmpegZip
+# The installed ffmpeg.exe is the pinned build when its first -version line
+# names it ("ffmpeg version n9.0.2-963-g4d831360c9-20261125 ...").
+function Test-PinnedFFmpeg {
+    param([string]$Exe)
+    if (-not (Test-Path $Exe)) { return $false }
+    $line = & $Exe -version 2>$null | Select-Object -First 1
+    return ($line -like "ffmpeg version $FFmpegBtbnBuild-*")
+}
+
+$InstalledFFmpeg = Join-Path (Join-Path $FullTargetDir "ffmpeg") "ffmpeg.exe"
+if (-not (Test-PinnedFFmpeg $InstalledFFmpeg)) {
+    if (Test-Path $InstalledFFmpeg) {
+        Write-Host "  Replacing an FFmpeg that is not the pinned $FFmpegBtbnBuild" -ForegroundColor Yellow
+    }
+    $Fetched = $false
+    foreach ($FFmpegUrl in $FFmpegUrls) {
+        try {
+            Download-File -Url $FFmpegUrl -OutFile $FFmpegZip
+            $Got = (Get-FileHash -Path $FFmpegZip -Algorithm SHA256).Hash.ToLower()
+            if ($Got -eq $FFmpegBtbnWin64Sha256) { $Fetched = $true; break }
+            Write-Host "  WARNING: $FFmpegUrl has sha256 $Got, expected $FFmpegBtbnWin64Sha256" -ForegroundColor Yellow
+        } catch {
+            Write-Host "  WARNING: could not fetch $FFmpegUrl ($($_.Exception.Message))" -ForegroundColor Yellow
+        }
+    }
+    if (-not $Fetched) {
+        throw "Neither the mirror nor BtbN's $FFmpegBtbnAutobuild has $FFmpegAsset with SHA-256 $FFmpegBtbnWin64Sha256"
+    }
 
     # Extract to temp, then copy just the binaries
     $FFmpegTempDir = Join-Path $TempDir "ffmpeg-extract"
@@ -238,8 +279,12 @@ if (-not (Test-Path "$FullTargetDir\ffmpeg\ffmpeg.exe")) {
                "download-deps-* scripts together, or platforms drift.")
     }
     Write-Host "  FFmpeg $($Matches[1]) installed (matches the pinned $FFmpegSeries series)" -ForegroundColor Green
+    if (-not (Test-PinnedFFmpeg $InstalledFFmpeg)) {
+        throw "ffmpeg.exe is not the pinned build $FFmpegBtbnBuild (got: $FFmpegVersionLine)"
+    }
+    Write-Host "  FFmpeg build $FFmpegBtbnBuild (matches the pin)" -ForegroundColor Green
 } else {
-    Write-Host "  FFmpeg already installed" -ForegroundColor Gray
+    Write-Host "  FFmpeg $FFmpegBtbnBuild already installed" -ForegroundColor Gray
 }
 
 # =============================================================================

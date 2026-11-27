@@ -153,13 +153,23 @@ Future<List<String>> _frameMd5s(String path) async {
 /// The same VHS picture cut to 720x486 (NTSC D1 height) at an even offset, so
 /// the field order holds, in [pixFmt]; 4:2:0 is converted field by field.
 /// Lossless (FFV1), first [_frames] slots.
+///
+/// The conversion runs at 488 lines and the frame is then cropped to 486
+/// (task #123). Converted field by field at 486, 4:2:0 has 243 chroma rows,
+/// which can't split into two fields. FFmpeg from ff65bd5417 (BtbN
+/// n9.0.2-963, deps 1.18.0-rc4) refuses that ("The bottom field has fewer
+/// chroma rows than its height requires"), and older builds read past the
+/// bottom field's chroma. At 488 each field has its own 122 rows, and the crop
+/// keeps the first 243 rows as they were interleaved. The 4:2:2 fixture is the
+/// same, byte for byte, as a direct cut at 486. The file name changed with
+/// the recipe, so a fixture cached by an earlier run is rebuilt.
 Future<String> _d1Fixture(String pixFmt) async {
-  final path = p.join(_outDir, 'd1_src_$pixFmt.mkv');
+  final path = p.join(_outDir, 'd1v2_src_$pixFmt.mkv');
   if (File(path).existsSync()) return path;
   final r = await Process.run(
     WorkerHarness.ffmpegPath,
     ['-hide_banner', '-v', 'error', '-y', '-i', _source,
-     '-vf', 'setpts=PTS-STARTPTS,fps=$_fps,crop=720:486:0:44,scale=interl=1,format=$pixFmt',
+     '-vf', 'setpts=PTS-STARTPTS,fps=$_fps,crop=720:488:0:44,scale=interl=1,format=$pixFmt,crop=720:486:0:0',
      '-frames:v', '$_frames', '-c:v', 'ffv1', '-an', path],
     environment: WorkerHarness.ffmpegEnv,
   );

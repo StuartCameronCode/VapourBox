@@ -408,6 +408,12 @@ Note the version parser accepts `n9.0.1` and `9.0.1` and deliberately **rejects
 a `master` build** (`N-125978-...`), so reverting any platform to an unpinned
 master URL is a red build rather than a silent regression.
 
+*Update (2026-11-27, task #123):* the series pin against BtbN's rolling tag
+was itself a moving input. `n9.0-latest` went from n9.0.2-61 (deps
+1.18.0-rc3) to n9.0.2-963 (rc4), which broke a heavy test. Windows and Linux
+now pin an exact BtbN build by SHA-256 too, mirrored on our own release. See
+the dated entry at the end of this file.
+
 ### The v2 tier became a delta, and the AppImage started carrying its deps (2026-10-09, deps 1.13.0)
 
 **What prompted it.** The AppImage catalog (appimage.github.io) picked up the
@@ -6950,3 +6956,44 @@ false positive, and nothing we ship is affected.
   C-API repro), for the user to file.
 
 Report: [docs/reports/task-115-zimg-neon-v-f32-overread](reports/task-115-zimg-neon-v-f32-overread/index.html).
+
+### A series pin that still moved: BtbN FFmpeg pinned by build (task #123, 2026-11-27)
+
+- **Symptom.** Nightly 45796959369 (deps 1.18.0-rc4) failed three
+  `720x486 (task #92)` tests in `integration_field_order_test.dart` on
+  Windows and Linux, both tiers. The D1 fixture
+  (`crop=720:486,scale=interl=1,format=yuv420p`) failed with "The bottom
+  field has fewer chroma rows than its height requires", and the other two
+  tests read the empty file it left. macOS passed.
+- **Cause.** BtbN's rolling `n9.0-latest` moved from n9.0.2-61 (rc3) to
+  n9.0.2-963 (rc4), and so did FFmpeg. The refusal is release/9.0's
+  ff65bd5417, a heap-overflow fix ("swscale: reject interlaced frames whose
+  bottom field lacks a chroma row"). At 486 lines, 4:2:0 has 243 chroma
+  rows, which can't split into two fields. Older builds converted it by
+  reading and writing past the bottom field's chroma, so the rc3 fixture
+  was produced through an out-of-bounds access.
+- **No user job is exposed.** swscale only treats a frame as fields when
+  it is flagged interlaced, and `vf_scale` clears that flag unless it is
+  given `interl=1`, or `interl=-1` on a flagged frame. Nothing in the
+  worker or app passes `interl`; the scaler ffmpeg inserts for `-pix_fmt`
+  uses the default. On a local build of 4d831360c9, every encoder format
+  pin, the preview's scale and a pad/format/crop chain passed at 720x486
+  with `-top 0` and `-top 1` (68 rows). Only the `interl=-1` control
+  failed.
+- **Fixture.** It now converts at 488 lines and crops to 486: each field
+  has its own 122 chroma rows, and the crop keeps the first 243 as they
+  were interleaved. The 4:2:2 fixture is byte-identical to before.
+- **Pin.** Windows and Linux pin `n9.0.2-963-g4d831360c9`, the build rc4
+  shipped, so the binaries don't change. Each asset is pinned by SHA-256.
+  BtbN keeps a dated `autobuild-*` release for only about 14 days
+  (month-end ones stay), so the three assets are mirrored on our
+  `ffmpeg-mirror-v1` release (prerelease, never Latest), which the scripts
+  try first, with BtbN's dated tag as the fallback. Each script asserts
+  the installed build and replaces an ffmpeg that is another build.
+  `ffmpeg_version_pin_test` checks the build pins; `source_pin_test` now
+  refuses any `releases/download/latest/` URL.
+- **Rule.** Never `scale=interl=1` (or `interl=-1` on a flagged frame) on a
+  4:2:0 picture whose height is 2 mod 4. Convert at the next multiple of 4
+  and crop.
+
+Report: [docs/reports/task-123-btbn-ffmpeg-pin](reports/task-123-btbn-ffmpeg-pin/index.html).

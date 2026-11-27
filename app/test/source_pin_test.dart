@@ -230,15 +230,17 @@ void main() {
     });
   }
 
-  // Scoped to GitHub's raw and archive URLs: BtbN's FFmpeg `latest` builds
-  // are the same kind of exposure and are task #123's, not this test's.
+  // GitHub's raw and archive URLs at a branch, and any release asset fetched
+  // through the rolling `latest` tag (BtbN's FFmpeg until task #123, which
+  // moved within 9.0 between two builds of the same deps version).
   // An exception names its task.
   const urlExceptions = <String, String>{};
   test('no download names a branch', () {
     final branchUrl = RegExp(
         r'https://(?:github\.com/[^/\s"]+/[^/\s"]+/(?:raw|blob)/(?:master|main|HEAD)/'
         r'|raw\.githubusercontent\.com/[^/\s"]+/[^/\s"]+/(?:master|main|HEAD)/'
-        r'|github\.com/[^\s"]*/archive/(?:refs/heads/|(?:master|main)\.))[^\s"]*');
+        r'|github\.com/[^\s"]*/archive/(?:refs/heads/|(?:master|main)\.)'
+        r'|github\.com/[^/\s"]+/[^/\s"]+/releases/download/latest/)[^\s"]*');
     for (final MapEntry(key: file, value: text) in {
       ...scripts,
       'download-deps-windows.ps1': windows,
@@ -246,7 +248,7 @@ void main() {
       for (final m in branchUrl.allMatches(text)) {
         if (urlExceptions.containsKey(m.group(0))) continue;
         final line = '\n'.allMatches(text.substring(0, m.start)).length + 1;
-        fail('$file:$line downloads from a branch: ${m.group(0)}');
+        fail('$file:$line downloads from a branch or a rolling release tag: ${m.group(0)}');
       }
     }
   });

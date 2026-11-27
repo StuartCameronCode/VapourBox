@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BtbN FFmpeg pin</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  td.warn { background: var(--warn-bg); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>BtbN's rolling FFmpeg moved within 9.0: the D1 fixture, and a pin by build</h1>
+<p class="meta">2026-11-27 · task #123 (found by task #116) · measured on minimal local builds of FFmpeg at the two
+commits BtbN built (macOS arm64), and on GitHub's release listings · the scripts are in <code>scripts/</code>, their
+output in <code>data/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: only a test fixture was broken. The fixture is fixed, and Windows and Linux FFmpeg are now
+pinned to one exact build.</strong></p>
+<p>BtbN's rolling <code>n9.0-latest</code> asset went from <code>n9.0.2-61</code> (deps 1.18.0-rc3) to
+<code>n9.0.2-963</code> (rc4). Between them, release/9.0 gained ff65bd5417, a heap-overflow fix. It makes swscale
+refuse a field-by-field 4:2:0 conversion when the height is 2 mod 4. The field-order test's 720x486 fixture asked for
+exactly that, so three heavy tests failed on Windows and Linux.</p>
+<p>No worker or app path asks for one. Every encoder format pin, the preview's scale and a pad/format/crop chain pass
+on the new code at 720x486 (68 of 68 rows); only the <code>interl=-1</code> control fails.</p>
+<p>The fixture now converts at 488 lines and crops to 486. That gives the same file from both builds, and the 4:2:2
+fixture is byte-identical to before.</p>
+<p>Windows and Linux now pin <code>n9.0.2-963-g4d831360c9</code> (what rc4 shipped, so the binaries don't change)
+by SHA-256. It is fetched from our <code>ffmpeg-mirror-v1</code> release first, then from BtbN's dated tag.</p>
+</div>
+
+<h2>1. What failed</h2>
+<p>Nightly 45796959369 (deps 1.18.0-rc4, 2026-11-26), heavy legs on Windows x64, Windows x64-v2, Linux x64 and Linux
+x64-v2. These tests failed in <code>integration_field_order_test.dart</code>, group <code>720x486 (task #92)</code>:</p>
+<ul>
+<li><code>H.264 at 4:2:0 is coded progressive, and the job log says why</code></li>
+<li><code>H.264 cropped to 484 lines is MBAFF again</code></li>
+<li><code>ProRes keeps the fields; x265 is not told to use H.264</code></li>
+</ul>
+<p>The fixture command, <code>crop=720:486:0:44,scale=interl=1,format=yuv420p</code>, failed with:</p>
+<pre>[swscaler] The bottom field has fewer chroma rows than its height requires (Invalid argument): fmt:yuv422p ... -&gt; fmt:yuv420p
+Error while filtering: Invalid argument</pre>
+<p>The other two tests then read the empty file it left ("EBML header parsing failed"). Every failing job's log
+reports <code>ffmpeg version n9.0.2-963-g4d831360c9-20261125</code>. macOS (martin-riedl 9.0.2, pinned by build)
+passed.</p>
+<p>Each of those jobs also had one failure unrelated to FFmpeg:</p>
+<ul>
+<li>CTMF in task #98's stress test, fixed on main by task #112; the run's branch predated it.</li>
+<li>The Windows v2 DCTFilter timeout, task #124.</li>
+</ul>
+
+<h2>2. The cause: ff65bd5417</h2>
+<p><code>git log d59078794d..4d831360c9 -- libswscale</code> on FFmpeg's release/9.0 lists about 40 swscale fixes.
+The refusal is <code>ff65bd5417</code>, "swscale: reject interlaced frames whose bottom field lacks a chroma row",
+cherry-picked from f93d46898b ("Fixes: heap-buffer-overflow (read and write)"). It adds this check to
+<code>sws_frame_setup()</code>, for the bottom field:</p>
+<pre>2 * AV_CEIL_RSHIFT(field-&gt;height, vsub) &lt;= AV_CEIL_RSHIFT(frame-&gt;height, vsub)</pre>
+<p>At 486 lines, each field is 243 lines, which needs 122 chroma rows, so two fields need 244. The frame has 243. The
+older code converted the bottom field anyway, reading and writing one chroma row past the plane. <strong>So the
+fixture rc3 produced was made through an out-of-bounds access.</strong></p>
+<p>swscale only splits a frame into fields when it carries <code>AV_FRAME_FLAG_INTERLACED</code>
+(<code>ff_fmt_from_frame</code>). <code>vf_scale</code> sets or clears that flag from its <code>interl</code> option,
+which <strong>defaults to 0 and clears it</strong>. So only <code>interl=1</code>, or <code>interl=-1</code> on a
+flagged frame, can reach the check. The scaler ffmpeg inserts for <code>-pix_fmt</code> uses the defaults.</p>
+
+<h2>3. Users: no path reaches it</h2>
+<p>Static: <code>grep -rnE "interl="</code> over <code>worker/</code>, <code>app/lib</code>, <code>app/test</code>,
+<code>Scripts</code>, <code>.github</code> and <code>Tests</code> finds only the fixture. The worker's interlaced chroma
+conversions run in VapourSynth (zimg honours <code>_FieldBased</code>). HDR tone mapping is zscale, not swscale.</p>
+<p>Measured: <code>scripts/exposure_matrix.sh</code> runs every way the worker lets FFmpeg convert a still-interlaced
+picture, at 720x486:</p>
+<ul>
+<li>a Y4M pipe as vspipe writes it (<code>Ip</code>), with <code>-top 1</code> or <code>-top 0</code> on the input
+(<code>field_order_args</code>) and <code>-flags +ildct</code>;</li>
+<li>through every format an encoder is pinned to: <code>forced_pix_fmt</code>'s yuv420p / nv12 / p010le, ProRes's and
+v210's yuv422p10le / yuv444p10le, and rgb24;</li>
+<li>the preview's <code>scale=out_range=pc:flags=accurate_rnd+full_chroma_int</code> to rgb48be;</li>
+<li>a pad / format / crop chain like the grid crop;</li>
+<li>a control, <code>scale=interl=-1</code>, which keeps the frame's flag.</li>
+</ul>
+<p>Sources: 8 and 10-bit, 4:2:0 and 4:2:2 (the fixtures from §4).</p>
+<table>
+<tr><th>FFmpeg (local minimal build)</th><th>Rows OK</th><th>Failing rows</th></tr>
+<tr><td><code>n9.0.2-61-gd59078794d</code> (rc3's commit)</td><td class="ok">72 / 72</td><td>none</td></tr>
+<tr><td><code>n9.0.2-963-g4d831360c9</code> (rc4's commit)</td><td class="ok">68 / 72</td><td class="warn">the 4 controls with a 4:2:0 source (<code>interl=-1</code>, <code>-top 0</code> and <code>1</code>, 8 and 10-bit)</td></tr>
+</table>
+<p class="muted">Limits: these are minimal builds (<code>scripts/build_ffmpeg_minimal.sh</code>) of the same commits on
+macOS arm64, not BtbN's binaries; swscale's checks are plain C and don't depend on the platform. The nightly re-run
+against rc4's own bundle is the check on BtbN's build. Raw output:
+<code>data/exposure_matrix_n9.0.2-61.txt</code>, <code>data/exposure_matrix_n9.0.2-963.txt</code>.</p>
+
+<h2>4. The fixture</h2>
+<p>The fixture now converts at 488 lines, where each field has its own 122 chroma rows, and crops the result to 486.
+Cropping 2 lines off the bottom of a 4:2:0 frame keeps its first 243 chroma rows as they were interleaved, so the
+field order and each field's chroma are kept:</p>
+<pre>setpts=PTS-STARTPTS,fps=25,crop=720:488:0:44,scale=interl=1,format=$pixFmt,crop=720:486:0:0</pre>
+<table>
+<tr><th>Recipe</th><th>n9.0.2-61</th><th>n9.0.2-963</th></tr>
+<tr><td>old, 4:2:0 at 486</td><td class="warn">exit 0 (out-of-bounds, §2)</td><td class="bad">exit 234, the refusal</td></tr>
+<tr><td>new, 4:2:0 at 488 → 486</td><td class="ok">exit 0, 720x486</td><td class="ok">exit 0, 720x486; <b>identical</b> to -61's (framemd5)</td></tr>
+<tr><td>new vs old, 4:2:2</td><td class="ok">identical (framemd5)</td><td class="ok">identical (framemd5)</td></tr>
+</table>
+<p>The fixture file is now named <code>d1v2_src_*.mkv</code>, so one an earlier run left in
+<code>Tests/TestOutput/</code> is rebuilt. With the new fixture, the four <code>720x486</code> tests pass on macOS
+arm64 against deps 1.18.0-rc4. Raw output: <code>data/fixture_*.txt</code>, <code>data/compare_builds.txt</code>.</p>
+
+<h2>5. The pin</h2>
+<p>A series pin against a rolling tag still moves within the series. The 2026-08-31 decision ("pin the series, never
+an exact old build") rested on BtbN dropping old builds. The releases listing (<code>data/btbn_releases_2026-11-27.txt</code>)
+shows how long BtbN actually keeps them:</p>
+<ul>
+<li>daily <code>autobuild-*</code> releases for about 14 days (2026-11-13 to 2026-11-26 present);</li>
+<li>month-end ones for at least two years (back to 2024-12-31).</li>
+</ul>
+<p>rc4's <code>autobuild-2026-11-25-12-41</code> would therefore disappear around 2026-12-09. The listing also shows
+<code>latest</code> moving again: the 2026-11-26 build's Linux tarballs are 62 MB, against 154 MB a day earlier.</p>
+<p><strong>Decision.</strong></p>
+<ul>
+<li>Pin <code>n9.0.2-963-g4d831360c9</code> on Windows and Linux. It is the build rc4 shipped, so a rebuild changes no
+FFmpeg binary, and it keeps the swscale overflow fixes.</li>
+<li>Copy its three assets, unmodified, with BtbN's <code>LICENSE.txt</code>, to <code>ffmpeg-mirror-v1</code> on this
+repository (a prerelease, never Latest). GitHub's digests match the pins:</li>
+</ul>
+<table>
+<tr><th>Asset</th><th>Bytes</th><th>SHA-256</th></tr>
+<tr><td><code>ffmpeg-n9.0.2-963-g4d831360c9-linux64-gpl-9.0.tar.xz</code></td><td>154063332</td><td><code>0e67c0626ba48a329b3e75fe577b13ade43543fcfe44255ae18d7c06e22fa31a</code></td></tr>
+<tr><td><code>ffmpeg-n9.0.2-963-g4d831360c9-linuxarm64-gpl-9.0.tar.xz</code></td><td>129578792</td><td><code>63c00a518241d220ed53163b93f2d07112c4c8c1306d2f1e64677466c15312b5</code></td></tr>
+<tr><td><code>ffmpeg-n9.0.2-963-g4d831360c9-win64-gpl-9.0.zip</code></td><td>198453191</td><td><code>a6c8859872154486e18d674783debf7889d317462a98d6b847f9c3cce767993a</code></td></tr>
+</table>
+<p>How the scripts use it:</p>
+<ul>
+<li><code>download-deps-linux.sh</code> and <code>download-deps-windows.ps1</code> try the mirror, then BtbN's dated tag.
+Either copy must match the hash.</li>
+<li>Each asserts the installed build from <code>ffmpeg -version</code>, and replaces an ffmpeg that is another
+build.</li>
+<li><code>ffmpeg_version_pin_test.dart</code> checks that both scripts pin the same build, inside the series, with a
+dated fallback tag and a hash per asset, and that neither fetches <code>latest</code>.</li>
+<li><code>source_pin_test.dart</code> refuses any <code>releases/download/latest/</code> URL.</li>
+</ul>
+
+<h2>Not done</h2>
+<ul>
+<li>A deps rebuild just for this. The binaries are rc4's; the pin ships with the next deps build (1.18.0-rc5).</li>
+<li>FFmpeg 9.1 (task #107), which will pin and mirror a dated 9.1 build the same way.</li>
+</ul>
+
+</main>
+</body>
+</html>
