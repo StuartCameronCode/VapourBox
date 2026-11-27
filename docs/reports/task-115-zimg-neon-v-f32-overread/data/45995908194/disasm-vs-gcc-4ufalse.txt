@@ -1,0 +1,73 @@
+00000000000438c0 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)>:
+   438c0:	ldp	s6, s4, [x0, #4]
+   438c4:	add	w5, w3, #0x3
+   438c8:	ldr	s5, [x0, #12]
+   438cc:	and	w5, w5, #0xfffffffc
+   438d0:	ldp	x8, x9, [x1]
+   438d4:	and	w6, w4, #0xfffffffc
+   438d8:	ldp	x7, x1, [x1, #16]
+   438dc:	dup	v6.4s, v6.s[0]
+   438e0:	ld1r	{v7.4s}, [x0]
+   438e4:	dup	v4.4s, v4.s[0]
+   438e8:	dup	v5.4s, v5.s[0]
+   438ec:	cmp	w3, w5
+   438f0:	b.eq	43944 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x84>  // b.none
+   438f4:	sub	w0, w5, #0x4
+   438f8:	mov	x10, #0xfffffffffffffff0    	// #-16
+   438fc:	adrp	x11, 7f000 <vtable for __cxxabiv1::__si_class_type_info@CXXABI_1.3>
+   43900:	ldr	x11, [x11, #3952]
+   43904:	lsl	x0, x0, #2
+   43908:	add	x10, x10, w5, uxtw #2
+   4390c:	ubfiz	x3, x3, #6, #2
+   43910:	ldr	q0, [x9, x0]
+   43914:	ldr	q1, [x8, x0]
+   43918:	ldr	q2, [x7, x0]
+   4391c:	ldr	q16, [x1, x0]
+   43920:	fmul	v0.4s, v0.4s, v6.4s
+   43924:	fmul	v1.4s, v1.4s, v7.4s
+   43928:	ldr	q3, [x2, x10]
+   4392c:	fmla	v0.4s, v5.4s, v16.4s
+   43930:	fmla	v1.4s, v4.4s, v2.4s
+   43934:	ldr	q2, [x11, x3]
+   43938:	fadd	v0.4s, v0.4s, v1.4s
+   4393c:	bit	v0.16b, v3.16b, v2.16b
+   43940:	str	q0, [x2, x10]
+   43944:	cmp	w6, w5
+   43948:	b.ls	43988 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0xc8>  // b.plast
+   4394c:	nop
+   43950:	ubfiz	x0, x5, #2, #32
+   43954:	add	w5, w5, #0x4
+   43958:	ldr	q0, [x9, x0]
+   4395c:	ldr	q1, [x8, x0]
+   43960:	ldr	q3, [x1, x0]
+   43964:	ldr	q2, [x7, x0]
+   43968:	fmul	v0.4s, v0.4s, v6.4s
+   4396c:	fmul	v1.4s, v1.4s, v7.4s
+   43970:	fmla	v0.4s, v5.4s, v3.4s
+   43974:	fmla	v1.4s, v4.4s, v2.4s
+   43978:	fadd	v0.4s, v0.4s, v1.4s
+   4397c:	str	q0, [x2, x0]
+   43980:	cmp	w5, w6
+   43984:	b.cc	43950 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x90>  // b.lo, b.ul, b.last
+   43988:	ands	w4, w4, #0x3
+   4398c:	b.eq	439d4 <void zimg::resize::(anonymous namespace)::resize_line_v_f32_neon<4u, false>(float const*, float const* const*, float*, unsigned int, unsigned int)+0x114>  // b.none
+   43990:	lsl	x6, x6, #2
+   43994:	ubfiz	x4, x4, #6, #2
+   43998:	adrp	x0, 7f000 <vtable for __cxxabiv1::__si_class_type_info@CXXABI_1.3>
+   4399c:	ldr	x0, [x0, #3952]
+   439a0:	ldr	q0, [x9, x6]
+   439a4:	ldr	q1, [x8, x6]
+   439a8:	ldr	q2, [x7, x6]
+   439ac:	ldr	q16, [x1, x6]
+   439b0:	fmul	v0.4s, v0.4s, v6.4s
+   439b4:	fmul	v1.4s, v1.4s, v7.4s
+   439b8:	ldr	q3, [x2, x6]
+   439bc:	fmla	v0.4s, v5.4s, v16.4s
+   439c0:	fmla	v1.4s, v4.4s, v2.4s
+   439c4:	ldr	q2, [x0, x4]
+   439c8:	fadd	v0.4s, v0.4s, v1.4s
+   439cc:	bif	v0.16b, v3.16b, v2.16b
+   439d0:	str	q0, [x2, x6]
+   439d4:	ret
+   439d8:	nop
+   439dc:	nop

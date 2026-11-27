@@ -1,0 +1,1 @@
+GRAYS 4x4 -> 4x2 point: processed, tmp_size 448

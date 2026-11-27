@@ -1,0 +1,102 @@
+==15974== Memcheck, a memory error detector
+==15974== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==15974== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==15974== Command: /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin -a kind=down -a size=720x480 -a frames=2 -a threads=1 /home/runner/work/VapourBox/VapourBox/docs/reports/task-115-zimg-neon-v-f32-overread/scripts/bundle_repro.vpy -
+==15974== 
+==15974== Use of uninitialised value of size 8
+==15974==    at 0x5F4E518: crc32_z (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/python/lib/libpython3.12.so.1.0)
+==15974== 
+==15974== Use of uninitialised value of size 8
+==15974==    at 0x5F4E51C: crc32_z (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/python/lib/libpython3.12.so.1.0)
+==15974== 
+==15974== Use of uninitialised value of size 8
+==15974==    at 0x5F4E584: crc32_z (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/python/lib/libpython3.12.so.1.0)
+==15974== 
+==15974== Use of uninitialised value of size 8
+==15974==    at 0x5F4E590: crc32_z (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/python/lib/libpython3.12.so.1.0)
+==15974== 
+==15974== Use of uninitialised value of size 8
+==15974==    at 0x5F4E5F4: crc32_z (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/python/lib/libpython3.12.so.1.0)
+==15974== 
+==15974== Use of uninitialised value of size 8
+==15974==    at 0x5F4E600: crc32_z (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/python/lib/libpython3.12.so.1.0)
+==15974== 
+==15974== Use of uninitialised value of size 8
+==15974==    at 0x5F4E668: crc32_z (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/python/lib/libpython3.12.so.1.0)
+==15974== 
+==15974== Use of uninitialised value of size 8
+==15974==    at 0x5F4E670: crc32_z (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/python/lib/libpython3.12.so.1.0)
+==15974== 
+bundle_repro: down 720x480, 2 frames, crc eb5127d0
+==15974== Thread 2:
+==15974== Syscall param write(buf) points to uninitialised byte(s)
+==15974==    at 0x4CA1E4C: __libc_write (write.c:26)
+==15974==    by 0x4CA1E4C: write (write.c:24)
+==15974==    by 0x4C3D743: _IO_file_write@@GLIBC_2.17 (fileops.c:1183)
+==15974==    by 0x4C3BA4B: new_do_write (fileops.c:451)
+==15974==    by 0x4C3C86F: _IO_do_write@@GLIBC_2.17 (fileops.c:428)
+==15974==    by 0x4C3D88B: _IO_new_file_xsputn (fileops.c:1246)
+==15974==    by 0x4C3D88B: _IO_file_xsputn@@GLIBC_2.17 (fileops.c:1199)
+==15974==    by 0x4C30837: fwrite (iofwrite.c:39)
+==15974==    by 0x1127BF: outputFrame(VSFrame const*, VSPipeOutputData*) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin)
+==15974==    by 0x11332B: frameDoneCallback(void*, VSFrame const*, int, VSNode*, char const*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin)
+==15974==    by 0x8189A27: VSThreadPool::returnFrame(VSFrameContext*, vs_intrusive_ptr<VSFrame> const&, std::unique_lock<std::mutex>&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/libvapoursynth.so.4)
+==15974==    by 0x818B6AB: VSThreadPool::runTasks(bool&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/libvapoursynth.so.4)
+==15974==    by 0x49D1ADF: ??? (in /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33)
+==15974==    by 0x4C4580B: start_thread (pthread_create.c:447)
+==15974==    by 0x4CAB8DB: thread_start (clone.S:79)
+==15974==  Address 0x4e44956 is 1,894 bytes inside a block of size 4,096 alloc'd
+==15974==    at 0x4885250: malloc (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
+==15974==    by 0x4C2EF3F: _IO_file_doallocate (filedoalloc.c:101)
+==15974==    by 0x4C3EB53: _IO_doallocbuf (genops.c:347)
+==15974==    by 0x4C3EB53: _IO_doallocbuf (genops.c:342)
+==15974==    by 0x4C3CE2B: _IO_file_overflow@@GLIBC_2.17 (fileops.c:747)
+==15974==    by 0x4C3D88B: _IO_new_file_xsputn (fileops.c:1246)
+==15974==    by 0x4C3D88B: _IO_file_xsputn@@GLIBC_2.17 (fileops.c:1199)
+==15974==    by 0x4C30837: fwrite (iofwrite.c:39)
+==15974==    by 0x1127BF: outputFrame(VSFrame const*, VSPipeOutputData*) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin)
+==15974==    by 0x11332B: frameDoneCallback(void*, VSFrame const*, int, VSNode*, char const*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin)
+==15974==    by 0x8189A27: VSThreadPool::returnFrame(VSFrameContext*, vs_intrusive_ptr<VSFrame> const&, std::unique_lock<std::mutex>&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/libvapoursynth.so.4)
+==15974==    by 0x818B6AB: VSThreadPool::runTasks(bool&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/libvapoursynth.so.4)
+==15974==    by 0x49D1ADF: ??? (in /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33)
+==15974==    by 0x4C4580B: start_thread (pthread_create.c:447)
+==15974==    by 0x4CAB8DB: thread_start (clone.S:79)
+==15974== 
+==15974== Syscall param write(buf) points to uninitialised byte(s)
+==15974==    at 0x4CA1E4C: __libc_write (write.c:26)
+==15974==    by 0x4CA1E4C: write (write.c:24)
+==15974==    by 0x4C3D743: _IO_file_write@@GLIBC_2.17 (fileops.c:1183)
+==15974==    by 0x4C3BA4B: new_do_write (fileops.c:451)
+==15974==    by 0x4C3D923: _IO_new_file_xsputn (fileops.c:1257)
+==15974==    by 0x4C3D923: _IO_file_xsputn@@GLIBC_2.17 (fileops.c:1199)
+==15974==    by 0x4C30837: fwrite (iofwrite.c:39)
+==15974==    by 0x1127BF: outputFrame(VSFrame const*, VSPipeOutputData*) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin)
+==15974==    by 0x11332B: frameDoneCallback(void*, VSFrame const*, int, VSNode*, char const*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin)
+==15974==    by 0x8189A27: VSThreadPool::returnFrame(VSFrameContext*, vs_intrusive_ptr<VSFrame> const&, std::unique_lock<std::mutex>&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/libvapoursynth.so.4)
+==15974==    by 0x818B6AB: VSThreadPool::runTasks(bool&) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/libvapoursynth.so.4)
+==15974==    by 0x49D1ADF: ??? (in /usr/lib/aarch64-linux-gnu/libstdc++.so.6.0.33)
+==15974==    by 0x4C4580B: start_thread (pthread_create.c:447)
+==15974==    by 0x4CAB8DB: thread_start (clone.S:79)
+==15974==  Address 0xfb6479e is 2,878 bytes inside a block of size 345,600 alloc'd
+==15974==    at 0x48859FC: operator new(unsigned long) (in /usr/libexec/valgrind/vgpreload_memcheck-arm64-linux.so)
+==15974==    by 0x1178CB: std::vector<unsigned char, std::allocator<unsigned char> >::resize(unsigned long) (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin)
+==15974==    by 0x115EB3: initializeVideoOutput(VSPipeOutputData*) [clone .lto_priv.0] (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin)
+==15974==    by 0x10BBDB: main (in /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin)
+==15974== 
+Output 2 frames in 0.06 seconds (35.11 fps)
+==15974== 
+==15974== HEAP SUMMARY:
+==15974==     in use at exit: 7,484,981 bytes in 59,650 blocks
+==15974==   total heap usage: 161,861 allocs, 102,211 frees, 49,932,344 bytes allocated
+==15974== 
+==15974== LEAK SUMMARY:
+==15974==    definitely lost: 0 bytes in 0 blocks
+==15974==    indirectly lost: 0 bytes in 0 blocks
+==15974==      possibly lost: 6,663,390 bytes in 50,142 blocks
+==15974==    still reachable: 821,591 bytes in 9,508 blocks
+==15974==         suppressed: 0 bytes in 0 blocks
+==15974== Rerun with --leak-check=full to see details of leaked memory
+==15974== 
+==15974== Use --track-origins=yes to see where uninitialised values come from
+==15974== For lists of detected and suppressed errors, rerun with: -s
+==15974== ERROR SUMMARY: 1929 errors from 10 contexts (suppressed: 0 from 0)

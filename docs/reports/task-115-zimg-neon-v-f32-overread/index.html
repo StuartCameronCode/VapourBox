@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zimg NEON coefficient over-read</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  td.warn { background: var(--warn-bg); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>zimg's NEON float vertical resize reads filter coefficients past its buffer</h1>
+<p class="meta">2026-11-27 · task #115 (added by task #109) · measured on GitHub Actions <code>ubuntu-24.04-arm</code>
+(Neoverse V2, gcc 13.3, clang 18.1, glibc 2.39), runs 45994602531 and 45995908194, and locally on macOS arm64
+(Apple clang) · every number below comes from <code>scripts/</code>; the tables are in <code>data/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: a zimg bug, not the harness and not a false positive. It is harmless in what we ship.</strong>
+<code>resize_line_v_f32_neon&lt;Taps, Continue&gt;</code> in <code>src/zimg/resize/arm/resize_impl_neon.cpp</code>
+always reads coefficients <code>filter_data[0..7]</code>, whatever <code>Taps</code> is. On ARM a filter row of
+4 or fewer taps is stored 4 floats apart, so on the last output row coefficients 4 to 7 come from the
+16 bytes past the end of <code>FilterContext::data</code>. The values are never used.</p>
+<ul>
+<li>gcc 13 with AddressSanitizer keeps the loads, and all 32 of task #109's arm64 aborts are this read: <code>READ of
+size 4</code>, 0 bytes after a vector of exactly <em>output rows × 16</em> bytes, in <code>resize_line_v_f32_neon&lt;1,
+false&gt;</code> or <code>&lt;4, false&gt;</code>.</li>
+<li>The same 32 abort with every frame plane 4096 bytes larger, so the harness's frames are not involved.</li>
+<li>A one-function patch, loading only the taps the instance uses, brings it to 0 aborts. It changes no pixel
+(158 of 158 CRCs identical).</li>
+<li>Upstream master (<code>9806db42</code> / graphengine <code>308d3735</code>) behaves the same: 32 aborts unpatched, 0 patched.</li>
+<li>clang 18 ASan finds nothing. The build VapourSynth makes (gcc 13, <code>-O3</code>, no sanitizer) contains
+none of the extra loads, and valgrind finds no invalid read in it.</li>
+<li>The shipped linux-arm64 bundle (<code>deps-v1.18.0-rc4</code>) is clean under valgrind on both resizes.</li>
+</ul>
+<p><strong>No VapourBox change.</strong> The read is undefined behaviour in the source, but no build we ship
+performs it. A draft upstream issue with the patch is in <code>upstream-issue-draft.md</code>. The user files it;
+it has not been filed.</p>
+</div>
+
+<h2>Symptom</h2>
+<p>Task #109 ran its 158 <code>tmp_overrun</code> graphs under gcc 13 ASan on <code>ubuntu-24.04-arm</code>
+(<code>docs/reports/task-109-graphengine-tmp-overrun/data/linux/44995813552/c-bisect-arm64-gcc-13</code>).
+32 aborted with a heap-buffer-overflow, at every graphengine commit, the good <code>cb5b2ce1</code> included. That
+ruled out graphengine's <code>f6211289</code> bug, but left these 32 unexplained. Nothing aborted on x64 (gcc or
+clang), nor under Apple clang ASan on macOS arm64, which runs the same NEON source.</p>
+
+<h2>The code</h2>
+<pre>template &lt;unsigned Taps, bool Continue&gt;
+void resize_line_v_f32_neon(const float * RESTRICT filter_data, ...)
+{
+	...
+	const float32x4_t c[8] = {
+		vdupq_n_f32(filter_data[0]),
+		...
+		vdupq_n_f32(filter_data[7]),   // always 8, whatever Taps is
+	};</pre>
+<p><code>ResizeImplV_F32_Neon::process</code> passes <code>m_filter.data.data() + i * m_filter.stride</code>. The
+stride is <code>ceil_n(filter_width, AlignmentOf&lt;float&gt;)</code> (<code>resize/filter.cpp:63</code>), and on ARM
+<code>ALIGNMENT</code> is 16 (<code>common/align.h</code>), so a filter of 4 or fewer taps has a stride of 4 floats.
+The kernel's per-pixel loop (<code>resize_line_v_f32_neon_xiter</code>) multiplies by <code>c[0..Taps-1]</code> only,
+so <code>c[4..7]</code> are dead. On x86 <code>ALIGNMENT</code> is 64, every stride is at least 16 floats, and the
+same read stays inside the vector. The 16-bit kernel is safe because <code>stride_i16</code> rounds to 8. A filter
+wider than 8 taps runs the kernel again at offset 8 with the rest. When fewer than 8 taps remain there, the same
+over-read can happen, and the patch covers it too.</p>
+
+<h2>Results</h2>
+<p>zimg <code>67e06032</code> / graphengine <code>cb5b2ce1</code> (task #103's pin) unless stated. Built as
+VapourSynth R78 builds it (task #109's <code>build.sh</code>: R78's meson overlay, static, release,
+<code>NDEBUG</code>), and run through <code>tmp_overrun --exact</code>, one process per case
+(<code>data/45994602531/summary.tsv</code>).</p>
+<table>
+<tr><th>Run</th><th>Build</th><th>Cases</th><th>Aborts</th><th>In <code>resize_line_v_f32_neon</code></th></tr>
+<tr><td>asan-gcc</td><td>gcc 13, ASan, <code>-g</code></td><td>158</td><td class="bad">32</td><td>32</td></tr>
+<tr><td>asan-gcc-pad</td><td>the same, <code>--pad 4096</code> on every frame plane</td><td>158</td><td class="bad">32</td><td>32 (same cases, same regions)</td></tr>
+<tr><td>asan-gcc-patched</td><td>gcc 13, ASan, <code>zimg-neon-v-f32-taps.patch</code></td><td>158</td><td class="ok">0</td><td>0</td></tr>
+<tr><td>asan-clang</td><td>clang 18, ASan, unpatched</td><td>158</td><td class="ok">0</td><td>0</td></tr>
+<tr><td>master-asan-gcc</td><td>gcc 13, ASan, zimg <code>9806db42</code> / graphengine <code>308d3735</code></td><td>158</td><td class="bad">32</td><td>32 (same cases)</td></tr>
+<tr><td>master-asan-gcc-patched</td><td>the same, patched</td><td>158</td><td class="ok">0</td><td>0</td></tr>
+<tr><td>vs-gcc, vs-gcc-patched</td><td>gcc 13, no sanitizer (as shipped), <code>--crc</code></td><td>158</td><td>0</td><td>CRCs: 158 of 158 identical</td></tr>
+</table>
+
+<h3>What ASan reports</h3>
+<p><code>data/45994602531/report-swatch-yuv420p8.txt</code> is the whole report for the smallest case (RGB24 4x4
+to YUV420P8, point):</p>
+<pre>READ of size 4 at 0x5040000001b0 thread T0
+    #0 in resize_line_v_f32_neon&lt;1, false&gt; .../resize/arm/resize_impl_neon.cpp:456
+    #1 in process .../resize/arm/resize_impl_neon.cpp:680
+    ...
+    #10 in zimg_filter_graph_process .../api/zimg.cpp:589
+0x5040000001b0 is located 0 bytes after 32-byte region
+allocated by thread T0 here:
+    ...
+    #8 in zimg::resize::FilterContext::FilterContext(zimg::resize::FilterContext const&amp;) .../resize/filter.h:133
+    #9 in zimg::resize::ResizeImplV::ResizeImplV(...) .../resize/resize_impl.cpp:199
+    #10 in ResizeImplV_F32_Neon .../resize/arm/resize_impl_neon.cpp:654</pre>
+<p>Line 456 is <code>vdupq_n_f32(filter_data[4])</code>. The block is the vertical filter's coefficient vector,
+copied into the <code>ResizeImplV</code>. Every one of the 32 reports has this shape
+(<code>data/45994602531/asan-gcc.frames.tsv</code>). The region is always the destination's chroma rows × 4 floats
+× 4 bytes:</p>
+<table>
+<tr><th>Cases</th><th>Resize (chroma, vertical)</th><th>Kernel</th><th>Region (bytes)</th><th>= rows × 16</th></tr>
+<tr><td><code>swatch-yuv420p8</code>, <code>-p10</code></td><td>RGB → 4:2:0, point 2:1 down</td><td><code>&lt;1, false&gt;</code></td><td>32</td><td>2</td></tr>
+<tr><td><code>cs-to-yuv420p{8,10}</code> 96x64, 98x64</td><td>RGB24 → 4:2:0, point down</td><td><code>&lt;1, false&gt;</code></td><td>512 (p), 256 (i)</td><td>32, 16 per field</td></tr>
+<tr><td><code>cs-to-yuv420p{8,10}</code> 720x480</td><td>the same</td><td><code>&lt;1, false&gt;</code></td><td>3840 (p), 1920 (i)</td><td>240, 120 per field</td></tr>
+<tr><td><code>cs-to-rgbs-yuv420p{8,10}</code>, <code>bt709</code> 96x64, 98x64</td><td>4:2:0 → 4:4:4 float, bicubic 1:2 up</td><td><code>&lt;4, false&gt;</code></td><td>1024 (p), 512 (i)</td><td>64, 32 per field</td></tr>
+<tr><td>the same at 720x480</td><td>the same</td><td><code>&lt;4, false&gt;</code></td><td>7680 (p), 3840 (i)</td><td>480, 240 per field</td></tr>
+</table>
+<p>The 4:2:0 cases that pass fit the same rule. <code>cs-from-rgbs</code> and <code>colorize</code> are bicubic 2:1
+down: 8 taps, a stride of 8, so all reads stay in bounds. <code>deband-up</code> and <code>deband-down</code> change
+depth only, with no vertical resize. The <code>bt709</code> cases resample chroma up (4 taps, aborts) and then down
+(8 taps). The width never matters (96 and 98 give the same region), but the height and field mode do.</p>
+
+<h3>The controls</h3>
+<ul>
+<li><strong>Padded frames</strong> (<code>--pad 4096</code>, a new <code>tmp_overrun</code> option): the same 32
+cases abort, at the same regions and in the same function. The harness's planes and its tmp buffer (127,168
+bytes at 720x480) are not the overflowed block.</li>
+<li><strong>clang 18 ASan</strong>, same runner, same source: 0 aborts. Its <code>&lt;1, false&gt;</code> loads one
+coefficient (<code>ld1r {v0.4s}, [x0]</code>, <code>data/45994602531/disasm-asan-clang-1ufalse.txt</code>).
+clang drops the dead loads before ASan instruments them; gcc keeps them under ASan.</li>
+<li><strong>The build VapourSynth makes</strong> (gcc 13 <code>-O3</code>, no sanitizer): <code>&lt;1, false&gt;</code>
+loads <code>filter_data[0]</code> only (<code>ld1r {v1.4s}, [x0]</code>). <code>&lt;4, false&gt;</code> loads
+<code>[x0]</code>, <code>[x0, #4]</code>, <code>[x0, #8]</code> (one <code>ldp</code>) and <code>[x0, #12]</code>:
+taps 0 to 3, nothing past them (<code>disasm-vs-gcc-*.txt</code>). The patched build's two kernels are
+instruction for instruction the same. valgrind memcheck over all 158 cases: 0 invalid reads, patched or
+not (<code>valgrind.tsv</code>).</li>
+<li><strong>The shipped bundle</strong>: <code>deps-v1.18.0-rc4</code>'s linux-arm64 <code>vspipe</code> under valgrind
+(<code>bundle_check.sh</code>, single-threaded). YUV420P8 → RGBS bicubic and RGB24 → YUV420P8 point, at 4x4, 96x64
+and 720x480: every run finished, with 0 invalid reads (<code>bundle-check.tsv</code>).</li>
+</ul>
+
+<h3>The minimal repro</h3>
+<p><code>scripts/upstream_repro.c</code> needs no harness. It makes one GRAYS graph through the C API and resizes
+vertically only: 4x4 → 4x2 point (1 tap), or 96x64 → 96x128 bicubic (<code>up</code>, 4 taps). It was built against
+each ASan build's <code>libzimg.a</code> on the runner (run 45995908194,
+<code>data/45995908194/upstream-repro.tsv</code>):</p>
+<table>
+<tr><th>Build</th><th>Case</th><th>Result</th></tr>
+<tr><td>gcc 13 ASan, unpatched</td><td>4x4 → 4x2 point</td><td class="bad">heap-buffer-overflow, READ of size 4 in <code>resize_line_v_f32_neon&lt;1, false&gt;</code>, 0 bytes after a 32-byte region</td></tr>
+<tr><td>gcc 13 ASan, unpatched</td><td>96x64 → 96x128 bicubic</td><td class="bad">the same in <code>&lt;4, false&gt;</code>, 0 bytes after a 2048-byte region (128 rows × 16)</td></tr>
+<tr><td>gcc 13 ASan, patched</td><td>both</td><td class="ok">processed, exit 0</td></tr>
+</table>
+<p>Run 45995908194 also repeated every row of the table above with identical counts
+(<code>data/45995908194/summary.tsv</code>).</p>
+
+<h2>Cause</h2>
+<p>The kernel builds <code>c[8]</code> from <code>filter_data[0..7]</code> for every <code>Taps</code>. With 4 or
+fewer taps the coefficient rows on ARM are 4 floats apart, so the last row's reads of 4 to 7 fall 0 to 15 bytes past
+the vector. The read is undefined behaviour in the source whether or not a compiler emits it. Whether it reaches
+memory depends on the compiler: gcc's ASan build keeps it; gcc's optimised build and clang's (with or without ASan)
+drop it, since nothing reads <code>c[4..7]</code>.</p>
+<p>The fix (<code>scripts/zimg-neon-v-f32-taps.patch</code>, one function): load
+<code>Taps &gt; k ? filter_data[k] : 0.0f</code>. <code>Taps</code> is a template constant, so this folds away, and
+the unused <code>c[k]</code> are never read. Padding <code>FilterContext::data</code> by 8 floats would also
+work, but it would fix the allocation rather than the kernel.</p>
+
+<h2>Who is exposed</h2>
+<ul>
+<li><strong>VapourBox: no one, today.</strong> The linux-arm64 bundle is the only shipped build that runs this
+kernel from source we compile. Its gcc 13 <code>-O3</code> build emits no extra load, and valgrind sees none in it.
+macOS arm64 ships Homebrew's zimg, built with clang, which drops them as Apple clang does here. That was not
+disassembled. Windows and x64 builds use the x86 kernels.</li>
+<li><strong>What would change that</strong>: a compiler or flags that keep the dead loads (gcc ASan does). Even
+then the read is at most 16 bytes past a heap block, and the values are discarded, so pixels are unaffected. It
+could only fault if the vector ended exactly at an unmapped page. That needs a block glibc serves by
+<code>mmap</code> (≥ 128 KiB, so 8192 or more output rows), at which point the read lands in the mapping's page
+padding. In the cases measured it is invisible except to ASan.</li>
+<li><strong>A zimg bump</strong> (task #126, <code>9806db42</code>): unchanged, same 32 reports. <code>CLAUDE.md</code>'s
+zimg pin rule asks for task #109's ASan run before a bump; on arm64 these 32 are expected and are not the
+#109 overrun.</li>
+</ul>
+
+<h2>Decisions</h2>
+<ul>
+<li><strong>No VapourBox code or bundle change</strong>: the shipped build does not perform the read. A zimg patch
+carried in <code>download-deps-linux.sh</code> would be upkeep for no change in the binary, and macOS and
+Windows zimg could not take it anyway.</li>
+<li><strong>Not filed upstream by this task</strong>: <code>upstream-issue-draft.md</code> has the issue text, the
+repro and the patch, and the user files it (decided at the plan stage).</li>
+<li><strong>Task #109's report keeps its numbers</strong>; it gains one dated line pointing here.</li>
+</ul>
+
+<h2>Corrections</h2>
+<ul>
+<li>The plan expected the over-read to "survive" in a normal gcc build and called the shipped exposure a page-edge
+fault at 8192+ rows. Measured: the shipped build has no such load at all. The page-edge reasoning applies only to
+a build that keeps the loads.</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li>One runner type (Neoverse V2) and one gcc (13.3). Other gcc versions or flags may or may not keep the loads.
+The source bug does not depend on either.</li>
+<li>Only <code>cpu_type AUTO_64B</code> (VapourSynth's default) was run. On aarch64 that is the NEON kernels.</li>
+<li>The bundle check runs two conversions at three sizes, single-threaded, two frames each. That is enough for a
+deterministic read in a kernel that runs on every row; it is not a survey of VapourBox's passes.</li>
+<li>macOS arm64's Homebrew zimg was not disassembled; Apple clang's behaviour on this source was checked locally
+(one coefficient load in <code>&lt;1, false&gt;</code>, with or without the patch).</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul>
+<li><code>scripts/asan_report.sh WORK OUT</code>: every build and run above, on an aarch64 Linux machine. It uses
+task #109's <code>fetch.sh</code>, <code>build.sh</code> (now with <code>ZIMG_PATCH</code>),
+<code>tmp_overrun.c</code> (now with <code>--pad</code> and <code>--crc</code>), <code>run_cases.sh</code> (now with
+<code>KEEP_ERR</code>) and <code>cases.tsv</code>.</li>
+<li><code>scripts/zimg-neon-v-f32-taps.patch</code>: the fix, against zimg 67e06032 (it applies unchanged to 9806db42).</li>
+<li><code>scripts/upstream_repro.c</code>: the minimal repro.</li>
+<li><code>scripts/bundle_check.sh DEPS OUT</code>, <code>scripts/bundle_repro.vpy</code>: the bundle under valgrind.</li>
+<li><code>.github/workflows/zimg-neon-asan.yml</code>: runs both on <code>ubuntu-24.04-arm</code>; the artifacts are
+<code>data/&lt;run&gt;/</code>.</li>
+</ul>
+
+</main>
+</body>
+</html>

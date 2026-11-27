@@ -168,6 +168,10 @@ change), report a heap-buffer-overflow <em>at every commit, the good one and the
 f6211289 the extra 18 are exactly this bug's 18. It is not this bug, it does not show with ASan on x64 or on macOS
 arm64, and whether it is zimg's NEON path or this harness's frame allocation was not examined. Task #115 has
 it.</p>
+<p class="muted">2026-11-27 (task #115): examined. It is zimg's NEON path, not this harness:
+<code>resize_line_v_f32_neon</code> reads coefficients past its buffer when a vertical float filter has 4 or fewer
+taps. The values are unused, and the shipped build does not perform the read. See
+<a href="../task-115-zimg-neon-v-f32-overread/index.html">task-115-zimg-neon-v-f32-overread</a>.</p>
 <p class="muted">Correction, kept visible: the first run (44994453078) counted no ASan aborts on Linux. ASan
 there exits with status 1, which <code>run_cases.sh</code> read as tmp_overrun's own "overrun" status, and clang 18
 built nothing because strict <code>-std=c11</code> hides <code>posix_memalign</code> on glibc. Both are fixed in

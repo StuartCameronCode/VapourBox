@@ -1,0 +1,22 @@
+==15933== Memcheck, a memory error detector
+==15933== Copyright (C) 2002-2022, and GNU GPL'd, by Julian Seward et al.
+==15933== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==15933== Command: /home/runner/work/VapourBox/VapourBox/deps/linux-arm64/vapoursynth/vspipe-bin -a kind=up -a size=720x480 -a frames=2 -a threads=1 /home/runner/work/VapourBox/VapourBox/docs/reports/task-115-zimg-neon-v-f32-overread/scripts/bundle_repro.vpy -
+==15933== 
+bundle_repro: up 720x480, 2 frames, crc 09e18c28
+Output 2 frames in 0.06 seconds (33.16 fps)
+==15933== 
+==15933== HEAP SUMMARY:
+==15933==     in use at exit: 7,484,981 bytes in 59,650 blocks
+==15933==   total heap usage: 164,452 allocs, 104,802 frees, 62,221,812 bytes allocated
+==15933== 
+==15933== LEAK SUMMARY:
+==15933==    definitely lost: 0 bytes in 0 blocks
+==15933==    indirectly lost: 0 bytes in 0 blocks
+==15933==      possibly lost: 6,663,388 bytes in 50,142 blocks
+==15933==    still reachable: 821,593 bytes in 9,508 blocks
+==15933==         suppressed: 0 bytes in 0 blocks
+==15933== Rerun with --leak-check=full to see details of leaked memory
+==15933== 
+==15933== For lists of detected and suppressed errors, rerun with: -s
+==15933== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
