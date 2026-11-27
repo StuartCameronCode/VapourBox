@@ -6626,3 +6626,28 @@ No measurements, so no report.
   error did not recur in 80 old-reader Windows encodes; it is rare there.
 
 Report: [docs/reports/task-120-pipe-source-late-output](reports/task-120-pipe-source-late-output/index.html).
+
+### The mask AND test's reference cost 0.3 s a call: macOS x64 timed out (task #118, 2026-11-27)
+
+Report: [docs/reports/task-118-mask-and-test-time](reports/task-118-mask-and-test-time/index.html).
+
+- **Slow, not hung.** The push gate's `havsfunc mask AND (patch 8)` test
+  (task #82) took 114–158 s on the macOS x64 runner and timed out at 180 s
+  in 4 of 14 runs; 14–31 s on Windows, 22–40 s on Linux, 37–75 s on macOS
+  arm64. The patched calls (`SLOWEST_EVAL`) were 0.02–0.75 s everywhere.
+- **The reference was the cost.** It ran each call through upstream's own
+  table as a `Lut2(lut=…)` list, built per call. At 10 bits that is 2^20
+  entries, ~0.3 s a call on an M1 however it is passed (list, tuple and
+  `array('q')` alike; `function=` 2.2 s), and a `Lut2` node is bound to
+  its clips, so it can't be reused. 48 calls: 14.0 of the script's 16.9 s.
+- **The fix is in the test only.** Above 8 bits the reference ANDs the top
+  8 bits and the low bits in two 8-bit tables and joins them in a third,
+  exact because AND works bit by bit; both clips must be one depth (every
+  `_mask_and` call is), else it raises. Every run first proves it equal to
+  upstream's full 10-bit table on all 1,048,576 pairs (a 1024x1024 ramp and
+  its transpose, 0.3 s). 16.9 s → 4.2 s on the M1, the same 36 exact
+  comparisons; a `max` stand-in and a one-entry error in the join table
+  both still fail. `TOTAL_EVAL` now prints beside `SLOWEST_EVAL`. The
+  timeout stays at 3 minutes.
+- **macOS x64 not measured locally**: ~32 s projected from the runner's
+  ratio to the M1 before; the PR's CI run records it.

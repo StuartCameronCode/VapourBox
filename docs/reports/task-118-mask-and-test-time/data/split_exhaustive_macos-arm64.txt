@@ -1,0 +1,4 @@
+# Apple M1, deps 1.18.0-rc4 macos-arm64, 2026-11-27
+ramp a spans 0..1023
+ramp b spans 0..1023
+upstream table 0.316 s a call, split 0.0573 s a call, PlaneStatsDiff 0.0, format Gray10

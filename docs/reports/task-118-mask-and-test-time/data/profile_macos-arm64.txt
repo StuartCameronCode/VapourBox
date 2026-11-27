@@ -1,0 +1,19 @@
+# Apple M1, deps 1.18.0-rc4 macos-arm64, 2026-11-27
+REF=table
+comparisons (same)                      0.12 s
+patched calls                           0.12 s
+reference: Lut2 creation, 10-bit       13.99 s
+reference: Lut2 creation, 8-bit         1.32 s
+reference: build list, 10-bit           1.07 s
+reference: build list, 8-bit            0.06 s
+reference calls, 10-bit                   48
+reference calls, 8-bit                    72
+whole script                           16.85 s
+REF=split
+comparisons (same)                      0.12 s
+patched calls                           0.12 s
+reference: split, 10-bit                2.63 s
+reference: split, 8-bit                 1.29 s
+reference calls, 10-bit                   48
+reference calls, 8-bit                    72
+whole script                            4.18 s

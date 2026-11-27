@@ -1155,10 +1155,19 @@ src8.set_output()''';
   // 7.9 s of script evaluation per filter on an M1, paid by every preview. min
   // is only exact because one operand of every call is a strict 0/peak mask, so
   // this compares both filters (output, and the mask itself) with the same call
-  // made through upstream's own table, at 8 and 10 bits and every subsampling,
-  // on a picture whose masks are partly set. The reference uses Lut2's lut=
-  // list, which is the function's table byte for byte (task #75) at a fraction
-  // of its cost. docs/reports/task-82-havsfunc-mask-and.
+  // made through an exact AND reference, at 8 and 10 bits and every
+  // subsampling, on a picture whose masks are partly set.
+  // docs/reports/task-82-havsfunc-mask-and.
+  //
+  // Task #118: the reference used to be upstream's own table, as a Lut2 lut=
+  // list, built for every call. At 10 bits handing VapourSynth 2^20 entries
+  // costs ~0.3 s a call on an M1 whatever the container, and the 48 such
+  // calls were 16 of the script's 19 s; on the macOS x64 runner the test took
+  // 114-158 s and timed out at 180 s on 4 of 14 runs. So above 8 bits the
+  // reference ANDs the top 8 bits and the low bits in two 8-bit tables and
+  // joins them in a third (exact: AND works bit by bit), and the script
+  // first proves that equal to upstream's full 10-bit table on every one of
+  // its 1,048,576 pairs, once. docs/reports/task-118-mask-and-test-time.
   group('havsfunc mask AND (patch 8)', () {
     test('LUTDeCrawl and LUTDeRainbow give upstream\'s picture, without '
         'Python tables (task #82)', () async {
@@ -1182,10 +1191,53 @@ src = open(haf.__file__).read()
 assert 'std.Lut2(' not in src, 'havsfunc still calls std.Lut2 (patch 8 not applied)'
 patched = haf._mask_and
 
-def upstream(clipa, clipb):
+t_start = time.perf_counter()
+
+def upstream_table(clipa, clipb):
+    # Upstream's own table: what Lut2(function=lambda x, y: x & y) builds.
     ba, bb = clipa.format.bits_per_sample, clipb.format.bits_per_sample
     lut = [x & y for y in range(1 << bb) for x in range(1 << ba)]
     return core.std.Lut2(clipa, clipb, lut=lut)
+
+AND8 = [x & y for y in range(256) for x in range(256)]
+SPLIT = {}
+
+def reference(clipa, clipb):
+    # x & y = (((x >> s) & (y >> s)) << s) | ((x & m) & (y & m)), s = bits - 8,
+    # m = 2^s - 1: each half an 8-bit table. Only for two clips of one depth,
+    # which every _mask_and call in havsfunc is (two GRAY planes of the clip).
+    bits = clipa.format.bits_per_sample
+    if clipb.format.bits_per_sample != bits or bits < 8:
+        raise Exception('reference: clips at %d and %d bits' % (bits, clipb.format.bits_per_sample))
+    if bits == 8:
+        return core.std.Lut2(clipa, clipb, lut=AND8)
+    if bits not in SPLIT:
+        s = bits - 8
+        m = (1 << s) - 1
+        SPLIT[bits] = ([v >> s for v in range(1 << bits)],
+                       [v & m for v in range(1 << bits)],
+                       [(x << s) | y for y in range(256) for x in range(256)])
+    hi, lo, join = SPLIT[bits]
+    h = core.std.Lut2(core.std.Lut(clipa, lut=hi, bits=8), core.std.Lut(clipb, lut=hi, bits=8), lut=AND8)
+    l = core.std.Lut2(core.std.Lut(clipa, lut=lo, bits=8), core.std.Lut(clipb, lut=lo, bits=8), lut=AND8)
+    return core.std.Lut2(h, l, lut=join, bits=bits)
+
+bad = []
+
+# The proof: one 1024x1024 GRAY10 frame where a is the column and b the row,
+# so every pair of 10-bit values meets once, through upstream's full table
+# and through the reference. (R78's std.Expr has no X/Y, so the ramp is
+# built from one-pixel clips.)
+row = core.std.StackHorizontal([core.std.BlankClip(format=vs.GRAY10, width=1, height=1, length=1, color=[v]) for v in range(1024)])
+ramp_a = core.std.StackVertical([row] * 1024)
+ramp_b = core.std.Transpose(ramp_a)
+for r in (ramp_a, ramp_b):
+    p = core.std.PlaneStats(r).get_frame(0).props
+    if (p['PlaneStatsMin'], p['PlaneStatsMax']) != (0, 1023):
+        bad.append('the proof\'s ramp spans %d..%d, not every 10-bit value' % (p['PlaneStatsMin'], p['PlaneStatsMax']))
+proof = core.std.PlaneStats(reference(ramp_a, ramp_b), upstream_table(ramp_a, ramp_b)).get_frame(0).props
+if proof['PlaneStatsDiff'] != 0:
+    bad.append('the reference differs from upstream\'s 10-bit table (diff %r)' % proof['PlaneStatsDiff'])
 
 def fixture(fmt):
     # Mid grey with temporally varying grain: neighbouring frames are within
@@ -1212,20 +1264,19 @@ CALLS = {
     'LUTDeRainbow': lambda c, m: haf.LUTDeRainbow(c, cthresh=10, ythresh=10, y=True, linkUV=True, mask=m),
     'LUTDeRainbow unlinked': lambda c, m: haf.LUTDeRainbow(c, cthresh=10, ythresh=10, y=True, linkUV=False, mask=m),
 }
-bad = []
 slowest = 0.0
 for fmt in (vs.YUV420P8, vs.YUV422P8, vs.YUV444P8, vs.YUV420P10, vs.YUV422P10, vs.YUV444P10):
     clip = fixture(fmt)
     name = core.get_video_format(fmt).name
     for label, call in CALLS.items():
-        # The 10-bit reference costs ~0.3 s a table, so its masks are compared
-        # at 4:2:0 only; the outputs at every subsampling.
+        # The masks at 4:2:0 for both depths and at 8-bit 4:2:2 / 4:4:4; the
+        # outputs at every subsampling.
         for mask in ((False, True) if fmt in (vs.YUV420P8, vs.YUV420P10, vs.YUV422P8, vs.YUV444P8) else (False,)):
             haf._mask_and = patched
             t = time.perf_counter()
             got = call(clip, mask)
             slowest = max(slowest, time.perf_counter() - t)
-            haf._mask_and = upstream
+            haf._mask_and = reference
             want = call(clip, mask)
             haf._mask_and = patched
             what = '%s %s %s' % (name, label, 'mask' if mask else 'output')
@@ -1234,8 +1285,9 @@ for fmt in (vs.YUV420P8, vs.YUV422P8, vs.YUV444P8, vs.YUV420P10, vs.YUV422P10, v
                 if not 0.02 < avg < 0.98:
                     bad.append('%s: mask average %.3f, the fixture no longer exercises both states' % (what, avg))
             if not same(got, want):
-                bad.append('%s differs from upstream\'s table' % what)
+                bad.append('%s differs from the AND reference' % what)
 print('SLOWEST_EVAL %.3f' % slowest)
+print('TOTAL_EVAL %.3f' % (time.perf_counter() - t_start))
 # Upstream's 10-bit tables took 7.9 s per call on an M1; the Expr takes
 # milliseconds. Generous, so only a return to Python tables fails it.
 if slowest > 2.0:
@@ -1246,7 +1298,10 @@ print('havsfunc mask AND OK')
 core.std.BlankClip().set_output()''';
       final r = await _runVspipeScript(vspipePath, script, depsDir: depsDir);
       // ignore: avoid_print
-      print('  ${RegExp(r'SLOWEST_EVAL \S+').stringMatch(r.stdout.toString())}');
+      for (final line in ['SLOWEST_EVAL', 'TOTAL_EVAL']) {
+        // ignore: avoid_print
+        print('  ${RegExp('$line \\S+').stringMatch(r.stdout.toString())}');
+      }
       expect(r.exitCode, 0, reason: 'stdout: ${r.stdout}\nstderr: ${r.stderr}');
       expect(r.stdout.toString(), contains('havsfunc mask AND OK'));
     }, timeout: const Timeout(Duration(minutes: 3)));
