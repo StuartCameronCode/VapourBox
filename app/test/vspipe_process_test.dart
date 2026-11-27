@@ -164,6 +164,16 @@ echo 'Python exception: boom' >&2''');
       );
     }, skip: Platform.isWindows ? 'see the header' : false);
 
+    test('the limit does not cut short the grace after a final line', () async {
+      // Finished just inside its limit, then stuck: the #122 case, not a hang.
+      final exe = await standIn('late-final', r'''
+echo 'Output 5 frames in 0.10 seconds (50.00 fps)' >&2''');
+      final run = await runVspipe(exe, [], label: 'late final', grace: grace,
+          timeout: const Duration(seconds: 1));
+      expect(run.exitStuck, isTrue);
+      expect(run.result.exitCode, 0);
+    }, skip: Platform.isWindows ? 'see the header' : false);
+
     test('a vspipe that exits is returned as it exited, stdin fed, stdout binary',
         () async {
       final exe = await standIn('exits', r'''

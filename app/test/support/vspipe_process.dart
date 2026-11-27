@@ -17,7 +17,8 @@
 /// run counts as it would have. That is not a retry: the graph ran once,
 /// and only the wait for a finished process is bounded.
 ///
-/// Without a final line nothing is assumed. Past [timeout] the process is
+/// Without a final line nothing is assumed. Past [timeout] (counted only
+/// while no final line has been printed) the process is
 /// described and killed, and a [BoundedTimeout] names it, as `runBounded`
 /// does. `-i` (info) runs print no final line, so only that limit applies
 /// to them.
@@ -196,13 +197,22 @@ Future<VspipeRun> runVspipe(
     }());
   }
 
+  // The limit applies only until a final line: after one, the grace
+  // decides (a graph that finished near its limit and then stuck in its
+  // exit is the #122 case, not a hang).
+  final limit = Completer<void>();
+  final limitTimer = Timer(timeout, () {
+    if (finalLine == null && !limit.isCompleted) limit.complete();
+  });
+
   const exited = 0, stopped = 1, timedOut = 2;
   final which = await Future.any<int>([
     process.exitCode.then((_) => exited),
     stuck.future.then((_) => stopped),
-    Future<int>.delayed(timeout, () => timedOut),
+    limit.future.then((_) => timedOut),
   ]);
   graceTimer?.cancel();
+  limitTimer.cancel();
 
   Future<void> drain() => Future.wait([outDone, errDone])
       .timeout(const Duration(seconds: 5), onTimeout: () => []);
