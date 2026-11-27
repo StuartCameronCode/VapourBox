@@ -1,0 +1,7 @@
+build	kernel	instructions	loads_from_x0
+vs-gcc	1u, false	44	3
+vs-gcc	4u, false	72	5
+vs-gcc-patched	1u, false	44	3
+vs-gcc-patched	4u, false	72	5
+asan-clang	1u, false	236	3
+asan-clang	4u, false	519	7

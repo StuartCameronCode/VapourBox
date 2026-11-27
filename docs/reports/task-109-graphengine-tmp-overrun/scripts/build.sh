@@ -16,8 +16,9 @@
 #            asan   as vs, plus -fsanitize=address (for --exact runs)
 # CC / CXX choose the compiler (default: the system's cc / c++).
 # GE_PATCH=<file> applies a patch to graphengine first (-p1), e.g.
-# graphengine-fused-node-context.patch. MESON_ARGS adds meson setup arguments
-# (macos.sh passes a cross file for x86_64 under Rosetta).
+# graphengine-fused-node-context.patch. ZIMG_PATCH=<file> applies a patch to
+# zimg itself (-p1), after graphengine is in place (task #115). MESON_ARGS adds
+# meson setup arguments (macos.sh passes a cross file for x86_64 under Rosetta).
 set -euo pipefail
 
 WORK=$1 ZIMG_REV=$2 GE_REV=$3 OUT=$4 MODE=${5:-vs}
@@ -34,6 +35,9 @@ rm -rf "$ZT/graphengine"
 git -C "$WORK/graphengine" archive --format=tar --prefix=graphengine/ "$GE_REV" | tar -x -C "$ZT"
 if [ -n "${GE_PATCH:-}" ]; then
     patch -s -p1 -d "$ZT/graphengine" < "$GE_PATCH"
+fi
+if [ -n "${ZIMG_PATCH:-}" ]; then
+    patch -s -p1 -d "$ZT" < "$ZIMG_PATCH"
 fi
 git -C "$WORK/vapoursynth" show "$VS_REV:subprojects/packagefiles/zimg/meson.build" > "$ZT/meson.build"
 
@@ -54,4 +58,4 @@ esac
 meson setup "$OUT/build" "$OUT/src" "${SAN[@]}" ${MESON_ARGS:-} >"$OUT/setup.log" 2>&1 || { tail -30 "$OUT/setup.log"; exit 1; }
 ninja -C "$OUT/build" >"$OUT/build.log" 2>&1 || { tail -40 "$OUT/build.log"; exit 1; }
 cp "$OUT/build/tmp_overrun" "$OUT/tmp_overrun"
-echo "built $OUT/tmp_overrun (zimg ${ZIMG_REV:0:8}, graphengine ${GE_REV:0:8}${GE_PATCH:+ + $(basename "$GE_PATCH")}, $MODE)"
+echo "built $OUT/tmp_overrun (zimg ${ZIMG_REV:0:8}, graphengine ${GE_REV:0:8}${GE_PATCH:+ + $(basename "$GE_PATCH")}${ZIMG_PATCH:+, zimg + $(basename "$ZIMG_PATCH")}, $MODE)"

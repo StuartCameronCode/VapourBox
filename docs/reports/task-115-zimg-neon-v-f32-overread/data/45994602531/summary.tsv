@@ -1,0 +1,9 @@
+run	cases	aborts	aborts_in_resize_line_v_f32_neon	options
+asan-gcc	158	32	32	--exact
+asan-gcc-pad	158	32	32	--exact --pad 4096
+asan-gcc-patched	158	0	0	--exact
+asan-clang	158	0	0	--exact
+master-asan-gcc	158	32	32	--exact
+master-asan-gcc-patched	158	0	0	--exact
+vs-gcc	158	0	0	--exact --crc
+vs-gcc-patched	158	0	0	--exact --crc

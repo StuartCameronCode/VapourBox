@@ -1,0 +1,72 @@
+name: zimg NEON float resize over-read (linux-arm64)
+
+# Task #115: gcc 13's AddressSanitizer reports a heap-buffer-overflow in 32 of
+# task #109's 158 tmp_overrun cases on linux-arm64, at every graphengine
+# commit. This runs the evidence in docs/reports/task-115-zimg-neon-v-f32-overread
+# on an aarch64 runner:
+#   asan_report.sh   gcc 13 / clang 18 ASan, padded frames, the candidate
+#                    zimg patch, CRCs of the output with and without it,
+#                    disassembly and valgrind of the build VapourSynth makes,
+#                    and the same at zimg 9806db42 / graphengine 308d3735.
+#                    upstream_repro.c, the upstream draft's repro, both builds.
+#   bundle_check.sh  the shipped linux-arm64 deps bundle's vspipe under
+#                    valgrind, on the two resizes ASan flags.
+#
+# Dispatch it, or push a change to this file on a branch (a workflow that is
+# not on the default branch cannot be dispatched).
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+    paths: ['.github/workflows/zimg-neon-asan.yml']
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  R: docs/reports/task-115-zimg-neon-v-f32-overread/scripts
+
+jobs:
+  arm64:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc-13 g++-13 clang-18 llvm-18 valgrind unzip
+          pipx install meson==1.5.2
+          meson --version; gcc-13 --version | head -1; clang-18 --version | head -1; valgrind --version
+          lscpu | head -20
+
+      - name: Fetch zimg, graphengine, VapourSynth
+        run: bash docs/reports/task-109-graphengine-tmp-overrun/scripts/fetch.sh "$RUNNER_TEMP/src"
+
+      - name: ASan, controls, patch, valgrind
+        run: bash $R/asan_report.sh "$RUNNER_TEMP/src" out
+
+      - name: Install the shipped linux-arm64 bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['releaseTag'])")
+          VER=$(python3 -c "import json;print(json.load(open('app/assets/deps-version.json'))['version'])")
+          echo "bundle $TAG" | tee out/bundle.txt
+          bash .github/scripts/install-deps-bundle.sh linux-arm64 "$TAG" "$VER" deps/linux-arm64
+
+      - name: The bundle under valgrind
+        run: bash $R/bundle_check.sh "$PWD/deps/linux-arm64" out/bundle | tee out/bundle-check.tsv
+
+      - name: Drop the builds
+        if: always()
+        run: rm -rf out/builds
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zimg-neon-asan-arm64
+          path: out/

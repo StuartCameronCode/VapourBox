@@ -3874,9 +3874,16 @@ deps 1.18.0-rc5 (task #127) once task #111 has merged. **Bump `ZIMG_COMMIT` /
 `docs/reports/task-126-zimg-9806db42/scripts/compare.sh` builds the pin and
 the candidate with #109's `build.sh` and runs `cases.tsv` in the `vs`,
 `guard` and `asan` modes with `--digest`; no case may abort (the 36
-error-diffusion ones above all) and any changed picture must be explained.
+error-diffusion ones above all; on linux-arm64 under gcc ASan, all but the
+32 below) and any changed picture must be explained.
 That needs VapourSynth's source (R78's zimg overlay), not a VapourSynth
-build; edit `compare.sh`'s two builds for a new candidate.
+build; edit `compare.sh`'s two builds for a new candidate. **On linux-arm64, gcc ASan aborts
+32 other cases at every zimg commit** (4:2:0 with a ≤ 4-tap vertical float
+resize): zimg's NEON `resize_line_v_f32_neon` reads coefficients past its
+buffer, values unused, and the shipped `-O3` build emits no such load
+(task #115, docs/reports/task-115-zimg-neon-v-f32-overread). They are
+expected, are not the #109 overrun, and do not block a bump; any other
+arm64 abort does.
 macOS ships zimg releases (arm64 Homebrew's, x64 3.0.5 from source), Windows
 the wheel's (docs/reports/task-103-linux-zimg-pin).
 

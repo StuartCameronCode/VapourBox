@@ -6499,6 +6499,7 @@ VapourSynth; the cause is in graphengine, not in VapourSynth or our build.
   with the fix, A/B'd through `deps_run_id`.
 - **Separate.** gcc 13 ASan on Linux arm64 also flags 32 4:2:0 conversions
   at every commit, the good one included. That has not been examined (task #115).
+  *(2026-11-27: examined; a harmless zimg NEON read, see the task #115 entry.)*
 
 Report: [docs/reports/task-109-graphengine-tmp-overrun](reports/task-109-graphengine-tmp-overrun/index.html).
 
@@ -6916,3 +6917,36 @@ Report: [docs/reports/task-122-vspipe-exit-hang](reports/task-122-vspipe-exit-ha
   0.5–0.8 s a graph, DFTTest 9–11 s).
 
 Report: [docs/reports/task-124-dctfilter-stress-timeout](reports/task-124-dctfilter-stress-timeout/index.html).
+
+### zimg's NEON float vertical resize reads coefficients past its buffer (task #115, 2026-11-27)
+
+The 32 linux-arm64 gcc 13 ASan aborts that task #109 saw at every
+graphengine commit. They come from a zimg bug, not the harness and not a
+false positive, and nothing we ship is affected.
+
+- **Cause.** `resize_line_v_f32_neon<Taps, Continue>`
+  (`resize/arm/resize_impl_neon.cpp`) loads `filter_data[0..7]` for every
+  `Taps`. On ARM the coefficient stride is 4 floats for a filter of ≤ 4 taps
+  (`ALIGNMENT` 16), so the last output row reads up to 16 bytes past
+  `FilterContext::data`. The values are never used. It is in 67e06032 and in
+  master 9806db42. x86 (stride ≥ 16) and the u16 kernel (`stride_i16` 8)
+  are safe.
+- **Measured** on `ubuntu-24.04-arm` (zimg-neon-asan.yml):
+  - All 32 aborts are `READ of size 4` in `<1, false>` (point 2:1 down) or
+    `<4, false>` (bicubic 1:2 up), 0 bytes after a vector of output rows × 16
+    bytes. Frames padded by 4096 bytes: the same 32.
+  - A one-function patch (`Taps > k ? filter_data[k] : 0`) gives 0 aborts, at
+    67e06032 and 9806db42, and 158 of 158 output CRCs identical.
+  - clang 18 ASan: 0 aborts.
+  - The `-O3` build VapourSynth makes loads only the used taps (disassembled).
+    valgrind over it: 0 invalid reads.
+  - The shipped `deps-v1.18.0-rc4` linux-arm64 `vspipe` under valgrind, on
+    both resizes at 4x4, 96x64 and 720x480: 0 invalid reads.
+- **Decision.** No VapourBox change and no carried zimg patch. The shipped
+  binary doesn't perform the read. Task #126's comparison saw the same 32
+  at both commits, and the bump (task #127) will too; they are expected
+  (`CLAUDE.md`, the zimg pin).
+  An upstream issue is drafted (`upstream-issue-draft.md`, with the patch and a
+  C-API repro), for the user to file.
+
+Report: [docs/reports/task-115-zimg-neon-v-f32-overread](reports/task-115-zimg-neon-v-f32-overread/index.html).

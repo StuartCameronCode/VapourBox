@@ -1,0 +1,85 @@
+=================================================================
+==10438==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x51d000004400 at pc 0xab3b7c1c9cd0 bp 0xffffd288a1c0 sp 0xffffd288a1b0
+READ of size 4 at 0x51d000004400 thread T0
+    #0 0xab3b7c1c9ccc in resize_line_v_f32_neon<1, false> ../src/subprojects/zimg/src/zimg/resize/arm/resize_impl_neon.cpp:456
+    #1 0xab3b7c19a858 in process ../src/subprojects/zimg/src/zimg/resize/arm/resize_impl_neon.cpp:680
+    #2 0xab3b7c123058 in process ../src/subprojects/zimg/graphengine/graphengine/node.cpp:647
+    #3 0xab3b7c122f14 in process ../src/subprojects/zimg/graphengine/graphengine/node.cpp:643
+    #4 0xab3b7c122f14 in process ../src/subprojects/zimg/graphengine/graphengine/node.cpp:643
+    #5 0xab3b7c12438c in process ../src/subprojects/zimg/graphengine/graphengine/node.cpp:260
+    #6 0xab3b7c1181c4 in graphengine::zimg::GraphImpl::impl::run_node(graphengine::zimg::Node*, graphengine::zimg::GraphImpl::impl::SimulationResult const&, graphengine::Graph::Endpoint const*, unsigned int, void*) const ../src/subprojects/zimg/graphengine/graphengine/graph.cpp:626
+    #7 0xab3b7c1102e0 in graphengine::zimg::GraphImpl::impl::run(graphengine::Graph::Endpoint const*, void*) const ../src/subprojects/zimg/graphengine/graphengine/graph.cpp:885
+    #8 0xab3b7c1102e0 in graphengine::zimg::GraphImpl::run(graphengine::Graph::Endpoint const*, void*) const ../src/subprojects/zimg/graphengine/graphengine/graph.cpp:953
+    #9 0xab3b7c0de700 in zimg::graph::FilterGraph::process(std::array<graphengine::BufferDescriptor, 4ul> const&, std::array<graphengine::BufferDescriptor, 4ul> const&, void*, int (*)(void*, unsigned int, unsigned int, unsigned int), void*, int (*)(void*, unsigned int, unsigned int, unsigned int), void*) const ../src/subprojects/zimg/src/zimg/graph/filtergraph.cpp:118
+    #10 0xab3b7c0d8b4c in zimg_filter_graph_process ../src/subprojects/zimg/src/zimg/api/zimg.cpp:589
+    #11 0xab3b7c0d6d74 in run_case ../src/tmp_overrun.c:330
+    #12 0xab3b7c0d3ec8 in main ../src/tmp_overrun.c:409
+    #13 0xff33776d84c0 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58
+    #14 0xff33776d8594 in __libc_start_main_impl ../csu/libc-start.c:360
+    #15 0xab3b7c0d49ec in _start (/home/runner/work/VapourBox/VapourBox/out/builds/master-asan-gcc/tmp_overrun+0x149ec) (BuildId: a98a4d936d8d27561462b26e1df4f113dbdbb453)
+
+0x51d000004400 is located 0 bytes after 1920-byte region [0x51d000003c80,0x51d000004400)
+allocated by thread T0 here:
+    #0 0xff3377cd6c74 in posix_memalign ../../../../src/libsanitizer/asan/asan_malloc_linux.cpp:145
+    #1 0xab3b7c1034c0 in zimg_x_aligned_malloc(unsigned long, unsigned long) ../src/subprojects/zimg/src/zimg/common/alloc.h:19
+    #2 0xab3b7c1034c0 in zimg::AlignedAllocator<float>::allocate(unsigned long) const ../src/subprojects/zimg/src/zimg/common/alloc.h:162
+    #3 0xab3b7c1034c0 in std::allocator_traits<zimg::AlignedAllocator<float> >::allocate(zimg::AlignedAllocator<float>&, unsigned long) /usr/include/c++/13/bits/alloc_traits.h:333
+    #4 0xab3b7c1034c0 in std::_Vector_base<float, zimg::AlignedAllocator<float> >::_M_allocate(unsigned long) /usr/include/c++/13/bits/stl_vector.h:381
+    #5 0xab3b7c1034c0 in std::_Vector_base<float, zimg::AlignedAllocator<float> >::_M_create_storage(unsigned long) /usr/include/c++/13/bits/stl_vector.h:398
+    #6 0xab3b7c1034c0 in std::_Vector_base<float, zimg::AlignedAllocator<float> >::_Vector_base(unsigned long, zimg::AlignedAllocator<float> const&) /usr/include/c++/13/bits/stl_vector.h:335
+    #7 0xab3b7c1034c0 in std::vector<float, zimg::AlignedAllocator<float> >::vector(std::vector<float, zimg::AlignedAllocator<float> > const&) /usr/include/c++/13/bits/stl_vector.h:603
+    #8 0xab3b7c1034c0 in zimg::resize::FilterContext::FilterContext(zimg::resize::FilterContext const&) ../src/subprojects/zimg/src/zimg/resize/filter.h:133
+    #9 0xab3b7c1034c0 in zimg::resize::ResizeImplV::ResizeImplV(zimg::resize::FilterContext const&, unsigned int, zimg::PixelType) ../src/subprojects/zimg/src/zimg/resize/resize_impl.cpp:199
+    #10 0xab3b7c231834 in ResizeImplV_F32_Neon ../src/subprojects/zimg/src/zimg/resize/arm/resize_impl_neon.cpp:654
+    #11 0xab3b7c231834 in make_unique<zimg::resize::(anonymous namespace)::ResizeImplV_F32_Neon, const zimg::resize::FilterContext&, unsigned int&> /usr/include/c++/13/bits/unique_ptr.h:1070
+    #12 0xab3b7c231834 in zimg::resize::create_resize_impl_v_neon(zimg::resize::FilterContext const&, unsigned int, zimg::PixelType, unsigned int) ../src/subprojects/zimg/src/zimg/resize/arm/resize_impl_neon.cpp:721
+    #13 0xab3b7c1992bc in zimg::resize::create_resize_impl_v_arm(zimg::resize::FilterContext const&, unsigned int, zimg::PixelType, unsigned int, zimg::CPUClass) ../src/subprojects/zimg/src/zimg/resize/arm/resize_impl_arm.cpp:31
+    #14 0xab3b7c104534 in zimg::resize::ResizeImplBuilder::create() const ../src/subprojects/zimg/src/zimg/resize/resize_impl.cpp:257
+    #15 0xab3b7c1002ec in zimg::resize::ResizeConversion::create() const ../src/subprojects/zimg/src/zimg/resize/resize.cpp:88
+    #16 0xab3b7c0ec4a8 in zimg::graph::GraphBuilder::impl::resize_plane(zimg::graph::GraphBuilder::internal_state const&, zimg::graph::GraphBuilder::params const&, zimg::graph::FilterObserver&, std::array<bool, 4ul>, int) ../src/subprojects/zimg/src/zimg/graph/graphbuilder.cpp:808
+    #17 0xab3b7c0ef624 in zimg::graph::GraphBuilder::impl::connect_plane(zimg::graph::GraphBuilder::internal_state const&, zimg::graph::GraphBuilder::params const&, zimg::graph::FilterObserver&, zimg::graph::GraphBuilder::impl::ConnectMode, bool) ../src/subprojects/zimg/src/zimg/graph/graphbuilder.cpp:947
+    #18 0xab3b7c0f4b9c in zimg::graph::GraphBuilder::impl::connect_color_channels_planar(zimg::graph::GraphBuilder::internal_state const&, zimg::graph::GraphBuilder::params const&, zimg::graph::FilterObserver&, bool) ../src/subprojects/zimg/src/zimg/graph/graphbuilder.cpp:965
+    #19 0xab3b7c0f4b9c in zimg::graph::GraphBuilder::impl::connect_color_channels(zimg::graph::GraphBuilder::internal_state const&, zimg::graph::GraphBuilder::params const&, zimg::graph::FilterObserver&) ../src/subprojects/zimg/src/zimg/graph/graphbuilder.cpp:1008
+    #20 0xab3b7c0f7730 in zimg::graph::GraphBuilder::impl::connect_internal(zimg::graph::GraphBuilder::internal_state const&, zimg::graph::GraphBuilder::params const&, zimg::graph::FilterObserver&) ../src/subprojects/zimg/src/zimg/graph/graphbuilder.cpp:1062
+    #21 0xab3b7c0e4f94 in zimg::graph::GraphBuilder::impl::connect(zimg::graph::GraphBuilder::state const&, zimg::graph::GraphBuilder::params const&, zimg::graph::FilterObserver&) ../src/subprojects/zimg/src/zimg/graph/graphbuilder.cpp:1108
+    #22 0xab3b7c0e4f94 in zimg::graph::GraphBuilder::connect(zimg::graph::GraphBuilder::state const&, zimg::graph::GraphBuilder::params const*, zimg::graph::FilterObserver*) ../src/subprojects/zimg/src/zimg/graph/graphbuilder.cpp:1240
+    #23 0xab3b7c0dc968 in zimg_filter_graph_build ../src/subprojects/zimg/src/zimg/api/zimg.cpp:681
+    #24 0xab3b7c0d67b0 in run_case ../src/tmp_overrun.c:298
+    #25 0xab3b7c0d3ec8 in main ../src/tmp_overrun.c:409
+    #26 0xff33776d84c0 in __libc_start_call_main ../sysdeps/nptl/libc_start_call_main.h:58
+    #27 0xff33776d8594 in __libc_start_main_impl ../csu/libc-start.c:360
+    #28 0xab3b7c0d49ec in _start (/home/runner/work/VapourBox/VapourBox/out/builds/master-asan-gcc/tmp_overrun+0x149ec) (BuildId: a98a4d936d8d27561462b26e1df4f113dbdbb453)
+
+SUMMARY: AddressSanitizer: heap-buffer-overflow ../src/subprojects/zimg/src/zimg/resize/arm/resize_impl_neon.cpp:456 in resize_line_v_f32_neon<1, false>
+Shadow bytes around the buggy address:
+  0x51d000004180: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x51d000004200: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x51d000004280: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x51d000004300: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  0x51d000004380: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+=>0x51d000004400:[fa]fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x51d000004480: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x51d000004500: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x51d000004580: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x51d000004600: fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa fa
+  0x51d000004680: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+Shadow byte legend (one shadow byte represents 8 application bytes):
+  Addressable:           00
+  Partially addressable: 01 02 03 04 05 06 07 
+  Heap left redzone:       fa
+  Freed heap region:       fd
+  Stack left redzone:      f1
+  Stack mid redzone:       f2
+  Stack right redzone:     f3
+  Stack after return:      f5
+  Stack use after scope:   f8
+  Global redzone:          f9
+  Global init order:       f6
+  Poisoned by user:        f7
+  Container overflow:      fc
+  Array cookie:            ac
+  Intra object redzone:    bb
+  ASan internal:           fe
+  Left alloca redzone:     ca
+  Right alloca redzone:    cb
+==10438==ABORTING

@@ -17,9 +17,14 @@
  * the destination's visible samples (every plane, row by row, stride padding
  * left out), so two zimg builds can be compared picture for picture. Without
  * it the output is exactly as before.
+ * --pad BYTES (task #115) allocates BYTES more after every source and
+ * destination plane, so a read or write just past a frame plane lands in the
+ * allocation (is an ASan report about tmp_overrun's own frames?).
+ * --crc (task #115) adds a column after the digest, the CRC-32 of the same
+ * samples, which task #115's runs recorded.
  *
- * Usage: tmp_overrun [--exact] [--digest] [--cpu auto64|auto|none] CASES.tsv
- *        tmp_overrun [--exact] [--digest] [--cpu ...] - NAME SRC SRCWxH DST DSTWxH FILTER DITHER FIELD
+ * Usage: tmp_overrun [--exact] [--digest] [--crc] [--pad BYTES] [--cpu auto64|auto|none] CASES.tsv
+ *        tmp_overrun [--exact] [--digest] [--crc] [--pad BYTES] [--cpu ...] - NAME SRC SRCWxH DST DSTWxH FILTER DITHER FIELD
  * A case line: name, source format, source size, destination format,
  * destination size, resample filter (point|bilinear|bicubic|spline16|spline36|lanczos),
  * dither (none|ordered|random|error_diffusion), field (p = progressive,
@@ -44,6 +49,9 @@
 
 #define SLACK (64 * 1024)
 #define ALIGN 64
+
+static size_t g_pad;  /* --pad */
+static int g_crc;     /* --crc */
 
 typedef struct {
 	zimg_image_format f;
@@ -173,10 +181,10 @@ static void alloc_frame(const fmt_t *fmt, frame_t *fr, int fill, uint32_t seed)
 		unsigned w = p ? fmt->f.width >> fmt->f.subsample_w : fmt->f.width;
 		unsigned h = p ? fmt->f.height >> fmt->f.subsample_h : fmt->f.height;
 		size_t stride = ((size_t)w * fmt->bytes + ALIGN - 1) / ALIGN * ALIGN;
-		fr->data[p] = xalloc(stride * h);
+		fr->data[p] = xalloc(stride * h + g_pad);
 		fr->stride[p] = (ptrdiff_t)stride;
 		fr->rows[p] = h;
-		memset(fr->data[p], 0, stride * h);
+		memset(fr->data[p], 0, stride * h + g_pad);
 		if (!fill)
 			continue;
 		for (unsigned y = 0; y < h; ++y) {
@@ -215,6 +223,25 @@ static uint64_t frame_digest(const fmt_t *fmt, const frame_t *fr)
 		}
 	}
 	return h;
+}
+
+/* CRC-32 (IEEE, reflected) of every plane's samples, row by row. */
+static uint32_t frame_crc(const fmt_t *fmt, const frame_t *fr)
+{
+	uint32_t crc = 0xFFFFFFFFu;
+	for (unsigned p = 0; p < fmt->planes; ++p) {
+		unsigned w = p ? fmt->f.width >> fmt->f.subsample_w : fmt->f.width;
+		size_t row = (size_t)w * fmt->bytes;
+		for (unsigned y = 0; y < fr->rows[p]; ++y) {
+			const unsigned char *b = fr->data[p] + (size_t)y * (size_t)fr->stride[p];
+			for (size_t k = 0; k < row; ++k) {
+				crc ^= b[k];
+				for (int j = 0; j < 8; ++j)
+					crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1)));
+			}
+		}
+	}
+	return ~crc;
 }
 
 static void free_frame(const fmt_t *fmt, frame_t *fr)
@@ -292,7 +319,7 @@ static int run_case(char **a, zimg_cpu_type_e cpu, int exact, int digest, const 
 		}
 		if (!(graphs[i] = zimg_filter_graph_build(&s.f, &d.f, &params))) {
 			fail(name);
-			printf("%s\t%s\t-\t-\t-\t-\tbuild-error%s\n", name, cpu_name, digest ? "\t-" : "");
+			printf("%s\t%s\t-\t-\t-\t-\tbuild-error%s%s\n", name, cpu_name, digest ? "\t-" : "", g_crc ? "\t-" : "");
 			return 0;
 		}
 		size_t sz;
@@ -325,7 +352,8 @@ static int run_case(char **a, zimg_cpu_type_e cpu, int exact, int digest, const 
 			if (zimg_filter_graph_process(graphs[i], &sb, &db, tmp, NULL, NULL, NULL, NULL)) {
 				fail(name);
 				free(block);
-				printf("%s\t%s\t%zu\t-\t-\t-\tprocess-error%s\n", name, cpu_name, tmp_size, digest ? "\t-" : "");
+				printf("%s\t%s\t%zu\t-\t-\t-\tprocess-error%s%s\n", name, cpu_name, tmp_size, digest ? "\t-" : "",
+				       g_crc ? "\t-" : "");
 				goto out;
 			}
 		}
@@ -356,6 +384,8 @@ static int run_case(char **a, zimg_cpu_type_e cpu, int exact, int digest, const 
 		 * destination now holds the result. */
 		if (digest)
 			printf("\t%016llx", (unsigned long long)frame_digest(&df, &dst));
+		if (g_crc)
+			printf("\t%08x", (unsigned)frame_crc(&df, &dst));
 		printf("\n");
 	}
 out:
@@ -378,6 +408,10 @@ int main(int argc, char **argv)
 			exact = 1;
 		} else if (!strcmp(argv[i], "--digest")) {
 			digest = 1;
+		} else if (!strcmp(argv[i], "--pad") && i + 1 < argc) {
+			g_pad = strtoul(argv[++i], NULL, 10);
+		} else if (!strcmp(argv[i], "--crc")) {
+			g_crc = 1;
 		} else if (!strcmp(argv[i], "--cpu") && i + 1 < argc) {
 			cpu_name = argv[++i];
 			if (!strcmp(cpu_name, "auto64")) cpu = ZIMG_CPU_AUTO_64B;
@@ -390,10 +424,10 @@ int main(int argc, char **argv)
 		}
 	}
 	if (i >= argc) {
-		fprintf(stderr, "usage: tmp_overrun [--exact] [--digest] [--cpu auto64|auto|none] CASES.tsv | - CASE...\n");
+		fprintf(stderr, "usage: tmp_overrun [--exact] [--digest] [--crc] [--pad BYTES] [--cpu auto64|auto|none] CASES.tsv | - CASE...\n");
 		return 2;
 	}
-	printf("case\tcpu\ttmp_size\ttail_changed\ttail_max\thead_changed\tstatus%s\n", digest ? "\tdigest" : "");
+	printf("case\tcpu\ttmp_size\ttail_changed\ttail_max\thead_changed\tstatus%s%s\n", digest ? "\tdigest" : "", g_crc ? "\tcrc" : "");
 
 	int bad = 0;
 	if (!strcmp(argv[i], "-")) {
