@@ -6739,6 +6739,32 @@ the fix); `e2e43d09` is no longer on master. No zimg release has it.
 Report: [docs/reports/task-126-zimg-9806db42](reports/task-126-zimg-9806db42/index.html);
 #109's report has a dated note.
 
+### zimg 9806db42 pinned for deps 1.18.0-rc5 (task #127, 2026-11-27)
+
+`ZIMG_COMMIT` is now `9806db42` and `ZIMG_GRAPHENGINE_COMMIT` `308d3735`
+(were `67e06032` / `cb5b2ce1`), on the strength of task #126's comparison.
+`zimg_pin_test.dart` also refuses a graphengine in #109's bad range
+(`f6211289` … `e9b10267`, nine commits, listed with their subjects).
+
+- **Bundle A/B.** `build-deps-linux` run 45994495018 (x64 v3, v2, arm64)
+  links the new zimg (`Executing subproject zimg`, and the script's own
+  check). #109's `vs_confirm.sh` (new `vs-confirm` job in
+  `zimg-9806db42-check.yml`) against it and against the published rc4,
+  x64 and arm64: 0 aborts in 2400 vspipe runs and no invalid write under
+  valgrind at either commit. `ci-test` linux-x64 and the nightly format
+  sweep (v3, v2) pass. The nightly heavy suite fails 3 tests in
+  `integration_field_order_test.dart` (720x486), in the fixture's own
+  swscale step, the same 3 as main's rc4 nightly (rc4's FFmpeg, task #123).
+- **Seen at both commits.** On arm64, valgrind reports uninitialised reads
+  in `YUV444PS→YUV420P8` error diffusion, with the same counts at B and C.
+  It is not this change; compare task #115's arm64 4:2:0 ASan reports.
+- **No arm64 row** in `ci-test` or `nightly`, so arm64's only bundle-level
+  check is `vs_confirm.sh`.
+
+Report: the "Bundle A/B" section of
+[docs/reports/task-126-zimg-9806db42](reports/task-126-zimg-9806db42/index.html),
+data in `data/linux/45996817597/`.
+
 ### Every source build pinned (task #110, 2026-11-27)
 
 After task #103 pinned zimg, 16 more plugin sources were still cloned from
