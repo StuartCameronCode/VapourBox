@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retinex sigma per OS</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  ul.notes { font-size: 14px; }
+  details summary { cursor: pointer; color: var(--text-secondary); }
+  figure { margin: 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .grid img { width: 100%; image-rendering: pixelated; border: 1px solid var(--border); }
+  figcaption { font-size: 13px; color: var(--text-secondary); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Retinex r4 appends our sigma to its defaults: build 6bfbdd42 on Windows too</h1>
+<p class="meta">2026-11-27 · task #113 (found by task #110) · measured on an Apple M1 (macOS arm64) with the published
+deps 1.18.0-rc4 bundle, and with two builds of Retinex made from source on that machine: 6bfbdd42 with this task's
+marker patch, and the r4 tag · pictures: three luma frames of <code>Tests/TestResources/small_clip.mp4</code>
+(3, 8 and 14 s, 720x540) and the push-gate test's synthetic ramp · every number below is in <code>data/</code>,
+produced by <code>scripts/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: fixed in the deps scripts; ships with the next deps version (1.18.0-rc5 or later).</strong>
+Shadow Detail calls <code>retinex.MSRCP(sigma=[X])</code>. Windows shipped the r4 release DLL, and r4's argument
+parser starts the sigma list from its defaults {25, 80, 250} and appends ours, so Windows ran a four-scale retinex
+<code>[25, 80, 250, X]</code>. macOS and Linux build 6bfbdd42, the one commit after r4 ("Fix unexpected appending when
+sigma is specified"), and run <code>[X]</code>. At the default sigma (100) the two pictures are
+<strong>9–11 8-bit levels apart on average, up to 34</strong>, and on Windows the sigma slider moved the picture
+only a seventh as far. Windows now builds 6bfbdd42 from source with Zig, like task #98's plugins; macOS and Linux
+output is unchanged byte for byte.</p>
+<p><strong>Windows Shadow Detail output changes</strong> by about 10 levels at the default: say so in the release
+notes. No built-in preset turns Shadow Detail on.</p>
+</div>
+
+<h2>1. The bug, in the source</h2>
+<p>VapourSynth-Retinex has four tags. r4 (<code>f7abea51</code>, 2018-12-27) is the last, and the only one with a
+Windows binary (<code>Retinex-r4.7z</code>). One commit follows it, <code>6bfbdd429159c85075dc4b08e0ac4e706470916b</code>
+(2021-10-18); its whole change is one initialiser in <code>include/MSR.h</code>:</p>
+<pre>-    std::vector&lt;double&gt; sigma = MSRDefault.sigma;   // r4: starts as {25, 80, 250}
++    std::vector&lt;double&gt; sigma;</pre>
+<p>The parser then runs <code>sigma.push_back(...)</code> for each value passed. <code>MSRKernel</code>
+multiplies <code>(I / G<sub>σ</sub>(I) + 1)</code> over every entry and divides the log by the count, so r4 runs a
+four-scale retinex where we asked for one. The template always passes <code>sigma=[{{SHADOW_SIGMA}}]</code>
+(default 100, range 1–500), so no template change can avoid it: r4 cannot be told to drop its defaults.</p>
+
+<h2>2. How big the difference is</h2>
+<p>Because nothing else differs between r4 and 6bfbdd42, <code>MSRCP(sigma=[25, 80, 250, X])</code> on the
+fixed build is what r4 gives for <code>sigma=[X]</code>. <strong>Checked directly:</strong> the r4 tag built on the
+same machine gives exactly the emulated numbers (synthetic picture: 160.054 both ways; slider reach on
+f3: 10.04 both ways; <code>data/measure-macos-arm64-r4.json</code>). Template thresholds
+(<code>lower_thr</code> = <code>upper_thr</code> = 0.001), luma only, as the template runs it:</p>
+<table>
+<tr><th>sigma</th><th>depth</th><th>f3: mean / max</th><th>f8: mean / max</th><th>f14: mean / max</th></tr>
+<tr><td>100 (default)</td><td>8-bit</td><td>10.65 / 30.0</td><td>10.15 / 34.0</td><td>8.87 / 31.0</td></tr>
+<tr><td>100 (default)</td><td>10-bit</td><td>10.62 / 29.9</td><td>10.12 / 33.7</td><td>8.85 / 30.9</td></tr>
+<tr><td>25</td><td>8-bit</td><td>17.41 / 61.0</td><td>13.28 / 67.0</td><td>15.74 / 60.0</td></tr>
+<tr><td>25</td><td>10-bit</td><td>17.36 / 60.8</td><td>13.24 / 66.8</td><td>15.70 / 59.8</td></tr>
+<tr><td>250</td><td>8-bit</td><td>8.76 / 34.0</td><td>7.44 / 42.0</td><td>11.01 / 48.0</td></tr>
+<tr><td>250</td><td>10-bit</td><td>8.74 / 34.4</td><td>7.42 / 41.4</td><td>10.98 / 47.9</td></tr>
+</table>
+<p class="muted">Mean and max absolute difference between 6bfbdd42 and r4, in 8-bit levels. Limits: three frames of one
+clip, luma only, a mean that says nothing about where the difference sits (it is spread across the frame, see §3). It
+does not say which picture is better: r4's extra scales are a different filter, not a broken one. The point is that the
+same job differed by OS.</p>
+
+<h3>The slider barely worked on Windows</h3>
+<table>
+<tr><th>frame</th><th>6bfbdd42: sigma 1 → 500</th><th>r4: sigma 1 → 500</th><th>6bfbdd42: 25 → 250</th><th>r4: 25 → 250</th></tr>
+<tr><td>f3</td><td>89.38</td><td>10.04</td><td>33.38</td><td>7.97</td></tr>
+<tr><td>f8</td><td>73.54</td><td>10.19</td><td>26.96</td><td>7.26</td></tr>
+<tr><td>f14</td><td>101.66</td><td>13.46</td><td>34.91</td><td>8.61</td></tr>
+</table>
+<p class="muted">Mean absolute change of the picture, 8-bit levels, as the Shadow Detail sigma moves. Under r4 the
+user's sigma is one of four scales, so the slider's whole range moves the picture 10–13 levels where it moves it
+74–102 elsewhere.</p>
+
+<h2>3. What it looks like</h2>
+<div class="grid">
+<figure><a href="img/1-source.png"><img src="img/1-source.png" alt="source crop"></a><figcaption>1. Source: f8 (small_clip.mp4 at 8 s), a 240x180 crop at (240, 300), 2x nearest-neighbour.</figcaption></figure>
+<figure><a href="img/2-fixed-6bfbdd42.png"><img src="img/2-fixed-6bfbdd42.png" alt="6bfbdd42"></a><figcaption>2. 6bfbdd42, sigma=[100]: macOS/Linux, and Windows from now on.</figcaption></figure>
+<figure><a href="img/3-r4.png"><img src="img/3-r4.png" alt="r4"></a><figcaption>3. r4 for sigma=[100] (four scales): what Windows showed. Brighter overall (the synthetic ramp averages 8.5 levels higher).</figcaption></figure>
+<figure><a href="img/4-diff-x4.png"><img src="img/4-diff-x4.png" alt="difference x4"></a><figcaption>4. |2 − 3| × 4: the difference covers the whole frame, largest on the bright cloth and the edges.</figcaption></figure>
+</div>
+
+<h2>4. The fix</h2>
+<ul class="notes">
+<li><strong>One commit everywhere.</strong> <code>RETINEX_COMMIT</code> (task #110 pinned macOS/Linux to it) and
+<code>$RetinexCommit</code> in <code>download-deps-windows.ps1</code>; a push-gate test fails if the three disagree.</li>
+<li><strong>Windows builds it with Zig</strong> (section 4b6): the five C++14 sources, R78's API 3 headers under
+<code>vsinc\vapoursynth\</code> (Retinex includes <code>&lt;vapoursynth/VapourSynth.h&gt;</code>),
+<code>-O3 -ffp-contract=off -mcpu=x86_64</code>, no FFTW, one build for both CPU tiers. The r4 7z entry is gone.
+Cross-compiled on the M1 with the script's Zig (0.15.2) as a check: a 446 KB PE32+ DLL that exports
+<code>VapourSynthPluginInit</code> and imports only the UCRT and KERNEL32. It has not been <em>run</em> here;
+<code>package-deps-windows.ps1</code> loads every plugin under <code>vspipe.exe</code> before zipping, and the
+push-gate test runs it.</li>
+<li><strong>A marker, no code.</strong> <code>patches/retinex-6bfbdd4-vapourbox-marker.patch</code> appends
+<code>(VapourBox: 6bfbdd42, sigma not appended, task #113)</code> to the plugin's description
+(<code>core.retinex.name</code>), as task #98 did: API 3 plugins report no version. Every script replaces an
+unmarked binary (Windows: r4's DLL from an earlier run) and fails if the marker is missing afterwards.
+With the patch, macOS arm64's output is <strong>byte-identical</strong> to rc4's
+libretinex (MD5 of eight outputs at 8 and 16 bits, <code>hashes</code> in the two JSON files).</li>
+</ul>
+
+<h2>5. The test</h2>
+<p><code>vapoursynth_integration_test.dart</code>, group <code>retinex sigma (task #113)</code>, push gate, on a
+320x240 ramp with fine texture drawn in Python (identical samples on every platform):</p>
+<ul class="notes">
+<li>the marker;</li>
+<li><strong>a repeated scale changes nothing</strong>: <code>sigma=[100]</code> and <code>[100, 100]</code> are the
+same filter under 6bfbdd42 (log of r² over 2), measured 0.000000 levels; under r4 they are
+<code>[25, 80, 250, 100]</code> and <code>[25, 80, 250, 100, 100]</code>, 1.60 levels apart.
+This compares a build with itself, so no compiler difference enters;</li>
+<li>the average of <code>MSRCP(sigma=[100])</code> within 0.5 levels of the value pinned on macOS arm64
+(151.5335 at 8 bits, 150.9437 at 16; source 81.68). r4 gives
+160.054, 8.5 above. The code works in <code>double</code>, but clang fuses multiply-adds on arm64 and
+the x86 builds don't, so bit-exactness across platforms isn't expected.</li>
+</ul>
+<p>Before deps 1.18.0-rc5 the test only prints what the bundle does ("appends sigma to its defaults (r4)" or "takes
+sigma as given"). Run against rc4 on the M1 it reports 6bfbdd42; against the r4 build it fails on the repeated scale
+(1.599 levels), as it should.</p>
+
+<h2>6. Not measured yet, and decisions</h2>
+<ul class="notes">
+<li><strong>The Windows r4 DLL itself was not run.</strong> That it was built from the r4 tag is inferred from its name
+and date. The push-gate test's report line on the Windows CI job (rc4 bundle) is the confirmation; record it here
+when the branch's CI has run.</li>
+<li><strong>The pinned average on x86</strong> (Windows Zig, Linux GCC, macOS x64 clang) is measured only when CI runs
+the new bundle. If the spread exceeds 0.5 levels, record it here and set the tolerance from it, never by loosening it
+to pass.</li>
+<li>No new heavy test: the existing <code>color: shadow detail runs end-to-end</code> encodes the pass, and the template
+is unchanged.</li>
+<li>Decision: build 6bfbdd42 on Windows, not r4 everywhere. r4 makes the slider nearly inert and changes macOS/Linux
+users' output; 6bfbdd42 is what two of three platforms already shipped.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<pre>cd docs/reports/task-113-retinex-sigma/scripts
+export SCRATCH=$(mktemp -d)
+./make_frames.sh &lt;deps&gt;                 # f3/f8/f14.gray from small_clip.mp4
+./build_retinex.sh &lt;deps&gt;               # macOS: 6bfbdd42+marker and r4, in two bundle copies
+./run.sh &lt;deps&gt; measure.py &gt; ../data/measure-macos-arm64-rc4.json
+./run.sh $SCRATCH/deps-fixed measure.py &gt; ../data/measure-macos-arm64-fixed.json
+./run.sh $SCRATCH/deps-r4 measure.py &gt; ../data/measure-macos-arm64-r4.json
+./run.sh &lt;deps&gt; crops.py &amp;&amp; ./make_images.sh &lt;deps&gt;</pre>
+
+</main>
+</body>
+</html>
