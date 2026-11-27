@@ -109,11 +109,23 @@ PYTHON_MAJOR_MINOR="3.12"
 # A per-OS FFmpeg is a per-OS encoder: the arguments in pipeline_executor.rs
 # would then mean subtly different things depending on where the job ran.
 #
-# Pinning the SERIES rather than a full version is deliberate. Every upstream
-# here publishes "latest build of the X.Y branch" and garbage-collects older
-# series, so a full-version pin cannot be held for long — that is precisely how
-# the previous n7.1 pin turned into a 404.
+# The SERIES is the cross-platform contract; each platform also pins one exact
+# BUILD with a SHA-256 (task #123). BtbN's rolling `latest` moved within 9.0
+# between deps 1.18.0-rc3 (n9.0.2-61) and rc4 (n9.0.2-963), and the new swscale
+# broke a heavy test: a series pin against a rolling tag still moves. BtbN
+# keeps a dated `autobuild-*` release for only about 14 days (month-end ones
+# stay), and an old tag going away is how the n7.1 pin turned into a 404. So
+# the assets are mirrored on our own `ffmpeg-mirror-v1` release, which is
+# tried first; BtbN's dated tag is the fallback. Either must match the hash.
+# Bumping: pick a dated build, upload its three assets (linux64, linuxarm64,
+# win64) to the mirror, update the build, tag and hashes here AND in
+# download-deps-windows.ps1, and A/B it through deps_run_id.
 FFMPEG_SERIES="9.0"
+FFMPEG_BTBN_BUILD="n9.0.2-963-g4d831360c9"
+FFMPEG_BTBN_AUTOBUILD="autobuild-2026-11-25-12-41"
+FFMPEG_BTBN_MIRROR="https://github.com/StuartCameronCode/VapourBox/releases/download/ffmpeg-mirror-v1"
+FFMPEG_BTBN_LINUX64_SHA256="0e67c0626ba48a329b3e75fe577b13ade43543fcfe44255ae18d7c06e22fa31a"
+FFMPEG_BTBN_LINUXARM64_SHA256="63c00a518241d220ed53163b93f2d07112c4c8c1306d2f1e64677466c15312b5"
 
 # Fail the build if the FFmpeg we installed is not the series we pinned.
 # Without this, an upstream that silently redirects "latest" to a new series
@@ -137,6 +149,22 @@ assert_ffmpeg_series() {
         exit 1
     fi
     echo "  FFmpeg $reported (matches the pinned $FFMPEG_SERIES series)"
+}
+
+# True when $1 is the exact BtbN build pinned above (its first -version line
+# names it, e.g. "ffmpeg version n9.0.2-963-g4d831360c9-20261125").
+ffmpeg_is_pinned_build() {
+    "$1" -version 2>/dev/null | head -1 | grep -qF "version $FFMPEG_BTBN_BUILD-"
+}
+
+# Fail the build unless $1 is that exact build.
+assert_ffmpeg_build() {
+    if ! ffmpeg_is_pinned_build "$1"; then
+        echo "  ERROR: $1 is not the pinned build $FFMPEG_BTBN_BUILD:" >&2
+        "$1" -version 2>/dev/null | head -1 >&2
+        exit 1
+    fi
+    echo "  FFmpeg build $FFMPEG_BTBN_BUILD (matches the pin)"
 }
 
 echo "=== VapourBox Linux Dependencies Builder ==="
@@ -522,24 +550,43 @@ cp "$BUILD_DIR/pkgconfig/vapoursynth.pc" "$BUILD_DIR/pkgconfig/vapoursynth-scrip
 echo ""
 echo "=== Downloading FFmpeg ==="
 
-if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/ffmpeg/ffmpeg" ]; then
+if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/ffmpeg/ffmpeg" ] \
+    || ! ffmpeg_is_pinned_build "$DEPS_DIR/ffmpeg/ffmpeg"; then
     # BtbN static GPL builds include hardware encoders (x64: QSV/NVENC/AMF/VAAPI;
     # arm64: NVENC/AMF/V4L2M2M) yet run software-only on machines without a GPU or
     # driver — the vendor runtimes (libvpl/libnvidia-encode/libva) are dlopen'd
     # lazily, so libx264/libx265 always work and absent hw encoders fail
     # gracefully at init. (The previous John Van Sickle build had no hw accel.)
-    BTBN_BASE="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest"
+    # One exact build, by SHA-256 (task #123; see the pin above).
     if [ "$ARCH" = "x86_64" ]; then
-        FFMPEG_URL="$BTBN_BASE/ffmpeg-n${FFMPEG_SERIES}-latest-linux64-gpl-${FFMPEG_SERIES}.tar.xz"
+        FFMPEG_ASSET="ffmpeg-${FFMPEG_BTBN_BUILD}-linux64-gpl-${FFMPEG_SERIES}.tar.xz"
+        FFMPEG_SHA256="$FFMPEG_BTBN_LINUX64_SHA256"
     else
-        FFMPEG_URL="$BTBN_BASE/ffmpeg-n${FFMPEG_SERIES}-latest-linuxarm64-gpl-${FFMPEG_SERIES}.tar.xz"
+        FFMPEG_ASSET="ffmpeg-${FFMPEG_BTBN_BUILD}-linuxarm64-gpl-${FFMPEG_SERIES}.tar.xz"
+        FFMPEG_SHA256="$FFMPEG_BTBN_LINUXARM64_SHA256"
     fi
 
-    echo "  Downloading static FFmpeg $FFMPEG_SERIES (BtbN, hardware-enabled)..."
+    echo "  Downloading static FFmpeg $FFMPEG_BTBN_BUILD (BtbN, hardware-enabled)..."
     # -f, or a 404 body is written to the tarball and surfaces much later as an
     # unexplained `tar: Error is not recoverable`. That is exactly how the n7.1
     # asset ageing out of BtbN's rolling `latest` tag presented.
-    curl -fL -o "$BUILD_DIR/ffmpeg.tar.xz" "$FFMPEG_URL"
+    FFMPEG_FETCHED=false
+    for FFMPEG_URL in "$FFMPEG_BTBN_MIRROR/$FFMPEG_ASSET" \
+        "https://github.com/BtbN/FFmpeg-Builds/releases/download/$FFMPEG_BTBN_AUTOBUILD/$FFMPEG_ASSET"; do
+        rm -f "$BUILD_DIR/ffmpeg.tar.xz"
+        if curl -fL --retry 3 -o "$BUILD_DIR/ffmpeg.tar.xz" "$FFMPEG_URL" \
+            && echo "$FFMPEG_SHA256  $BUILD_DIR/ffmpeg.tar.xz" | sha256sum -c -; then
+            FFMPEG_FETCHED=true
+            echo "  Fetched from $FFMPEG_URL"
+            break
+        fi
+        echo "  WARNING: no matching $FFMPEG_ASSET at $FFMPEG_URL"
+    done
+    if [ "$FFMPEG_FETCHED" != true ]; then
+        echo "  ERROR: neither the mirror nor BtbN's $FFMPEG_BTBN_AUTOBUILD has $FFMPEG_ASSET" >&2
+        echo "  with SHA-256 $FFMPEG_SHA256." >&2
+        exit 1
+    fi
 
     echo "  Extracting..."
     tar -xJf "$BUILD_DIR/ffmpeg.tar.xz" -C "$BUILD_DIR"
@@ -555,9 +602,10 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/ffmpeg/ffmpeg" ]; then
     cp "$FFMPEG_DIR/ffprobe" "$DEPS_DIR/ffmpeg/"
     chmod +x "$DEPS_DIR/ffmpeg/ffmpeg" "$DEPS_DIR/ffmpeg/ffprobe"
     assert_ffmpeg_series "$DEPS_DIR/ffmpeg/ffmpeg"
+    assert_ffmpeg_build "$DEPS_DIR/ffmpeg/ffmpeg"
     echo "  Downloaded FFmpeg"
 else
-    echo "  FFmpeg already exists, skipping"
+    echo "  FFmpeg $FFMPEG_BTBN_BUILD already installed, skipping"
 fi
 
 # ============================================================================

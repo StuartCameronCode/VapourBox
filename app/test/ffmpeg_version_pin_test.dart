@@ -19,6 +19,12 @@
 // series that upstream then garbage-collected, which 404'd the Linux deps build
 // outright. Both failure modes are caught here: an unpinned URL has no series
 // to find, and a pin that drifts stops matching its siblings.
+//
+// A series pin against a rolling tag still moves within the series: BtbN's
+// `n9.0-latest` went from n9.0.2-61 (deps 1.18.0-rc3) to n9.0.2-963 (rc4),
+// whose swscale broke a heavy test (task #123). So every platform also pins
+// one exact build with a SHA-256: macOS by martin-riedl build ID, Windows and
+// Linux by BtbN build string, mirrored on our `ffmpeg-mirror-v1` release.
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -76,9 +82,9 @@ void main() {
     });
 
     test('the series is a bare major.minor, not a moving target', () {
-      // "master", "latest" or a full version would each defeat the point: the
-      // first two are unpinned, and a full version cannot be held because BtbN
-      // garbage-collects old series from its rolling tag.
+      // "master" or "latest" would defeat the point: both are unpinned. The
+      // exact build is pinned beside it (FFMPEG_BTBN_BUILD, the macOS build
+      // IDs); the series is what the platforms must agree on.
       final linux = _pin(
         root,
         'download-deps-linux.sh',
@@ -120,21 +126,69 @@ void main() {
       }
     });
 
+    test("BtbN builds are pinned exactly, within the series, with a SHA-256", () {
+      // Task #123: BtbN's rolling `latest` moved within 9.0 between two deps
+      // builds. Windows and Linux pin the same build string, fetched from our
+      // mirror or BtbN's dated autobuild tag, each asset by its SHA-256.
+      final linux = File(p.join(root, 'Scripts', 'download-deps-linux.sh')).readAsStringSync();
+      final windows = File(p.join(root, 'Scripts', 'download-deps-windows.ps1')).readAsStringSync();
+      String shVar(String name) {
+        final m = RegExp('^$name="([^"]*)"\$', multiLine: true).firstMatch(linux);
+        expect(m, isNotNull, reason: 'download-deps-linux.sh must declare $name');
+        return m!.group(1)!;
+      }
+      String psVar(String name) {
+        final m = RegExp('^\\\$$name = "([^"]*)"', multiLine: true).firstMatch(windows);
+        expect(m, isNotNull, reason: 'download-deps-windows.ps1 must declare \$$name');
+        return m!.group(1)!;
+      }
+
+      final series = shVar('FFMPEG_SERIES');
+      final build = shVar('FFMPEG_BTBN_BUILD');
+      expect(build, matches(RegExp('^n${RegExp.escape(series)}\\.\\d+(-\\d+-g[0-9a-f]{10})?\$')),
+          reason: 'FFMPEG_BTBN_BUILD "$build" must be an exact BtbN build in the $series series');
+      expect(psVar('FFmpegBtbnBuild'), build,
+          reason: 'Windows and Linux must ship the same BtbN build');
+
+      final tag = shVar('FFMPEG_BTBN_AUTOBUILD');
+      expect(tag, matches(RegExp(r'^autobuild-\d{4}-\d\d-\d\d-\d\d-\d\d$')),
+          reason: 'the fallback must be a dated BtbN autobuild tag, not latest');
+      expect(psVar('FFmpegBtbnAutobuild'), tag);
+
+      final mirror = shVar('FFMPEG_BTBN_MIRROR');
+      expect(mirror, endsWith('/releases/download/ffmpeg-mirror-v1'));
+      expect(psVar('FFmpegBtbnMirror'), mirror);
+
+      final sha = RegExp(r'^[0-9a-f]{64}$');
+      expect(shVar('FFMPEG_BTBN_LINUX64_SHA256'), matches(sha));
+      expect(shVar('FFMPEG_BTBN_LINUXARM64_SHA256'), matches(sha));
+      expect(psVar('FFmpegBtbnWin64Sha256'), matches(sha));
+
+      for (final (name, text) in [('download-deps-linux.sh', linux), ('download-deps-windows.ps1', windows)]) {
+        expect(text.contains('FFmpeg-Builds/releases/download/latest'), isFalse,
+            reason: '$name still fetches BtbN\'s rolling latest');
+        expect(RegExp(r'ffmpeg-n[^\s"]*-latest-').hasMatch(text), isFalse,
+            reason: '$name still names a -latest- FFmpeg asset');
+      }
+    });
+
     test('every script verifies what it actually installed', () {
       // The pins above are intent; these assertions are what makes upstream
       // moving the URL a red build instead of silent skew. Losing them would
       // leave the pins as comments.
-      for (final entry in {
-        'download-deps-linux.sh': 'assert_ffmpeg_series',
-        'download-deps-macos.sh': 'assert_ffmpeg_series',
-        'download-deps-windows.ps1': r'$FFmpegSeries',
-      }.entries) {
-        final text = File(p.join(root, 'Scripts', entry.key)).readAsStringSync();
+      for (final (file, check) in [
+        ('download-deps-linux.sh', 'assert_ffmpeg_series "'),
+        ('download-deps-linux.sh', 'assert_ffmpeg_build "'),
+        ('download-deps-macos.sh', 'assert_ffmpeg_series'),
+        ('download-deps-windows.ps1', r'$FFmpegSeries'),
+        ('download-deps-windows.ps1', r'Test-PinnedFFmpeg $InstalledFFmpeg'),
+      ]) {
+        final text = File(p.join(root, 'Scripts', file)).readAsStringSync();
         expect(
-          text.contains(entry.value),
+          text.contains(check),
           isTrue,
-          reason: '${entry.key} no longer checks the installed FFmpeg against '
-              'its pin, so a silent upstream change would go unnoticed',
+          reason: '$file no longer checks the installed FFmpeg against '
+              'its pin ($check), so a silent upstream change would go unnoticed',
         );
       }
     });
