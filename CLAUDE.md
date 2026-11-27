@@ -3832,12 +3832,17 @@ through `deps_run_id` first. `zimg_pin_test.dart` (push gate) fails on an
 unpinned wrap or clone; `zimg_colorspace_test.rs` is what caught the crash.
 The crash is graphengine `f6211289` (task #109): a fused node's context is
 left out of `get_tmp_size()`, so every error-diffusion conversion writes past
-the buffer, and graphengine HEAD still has it. **Bump `ZIMG_COMMIT` /
-`ZIMG_GRAPHENGINE_COMMIT` only to an upstream commit that fixes it**: build
-the candidate with `docs/reports/task-109-graphengine-tmp-overrun/scripts/build.sh`
-in `guard` mode and run `run_cases.sh` over `cases.tsv`; its 36
-error-diffusion cases must not abort. That needs VapourSynth's source (R78's
-zimg overlay), not a VapourSynth build.
+the buffer. Upstream fixed it in graphengine `308d3735` (zimg master
+`9806db42` = `67e06032` + that graphengine, 2026-11-22); task #126 found it
+clean and every picture identical to the pin's, and it is to be pinned in
+deps 1.18.0-rc5 once task #111 has merged. **Bump `ZIMG_COMMIT` /
+`ZIMG_GRAPHENGINE_COMMIT` only to a commit that passes #109's cases**:
+`docs/reports/task-126-zimg-9806db42/scripts/compare.sh` builds the pin and
+the candidate with #109's `build.sh` and runs `cases.tsv` in the `vs`,
+`guard` and `asan` modes with `--digest`; no case may abort (the 36
+error-diffusion ones above all) and any changed picture must be explained.
+That needs VapourSynth's source (R78's zimg overlay), not a VapourSynth
+build; edit `compare.sh`'s two builds for a new candidate.
 macOS ships zimg releases (arm64 Homebrew's, x64 3.0.5 from source), Windows
 the wheel's (docs/reports/task-103-linux-zimg-pin).
 

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>zimg 9806db42 check</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-0: #f4f3f0; --surface-1: #fcfcfb; --border: #dddcd7;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #77756f;
+    --code-bg: #efeeea; --good: #1a7f37; --warn: #9a6700; --bad: #c62828;
+    --good-bg: #e6f4ea; --warn-bg: #fbf0d9; --bad-bg: #fbe4e4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-0: #121211; --surface-1: #1a1a19; --border: #34332f;
+      --text-primary: #f0efec; --text-secondary: #c3c2b7; --text-muted: #96958c;
+      --code-bg: #242422; --good: #3fb950; --warn: #d29922; --bad: #f85149;
+      --good-bg: #16301d; --warn-bg: #352a12; --bad-bg: #3a1a1a;
+    }
+  }
+  body { margin: 0; background: var(--surface-0); color: var(--text-primary);
+         font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 960px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; }
+  h2 { font-size: 19px; margin: 36px 0 10px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .meta, .muted { color: var(--text-muted); font-size: 13px; }
+  .card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+          padding: 14px 18px; margin: 14px 0; }
+  code, pre { font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 3px; overflow-wrap: anywhere; }
+  pre { background: var(--code-bg); padding: 10px 12px; border-radius: 6px; overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; display: block; overflow-x: auto; }
+  th, td { border-bottom: 1px solid var(--border); padding: 4px 8px; text-align: left; vertical-align: top; }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.ok { background: var(--good-bg); }
+  td.bad { background: var(--bad-bg); }
+  td.warn { background: var(--warn-bg); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>zimg <code>9806db42</code> (graphengine <code>308d3735</code>) against the pinned <code>67e06032</code></h1>
+<p class="meta">2026-11-27 · task #126 (added by task #125) · measured on macOS arm64 (M1) locally and on GitHub
+Actions <code>ubuntu-24.04</code> (x64, Intel Xeon 6975P-C with AVX-512) and <code>ubuntu-24.04-arm</code> runners,
+run 45918802024 · every number below comes from <code>scripts/</code> and task #109's scripts, and the tables are in
+<code>data/</code>.</p>
+
+<div class="card">
+<p><strong>Outcome: the fixed commit is clean and draws the same pictures as our pin. It will be pinned in deps
+1.18.0-rc5, after task #111 merges.</strong> Upstream fixed task #109's overrun in graphengine <code>308d3735</code>
+(zimg master <code>9806db42</code>, 2026-11-22). Built the way VapourSynth R78 builds its zimg subproject and run over
+#109's 158 graphs on four Linux runner/compiler pairs and on macOS arm64, it has <strong>no overrun, no guard-page
+assertion and no new ASan report</strong>; the 36 error-diffusion graphs, which all failed from graphengine
+<code>f6211289</code> to <code>e9b10267</code>, all pass. <strong>Every destination picture is byte-identical</strong> to
+<code>67e06032</code>'s (158 of 158, with the SIMD kernels and with the C kernels, on every platform). Every graph asks
+for a smaller temporary buffer (median 11% smaller), which is what graphengine's range was for.</p>
+</div>
+
+<h2>What changes</h2>
+<p>Linux VapourSynth links R78's <code>subprojects/zimg.wrap</code> statically, pinned since task #103 to zimg
+<code>67e06032</code>, whose graphengine submodule is <code>cb5b2ce1</code> (<code>ZIMG_COMMIT</code> /
+<code>ZIMG_GRAPHENGINE_COMMIT</code> in <code>Scripts/download-deps-linux.sh</code>).</p>
+<ul>
+<li><strong>zimg <code>9806db42</code></strong> ("Update graphengine", 2026-11-22) is one commit on top of
+<code>67e06032</code>, and that commit changes only the submodule pointer. zimg's own code is the same. Master was
+rewritten to it: <code>e2e43d09</code>, the commit that broke rc3 (task #103), is no longer on master.</li>
+<li><strong>graphengine <code>308d3735</code></strong> is <code>cb5b2ce1</code> plus 15 commits: the 13 that task #109
+bisected (<code>7014d9f2</code> … <code>91c6af4c</code>, among them the faulty <code>f6211289</code>), a test-app fix
+(<code>e9b10267</code>) and the fix. Library files changed: <code>graph.cpp</code>, <code>node.cpp</code>,
+<code>state.h</code>, <code>include/graphengine/graph.h</code> and <code>types.h</code>; none added, so R78's
+overlay meson.build, which lists the sources, still builds it.</li>
+<li><strong>The fix</strong> ("Fix uninitialized simulation parameters for fused nodes") moves three lines of
+<code>compile_simulation_result</code> above <code>if (!live_rows) continue;</code>:</li>
+</ul>
+<pre>+			node_result.context_size = (sim.context_size(id) + ALIGNMENT_MASK) &amp; ~static_cast&lt;size_t&gt;(ALIGNMENT_MASK);
++			node_result.initial_cursor = sim.cursor_min(id);
++			sat_add(result.tmp_size, node_result.context_size);
++
+ 			unsigned live_rows = sim.live_range(id);
+ 			if (!live_rows)
+ 				continue;</pre>
+<p>So a fused node's context counts in <code>tmp_size</code> again, as task #109's patch did by a different route
+(it skipped only the cache loop). The minimal repro asks for 1216 bytes with either.</p>
+
+<h2>How it was measured</h2>
+<p><code>scripts/compare.sh WORK OUT</code> builds two zimgs with task #109's <code>build.sh</code> (R78's overlay
+meson.build on the zimg tree, a static release library) and runs task #109's <code>cases.tsv</code> through each
+with its <code>run_cases.sh</code>, one process per graph:</p>
+<ul>
+<li><strong>A</strong>: zimg <code>67e06032</code>, graphengine <code>cb5b2ce1</code> (shipped);
+<strong>B</strong>: zimg <code>9806db42</code>, graphengine <code>308d3735</code> (candidate). The script first
+checks each zimg commit's submodule pointer, which is what the wrap's recursive clone checks out.</li>
+<li><code>vs</code> build (NDEBUG, as R78 ships it): the canary, guard bytes around the buffer; once with
+<code>--cpu auto64</code> (VapourSynth's default) and once with <code>--cpu none</code> (zimg's C kernels).</li>
+<li><code>guard</code> build (NDEBUG off): graphengine's own guard pages between the buffer's regions, which caught
+all 36 error-diffusion graphs at <code>91c6af4c</code> in task #109.</li>
+<li><code>asan</code> build: AddressSanitizer on a buffer of exactly <code>tmp_size</code> (<code>--exact</code>).</li>
+<li><strong>Pictures</strong>: <code>tmp_overrun.c</code>'s new <code>--digest</code> option prints a 64-bit FNV-1a
+hash of every destination plane's visible samples (stride padding left out). Each graph converts the same seeded
+random source frame, so A and B are compared graph by graph. The hash is not trivially constant: on macOS arm64 the 158 graphs give
+125 distinct hashes, and 64 of them differ between <code>auto64</code> and <code>none</code> (NEON against C).</li>
+<li><code>upstream_repro.c</code>, task #109's minimal repro (GRAY16 → GRAY8 at 96x64, error diffusion), linked
+against each build.</li>
+</ul>
+<p>The 158 graphs: format, depth and subsampling conversions, colour-space changes, resizes and every dither type,
+progressive and interlaced (two field graphs, as VapourSynth runs them), at 96x64, 98x64 and 720x480; 36 of them
+dither with error diffusion (task #109, "The repro").</p>
+
+<h2>Results</h2>
+<table>
+<tr><th>platform</th><th>compiler</th><th>build</th><th>vs: overruns (auto64 / none)</th><th>guard: aborts (error diffusion)</th><th>asan: reports</th><th>pictures B = A (auto64 / none)</th><th>upstream_repro</th></tr>
+<tr><td rowspan="2">Linux x64</td><td rowspan="2">gcc 13.3</td><td>A</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="ok">0</td><td rowspan="2" class="ok">158 / 158</td><td class="ok">1344 B, 0 past</td></tr>
+<tr><td>B</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="ok">0</td><td class="ok">1216 B, 0 past</td></tr>
+<tr><td rowspan="2">Linux x64</td><td rowspan="2">clang 18.1</td><td>A</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="ok">0</td><td rowspan="2" class="ok">158 / 158</td><td class="ok">1344 B, 0 past</td></tr>
+<tr><td>B</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="ok">0</td><td class="ok">1216 B, 0 past</td></tr>
+<tr><td rowspan="2">Linux arm64</td><td rowspan="2">gcc 13.3</td><td>A</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="warn">32</td><td rowspan="2" class="ok">158 / 158</td><td class="ok">1344 B, 0 past</td></tr>
+<tr><td>B</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="warn">32 (the same 32)</td><td class="ok">1216 B, 0 past</td></tr>
+<tr><td rowspan="2">Linux arm64</td><td rowspan="2">clang 18.1</td><td>A</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="ok">0</td><td rowspan="2" class="ok">158 / 158</td><td class="ok">1344 B, 0 past</td></tr>
+<tr><td>B</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="ok">0</td><td class="ok">1216 B, 0 past</td></tr>
+<tr><td rowspan="2">macOS arm64</td><td rowspan="2">Apple clang 21</td><td>A</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="ok">0</td><td rowspan="2" class="ok">158 / 158</td><td class="ok">1344 B, 0 past</td></tr>
+<tr><td>B</td><td class="ok">0 / 0</td><td class="ok">0 (0)</td><td class="ok">0</td><td class="ok">1216 B, 0 past</td></tr>
+</table>
+<p class="muted">data/linux/45918802024/compare-*/ and data/macos-arm64/: summary.tsv, compare.tsv (digests and
+tmp_size, case by case), digest-diff.tsv (empty everywhere), repro.tsv. 158 graphs in every cell.</p>
+
+<h3>The arm64 gcc ASan reports (task #115)</h3>
+<p>Linux arm64 with gcc 13 reports a <code>heap-buffer-overflow</code> on 32 graphs, at A and at B alike, and they are
+<strong>the same 32</strong> (data/linux/…/compare-arm64-gcc-13/A-asan.tsv, B-asan.tsv): the 4:2:0 graphs that
+convert the matrix from an integer format, <code>rgb24</code> → 4:2:0 at 8 and 10 bits (14), 4:2:0 → <code>rgbs</code>
+(12) and 4:2:0 470bg → 709 (6 of 8), at every size, progressive and interlaced. The same conversions from
+<code>rgbs</code>, the depth-only 4:2:0 graphs and the error-diffusion ones (20 graphs in all) are not flagged. Task #109 saw the same 32 at every
+graphengine commit. <strong>New here: clang 18 on the same arm64 runner image reports none</strong>, nor does any
+other platform or compiler, and the canary and guard pages see nothing on any graph. So it follows the compiler, not
+the architecture or graphengine. Whether it is a real read past a buffer that only gcc's code makes, or an ASan
+false positive, is task #115's question; it does not separate A from B.</p>
+
+<h3>Temporary buffer size</h3>
+<p>B asks for less on every graph (158 of 158, every platform): from 0.04× (<code>cs-to-rgbs-yuv444p16-720x480i</code>,
+17984 → 704 bytes) to 0.998× (<code>cs-from-rgbs-yuv420p8-720x480p</code>), median 0.89× (<code>bm3d-down-720x480i</code>,
+6976 → 6208); the 158 together 5.09 MB → 4.61 MB on macOS arm64. That is graphengine's range doing what it set out to
+(fused nodes no longer get cache buffers), now with the contexts counted.</p>
+
+<h2>Decision</h2>
+<p><strong>Bump, in deps 1.18.0-rc5</strong> (the user's choice of release, 2026-11-27). For: the candidate passes
+everything #109 measured, draws identical pictures, uses less memory, and is what upstream master and any VapourSynth
+built from its wrap now get. Against: our pin is good and nothing is broken today, and it changes
+<code>libvapoursynth.so.4</code> on Linux, so it needs a deps release. The arm64 gcc ASan reports are the same at both
+commits, so they don't weigh either way.</p>
+<p>Still to do, in task #126 once task #111 (which rewrites the same block of <code>download-deps-linux.sh</code> and
+<code>zimg_pin_test.dart</code>) has merged:</p>
+<ul>
+<li>the two pins and their comment, and a guard in <code>zimg_pin_test.dart</code> against task #109's bad graphengine
+range;</li>
+<li>an A/B of the built bundle through <code>deps_run_id</code> (<code>ci-test.yml</code> and <code>nightly.yml</code>,
+linux-x64 v3 and v2 and linux-arm64), as task #103 did: these numbers are zimg's C API, not VapourSynth;</li>
+<li>task #109's <code>vs_confirm.sh</code> against the candidate bundle.</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li><strong>The pictures are compared through zimg's C API</strong>, built as R78 builds it, not through a VapourSynth
+bundle. The same library goes into <code>libvapoursynth.so.4</code>, but the bundle-level A/B above is still to
+come.</li>
+<li>Each graph converts one seeded random frame. A difference that only some content would show is not ruled out,
+but zimg's own code is unchanged and graphengine's changes are to buffer planning, which the 158 graphs exercise.</li>
+<li>The canary sees writes past either end of the buffer, and the guard pages writes between its regions; neither
+sees a write inside the region that should hold it. ASan covers reads and writes past the buffer's ends only.</li>
+<li><strong>Correction, during the work:</strong> the first macOS x86_64 attempt reported all 158 graphs as aborts
+at A and B. They were not zimg's: the x86_64 binaries could not run at all (no Rosetta, "Bad CPU type").
+<code>compare.sh</code> now runs each binary once first and stops if it can't.</li>
+<li><strong>Not run:</strong> macOS x86_64 (Rosetta is not installed on the machine used; Linux x64 covers x86, and
+macOS ships zimg releases, not this commit), and Windows (ships the R78 wheel's zimg). <code>--cpu auto</code>
+(128-bit) was not run; <code>auto64</code> is VapourSynth's default.</li>
+<li>The arm64 runners' CPU model is not printed by <code>/proc/cpuinfo</code>.</li>
+</ul>
+
+<h2>Scripts</h2>
+<ul>
+<li><code>scripts/compare.sh WORK OUT</code>: A against B, as above (<code>CC</code>/<code>CXX</code>,
+<code>MESON_ARGS</code>, <code>REPRO_CFLAGS</code>).</li>
+<li><code>scripts/collect.sh RUN DATA</code>: a CI run's results into <code>data/linux/</code>.</li>
+<li><code>.github/workflows/zimg-9806db42-check.yml</code>: the Linux jobs (push a change to it on a branch, or
+dispatch it).</li>
+<li>Task #109's <code>scripts/</code>: <code>fetch.sh</code> (clones), <code>build.sh</code>,
+<code>tmp_overrun.c</code> (with <code>--digest</code>, added for this report; its default output is unchanged),
+<code>run_cases.sh</code>, <code>cases.tsv</code>, <code>upstream_repro.c</code>.</li>
+</ul>
+<p class="muted">Reproduce: <code>../task-109-graphengine-tmp-overrun/scripts/fetch.sh /tmp/zw &amp;&amp;
+scripts/compare.sh /tmp/zw /tmp/zout</code> (needs meson, ninja and a C++17 compiler; about 2 minutes on an M1).</p>
+
+</main>
+</body>
+</html>

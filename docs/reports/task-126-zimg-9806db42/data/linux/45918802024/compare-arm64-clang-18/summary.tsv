@@ -1,0 +1,9 @@
+build	mode	cpu	cases	overrun	abort	ed_abort	max_bytes
+A	vs	auto64	158	0	0	0	0
+A	vs	none	158	0	0	0	0
+A	guard	auto64	158	0	0	0	0
+A	asan	auto64	158	0	0	0	0
+B	vs	auto64	158	0	0	0	0
+B	vs	none	158	0	0	0	0
+B	guard	auto64	158	0	0	0	0
+B	asan	auto64	158	0	0	0	0
