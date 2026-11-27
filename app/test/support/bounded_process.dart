@@ -6,7 +6,7 @@
 /// beside the next case. [runBounded] kills the process (and its group) at
 /// its limit and throws a [BoundedTimeout] naming the command; before the
 /// kill, [describeHang] records where each process of the tree is stuck
-/// (macOS `sample`, Linux `gdb` when present), so a hang in CI says which
+/// (macOS `sample`, Linux `gdb`, Windows `cdb` when present), so a hang in CI says which
 /// process hung and in what.
 library;
 
@@ -81,15 +81,27 @@ String _command(String exe, List<String> args) =>
     [exe, ...args].map((a) => a.contains(' ') ? "'$a'" : a).join(' ');
 
 /// [pid] and every process under it, as `(pid, command)`, parents first.
-/// Empty on Windows (no `ps`).
+/// `ps` on macOS / Linux; on Windows, Win32_Process through PowerShell
+/// (task #120), one `pid<TAB>ppid<TAB>command line` per process.
 Future<List<(int, String)>> processTree(int pid) async {
-  if (Platform.isWindows) return [];
-  final ps = await Process.run('ps', ['-A', '-o', 'pid=,ppid=,command=']);
+  final ProcessResult ps;
+  final RegExp row;
+  if (Platform.isWindows) {
+    ps = await Process.run('powershell', [
+      '-NoProfile',
+      '-Command',
+      r'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)" }',
+    ]);
+    row = RegExp(r'^(\d+)\t(\d+)\t(.*?)\s*$');
+  } else {
+    ps = await Process.run('ps', ['-A', '-o', 'pid=,ppid=,command=']);
+    row = RegExp(r'^\s*(\d+)\s+(\d+)\s+(.*)$');
+  }
   if (ps.exitCode != 0) return [];
   final children = <int, List<int>>{};
   final command = <int, String>{};
-  for (final line in (ps.stdout as String).split('\n')) {
-    final m = RegExp(r'^\s*(\d+)\s+(\d+)\s+(.*)$').firstMatch(line);
+  for (final line in (ps.stdout as String).replaceAll('\r\n', '\n').split('\n')) {
+    final m = row.firstMatch(line);
     if (m == null) continue;
     final p = int.parse(m.group(1)!), pp = int.parse(m.group(2)!);
     command[p] = m.group(3)!;
@@ -108,8 +120,9 @@ Future<List<(int, String)>> processTree(int pid) async {
 
 /// Where each process under [pid] is stuck, for a hang's report: the tree
 /// (`ps`), then each process's threads' stacks: macOS `sample <pid> 2`,
-/// Linux `gdb -batch -ex 'thread apply all bt'` when gdb is installed.
-/// Nothing on Windows. Never throws: a report that fails says why.
+/// Linux `gdb -batch -ex 'thread apply all bt'` when gdb is installed,
+/// Windows the SDK's `cdb` attached non-invasively when it is installed
+/// ([windowsDebugger]; task #120). Never throws: a report that fails says why.
 Future<String> describeHang(int pid,
     {int maxLinesEach = 120,
     Duration budget = const Duration(seconds: 20),
@@ -125,7 +138,7 @@ Future<String> describeHang(int pid,
     // between the job's limit and the case's (conformance_timeouts_test).
     final deadline = DateTime.now().add(budget);
     for (final (p, c) in tree) {
-      final name = c.split(' ').first.split('/').last;
+      final name = _programName(c);
       final left = deadline.difference(DateTime.now());
       if (left < const Duration(seconds: 3)) {
         b.writeln('--- $p $name: not sampled (the ${budget.inSeconds} s budget was used) ---');
@@ -136,6 +149,15 @@ Future<String> describeHang(int pid,
         cmd = ['sample', '$p', '2', '-mayDie'];
       } else if (Platform.isLinux) {
         cmd = ['gdb', '-batch', '-p', '$p', '-ex', 'thread apply all bt'];
+      } else if (Platform.isWindows) {
+        final cdb = windowsDebugger();
+        if (cdb == null) {
+          b.writeln('(no cdb.exe from the Windows SDK: no stacks)');
+          break;
+        }
+        // -pv: attach without stopping or changing the process; every
+        // thread's stack, then detach.
+        cmd = [cdb, '-pv', '-p', '$p', '-c', '~*kb 40; qd'];
       } else {
         continue;
       }
@@ -146,10 +168,19 @@ Future<String> describeHang(int pid,
         b.writeln('(no ${cmd.first}: no stacks)');
         break;
       }
-      final lines = text.split('\n').where((l) => l.trim().isNotEmpty).toList();
-      // `sample`'s call graph starts at "Call graph:"; its header is noise.
-      final start = lines.indexWhere((l) => l.startsWith('Call graph:'));
-      final body = start < 0 ? lines : lines.sublist(start);
+      final lines = text
+          .replaceAll('\r\n', '\n')
+          .split('\n')
+          .where((l) => l.trim().isNotEmpty)
+          .toList();
+      // `sample`'s call graph starts at "Call graph:", cdb's stacks at its
+      // command echo ("Reading initial command"); what comes before is
+      // banner. cdb's own unload chatter at the end is noise too.
+      var start = lines.indexWhere((l) => l.startsWith('Call graph:'));
+      if (start < 0) start = lines.indexWhere((l) => l.contains('Reading initial command'));
+      final body = (start < 0 ? lines : lines.sublist(start))
+          .where((l) => !l.startsWith('NatVis script unloaded'))
+          .toList();
       b.writeln('--- $p $name ---');
       b.writeln((body.length > maxLinesEach ? [...body.take(maxLinesEach), '…'] : body)
           .join('\n'));
@@ -158,6 +189,30 @@ Future<String> describeHang(int pid,
   } catch (e) {
     return '(could not describe the hang: $e)';
   }
+}
+
+/// The program's file name from a command line: quoted or not, `/` or `\`.
+String _programName(String commandLine) {
+  final c = commandLine.trimLeft();
+  final program = c.startsWith('"')
+      ? c.substring(1, c.indexOf('"', 1) < 0 ? c.length : c.indexOf('"', 1))
+      : c.split(' ').first;
+  return program.split(RegExp(r'[/\\]')).last;
+}
+
+/// The Windows SDK's console debugger, or null: `$VAPOURBOX_CDB`, else the
+/// SDK's default install paths (the GitHub Windows runner images carry the
+/// Debugging Tools there).
+String? windowsDebugger() {
+  final candidates = [
+    Platform.environment['VAPOURBOX_CDB'],
+    r'C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe',
+    r'C:\Program Files\Windows Kits\10\Debuggers\x64\cdb.exe',
+  ];
+  for (final c in candidates) {
+    if (c != null && c.isNotEmpty && File(c).existsSync()) return c;
+  }
+  return null;
 }
 
 /// [cmd]'s stdout and stderr, the process killed if it outlives [limit]

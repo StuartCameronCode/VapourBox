@@ -840,8 +840,22 @@ class WorkerHarness {
       final stderrFuture = process.stderr.transform(utf8.decoder).join();
 
       final exitCode = await process.exitCode.timeout(timeout, onTimeout: () async {
+        // Where each process of the tree is stuck, before it is killed, and
+        // what the worker had said (task #120: the sweep's pitch-auto row
+        // hung on a Windows runner and said nothing at all).
+        // cdb takes 5-10 s to attach to each process of the tree on the
+        // Windows runners (task #120), so the default 20 s budget cut the
+        // vspipe stacks short.
+        final hang = await describeHang(process.pid,
+            budget: const Duration(seconds: 75), perProcess: const Duration(seconds: 25));
         await ProcessTree.killTree(process, ProcessSignal.sigkill);
-        throw TimeoutException('$label timed out after ${timeout.inSeconds}s');
+        final said = await stderrFuture
+            .timeout(const Duration(seconds: 5), onTimeout: () => '');
+        final lines = said.trimRight().split('\n').where((l) => l.trim().isNotEmpty).toList();
+        final tail = lines.sublist(lines.length > 20 ? lines.length - 20 : 0).join('\n');
+        throw TimeoutException('$label timed out after ${timeout.inSeconds}s'
+            '${tail.isEmpty ? '' : '\nits stderr ended:\n$tail'}'
+            '${hang.isEmpty ? '' : '\n$hang'}');
       });
       final png = (await stdoutFuture).takeBytes();
       final logs = await stderrFuture;

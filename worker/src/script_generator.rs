@@ -190,10 +190,12 @@ struct StabilizeContext {
     factors_path: Option<PathBuf>,
 }
 
-/// Decoded frames `pipe_source` must keep for out-of-order reads: the whole
-/// temporal window either side, plus vspipe's read-ahead. Too few and an
-/// evicted frame silently comes back as the last frame read. Never below the
-/// 40 it was fixed at before it was sized from the pipeline.
+/// `pipe_source`'s temporal window: frames it keeps behind the oldest frame
+/// not yet served, and behind where that stood when the oldest output frame
+/// still in flight was requested (task #120). The whole radius either side
+/// plus a margin for VapourSynth starting requests out of order. Too few and
+/// a frame asked for after it was dropped fails the job (task #58). Never
+/// below the 40 it was fixed at before it was sized from the pipeline.
 pub fn pipe_cache_frames(pipeline: &ProcessingPipeline) -> u32 {
     (2 * pipeline.total_radius() + 24).max(40)
 }

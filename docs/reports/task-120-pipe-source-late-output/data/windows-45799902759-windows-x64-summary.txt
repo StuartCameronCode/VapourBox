@@ -1,0 +1,43 @@
+# run 45799902759, windows-x64: pitch-auto times (ms) and failures
+pitch auto run 1: 3212 ms
+pitch auto run 2: 3206 ms
+pitch auto run 3: 3173 ms
+pitch auto run 4: 3353 ms
+pitch auto run 5: 3170 ms
+pitch auto run 6: 3202 ms
+pitch auto run 7: 3388 ms
+pitch auto run 8: 3162 ms
+pitch auto run 9: 191133 ms
+pitch auto run 10: 3256 ms
+pitch auto run 11: 3198 ms
+pitch auto run 12: 3349 ms
+pitch auto run 13: 3393 ms
+pitch auto run 14: 3185 ms
+pitch auto run 15: 3150 ms
+pitch auto run 16: 3147 ms
+pitch auto run 17: 3144 ms
+pitch auto run 18: 3406 ms
+pitch auto run 19: 3227 ms
+pitch auto run 20: 3123 ms
+pitch auto run 21: 3159 ms
+pitch auto run 22: 3191 ms
+pitch auto run 23: 3158 ms
+pitch auto run 24: 3225 ms
+pitch auto run 25: 3159 ms
+pitch auto run 26: 3150 ms
+pitch auto run 27: 3189 ms
+pitch auto run 28: 3229 ms
+pitch auto run 29: 3142 ms
+pitch auto run 30: 196999 ms
+pitch auto run 31: 3217 ms
+pitch auto run 32: 3215 ms
+pitch auto run 33: 3172 ms
+pitch auto run 34: 3083 ms
+pitch auto run 35: 3211 ms
+pitch auto run 36: 3127 ms
+pitch auto run 37: 3233 ms
+pitch auto run 38: 3196 ms
+pitch auto run 39: 3199 ms
+pitch auto run 40: 3286 ms
+06:43 +48 -1: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 9 of 40) [E]
+11:04 +68 -2: sweep: stabilize/pitchMode=auto 720x480/yuv444p16le/prog (run 30 of 40) [E]

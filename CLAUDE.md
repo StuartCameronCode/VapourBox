@@ -1997,6 +1997,19 @@ Invariants that are easy to break:
   never below 40), so a pass with a large window must report it through its
   `FrameMap` radius, or its job now fails rather than writing wrong frames.
   `pipe_source_order_test.dart` (push gate) drives the reader in that order.
+  **The window counts from the oldest output frame in flight (task #120)**:
+  a served frame is asked for again when VapourSynth's cache drops it between
+  its readers' requests, and vspipe runs ahead of one late output frame
+  without bound (Stab re-asked for frame 0 after 70 were read on a Windows
+  runner). `pipe_source.track_output(clip)` notes each output frame's request
+  and completion, and the reader keeps what an output in flight can reach. It
+  must stay the template's **last node** (test_270): a node after it is
+  requested first. A preview that times out in the harness is sampled
+  (`describeHang`, cdb stacks on Windows); `repro-windows-stabilize.yml`
+  loops Stab and the pitch-auto sweep row. That row's 360 s hang is a
+  separate fault: vspipe stuck in its own `ExitProcess` on Windows, holding
+  the pipe ffmpeg waits on (task #122;
+  docs/reports/task-120-pipe-source-late-output).
 
 Tests: `test_211`…`test_218` (script generation, legacy block, offsets, errors,
 cache size, field marking) and `app/test/integration_stabilize_test.dart`
