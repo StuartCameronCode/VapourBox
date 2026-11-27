@@ -62,6 +62,15 @@ one-line change (skip only the cache sizing, not the context) makes every case c
 (<code>e9b10267</code>) still has the bug.</p>
 </div>
 
+<div class="card">
+<p><strong>Added 2026-11-27 (task #126): fixed upstream.</strong> sekrit-twc closed #245 on 2026-11-22 with
+graphengine <code>308d3735</code>, which moves the context sizing above <code>if (!live_rows) continue;</code>, the
+same effect as this report's patch. zimg master was rewritten to <code>9806db42</code>, which is <code>67e06032</code>
+(our pin) with that graphengine: <code>e2e43d09</code> is no longer on master. The text below is as written on
+2026-11-22. Task #126 measures the fixed commit against our pin with these scripts:
+<a href="../task-126-zimg-9806db42/index.html">task-126-zimg-9806db42</a>.</p>
+</div>
+
 <h2>Symptom</h2>
 <p>From task #103: 1.18.0-rc3's Linux bundles, with VapourSynth R78 statically linked to zimg <code>e2e43d09</code>
 through R78's <code>subprojects/zimg.wrap</code>, aborted in VapourSynth's own resize on every job that resized:
@@ -232,6 +241,8 @@ x64 and arm64, with Apple clang, gcc 13 and clang 18. glibc is only what made it
 <li>Anyone building VapourSynth from source with its wrap (R78 through R82 still say <code>revision = HEAD</code>)
 since 2026-11-21. That is left to zimg's maintainer, who also maintains VapourSynth's resize; we are not reporting it
 to VapourSynth.</li>
+<li><strong>Added 2026-11-27 (task #126):</strong> a VapourSynth build from its wrap made after 2026-11-22 clones
+master <code>9806db42</code> (graphengine <code>308d3735</code>), which has the fix.</li>
 </ul>
 
 <h2>Upstream</h2>
@@ -239,6 +250,14 @@ to VapourSynth.</li>
 <code>upstream_repro.c</code>, the bisect and the patch; the text is <code>upstream-issue-draft.md</code>. If upstream fixes it, the
 fixed zimg commit is the candidate for <code>ZIMG_COMMIT</code>. A bump changes every resize on Linux, so it needs
 the same A/B through <code>deps_run_id</code> as task #103.</p>
+<p><strong>Added 2026-11-27 (task #126):</strong> fixed in graphengine
+<a href="https://github.com/sekrit-twc/graphengine/commit/308d3735b05d99a1d792b82351be71b8ffc9a46b"><code>308d3735</code></a>,
+in zimg master as <code>9806db42</code>, and #245 closed on 2026-11-22. The fix moves the <code>context_size</code>,
+<code>initial_cursor</code> and <code>tmp_size</code> lines of <code>compile_simulation_result</code> above
+<code>if (!live_rows) continue;</code>, so a fused node's context is counted again; the minimal repro asks for 1216
+bytes, as with this report's patch. graphengine master has since added a test of it (<code>b23cbce4</code>). No zimg
+release has it yet (3.0.6 is the latest). <a href="../task-126-zimg-9806db42/index.html">Task #126</a> is the
+measurement for <code>ZIMG_COMMIT</code>.</p>
 
 <h2>Limits</h2>
 <ul>
@@ -264,7 +283,9 @@ examined. The guard counts (36) are the same on both.</li>
 <li><code>scripts/build.sh WORK ZIMG GE OUT [vs|guard|asan]</code>: zimg with that graphengine and R78's overlay,
 plus tmp_overrun (<code>GE_PATCH</code>, <code>MESON_ARGS</code>, <code>CC</code>/<code>CXX</code>).</li>
 <li><code>scripts/tmp_overrun.c</code>, <code>scripts/cases.tsv</code> (<code>make_cases.py</code>),
-<code>scripts/run_cases.sh</code>: the measurement, one process per case.</li>
+<code>scripts/run_cases.sh</code>: the measurement, one process per case. <code>--digest</code> (added
+2026-11-27 for task #126) adds a hash of each destination picture; without it the output is byte-identical to the
+tables here.</li>
 <li><code>scripts/bisect.sh WORK OUT [MODES]</code>: every commit cb5b2ce1..91c6af4c and HEAD.</li>
 <li><code>scripts/macos.sh WORK OUT</code>: the macOS table.</li>
 <li><code>scripts/dither_check.sh BIN</code>: each dither type.</li>

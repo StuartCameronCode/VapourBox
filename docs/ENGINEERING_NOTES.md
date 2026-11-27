@@ -6651,3 +6651,36 @@ Report: [docs/reports/task-118-mask-and-test-time](reports/task-118-mask-and-tes
   timeout stays at 3 minutes.
 - **macOS x64 not measured locally**: ~32 s projected from the runner's
   ratio to the M1 before; the PR's CI run records it.
+
+### zimg 9806db42: upstream's fix for #109, checked against our pin (task #126, 2026-11-27)
+
+sekrit-twc fixed task #109's overrun (sekrit-twc/zimg#245, closed
+2026-11-22) in graphengine `308d3735`: the fused node's `context_size`,
+`initial_cursor` and `tmp_size` lines now come before
+`if (!live_rows) continue;`, the same effect as #109's patch. zimg master
+was rewritten to `9806db42`, which is our `ZIMG_COMMIT` `67e06032` plus
+only that graphengine (`cb5b2ce1` + #109's 13 commits + a test-app fix +
+the fix); `e2e43d09` is no longer on master. No zimg release has it.
+
+- **Measured.** `compare.sh` builds A (`67e06032`/`cb5b2ce1`) and B
+  (`9806db42`/`308d3735`) as R78 builds its zimg subproject and runs #109's
+  158 graphs through each: canary, graphengine's guard pages, ASan, and a new
+  `--digest` in `tmp_overrun.c` (FNV-1a of every destination picture; the
+  default output is byte-identical to before). Linux x64 and arm64 with
+  gcc 13 and clang 18 (run 45918802024), macOS arm64 locally. B: no
+  overrun, no guard-page abort (the 36 error-diffusion graphs included), no
+  new ASan report, **every picture byte-identical to A's** with the SIMD
+  and the C kernels, and a smaller tmp buffer on every graph (median 0.89x on x64,
+  0.86x on arm64;
+  `upstream_repro.c` 1344 → 1216 bytes).
+- **#115's arm64 ASan reports** are the same 32 graphs at A and B (4:2:0
+  conversions that change matrix from an integer format), with gcc 13 only:
+  clang 18 on the same runner reports none.
+- **Decision.** Pin it in deps 1.18.0-rc5 (the user's choice of release;
+  task #127), after task #111 merges (it rewrites the same block and `zimg_pin_test.dart`),
+  with the bundle A/B'd through `deps_run_id` as task #103 did. The numbers
+  are zimg's C API, not a VapourSynth bundle yet. macOS x86_64 was not run
+  (no Rosetta on the machine used).
+
+Report: [docs/reports/task-126-zimg-9806db42](reports/task-126-zimg-9806db42/index.html);
+#109's report has a dated note.

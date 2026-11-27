@@ -1,0 +1,3 @@
+cpu	cases	same_digest	diff_digest	not_run	tmp_smaller	tmp_equal	tmp_larger
+auto64	158	158	0	0	158	0	0
+none	158	158	0	0	158	0	0
