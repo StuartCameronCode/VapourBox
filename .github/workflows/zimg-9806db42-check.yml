@@ -9,17 +9,32 @@ name: zimg 9806db42 check (Linux)
 # gcc 13 and clang 18 on x64 and on arm64 (the arm64 clang column is for
 # task #115's ASan reports).
 #
+# Task #127 adds vs-confirm: task #109's vs_confirm.sh (repro.vpy's
+# error-diffusion conversions through the bundle's own vspipe, REPEAT times
+# plainly and once under valgrind) against the candidate bundle from
+# build-deps-linux (C) and the published rc4 bundle (B, the control).
+#
 # Dispatch it, or push a change to this file on a branch (a workflow that is
-# not on the default branch cannot be dispatched).
+# not on the default branch cannot be dispatched). A head commit whose message
+# contains [vs-only], or a dispatch with vs_only, runs vs-confirm alone.
 
 on:
   workflow_dispatch:
+    inputs:
+      vs_only:
+        description: 'Run vs-confirm alone'
+        type: boolean
+        default: false
+      repeat:
+        description: 'Plain vspipe runs per conversion in vs-confirm'
+        default: '50'
   push:
     branches-ignore: [main]
     paths: ['.github/workflows/zimg-9806db42-check.yml']
 
 permissions:
   contents: read
+  actions: read  # vs-confirm downloads build-deps-linux artifacts
 
 env:
   R109: docs/reports/task-109-graphengine-tmp-overrun/scripts
@@ -27,6 +42,7 @@ env:
 
 jobs:
   compare:
+    if: ${{ !contains(github.event.head_commit.message, '[vs-only]') && !inputs.vs_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -66,3 +82,47 @@ jobs:
           path: |
             out/*.tsv
             out/*.txt
+
+  vs-confirm:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # build-deps-linux run 45994495018: zimg 9806db42 / graphengine 308d3735 (task #127)
+          # no run id: the published deps-v1.18.0-rc4 bundle (zimg 67e06032 / cb5b2ce1)
+          # ci-test and nightly have no linux-arm64 row, so arm64 is checked here.
+          - { label: 'C-9806db42-x64', run_id: '45994495018', os: ubuntu-24.04, platform: linux-x64 }
+          - { label: 'B-67e06032-rc4-x64', run_id: '', os: ubuntu-24.04, platform: linux-x64 }
+          - { label: 'C-9806db42-arm64', run_id: '45994495018', os: ubuntu-24.04-arm, platform: linux-arm64 }
+          - { label: 'B-67e06032-rc4-arm64', run_id: '', os: ubuntu-24.04-arm, platform: linux-arm64 }
+    runs-on: ${{ matrix.os }}  # the deps-build images (glibc 2.39)
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y valgrind unzip
+          grep -m1 'model name' /proc/cpuinfo || uname -m
+          grep -m1 -o 'avx512[a-z]*' /proc/cpuinfo | head -1 || echo "no avx512"
+
+      - name: Install the bundle (${{ matrix.label }})
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPS_RUN_ID: ${{ matrix.run_id }}
+        run: bash .github/scripts/install-deps-bundle.sh ${{ matrix.platform }} deps-v1.18.0-rc4 1.18.0-rc4 deps/${{ matrix.platform }}
+
+      - name: repro.vpy, plain and under valgrind
+        env:
+          LABEL: ${{ matrix.label }}
+          REPEAT: ${{ inputs.repeat || '50' }}
+        run: |
+          mkdir -p out
+          bash $R109/vs_confirm.sh "$PWD/deps/${{ matrix.platform }}" "$LABEL" "$REPEAT" out/logs | tee out/vs-confirm.tsv
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vs-confirm-${{ matrix.label }}
+          path: out/
