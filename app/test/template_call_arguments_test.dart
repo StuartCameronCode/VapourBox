@@ -19,6 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 import 'support/python_calls.dart';
+import 'support/vspipe_process.dart';
 import 'support/worker_harness.dart';
 
 /// havsfunc's top-level functions: name -> (parameter names, takes **kwargs).
@@ -113,7 +114,13 @@ core.std.BlankClip().set_output()
         : p.join(WorkerHarness.depsDir, 'vapoursynth', 'vspipe');
     final ProcessResult r;
     try {
-      r = await Process.run(vspipe, ['-i', script.path, '-'], environment: WorkerHarness.workerEnv);
+      // runVspipe, never Process.run: a hung vspipe is described and
+      // killed at the limit rather than holding the test (task #124).
+      r = (await runVspipe(vspipe, ['-i', script.path, '-'],
+              label: 'vspipe -i (plugin signatures)',
+              environment: WorkerHarness.workerEnv,
+              timeout: const Duration(minutes: 5)))
+          .result;
     } finally {
       if (script.existsSync()) script.deleteSync();
     }

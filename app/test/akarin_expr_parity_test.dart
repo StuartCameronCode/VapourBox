@@ -27,6 +27,7 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
 
+import 'support/vspipe_process.dart';
 import 'support/worker_harness.dart';
 
 /// Collects every distinct Expr call havsfunc makes, then runs each one through
@@ -197,11 +198,15 @@ void main() {
             }
           : {'PYTHONPATH': path.join(depsDir, 'python-packages')};
 
-      final result = await Process.run(
+      // runVspipe, never Process.run: a vspipe stuck in its exit is stopped
+      // after the worker's grace (task #122), a hang named (task #124).
+      final result = (await runVspipe(
         vspipePath,
         ['-o', '0', scriptFile.path, Platform.isWindows ? 'NUL' : '/dev/null'],
+        label: 'akarin parity',
         environment: env,
-      );
+      ))
+          .result;
       final stderr = result.stderr.toString();
 
       if (stderr.contains('AKARIN_ABSENT')) {

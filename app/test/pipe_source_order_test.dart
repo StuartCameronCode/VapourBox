@@ -10,7 +10,6 @@
 // `_PipeReader` directly, with a fake pipe of numbered frames, in that order,
 // so it fails deterministically on the old reader. It needs the bundle's
 // Python (vapoursynth imports), as plugin_format_contracts_test does.
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -18,6 +17,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
+import 'support/vspipe_process.dart';
 import 'support/worker_harness.dart';
 
 const _script = r'''
@@ -286,23 +286,21 @@ void main() {
     for (var i = 0; i < n; i++) {
       raw.fillRange(i * frame, (i + 1) * frame, i);
     }
-    final process = await Process.start(vspipe, [script.path, '-c', 'y4m', '-'],
+    // runVspipe drains both pipes before writing (vspipe may stop reading
+    // early on a failure, and an unread pipe deadlocks; CLAUDE.md, "Feeding
+    // a test clip") and applies the worker's exit rule (task #124).
+    final run = await runVspipe(vspipe, [script.path, '-c', 'y4m', '-'],
+        label: 'vspipe, late output frame',
         environment: {
           ...WorkerHarness.workerEnv,
           'VB_PIPE_SOURCE_DIR': p.join(WorkerHarness.repoRoot, 'worker', 'templates'),
-        });
-    // Drain both pipes before writing: vspipe may stop reading early on a
-    // failure, and an unread pipe deadlocks (CLAUDE.md, "Feeding a test clip").
-    final stdoutF = process.stdout.fold<BytesBuilder>(BytesBuilder(), (b, c) => b..add(c));
-    final stderrF = process.stderr.transform(utf8.decoder).join();
-    process.stdin.add(raw);
-    unawaited(process.stdin.close().catchError((_) {}));
-    final code = await process.exitCode.timeout(const Duration(minutes: 2), onTimeout: () {
-      process.kill(ProcessSignal.sigkill);
-      throw TimeoutException('vspipe timed out');
-    });
-    final y4m = (await stdoutF).takeBytes();
-    final err = await stderrF;
+        },
+        stdin: raw,
+        binaryStdout: true,
+        timeout: const Duration(minutes: 2));
+    final code = run.result.exitCode;
+    final y4m = run.result.stdout as Uint8List;
+    final err = run.result.stderr as String;
     expect(code, 0, reason: err);
     expect(err, contains('LATE_REQUEST 0 '),
         reason: 'the late request has to arrive after the reader ran past the window, '
