@@ -1232,7 +1232,10 @@ build_plugin() {
     # Expose the from-source VapourSynth to pkg-config so plugins that use
     # `dependency('vapoursynth')` (removegrain, cas, ...) resolve against our
     # R73 build rather than failing or finding a mismatched system install.
-    if PKG_CONFIG_PATH="${VS_PC_DIR:-}:${PKG_CONFIG_PATH:-}" eval "$build_cmd"; then
+    # $SRCLIB's .pc files (fftw3f) are named here too, so a local re-run that
+    # skips VapourSynth (and so never sets PKG_CONFIG_PATH above) still finds
+    # the pinned fftw now that Homebrew has none (task #114).
+    if PKG_CONFIG_PATH="${VS_PC_DIR:-}:$SRCLIB/lib/pkgconfig:${PKG_CONFIG_PATH:-}" eval "$build_cmd"; then
         # Find the built library
         local lib_path=$(find . -name "*.dylib" -type f 2>/dev/null | head -1)
         if [ -n "$lib_path" ]; then
