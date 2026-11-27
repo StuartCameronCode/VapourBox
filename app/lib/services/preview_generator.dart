@@ -677,8 +677,9 @@ class PreviewGenerator {
         return Uint8List.fromList(pngBytes);
       } else if (exitCode != 0) {
         _lastError = 'Preview generation failed (exit code $exitCode)';
-        if (stderrBuffer.isNotEmpty) {
-          _lastError = '$_lastError:\n$stderrBuffer';
+        final said = previewErrorText(stderrBuffer.toString());
+        if (said.isNotEmpty) {
+          _lastError = '$_lastError:\n$said';
         }
       }
     } catch (e) {
@@ -871,3 +872,16 @@ class CancelToken {
     _cancelled = true;
   }
 }
+
+/// The worker's stderr for a failed preview's error, without the vspipe
+/// lines it echoes as they arrive (`vspipe: +<ms> ms …`, task #122): the
+/// worker's own error already quotes what of them matters. They stay in the
+/// preview log.
+String previewErrorText(String stderr) => stderr
+    .split('\n')
+    .where((l) => !l.startsWith(vspipeEchoPrefix))
+    .join('\n')
+    .trim();
+
+/// Twin of the worker's `VSPIPE_ECHO_PREFIX` (`pipeline_executor.rs`).
+const vspipeEchoPrefix = 'vspipe: +';

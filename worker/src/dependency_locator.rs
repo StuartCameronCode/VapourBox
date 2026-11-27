@@ -165,6 +165,20 @@ impl DependencyLocator {
         self.base_path.join(self.platform_suffix())
     }
 
+    /// The vspipe the encode and the preview run. Debug builds only: a test
+    /// may put a wrapper in front of the real one (`VAPOURBOX_VSPIPE`), e.g.
+    /// one that keeps its pipes open after vspipe exits (task #122). Probes
+    /// keep the bundle's ([`vspipe_path`](Self::vspipe_path)).
+    pub fn pipeline_vspipe_path(&self) -> Result<PathBuf> {
+        #[cfg(debug_assertions)]
+        if let Some(p) = std::env::var_os("VAPOURBOX_VSPIPE").map(PathBuf::from) {
+            if p.exists() {
+                return Ok(p);
+            }
+        }
+        self.vspipe_path()
+    }
+
     /// Get the path to vspipe executable.
     pub fn vspipe_path(&self) -> Result<PathBuf> {
         let vs_dir = self.platform_dir().join("vapoursynth");

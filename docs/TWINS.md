@@ -37,6 +37,7 @@ not listed here, or when a listed file no longer exists.
 | `app/lib/models/unblend_parameters.dart` | `unblendInputFps`, `unblendTargetProblem` | the Deinterlace `FrameMap`s, `unblend_ratio` | `unblend_parameters_test.dart`; `docs/reports/2026-11-srestore/data/ratio_table.json` | **Kept + pinned**. Candidate for an asynchronous worker check (like the GPU probes) for the warning text |
 | `app/lib/models/audio_restoration_parameters.dart` | `hasEffect`, `startWithPicture` | `AudioRestorationParameters::has_effect`, `start_with_picture` | `audio_restoration_test.dart` | **Kept**: one-line predicates over the same fields |
 | `app/lib/models/color_correction_parameters.dart` | `effectiveLevelsPoints` | `ColorCorrectionParameters::effective_levels_points` | `color_correction_panel_test.dart` | **Kept**: one line; the panel hides sliders from it |
+| `app/lib/services/preview_generator.dart` | `vspipeEchoPrefix` (the preview's echoed vspipe lines, left out of a failed preview's error text) | `VSPIPE_ECHO_PREFIX` | `vspipe_echo_prefix_test.dart` (parses the Rust const) | **Kept**: one string; the error text is assembled in the app (task #122) |
 | `app/lib/services/pitch_factor_file.dart` | the factor file's line rules (for the summary shown when a video is added) | `parse_pitch_factors` | `pitch_factor_file_test.dart` | **Candidate for a worker call** (`--check-pitch-file`), so the error wording and line number are the worker's. The worker already refuses a bad file at job time |
 
 ### Test-side twins
