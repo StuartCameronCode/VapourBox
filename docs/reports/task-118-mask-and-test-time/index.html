@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mask AND test time</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>The "havsfunc mask AND (patch 8)" test timed out on macOS x64</h1>
+<p class="meta">Task #118, 2026-11-27. CI durations from <code>ci-test.yml</code>'s flutter jobs, 14 runs from 2026-11-22 to 2026-11-26 (deps 1.18.0-rc3/rc4). Profiles on an Apple M1 (macOS arm64), deps 1.18.0-rc4. The x64 bundle was not run locally (no Rosetta on that machine); the macOS x64 figure after the change is a projection until the PR's CI run.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>Slow, not hung.</b> The push gate's check of havsfunc patch 8 (task #82) took 114–158 s on the macOS x64 runner and timed out at its 180 s limit in 4 of 14 runs. On the other platforms it took 14–75 s.</li>
+<li><b>The cost was the test's reference, not the code under test.</b> The reference ran each havsfunc call with upstream's own AND table, as a <code>Lut2(lut=…)</code> list built for every call. At 10 bits that is 2<sup>20</sup> entries, and handing them to VapourSynth costs ~0.3 s a call on an M1. The 48 such calls were 14.0 s of the script's 16.9 s. The patched calls took 0.12 s in all.</li>
+<li><b>Fix (test only):</b> above 8 bits the reference ANDs the top 8 bits and the low bits in two 8-bit tables and joins them in a third, all integer tables. Before the loop the script proves this equal to upstream's full 10-bit table on all 1,048,576 pairs, once. Whole script <b>16.9 s → 4.2 s</b> on the M1; the same 36 comparisons, every one still exact. The 3-minute timeout stays.</li>
+<li><b>Still caught:</b> with <code>_mask_and</code> swapped for <code>Expr 'x y max'</code> the comparisons fail; with one entry of the join table broken the proof fails (<code>PlaneStatsDiff</code> 6.8e-7).</li>
+</ul>
+
+<h2>The test's time on CI, before</h2>
+<p>From the gap between the test's result line and the previous result line of the same file in the same job (package:test runs a file's tests one at a time). <code>scripts/ci_test_durations.py</code>; per job in <code>data/ci_durations_before.tsv</code>.</p>
+<table>
+<tr><th>Platform</th><th>Seconds (14 runs)</th><th><code>SLOWEST_EVAL</code> (the patched calls)</th></tr>
+<tr><td>windows-x64</td><td class="num">14.4–31.3</td><td class="num">0.07–0.15 s</td></tr>
+<tr><td>linux-x64</td><td class="num">21.8–39.8</td><td class="num">0.09–0.25 s</td></tr>
+<tr><td>macos-arm64</td><td class="num">36.8–75.0</td><td class="num">0.09–0.75 s</td></tr>
+<tr><td><b>macos-x64</b></td><td class="num">114.6, 115.4, 124.8, 128.9, 129.8, 130.1, 136.6, 140.1, 142.9, 158.4, <span class="no">180 ×4 (timed out)</span></td><td class="num">0.02–0.22 s</td></tr>
+</table>
+<p>The flutter job runs files four at a time (<code>--concurrency=4</code>) on the Intel runner's 4 cores, beside the format sweep's smoke rows, so the time varies with what runs alongside it.</p>
+
+<h2>Where the time went</h2>
+<p><code>scripts/profile_reference.py</code> runs the test's script part by part, with either reference (<code>REF=table</code>, <code>REF=split</code>); output in <code>data/profile_macos-arm64.txt</code>. Repeated three times each under light load: 16.8–17.2 s and 4.2–4.4 s.</p>
+<table>
+<tr><th>Part</th><th>Upstream's table per call</th><th>Split reference</th></tr>
+<tr><td>Reference, 48 calls at 10 bits</td><td class="num">15.1 s (list 1.1 s + <code>Lut2</code> creation 14.0 s)</td><td class="num">2.6 s</td></tr>
+<tr><td>Reference, 72 calls at 8 bits</td><td class="num">1.4 s</td><td class="num">1.3 s</td></tr>
+<tr><td>The patched calls</td><td class="num">0.12 s</td><td class="num">0.12 s</td></tr>
+<tr><td>The comparisons</td><td class="num">0.12 s</td><td class="num">0.12 s</td></tr>
+<tr><td><b>Whole script</b></td><td class="num"><b>16.9 s</b></td><td class="num"><b>4.2 s</b></td></tr>
+</table>
+<p>A 10-bit table costs the same passed as a list, a tuple or an <code>array('q')</code> (~0.29 s; the conversion of 2<sup>20</sup> Python ints), and 2.2 s as <code>function=</code>. A <code>Lut2</code> node is bound to its two clips, so the table can't be built once and reused across calls; caching the list saves only the 1.1 s of building it. The bundle has no numpy.</p>
+
+<h2>The split reference, and why it is exact</h2>
+<p>AND works bit by bit, so for two N-bit values (N ≥ 8), with s = N − 8 and m = 2<sup>s</sup> − 1:</p>
+<pre>x &amp; y = (((x &gt;&gt; s) &amp; (y &gt;&gt; s)) &lt;&lt; s) | ((x &amp; m) &amp; (y &amp; m))</pre>
+<p>Each half is an 8-bit <code>Lut2</code> with the 65,536-entry AND table, fed by <code>std.Lut(…, bits=8)</code> splits of each clip, and a third 8-bit <code>Lut2</code> with <code>bits=N</code> joins them. At 8 bits the reference is upstream's own 256×256 table. Every step is an integer table, so the reference shares nothing with the code under test (<code>Expr 'x y min'</code>). It needs both clips at one depth, which every <code>_mask_and</code> call in havsfunc is (two GRAY planes of one clip); the test raises otherwise.</p>
+<p><b>The proof, in every run of the test:</b> one 1024×1024 GRAY10 frame where clip a is the column index and clip b the row index, so every (x, y) pair of 10-bit values meets once (R78's <code>std.Expr</code> has no <code>X</code>/<code>Y</code>, so the ramp is 1,024 one-pixel <code>BlankClip</code>s stacked, and its transpose). Both ramps are checked to span 0..1023, then the split is compared with upstream's full <code>Lut2(lut=[x &amp; y …])</code>. <code>scripts/split_exhaustive.py</code>; <code>data/split_exhaustive_macos-arm64.txt</code>:</p>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Ramps</td><td>0..1023 both</td></tr>
+<tr><td>Split vs upstream's 10-bit table, 1,048,576 pairs</td><td class="ok"><code>PlaneStatsDiff</code> 0.0</td></tr>
+<tr><td>Cost a call</td><td class="num">upstream's table 0.316 s, split 0.057 s</td></tr>
+</table>
+<p><code>PlaneStatsDiff</code> is the mean absolute difference over the plane; one sample one level off gives 9.3e-10, not 0, so 0 means every sample equal.</p>
+
+<h2>Checking that the test still fails</h2>
+<table>
+<tr><th>Change (in a copy of the test)</th><th>Result</th></tr>
+<tr><td>None</td><td class="ok">passes, <code>TOTAL_EVAL</code> 5.2 s</td></tr>
+<tr><td><code>_mask_and</code> replaced by <code>Expr 'x y max'</code></td><td class="no">fails: every output and mask "differs from the AND reference", and the mask fixtures no longer exercise both states</td></tr>
+<tr><td>Join table entry (200, 1) off by one</td><td class="no">fails: "the reference differs from upstream's 10-bit table (diff 6.795978266472691e-07)"</td></tr>
+</table>
+
+<h2>What changed</h2>
+<ul>
+<li><code>app/test/vapoursynth_integration_test.dart</code>, group <code>havsfunc mask AND (patch 8)</code>: the split reference, the proof before the loop, and a <code>TOTAL_EVAL</code> line beside <code>SLOWEST_EVAL</code> so every run records the script's time on every platform. Coverage unchanged: outputs at every subsampling at 8 and 10 bits, masks at 4:2:0 for both depths and at 8-bit 4:2:2/4:4:4.</li>
+<li>The 3-minute timeout and the 2 s <code>slowest</code> check are kept. A longer timeout alone would have left the test using ~2.5 minutes of the ~10-minute push gate (task #84) on the slowest runner.</li>
+</ul>
+
+<h2>Limits</h2>
+<div class="box">
+<p>The M1 numbers are one machine. The macOS x64 runner took ~7.7× the M1's script time before (130 s against 16.9 s); at that ratio the script now takes ~32 s there, plus vspipe's start. That is a projection: the PR's CI run records <code>TOTAL_EVAL</code> and the test's time on all four platforms, and one green run is not proof against a timeout that hit 4 runs in 14, so the recorded times (far under 180 s) are what to read. 16-bit isn't exercised by the test; the split is the same code there (s = 8).</p>
+</div>
+</body>
+</html>
