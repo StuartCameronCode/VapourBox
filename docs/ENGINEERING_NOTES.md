@@ -6724,3 +6724,60 @@ the fix); `e2e43d09` is no longer on master. No zimg release has it.
 
 Report: [docs/reports/task-126-zimg-9806db42](reports/task-126-zimg-9806db42/index.html);
 #109's report has a dated note.
+
+### Every source build pinned (task #110, 2026-11-27)
+
+After task #103 pinned zimg, 16 more plugin sources were still cloned from
+the upstream default branch with `git clone --depth 1`, or by `build_plugin`
+with no ref. Six downloads named a branch too. Any of them could change a
+rebuild of the same deps version with nothing in the build failing.
+
+- **The pins are the commits deps 1.18.0-rc3 and rc4 built.** `--depth 1`
+  logs no SHA, so each pin is the default-branch tip at the build time (from
+  `gh api repos/<r>/commits`). The submodule lines in rc3's logs match
+  (znedi3: graphengine `7bb77a5c`, vsxx `11eb026a`; descratch: vapoursynth
+  `a512453b`, AviSynthPlus `6c7c2661`). Every tip predates the rc3 builds and
+  none had moved by rc4, so both bundles hold the same code and output is
+  unchanged. A tag is used where one points exactly at the commit.
+
+  | Plugin | Pin | Plugin | Pin |
+  |---|---|---|---|
+  | MVTools | `ed90ee9f` (v29_2 + 3) | AddGrain | r10 |
+  | ZNEDI3 | `34b2aa9f` | VIVTC | `e55cac58` (R2 + n) |
+  | NNEDI3 | `82993ff2` (v12 + n) | neo_f3kdb | r11 |
+  | NNEDI3CL | r8 | CAS | r3 |
+  | TTempSmooth | r4.1 | Deblock | r9 |
+  | MiscFilters | `07e0589a` | AWarpSharp2 | v4 |
+  | RemoveGrain | `89ca38a6` | TemporalMedian | v1 (Linux) |
+  | Retinex | `6bfbdd42` (r4 + 1) | DeScratch | `79246a50` (R4 + n) |
+
+  Downloads: mvsfunc `865c7486`, adjust.py `a3af7cb5`, the nnedi3 weights at
+  ZNEDI3's commit, and (macOS arm64) yuygfgg's prebuilts at `8c50716a`, on
+  Windows too for the first three.
+- **MVTools moved between rc2 and rc3.** dubhater's master took `11e2562d`
+  (`isfinite` → `std::isfinite` in MVDepan.cpp) and two docs/CI commits on
+  2026-11-20, so rc2 shipped v29_2 (`17250aa9`) and rc3/rc4 `ed90ee9f`. Same
+  code on a float; the pin is what the published bundle holds.
+- **Retinex was never r4 on macOS and Linux.** The macOS comment said "Pinned
+  to r4", but no tag was passed: both built master, r4 + "Fix unexpected
+  appending when sigma is specified". Windows ships the r4 DLL, and the
+  template always passes `sigma`, so the platforms can differ: task #113.
+- **The Windows weights fallback never worked.** It asked for
+  `raw/master/znedi3/nnedi3_weights.bin`; the file is at the repo's root. It
+  only runs when the znedi3 7z doesn't supply the weights, so nobody saw it.
+- **How.** `clone_pinned <repo> <dir> <ref> [--submodules]` in both shell
+  scripts fetches a full SHA by commit (or a tag with `--branch`), checks the
+  submodules sit at the recorded commits, fails if HEAD is not the SHA, and
+  logs what it got. `build_plugin` refuses an empty ref and clones through
+  it. VapourSynth's `|| git clone` (master) fallback is gone, and the macOS
+  arm64 VIVTC / neo-f3kdb blocks it held (dead: inside the arm64 branch,
+  behind `ARCH != arm64`) are deleted. `app/test/source_pin_test.dart` (push
+  gate) checks all of it, and that both scripts pin a shared source alike.
+- **Not covered (task #114):** Homebrew's zimg, FFTW and boost on macOS,
+  pip's cython and meson, and apt libraries Linux copies. BtbN's FFmpeg
+  `latest` is task #123. R78's `subprojects/libp2p.wrap` also says
+  `revision = HEAD`, but meson asks for it only on Windows, which uses the
+  wheel.
+
+No measurements, so no report; the A/B builds through `deps_run_id` are in
+the task.

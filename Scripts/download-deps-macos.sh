@@ -413,8 +413,8 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.dylib" ] 
     || ! grep -aqF "$VSPIPE_PATCH_MARKER" "$DEPS_DIR/vapoursynth/vspipe-bin" 2>/dev/null; then
     echo "  Cloning VapourSynth $VS_TAG..."
     rm -rf "$VS_BUILD_DIR"
-    git clone --depth 1 --branch "$VS_TAG" https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
-    git clone --depth 1 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR"
+    # No fallback to master: a failed clone of the tag fails the build (task #110).
+    git clone --depth 1 --branch "$VS_TAG" https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR"
 
     cd "$VS_BUILD_DIR"
 
@@ -765,13 +765,87 @@ else
 fi
 
 # ============================================================================
+# Source pins (task #110)
+# ============================================================================
+# Every source this script builds is pinned to a tag or a full commit: an
+# unpinned `git clone --depth 1` builds whatever upstream pushed that day, so
+# a rebuild of the same deps version could ship different code with nothing
+# failing (zimg master did exactly that to Linux's deps 1.18.0-rc3, task
+# #103). Each pin is the commit deps 1.18.0-rc3 and rc4 were built from, so
+# output is unchanged; a tag is used where one points exactly at it. Bumping
+# one changes the bundle: A/B it through `deps_run_id` first. Keep every pin
+# in step with download-deps-linux.sh; app/test/source_pin_test.dart checks
+# both scripts. (arm64 also takes yuygfgg's prebuilts at YUYGFGG_COMMIT.)
+MVTOOLS_COMMIT="ed90ee9f58eba00f7b08c93958aa93424dd433ba"      # v29_2 + 3 (2026-11-20; std::isfinite); arm64 (x64 builds v24)
+ZNEDI3_COMMIT="34b2aa9f5d10c31775469b7a358f1ff52375ed1e"       # 2026-10-25; no tag; arm64
+NNEDI3_COMMIT="82993ff21cf569776fc1a7e5bb60235c00bbeea3"       # v12 + n (2024-07-15); arm64
+NNEDI3CL_TAG="r8"
+TTEMPSMOOTH_TAG="r4.1"                                          # x64 (arm64: yuygfgg's prebuilt)
+MISCFILTERS_COMMIT="07e0589a381f7deb3bf533bb459a94482bccc5c7"  # 2022-01-24; no tag; arm64
+REMOVEGRAIN_COMMIT="89ca38a6971e371bdce2778291393258daa5f03b"  # 2022-10-28; no tag; arm64
+RETINEX_COMMIT="6bfbdd429159c85075dc4b08e0ac4e706470916b"      # r4 + sigma fix (2021-10-18); see Retinex below
+ADDGRAIN_TAG="r10"                                              # arm64
+VIVTC_COMMIT="e55cac584d4968def77b99e661194387002cdae3"        # R2 + n (2026-07-27); x64 (arm64: yuygfgg's)
+NEO_F3KDB_TAG="r11"                                             # x64 (arm64: yuygfgg's)
+CAS_TAG="r3"                                                    # arm64
+DEBLOCK_TAG="r9"                                                # arm64
+AWARPSHARP2_TAG="v4"                                            # arm64
+DESCRATCH_COMMIT="79246a508eb8d09844f6a914914191e43626d531"    # R4 + n (2026-07-10)
+MVSFUNC_COMMIT="865c7486ca860d323754ec4774bc4cca540a7076"      # 2023-03-21; no tag
+ADJUST_COMMIT="a3af7cb57cb37747b0667346375536e65b1fed17"       # 2021-10-06; no tag
+YUYGFGG_COMMIT="8c50716ab2bcaf171d26e185e87b8b7b7d8c1318"      # yuygfgg/Macos_vapoursynth_plugins, 2026-06-03
+
+# clone_pinned <repo> <dir> <ref> [--submodules]
+# Clones <repo> into <dir> (replacing it) at <ref>, a tag or a full commit
+# SHA, and fails unless HEAD is that commit. --submodules also checks out the
+# submodules at the commits the parent records. Returns 1 if the clone fails
+# (a network error: the caller records the plugin as failed); exits if <ref>
+# is empty or HEAD is not the commit asked for. Same as download-deps-linux.sh.
+clone_pinned() {
+    local repo="$1" dir="$2" ref="$3" submodules="${4:-}"
+    if [ -z "$ref" ]; then
+        echo "  ERROR: clone_pinned $dir has no ref: every source build is pinned (task #110)" >&2
+        exit 1
+    fi
+    rm -rf "$dir"
+    if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+        # --branch takes only a name; GitHub and GitLab serve a fetch by SHA.
+        git init -q "$dir" \
+            && git -C "$dir" remote add origin "$repo" \
+            && git -C "$dir" fetch -q --depth 1 origin "$ref" \
+            && git -C "$dir" -c advice.detachedHead=false checkout -q FETCH_HEAD \
+            || return 1
+    else
+        git -c advice.detachedHead=false clone -q --depth 1 --branch "$ref" "$repo" "$dir" || return 1
+    fi
+    if [ "$submodules" = "--submodules" ]; then
+        git -C "$dir" submodule update -q --init --recursive --depth 1 || return 1
+        if git -C "$dir" submodule status --recursive | grep -q '^[-+U]'; then
+            echo "  ERROR: $dir's submodules are not at the commits it records:" >&2
+            git -C "$dir" submodule status --recursive >&2
+            exit 1
+        fi
+    fi
+    local head
+    head="$(git -C "$dir" rev-parse HEAD)"
+    if [[ "$ref" =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$ref" ]; then
+        echo "  ERROR: $dir is at $head, not $ref" >&2
+        exit 1
+    fi
+    echo "  $dir at $ref ($head)"
+    if [ "$submodules" = "--submodules" ]; then
+        git -C "$dir" submodule status --recursive | sed 's/^/    submodule /'
+    fi
+}
+
+# ============================================================================
 # Download pre-built plugins from yuygfgg/Macos_vapoursynth_plugins (ARM64)
 # These are optimized ARM64 builds that work better than building from source
 # ============================================================================
 echo ""
 echo "=== Downloading pre-built ARM64 plugins ==="
 
-YUYGFGG_BASE="https://github.com/yuygfgg/Macos_vapoursynth_plugins/raw/main"
+YUYGFGG_BASE="https://github.com/yuygfgg/Macos_vapoursynth_plugins/raw/$YUYGFGG_COMMIT"
 LIB_DIR="$DEPS_DIR/lib"
 mkdir -p "$LIB_DIR"
 
@@ -780,8 +854,8 @@ if [ "$ARCH" = "arm64" ]; then
     echo "  Downloading from yuygfgg/Macos_vapoursynth_plugins..."
 
     # FFTW libraries (required for dfttest)
-    curl -sL "$YUYGFGG_BASE/support/libfftw3f.3.dylib" -o "$LIB_DIR/libfftw3f.3.dylib"
-    curl -sL "$YUYGFGG_BASE/support/libfftw3f_threads.3.dylib" -o "$LIB_DIR/libfftw3f_threads.3.dylib"
+    curl -fsL "$YUYGFGG_BASE/support/libfftw3f.3.dylib" -o "$LIB_DIR/libfftw3f.3.dylib"
+    curl -fsL "$YUYGFGG_BASE/support/libfftw3f_threads.3.dylib" -o "$LIB_DIR/libfftw3f_threads.3.dylib"
 
     # Fix library paths
     install_name_tool -id "@loader_path/libfftw3f.3.dylib" "$LIB_DIR/libfftw3f.3.dylib"
@@ -803,7 +877,7 @@ if [ "$ARCH" = "arm64" ]; then
     codesign -s - -f "$LIB_DIR/libboost_atomic.dylib" 2>/dev/null
 
     # neo_f3kdb (optimized ARM64 build)
-    curl -sL "$YUYGFGG_BASE/lib/libneo-f3kdb.dylib" -o "$PLUGINS_DIR/libneo-f3kdb.dylib"
+    curl -fsL "$YUYGFGG_BASE/lib/libneo-f3kdb.dylib" -o "$PLUGINS_DIR/libneo-f3kdb.dylib"
     install_name_tool -id "@loader_path/libneo-f3kdb.dylib" "$PLUGINS_DIR/libneo-f3kdb.dylib"
     codesign -s - -f "$PLUGINS_DIR/libneo-f3kdb.dylib" 2>/dev/null
 
@@ -811,12 +885,12 @@ if [ "$ARCH" = "arm64" ]; then
     # unlocked buffer maps. Its source (the same fork) is built below, patched.
 
     # TTempSmooth (core.ttmpsm.TTempSmooth - used by havsfunc MCTemporalDenoise)
-    curl -sL "$YUYGFGG_BASE/lib/libttempsmooth.dylib" -o "$PLUGINS_DIR/libttempsmooth.dylib"
+    curl -fsL "$YUYGFGG_BASE/lib/libttempsmooth.dylib" -o "$PLUGINS_DIR/libttempsmooth.dylib"
     install_name_tool -id "@loader_path/libttempsmooth.dylib" "$PLUGINS_DIR/libttempsmooth.dylib" 2>/dev/null || true
     codesign -s - -f "$PLUGINS_DIR/libttempsmooth.dylib" 2>/dev/null
 
     # VIVTC (inverse telecine - VFM + VDecimate)
-    curl -sL "$YUYGFGG_BASE/lib/libvivtc.dylib" -o "$PLUGINS_DIR/libvivtc.dylib"
+    curl -fsL "$YUYGFGG_BASE/lib/libvivtc.dylib" -o "$PLUGINS_DIR/libvivtc.dylib"
     install_name_tool -id "@loader_path/libvivtc.dylib" "$PLUGINS_DIR/libvivtc.dylib"
     codesign -s - -f "$PLUGINS_DIR/libvivtc.dylib" 2>/dev/null
 
@@ -1022,7 +1096,12 @@ build_plugin() {
     local repo="$2"
     local output_lib="$3"
     local build_cmd="$4"
-    local tag="${5:-}"   # optional git tag; empty builds the default branch
+    local tag="${5:-}"   # a git tag or full commit SHA; required (task #110)
+
+    if [ -z "$tag" ]; then
+        echo "  ERROR: build_plugin $name has no ref: every source build is pinned (task #110)" >&2
+        exit 1
+    fi
 
     if [ "$FORCE" = false ] && [ -f "$PLUGINS_DIR/$output_lib" ]; then
         echo "  $name already exists, skipping"
@@ -1032,9 +1111,8 @@ build_plugin() {
     echo ""
     echo "=== Building $name ==="
 
-    rm -rf "$name"
-    if ! git clone --depth 1 ${tag:+--branch "$tag"} "$repo" "$name" 2>/dev/null; then
-        echo "  Failed to clone $name"
+    if ! clone_pinned "$repo" "$name" "$tag"; then
+        echo "  Failed to clone $name at $tag"
         FAILED_PLUGINS+=("$name")
         return 1
     fi
@@ -1241,7 +1319,7 @@ if [ "$ARCH" = "x86_64" ]; then
     if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libneo-f3kdb.dylib" ]; then
         echo ""; echo "=== Building neo-f3kdb (x86_64) ==="
         rm -rf f3kdb
-        if git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb \
+        if clone_pinned https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb "$NEO_F3KDB_TAG" --submodules \
            && cmake -S f3kdb -B f3kdb/build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION" \
            && cmake --build f3kdb/build --config Release; then
             lib=$(find f3kdb/build -name "*.dylib" -type f | head -1)
@@ -1256,7 +1334,7 @@ if [ "$ARCH" = "x86_64" ]; then
     if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libnnedi3cl.dylib" ]; then
         echo ""; echo "=== Building NNEDI3CL (x86_64) ==="
         rm -rf nnedi3cl
-        if git clone --depth 1 https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL.git nnedi3cl \
+        if clone_pinned https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL.git nnedi3cl "$NNEDI3CL_TAG" \
            && PKG_CONFIG_PATH="$VS_PC_DIR:${PKG_CONFIG_PATH:-}" BOOST_ROOT="$SRCLIB" \
               meson setup nnedi3cl/build nnedi3cl --buildtype=release \
            && ninja -C nnedi3cl/build; then
@@ -1279,7 +1357,7 @@ if [ "$ARCH" = "x86_64" ]; then
     if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libvivtc.dylib" ]; then
         echo ""; echo "=== Building VIVTC (x86_64) ==="
         rm -rf vivtc
-        if git clone --depth 1 https://github.com/vapoursynth/vivtc.git vivtc; then
+        if clone_pinned https://github.com/vapoursynth/vivtc.git vivtc "$VIVTC_COMMIT"; then
             VS_INC_DIR="$VS_INC_DIR" python3 - vivtc/meson.build <<'PYEOF'
 import os, re, sys
 path = sys.argv[1]
@@ -1305,7 +1383,7 @@ PYEOF
     if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libdescratch.dylib" ]; then
         echo ""; echo "=== Building DeScratch (x86_64) ==="
         rm -rf descratch
-        if git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/vapoursynth/descratch.git descratch \
+        if clone_pinned https://github.com/vapoursynth/descratch.git descratch "$DESCRATCH_COMMIT" --submodules \
            && meson setup descratch/build descratch --buildtype=release \
            && ninja -C descratch/build; then
             lib=$(find descratch/build -name "*.dylib" -type f | head -1)
@@ -1327,7 +1405,7 @@ PYEOF
     if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libttempsmooth.dylib" ]; then
         echo ""; echo "=== Building TTempSmooth (x86_64) ==="
         rm -rf ttempsmooth
-        if git clone --depth 1 https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth.git ttempsmooth \
+        if clone_pinned https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth.git ttempsmooth "$TTEMPSMOOTH_TAG" \
            && PKG_CONFIG_PATH="$VS_PC_DIR:${PKG_CONFIG_PATH:-}" \
               meson setup ttempsmooth/build ttempsmooth --buildtype=release \
            && ninja -C ttempsmooth/build; then
@@ -1419,17 +1497,20 @@ else
 build_plugin "mvtools" \
     "https://github.com/dubhater/vapoursynth-mvtools.git" \
     "libmvtools.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$MVTOOLS_COMMIT"
 
 # ZNEDI3 (neural network interpolation - primary for QTGMC)
 echo ""
 echo "=== Building ZNEDI3 ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libznedi3.dylib" ]; then
-    rm -rf znedi3
-    # --recurse-submodules: znedi3 carries graphengine + vsxx (which bundles the
+    # --submodules: znedi3 carries graphengine + vsxx (which bundles the
     # VapourSynth headers) as submodules. Without them the build fails with
     # "'znedi3.h' file not found" / missing vsxx4_pluginmain.o.
-    git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/sekrit-twc/znedi3.git znedi3
+    if ! clone_pinned https://github.com/sekrit-twc/znedi3.git znedi3 "$ZNEDI3_COMMIT" --submodules; then
+        echo "  ERROR: could not clone ZNEDI3 at $ZNEDI3_COMMIT" >&2
+        exit 1
+    fi
     cd znedi3
     # ZNEDI3 has its own makefile - need to disable x86 optimizations on arm64
     if [ "$ARCH" = "arm64" ]; then
@@ -1460,13 +1541,15 @@ fi
 build_plugin "nnedi3" \
     "https://github.com/dubhater/vapoursynth-nnedi3.git" \
     "libnnedi3.dylib" \
-    "sed -i '' 's/ -mfpu=neon//' Makefile.am && ./autogen.sh && ./configure && make -j\$(sysctl -n hw.ncpu)"
+    "sed -i '' 's/ -mfpu=neon//' Makefile.am && ./autogen.sh && ./configure && make -j\$(sysctl -n hw.ncpu)" \
+    "$NNEDI3_COMMIT"
 
 # NNEDI3CL (OpenCL version)
 build_plugin "nnedi3cl" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL.git" \
     "libnnedi3cl.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$NNEDI3CL_TAG"
 
 # EEDI3m (edge-directed interpolation). x86_64 takes Stefan-Olt's r8 above,
 # which locks its buffer maps correctly. arm64 builds r10, whose first count()
@@ -1495,58 +1578,33 @@ fi
 build_plugin "miscfilters" \
     "https://github.com/vapoursynth/vs-miscfilters-obsolete.git" \
     "libmiscfilters.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$MISCFILTERS_COMMIT"
 
 # RemoveGrain
 build_plugin "removegrain" \
     "https://github.com/vapoursynth/vs-removegrain.git" \
     "libremovegrain.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$REMOVEGRAIN_COMMIT"
 
 
 # AddGrain
 build_plugin "addgrain" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain.git" \
     "libaddgrain.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$ADDGRAIN_TAG"
 
-# VIVTC (inverse telecine - VFM + VDecimate)
-# On ARM64, we use the pre-built version from yuygfgg (downloaded above)
-if [ "$ARCH" != "arm64" ]; then
-    build_plugin "vivtc" \
-        "https://github.com/vapoursynth/vivtc.git" \
-        "libvivtc.dylib" \
-        "meson setup build --buildtype=release && ninja -C build"
-else
-    echo "  VIVTC: using pre-built ARM64 version from yuygfgg"
-fi
-
-# neo-f3kdb (debanding)
-# On ARM64, we use the pre-built version from yuygfgg (downloaded above)
-if [ "$ARCH" != "arm64" ]; then
-    echo ""
-    echo "=== Building neo-f3kdb ==="
-    if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libneo-f3kdb.dylib" ]; then
-        rm -rf f3kdb
-        git clone --depth 1 https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb
-        cd f3kdb
-        cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="$ARCH" -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN_VERSION"
-        cmake --build build --config Release
-        find build -name "*.dylib" | head -1 | xargs -I {} cp {} "$PLUGINS_DIR/libneo-f3kdb.dylib"
-        cd "$BUILD_DIR"
-        echo "  Built neo-f3kdb"
-    else
-        echo "  neo-f3kdb already exists, skipping"
-    fi
-else
-    echo "  neo_f3kdb: using pre-built ARM64 version from yuygfgg"
-fi
+# VIVTC and neo-f3kdb: arm64 takes yuygfgg's prebuilts (downloaded above);
+# x86_64 builds both from source in its own branch above.
 
 # CAS (Contrast Adaptive Sharpening)
 build_plugin "cas" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS.git" \
     "libcas.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$CAS_TAG"
 
 # DCTFilter: built on both arches below, after FFT3DFilter (task #96).
 
@@ -1554,13 +1612,15 @@ build_plugin "cas" \
 build_plugin "deblock" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Deblock.git" \
     "libdeblock.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$DEBLOCK_TAG"
 
 # AWarpSharp2
 build_plugin "awarpsharp2" \
     "https://github.com/dubhater/vapoursynth-awarpsharp2.git" \
     "libawarpsharp2.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$AWARPSHARP2_TAG"
 
 # CTMF and TCanny: built on both arches after DCTFilter, patched (task #98).
 
@@ -1584,9 +1644,7 @@ build_plugin "knlmeanscl" \
 echo ""
 echo "=== Building DeScratch ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libdescratch.dylib" ]; then
-    rm -rf descratch
-    if git clone --depth 1 --recurse-submodules --shallow-submodules \
-        https://github.com/vapoursynth/descratch.git descratch; then
+    if clone_pinned https://github.com/vapoursynth/descratch.git descratch "$DESCRATCH_COMMIT" --submodules; then
         cd descratch
         if meson setup build --buildtype=release && ninja -C build; then
             lib_path=$(find build -name "*.dylib" -type f 2>/dev/null | head -1)
@@ -2037,14 +2095,18 @@ PYEOF2
 fi
 
 # Retinex (core.retinex.MSRCP) - multi-scale retinex, used here to lift shadow
-# detail out of underexposed footage. Pinned to r4, the newest tag with a
-# published Windows binary. Ordinary meson build; it finds the VapourSynth
+# detail out of underexposed footage. Pinned to RETINEX_COMMIT, r4 + "Fix
+# unexpected appending when sigma is specified", which is what this script
+# built (unpinned master) before task #110; the comment here used to say r4.
+# Windows ships the r4 DLL, so the platforms differ where the template passes
+# sigma (task #113). Ordinary meson build; it finds the VapourSynth
 # headers through pkg-config, which build_plugin already points at our
 # from-source install.
 build_plugin "retinex" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" \
     "libretinex.dylib" \
-    "meson setup build --buildtype=release && ninja -C build"
+    "meson setup build --buildtype=release && ninja -C build" \
+    "$RETINEX_COMMIT"
 
 # zsmooth — exactly one build, in the autoload directory
 #
@@ -2895,8 +2957,8 @@ fi
 echo ""
 echo "=== Downloading NNEDI3 weights ==="
 if [ ! -f "$PLUGINS_DIR/nnedi3_weights.bin" ]; then
-    curl -L -o "$PLUGINS_DIR/nnedi3_weights.bin" \
-        "https://github.com/sekrit-twc/znedi3/raw/master/nnedi3_weights.bin"
+    curl -fL -o "$PLUGINS_DIR/nnedi3_weights.bin" \
+        "https://github.com/sekrit-twc/znedi3/raw/$ZNEDI3_COMMIT/nnedi3_weights.bin"
     echo "  Downloaded nnedi3_weights.bin"
 fi
 cp "$PLUGINS_DIR/nnedi3_weights.bin" "$DEPS_DIR/resources/NNEDI3CL/" 2>/dev/null || true
@@ -2919,17 +2981,17 @@ fi
 
 # mvsfunc
 if [ "$FORCE" = true ] || [ ! -d "$PYTHON_PACKAGES_DIR/mvsfunc" ]; then
-    curl -L -o /tmp/mvsfunc.zip "https://github.com/HomeOfVapourSynthEvolution/mvsfunc/archive/refs/heads/master.zip"
+    curl -fL -o /tmp/mvsfunc.zip "https://github.com/HomeOfVapourSynthEvolution/mvsfunc/archive/$MVSFUNC_COMMIT.zip"
     unzip -q /tmp/mvsfunc.zip -d /tmp
-    cp -r /tmp/mvsfunc-master/mvsfunc "$PYTHON_PACKAGES_DIR/"
-    rm -rf /tmp/mvsfunc.zip /tmp/mvsfunc-master
+    cp -r "/tmp/mvsfunc-$MVSFUNC_COMMIT/mvsfunc" "$PYTHON_PACKAGES_DIR/"
+    rm -rf /tmp/mvsfunc.zip "/tmp/mvsfunc-$MVSFUNC_COMMIT"
     echo "  Downloaded mvsfunc"
 fi
 
 # adjust
 if [ "$FORCE" = true ] || [ ! -f "$PYTHON_PACKAGES_DIR/adjust.py" ]; then
-    curl -L -o "$PYTHON_PACKAGES_DIR/adjust.py" \
-        "https://raw.githubusercontent.com/dubhater/vapoursynth-adjust/master/adjust.py" 2>/dev/null || true
+    curl -fL -o "$PYTHON_PACKAGES_DIR/adjust.py" \
+        "https://raw.githubusercontent.com/dubhater/vapoursynth-adjust/$ADJUST_COMMIT/adjust.py"
     echo "  Downloaded adjust.py"
 fi
 

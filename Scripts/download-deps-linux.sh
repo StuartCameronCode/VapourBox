@@ -277,8 +277,8 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.so" ] \
     || ! grep -aqF "$VSPIPE_PATCH_MARKER" "$DEPS_DIR/vapoursynth/vspipe-bin" 2>/dev/null; then
     echo "  Cloning VapourSynth $VS_TAG..."
     rm -rf "$VS_BUILD_DIR"
-    git clone --depth 1 --branch "$VS_TAG" https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR" 2>/dev/null || \
-    git clone --depth 1 https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR"
+    # No fallback to master: a failed clone of the tag fails the build (task #110).
+    git clone --depth 1 --branch "$VS_TAG" https://github.com/vapoursynth/vapoursynth.git "$VS_BUILD_DIR"
 
     cd "$VS_BUILD_DIR"
 
@@ -782,12 +782,90 @@ with open(path, 'w') as f:
 PYEOF
 }
 
+# ============================================================================
+# Source pins (task #110)
+# ============================================================================
+# Every source this script builds is pinned to a tag or a full commit: an
+# unpinned `git clone --depth 1` builds whatever upstream pushed that day, so
+# a rebuild of the same deps version could ship different code with nothing
+# failing (zimg master did exactly that to deps 1.18.0-rc3, task #103). Each
+# pin is the commit deps 1.18.0-rc3 and rc4 were built from, so output is
+# unchanged; a tag is used where one points exactly at it. Bumping one changes
+# the bundle: A/B it through `deps_run_id` first. Keep every pin in step with
+# download-deps-macos.sh; app/test/source_pin_test.dart checks both scripts.
+MVTOOLS_COMMIT="ed90ee9f58eba00f7b08c93958aa93424dd433ba"      # v29_2 + 3 (2026-11-20; std::isfinite)
+ZNEDI3_COMMIT="34b2aa9f5d10c31775469b7a358f1ff52375ed1e"       # 2026-10-25; no tag
+NNEDI3_COMMIT="82993ff21cf569776fc1a7e5bb60235c00bbeea3"       # v12 + n (2024-07-15)
+NNEDI3CL_TAG="r8"
+TTEMPSMOOTH_TAG="r4.1"
+MISCFILTERS_COMMIT="07e0589a381f7deb3bf533bb459a94482bccc5c7"  # 2022-01-24; no tag
+REMOVEGRAIN_COMMIT="89ca38a6971e371bdce2778291393258daa5f03b"  # 2022-10-28; no tag
+RETINEX_COMMIT="6bfbdd429159c85075dc4b08e0ac4e706470916b"      # r4 + sigma fix (2021-10-18); see Retinex below
+ADDGRAIN_TAG="r10"
+VIVTC_COMMIT="e55cac584d4968def77b99e661194387002cdae3"        # R2 + n (2026-07-27)
+NEO_F3KDB_TAG="r11"
+CAS_TAG="r3"
+DEBLOCK_TAG="r9"
+AWARPSHARP2_TAG="v4"
+TMEDIAN_TAG="v1"
+DESCRATCH_COMMIT="79246a508eb8d09844f6a914914191e43626d531"    # R4 + n (2026-07-10)
+MVSFUNC_COMMIT="865c7486ca860d323754ec4774bc4cca540a7076"      # 2023-03-21; no tag
+ADJUST_COMMIT="a3af7cb57cb37747b0667346375536e65b1fed17"       # 2021-10-06; no tag
+
+# clone_pinned <repo> <dir> <ref> [--submodules]
+# Clones <repo> into <dir> (replacing it) at <ref>, a tag or a full commit
+# SHA, and fails unless HEAD is that commit. --submodules also checks out the
+# submodules at the commits the parent records. Returns 1 if the clone fails
+# (a network error: the caller records the plugin as failed); exits if <ref>
+# is empty or HEAD is not the commit asked for.
+clone_pinned() {
+    local repo="$1" dir="$2" ref="$3" submodules="${4:-}"
+    if [ -z "$ref" ]; then
+        echo "  ERROR: clone_pinned $dir has no ref: every source build is pinned (task #110)" >&2
+        exit 1
+    fi
+    rm -rf "$dir"
+    if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+        # --branch takes only a name; GitHub and GitLab serve a fetch by SHA.
+        git init -q "$dir" \
+            && git -C "$dir" remote add origin "$repo" \
+            && git -C "$dir" fetch -q --depth 1 origin "$ref" \
+            && git -C "$dir" -c advice.detachedHead=false checkout -q FETCH_HEAD \
+            || return 1
+    else
+        git -c advice.detachedHead=false clone -q --depth 1 --branch "$ref" "$repo" "$dir" || return 1
+    fi
+    if [ "$submodules" = "--submodules" ]; then
+        git -C "$dir" submodule update -q --init --recursive --depth 1 || return 1
+        if git -C "$dir" submodule status --recursive | grep -q '^[-+U]'; then
+            echo "  ERROR: $dir's submodules are not at the commits it records:" >&2
+            git -C "$dir" submodule status --recursive >&2
+            exit 1
+        fi
+    fi
+    local head
+    head="$(git -C "$dir" rev-parse HEAD)"
+    if [[ "$ref" =~ ^[0-9a-f]{40}$ ]] && [ "$head" != "$ref" ]; then
+        echo "  ERROR: $dir is at $head, not $ref" >&2
+        exit 1
+    fi
+    echo "  $dir at $ref ($head)"
+    if [ "$submodules" = "--submodules" ]; then
+        git -C "$dir" submodule status --recursive | sed 's/^/    submodule /'
+    fi
+}
+
 build_plugin() {
     local name="$1"
     local repo="$2"
     local output_lib="$3"
     local build_cmd="$4"
-    local tag="${5:-}"   # optional git tag or full commit SHA; empty builds the default branch
+    local tag="${5:-}"   # a git tag or full commit SHA; required (task #110)
+
+    if [ -z "$tag" ]; then
+        echo "  ERROR: build_plugin $name has no ref: every source build is pinned (task #110)" >&2
+        exit 1
+    fi
 
     if [ "$FORCE" = false ] && [ -f "$PLUGINS_DIR/$output_lib" ]; then
         echo "  $name already exists, skipping"
@@ -797,16 +875,8 @@ build_plugin() {
     echo ""
     echo "=== Building $name ==="
 
-    rm -rf "$name"
-    if [[ "$tag" =~ ^[0-9a-f]{40}$ ]]; then
-        # A commit no tag contains (task #98): --branch takes only a name.
-        if ! { git clone -q "$repo" "$name" 2>/dev/null && git -C "$name" checkout -q "$tag"; }; then
-            echo "  Failed to clone $name at $tag"
-            FAILED_PLUGINS+=("$name")
-            return 1
-        fi
-    elif ! git clone --depth 1 ${tag:+--branch "$tag"} "$repo" "$name" 2>/dev/null; then
-        echo "  Failed to clone $name"
+    if ! clone_pinned "$repo" "$name" "$tag"; then
+        echo "  Failed to clone $name at $tag"
         FAILED_PLUGINS+=("$name")
         return 1
     fi
@@ -887,14 +957,17 @@ PLUGIN_BUILD_ENV="PKG_CONFIG_PATH=$PLUGIN_PKG_CONFIG"
 build_plugin "mvtools" \
     "https://github.com/dubhater/vapoursynth-mvtools.git" \
     "libmvtools.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$MVTOOLS_COMMIT"
 
 # ZNEDI3 (neural network interpolation - primary for QTGMC)
 echo ""
 echo "=== Building ZNEDI3 ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libznedi3.so" ]; then
-    rm -rf znedi3
-    git clone --depth 1 --recursive https://github.com/sekrit-twc/znedi3.git znedi3
+    if ! clone_pinned https://github.com/sekrit-twc/znedi3.git znedi3 "$ZNEDI3_COMMIT" --submodules; then
+        echo "  ERROR: could not clone ZNEDI3 at $ZNEDI3_COMMIT" >&2
+        exit 1
+    fi
     cd znedi3
     ZNEDI3_OK=false
     if [ "$ARCH" = "aarch64" ]; then
@@ -929,8 +1002,10 @@ fi
 echo ""
 echo "=== Building NNEDI3 ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libnnedi3.so" ]; then
-    rm -rf nnedi3
-    git clone --depth 1 https://github.com/dubhater/vapoursynth-nnedi3.git nnedi3
+    if ! clone_pinned https://github.com/dubhater/vapoursynth-nnedi3.git nnedi3 "$NNEDI3_COMMIT"; then
+        echo "  ERROR: could not clone NNEDI3 at $NNEDI3_COMMIT" >&2
+        exit 1
+    fi
     cd nnedi3
     # dubhater's build system treats every ARM as 32-bit ARMv7, so aarch64 fails
     # in two unrelated places. Both are build-system bugs, not portability limits:
@@ -980,7 +1055,8 @@ fi
 build_plugin "nnedi3cl" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL.git" \
     "libnnedi3cl.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$NNEDI3CL_TAG"
 
 # EEDI3m (edge-directed interpolation), pinned to r10 with task #98's patch
 # (its first count() ran outside the lock).
@@ -1053,7 +1129,8 @@ require_patched "libdfttest.so" "$DFTTEST_MARKER"
 build_plugin "ttempsmooth" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-TTempSmooth.git" \
     "libttempsmooth.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$TTEMPSMOOTH_TAG"
 
 # FFT3DFilter, pinned to R2 and patched with
 # patches/fft3dfilter-r2-determinism.patch (task #62): every published build
@@ -1074,13 +1151,15 @@ build_plugin "fft3dfilter" \
 build_plugin "miscfilters" \
     "https://github.com/vapoursynth/vs-miscfilters-obsolete.git" \
     "libmiscfilters.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$MISCFILTERS_COMMIT"
 
 # RemoveGrain
 build_plugin "removegrain" \
     "https://github.com/vapoursynth/vs-removegrain.git" \
     "libremovegrain.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$REMOVEGRAIN_COMMIT"
 
 # FluxSmooth (core.flux.SmoothT / SmoothST). Also what havsfunc's STPresso calls
 # internally — without this plugin STPresso raises "No attribute with the name
@@ -1182,6 +1261,9 @@ PYEOF2
 fi
 
 # Retinex (core.retinex.MSRCP) - see the macOS script for the rationale.
+# RETINEX_COMMIT is r4 + "Fix unexpected appending when sigma is specified",
+# what this script built before it was pinned; Windows ships the r4 DLL, so
+# the platforms differ where the template passes sigma (task #113).
 # It resolves VapourSynth through pkg-config, so it needs $PLUGIN_BUILD_ENV
 # like every other meson plugin here — the macOS script has no equivalent
 # prefix, so copying its invocation across drops PKG_CONFIG_PATH and meson
@@ -1189,26 +1271,31 @@ fi
 build_plugin "retinex" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex.git" \
     "libretinex.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$RETINEX_COMMIT"
 
 # AddGrain
 build_plugin "addgrain" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-AddGrain.git" \
     "libaddgrain.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$ADDGRAIN_TAG"
 
 # VIVTC (inverse telecine - VFM + VDecimate)
 build_plugin "vivtc" \
     "https://github.com/vapoursynth/vivtc.git" \
     "libvivtc.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$VIVTC_COMMIT"
 
 # neo-f3kdb (debanding)
 echo ""
 echo "=== Building neo-f3kdb ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libneo-f3kdb.so" ]; then
-    rm -rf f3kdb
-    git clone --depth 1 https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb
+    if ! clone_pinned https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb.git f3kdb "$NEO_F3KDB_TAG"; then
+        echo "  ERROR: could not clone neo-f3kdb at $NEO_F3KDB_TAG" >&2
+        exit 1
+    fi
     cd f3kdb
     # Remove TBB dependency (not always available, optional for threading)
     sed -i 's/target_link_libraries.*tbb.*//' CMakeLists.txt 2>/dev/null || true
@@ -1231,7 +1318,8 @@ fi
 build_plugin "cas" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-CAS.git" \
     "libcas.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$CAS_TAG"
 
 # DCTFilter (the Deblock pass's DCTFilter method, havsfunc's Deblock_QED),
 # pinned to r3.2 and patched with patches/dctfilter-r3.2-thread-safety.patch,
@@ -1253,13 +1341,15 @@ build_plugin "dctfilter" \
 build_plugin "deblock" \
     "https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Deblock.git" \
     "libdeblock.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$DEBLOCK_TAG"
 
 # AWarpSharp2
 build_plugin "awarpsharp2" \
     "https://github.com/dubhater/vapoursynth-awarpsharp2.git" \
     "libawarpsharp2.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$AWARPSHARP2_TAG"
 
 # CTMF (Constant Time Median Filter), pinned with task #98's patch.
 drop_unpatched "libctmf.so"
@@ -1307,7 +1397,8 @@ build_plugin "knlmeanscl" \
 build_plugin "tmedian" \
     "https://github.com/dubhater/vapoursynth-temporalmedian.git" \
     "libtmedian.so" \
-    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build"
+    "$PLUGIN_BUILD_ENV meson setup build --buildtype=release && ninja -C build" \
+    "$TMEDIAN_TAG"
 
 # zsmooth — exactly one build, in the autoload directory
 #
@@ -1401,13 +1492,11 @@ fi
 
 # DeScratch (core.descratch.DeScratch - vertical scratch removal)
 # Built from source: the repo carries the VapourSynth + AviSynthPlus headers as
-# submodules, so a recursive clone is required (build_plugin can't fetch those).
+# submodules, so it is cloned with --submodules (build_plugin doesn't fetch those).
 echo ""
 echo "=== Building DeScratch ==="
 if [ "$FORCE" = true ] || [ ! -f "$PLUGINS_DIR/libdescratch.so" ]; then
-    rm -rf descratch
-    if git clone --depth 1 --recurse-submodules --shallow-submodules \
-        https://github.com/vapoursynth/descratch.git descratch; then
+    if clone_pinned https://github.com/vapoursynth/descratch.git descratch "$DESCRATCH_COMMIT" --submodules; then
         cd descratch
         if meson setup build --buildtype=release && ninja -C build; then
             lib_path=$(find build -name "*.so" -type f 2>/dev/null | head -1)
@@ -2056,8 +2145,8 @@ fi
 echo ""
 echo "=== Downloading NNEDI3 weights ==="
 if [ ! -f "$PLUGINS_DIR/nnedi3_weights.bin" ]; then
-    curl -L -o "$PLUGINS_DIR/nnedi3_weights.bin" \
-        "https://github.com/sekrit-twc/znedi3/raw/master/nnedi3_weights.bin"
+    curl -fL -o "$PLUGINS_DIR/nnedi3_weights.bin" \
+        "https://github.com/sekrit-twc/znedi3/raw/$ZNEDI3_COMMIT/nnedi3_weights.bin"
     echo "  Downloaded nnedi3_weights.bin"
 fi
 cp "$PLUGINS_DIR/nnedi3_weights.bin" "$DEPS_DIR/resources/NNEDI3CL/" 2>/dev/null || true
@@ -2080,17 +2169,17 @@ fi
 
 # mvsfunc
 if [ "$FORCE" = true ] || [ ! -d "$PYTHON_PACKAGES_DIR/mvsfunc" ]; then
-    curl -L -o /tmp/mvsfunc.zip "https://github.com/HomeOfVapourSynthEvolution/mvsfunc/archive/refs/heads/master.zip"
+    curl -fL -o /tmp/mvsfunc.zip "https://github.com/HomeOfVapourSynthEvolution/mvsfunc/archive/$MVSFUNC_COMMIT.zip"
     unzip -q /tmp/mvsfunc.zip -d /tmp
-    cp -r /tmp/mvsfunc-master/mvsfunc "$PYTHON_PACKAGES_DIR/"
-    rm -rf /tmp/mvsfunc.zip /tmp/mvsfunc-master
+    cp -r "/tmp/mvsfunc-$MVSFUNC_COMMIT/mvsfunc" "$PYTHON_PACKAGES_DIR/"
+    rm -rf /tmp/mvsfunc.zip "/tmp/mvsfunc-$MVSFUNC_COMMIT"
     echo "  Downloaded mvsfunc"
 fi
 
 # adjust
 if [ "$FORCE" = true ] || [ ! -f "$PYTHON_PACKAGES_DIR/adjust.py" ]; then
-    curl -L -o "$PYTHON_PACKAGES_DIR/adjust.py" \
-        "https://raw.githubusercontent.com/dubhater/vapoursynth-adjust/master/adjust.py" 2>/dev/null || true
+    curl -fL -o "$PYTHON_PACKAGES_DIR/adjust.py" \
+        "https://raw.githubusercontent.com/dubhater/vapoursynth-adjust/$ADJUST_COMMIT/adjust.py"
     echo "  Downloaded adjust.py"
 fi
 

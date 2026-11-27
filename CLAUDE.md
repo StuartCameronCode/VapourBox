@@ -509,6 +509,20 @@ Adding a filter touches many files. Missing any step causes silent failures (fil
   essentially no from-source path, so every platform must pin the version
   Windows can get. Also check PyPI (`pypi.org/pypi/<name>/json`): several
   plugins have migrated to publishing wheels there instead of GitHub releases.
+- **Pin every source and every download (task #110)**: a tag, a full commit
+  or a SHA-256, never a branch. An unpinned `git clone --depth 1` builds
+  whatever upstream pushed that day, so a rebuild of the same deps version
+  ships different code with nothing failing (task #103's zimg). In the shell
+  scripts, `build_plugin` takes the ref as its fifth argument and exits
+  without one, and any other clone goes through `clone_pinned <repo> <dir>
+  <ref> [--submodules]`, which fails unless HEAD is the commit; a GitHub
+  `raw/`/`archive/` URL names a commit, not `master`/`main`. Define each ref
+  once as a literal (`<NAME>_TAG` / `<NAME>_COMMIT`) in the script's "Source
+  pins" block, the same in both `.sh` scripts, and take the commit the last
+  published bundle built, so pinning changes no output. Bumping a pin is a
+  deps change: A/B it through `deps_run_id`. `app/test/source_pin_test.dart`
+  (push gate) enforces all of it. Same pin is not same code everywhere:
+  Retinex is r4 + 1 fix on macOS/Linux but the r4 DLL on Windows (task #113).
 - **Add the plugin filename to `Scripts/deps-expected-plugins.json`** for every
   platform that ships it (a file outside the plugin directory, like RIFE's in
   `vapoursynth/rife/`, goes under `_extraFiles` as a path from the bundle root). The `package-deps-*` scripts assert this list is
