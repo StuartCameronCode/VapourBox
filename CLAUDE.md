@@ -147,6 +147,7 @@ VapourBox/
 | `worker/src/source_model.rs` | `SourceModel` and `--probe-source`: every fact about a source a decoder needs, probed once (the frame-count rules included, an MP4 edit list's discards too); `VideoJob::apply_source_model` fills a job from it, its frame count included |
 | `worker/src/ffprobe_run.rs` | One ffprobe run whose answer decides a source fact: why it failed (status, stderr) and `retrying` (task #83) |
 | `worker/src/source_continuity.rs` | Timestamp resets in an MPEG-PS/TS: the rule (`ResetScanner`, one packet line at a time), `--scan-timestamps` (streamed, with progress), and the continuous same-container copy decoded instead (see "Source Frame Size") |
+| `worker/src/vspipe_exit.rs` | A vspipe that printed its final line but does not exit: the final lines, the grace, the stop (see Debugging Tips #10) |
 | `worker/src/vspipe_failure.rs` | A failed encode's blame (encoder first, unless it only saw vspipe's empty pipe) and vspipe's stderr turned into the job error (see Debugging Tips #11) |
 | `worker/src/source_timing.rs` | A variable-frame-rate source's stored frames placed on the constant-rate grid (see "Variable Frame Rate Sources") |
 | `worker/src/gpu_plugin.rs` | The ncnn-on-Vulkan plugins (RIFE, AI upscaling): file layout, RIFE's model add-on, the `--probe-rife` / `--probe-upscale` probe (on stand-in models, no add-on needed), and the user-facing reason/remedy when they can't run (see "GPU Plugins") |
@@ -4159,6 +4160,22 @@ sigma slider moved the picture a seventh as far. macOS/Linux built
     job after **600s with no frame progress** rather than hanging forever.
     Raise/disable with `VAPOURBOX_STALL_TIMEOUT_SECS=<secs>` (`0` = wait
     forever) when deliberately debugging a stall.
+    **A vspipe that printed its final line is given 30 s to exit, then
+    stopped (task #122).** `vspipe_exit.rs` knows the lines R78's `main`
+    prints just before it returns (`Output N frames in …`, `Script evaluation
+    failed:`, the output-node and header errors); after one, the encode and
+    the preview wait `VAPOURBOX_VSPIPE_EXIT_GRACE_SECS` (default 30, `0` =
+    forever) and then kill vspipe, and the job log says so ("printed … but
+    had not exited"). After a stop the encoder's result decides when vspipe
+    finished cleanly (it flushes its output before `Output …`), vspipe's
+    error otherwise: an `Error: Failed to retrieve frame …` line is followed
+    by `Output N frames` too, so `Output` alone does not mean the frames were
+    written. A vspipe a kill cannot end fails the job, never hangs it. The
+    preview echoes vspipe's stderr as it arrives (`vspipe: +<ms> ms …`;
+    the app leaves those lines out of a failed preview's error text,
+    `previewErrorText`). It was seen on Windows runners, vspipe stuck in
+    ExitProcess after a pitch-auto preview; `repro-vspipe-exit.yml`
+    measures it (docs/reports/task-122-vspipe-exit-hang).
 11. **A vspipe failure is reported as vspipe's, not the encoder's (task #28).**
     When vspipe dies before writing the Y4M header, the encoder ffmpeg says only
     `Header too large`; `vspipe_failure::blame` then reports vspipe instead (it
