@@ -145,10 +145,21 @@ jobs:
           echo "ver=${TAG#deps-v}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Flutter
+        # Not cached (tasks #84, #121): ~2 GB a platform overflowed the
+        # repository's 10 GB of caches and saved under a minute on a hit.
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-          cache: true
+          cache: false
+          pub-cache-path: ${{ runner.temp }}/pub-cache
+
+      - name: Restore pub cache
+        # Saved by ci-test.yml on main; never saved here.
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}/pub-cache
+          key: pub-linux-x64-${{ hashFiles('app/pubspec.yaml') }}
+          restore-keys: pub-linux-x64-
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable

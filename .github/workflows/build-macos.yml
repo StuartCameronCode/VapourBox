@@ -68,29 +68,30 @@ jobs:
           esac
 
       - name: Setup Flutter
+        # Not cached (tasks #84, #121): ~2 GB a platform overflowed the
+        # repository's 10 GB of caches and saved under a minute on a hit.
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-          cache: true
+          cache: false
+          pub-cache-path: ${{ runner.temp }}/pub-cache
+
+      - name: Restore pub cache
+        # Saved by ci-test.yml on main; never saved here.
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ runner.temp }}/pub-cache
+          key: pub-macos-arm64-${{ hashFiles('app/pubspec.yaml') }}
+          restore-keys: pub-macos-arm64-
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
-      - name: Cache Rust dependencies
-        uses: actions/cache@v5
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            worker/target/
-          key: ${{ runner.os }}-cargo-${{ matrix.arch }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.arch }}-
-            ${{ runner.os }}-cargo-
+      # No Cargo cache (task #121): releases are a week or more apart, so it
+      # was always evicted, and its key never changed (Cargo.lock is
+      # gitignored), so a hit would have restored a stale worker/target/.
 
       # Per-arch deps are downloaded at runtime by the app (not bundled); this
       # validates the matching zip exists for the arch being built.
