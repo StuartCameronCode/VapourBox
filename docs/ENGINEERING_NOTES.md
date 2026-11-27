@@ -7052,7 +7052,11 @@ What was done:
   against boost.io's published ones and Homebrew's formula checksums (zimg
   3.0.6). 3.3.10's `fftw3.h` differs from 3.3.11's only by `fftw_copy_plan`,
   which nothing calls (it is absent from the 3.3.10 library both arches
-  ship). arm64's builds target macOS 15.0, as its bottles did.
+  ship). arm64's builds target macOS 15.0, as its bottles did, and arm64's
+  boost is built with `-std=c++17`, as Homebrew's formula does: without it
+  boost.system exported its categories differently (4 of 142 symbols).
+  Built on an M1 Pro, arm64's libzimg (13 exports) and both boost libraries
+  export exactly what rc4's bottles did, at the same versions and minos.
 - **VapourSynth's meson setup gets `PKG_CONFIG_PATH="$SRCLIB/lib/pkgconfig"`
   and fails unless meson found the pinned zimg**, did not fall back to R78's
   unpinned `zimg.wrap`, and libvapoursynth names the copy that is bundled.
