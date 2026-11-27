@@ -14,6 +14,10 @@
 // `VAPOURBOX_REPRO_CASES` (`encode`, `sweep`, or both, comma-separated)
 // picks the cases. A hung preview is sampled before it is killed
 // (`WorkerHarness.runPreview`, `describeHang`).
+//
+// `VAPOURBOX_REPRO_DUMP=<dir>` instead writes the sweep row's preview jobs
+// for task #122's lean loop (`.github/scripts/repro-vspipe-exit.ps1`).
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -29,8 +33,42 @@ import 'support/worker_harness.dart';
 
 final _repeat = int.tryParse(Platform.environment['VAPOURBOX_REPRO_STABILIZE'] ?? '') ?? 0;
 final _cases = (Platform.environment['VAPOURBOX_REPRO_CASES'] ?? 'encode,sweep').split(',');
+final _dumpDir = Platform.environment['VAPOURBOX_REPRO_DUMP'];
 
 void main() {
+  if (_dumpDir != null && _dumpDir!.isNotEmpty) {
+    // Task #122: write the sweep row's preview jobs (pitch auto, weave only,
+    // passthrough) and their fixture for `.github/scripts/repro-vspipe-exit.ps1`,
+    // which runs the worker directly, about 50 times faster than a test.
+    test('dump the pitch-auto preview jobs (task #122)', () async {
+      await WorkerHarness.ensureReady();
+      final dir = Directory(_dumpDir!)..createSync(recursive: true);
+      final pitch = sweepVariants.firstWhere((v) => v.id == 'stabilize/pitchMode=auto');
+      final row = nightlyRows(pitch.index)
+          .firstWhere((r) => r.key == '720x480/yuv444p16le/prog');
+      final fixture = await sweepFixture(row);
+      final w = row.size.width, h = row.size.height;
+      final jobs = {
+        'pitch': sweepJob(pitch.pipelineFor(w, h), row, fixture),
+        'weave': sweepJob(
+            const ProcessingPipeline(
+              deinterlace: QTGMCParameters(enabled: false),
+              stabilize: StabilizeParameters(enabled: true),
+            ),
+            row, fixture),
+        'passthrough': sweepJob(
+            const ProcessingPipeline(deinterlace: QTGMCParameters(enabled: false)),
+            row, fixture),
+      };
+      for (final e in jobs.entries) {
+        File('${dir.path}/${e.key}.json').writeAsStringSync(jsonEncode(e.value.toJson()));
+      }
+      File('${dir.path}/frame.txt').writeAsStringSync('$sweepPreviewFrame');
+      // ignore: avoid_print
+      print('dumped ${jobs.keys.join(', ')} for $fixture into ${dir.path}');
+    }, timeout: const Timeout(Duration(minutes: 5)));
+    return;
+  }
   if (_repeat <= 0) {
     test('Stabilize repro (task #120)', () {},
         skip: 'set VAPOURBOX_REPRO_STABILIZE=N to run the cases N times');
