@@ -6894,3 +6894,25 @@ Report: [task-111-meson-setup-env](reports/task-111-meson-setup-env/index.html).
   is on by default on users' machines, so this is not CI-only.
 
 Report: [docs/reports/task-122-vspipe-exit-hang](reports/task-122-vspipe-exit-hang/index.html).
+
+### Tests that run vspipe stop it after its final line too (task #124, 2026-11-27)
+
+- **Symptom.** The `dctfilter thread safety` stress test (13 vspipe runs)
+  passed its 5-minute timeout on the windows-x64-v2 heavy leg of nightly
+  45796959369 (deps 1.18.0-rc4). It passed on the other five Windows legs
+  of three nightlies, and the next test, run beside the leftover vspipe,
+  took 160 s against 170–177 s: the leftover was idle. A `conhost` was
+  left at job end in that job only.
+- **Cause.** Task #122's: Defender suspends vspipe in `ExitProcess` after
+  its final line. The worker stops such a vspipe, but tests that ran
+  vspipe directly used `Process.run`, with no limit.
+- **Fix.** `app/test/support/vspipe_process.dart`'s `runVspipe` applies the
+  worker's rule (a Dart twin of `vspipe_exit::final_kind`, pinned by
+  `vspipe_process_test.dart`). After a final line it waits the same grace,
+  takes stacks and kills; the run counts as the line says. With no final
+  line, a limit gives a `BoundedTimeout` with stacks. Every direct vspipe
+  call in `app/test` uses it, and a lint keeps it that way. Both stress
+  tests bound each graph at 90 s and print its time (M1: DCTFilter
+  0.5–0.8 s a graph, DFTTest 9–11 s).
+
+Report: [docs/reports/task-124-dctfilter-stress-timeout](reports/task-124-dctfilter-stress-timeout/index.html).

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DCTFilter stress timeout</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>The DCTFilter stress test that timed out on Windows</h1>
+<p class="meta">Task #124, 2026-11-27. The failure: <code>vapoursynth_integration_test.dart</code> › <code>dctfilter thread safety</code> › <code>DCTFilter and Deblock_QED survive many instances starting together (task #96)</code>, past its 5-minute timeout on the windows-x64-v2 heavy leg of nightly 45796959369 (deps 1.18.0-rc4, job 139829982138). The evidence is the nightly job logs (<code>scripts/nightly_stress_lines.sh</code>, <code>data/nightly-stress-lines.txt</code>), task #122's measurements of the cause, and local runs on an Apple M1.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>It was a vspipe that did not exit, not a slow graph or task #96's race.</b> Task #122 found the cause: on Windows, Defender's real-time protection suspends vspipe's last thread in <code>ExitProcess</code> after vspipe has printed its final line, so the process never ends and its pipes stay open. The worker has stopped such a vspipe since task #122, 30 s after its final line. <b>This test runs vspipe directly</b>, with <code>Process.run</code> and no limit, so a suspended vspipe held it until package:test's 5 minutes ran out.</li>
+<li><b>Fix (tests): every test that runs vspipe directly goes through <code>runVspipe</code></b> (<code>app/test/support/vspipe_process.dart</code>). It applies the worker's rule: after a final line, <code>VAPOURBOX_VSPIPE_EXIT_GRACE_SECS</code> (30 s) to exit. After that, <code>describeHang</code> records the stacks (cdb on Windows shows the suspend count) and the process tree is killed. The run then counts as vspipe's final line says: <code>Output N frames</code> with no <code>Error:</code> line before it passes, anything else fails, and the test log says what happened. A vspipe with no final line past its limit is a <code>BoundedTimeout</code> with its stacks and stderr. This is not a retry: each graph runs once, and only the wait for a finished process is bounded.</li>
+<li><b>Both stress tests now bound and time each graph</b> (90 s a graph, well inside the test's timeout) and print one line per graph with vspipe's own <code>Output … in X seconds</code>. A hang names its graph, and the nightly log has every graph's time on every platform.</li>
+<li><b>Not yet seen on Windows with the change.</b> The stand-in tests cannot run on Windows (see "Not tested"). The nightly after merge is the first Windows run: a stuck exit there prints <code>stopped (on Windows, Defender suspends it in ExitProcess: task #122)</code> with cdb's suspend count, and the test passes.</li>
+</ul>
+
+<h2>What the logs showed</h2>
+<p>The test file runs the task #96 test (13 graphs), then the task #98 test (31 graphs of the same kind and size). package:test does not kill a test body that times out, so after a timeout its vspipe keeps running beside the next test.</p>
+<table>
+<tr><th>Nightly</th><th>Leg (job)</th><th>Task #96 test</th><th>Task #98 test, next</th><th>Orphans at job end</th></tr>
+<tr><td>45001595186</td><td>windows-x64 (137144122203)</td><td class="ok">pass 09:25:04</td><td class="ok">pass, 170 s later</td><td>vctip</td></tr>
+<tr><td>45001595186</td><td>windows-x64-v2 (137144122871)</td><td class="ok">pass 09:26:32</td><td class="ok">pass, 170 s later</td><td>vctip</td></tr>
+<tr><td>45796959369</td><td>windows-x64 (139829981989)</td><td class="ok">pass 10:50:23</td><td class="no">fail (task #112's CTMF fault: the branch predated its fix)</td><td>vctip</td></tr>
+<tr><td>45796959369</td><td><b>windows-x64-v2 (139829982138)</b></td><td class="no"><b>timeout 11:21:30</b></td><td class="ok"><b>pass, 160 s later</b></td><td><b>conhost</b>, vctip</td></tr>
+<tr><td>45867504513</td><td>windows-x64 (140074018121)</td><td class="ok">pass 18:38:15</td><td class="ok">pass, 172 s later</td><td>vctip</td></tr>
+<tr><td>45867504513</td><td>windows-x64-v2 (140074018128)</td><td class="ok">pass 18:40:24</td><td class="ok">pass, 177 s later</td><td>vctip</td></tr>
+</table>
+<ul>
+<li><b>The process left behind was idle.</b> After the timeout, the task #98 test ran beside it and took 160 s, against 170–177 s when nothing was left over. On a 4-vCPU runner, a graph still filtering with 8 VapourSynth threads would have slowed it. That fits a suspended process.</li>
+<li><b>A console host was left at job end</b>, in the failing job only: the runner's orphan cleanup terminated a <code>conhost</code>. A process stuck in termination is no longer an orphan the runner lists, but its console host is. This is weak evidence alone; with #122's stacks it fits.</li>
+<li><b>The tier is incidental.</b> DCTFilter is the same file in both tiers (Windows' <code>_tierFiles</code> holds only <code>zsmooth.dll</code>), and #122 measured the hang on both. One timeout in six Windows legs is within #122's rates: 1 in 9 to 1 in 1,200 vspipe runs, and this test runs 13 (the task #98 test runs 31, also unbounded until now).</li>
+<li><b>The logs carry no per-graph time and no stack</b>, which is why the test now prints both.</li>
+</ul>
+
+<h2>How long a graph takes</h2>
+<p>Apple M1 (8 cores), deps 1.18.0-rc4, run alone (<code>data/m1-stress-graphs.txt</code>). Elapsed is from start to exit, as the test prints it; vspipe's own time is its <code>Output</code> line.</p>
+<table>
+<tr><th>Graph</th><th>#</th><th>Elapsed (s)</th><th>Frames</th><th>vspipe (s)</th></tr>
+<tr><td>DCTFilter</td><td class="num">0</td><td class="num">0.8</td><td class="num">40000</td><td class="num">0.49</td></tr>
+<tr><td>DCTFilter</td><td class="num">1</td><td class="num">0.6</td><td class="num">40000</td><td class="num">0.47</td></tr>
+<tr><td>DCTFilter</td><td class="num">2</td><td class="num">0.6</td><td class="num">40000</td><td class="num">0.51</td></tr>
+<tr><td>DCTFilter</td><td class="num">3</td><td class="num">0.6</td><td class="num">40000</td><td class="num">0.45</td></tr>
+<tr><td>DCTFilter</td><td class="num">4</td><td class="num">0.7</td><td class="num">40000</td><td class="num">0.55</td></tr>
+<tr><td>DCTFilter</td><td class="num">5</td><td class="num">0.7</td><td class="num">40000</td><td class="num">0.55</td></tr>
+<tr><td>DCTFilter</td><td class="num">6</td><td class="num">0.6</td><td class="num">40000</td><td class="num">0.45</td></tr>
+<tr><td>DCTFilter</td><td class="num">7</td><td class="num">0.6</td><td class="num">40000</td><td class="num">0.44</td></tr>
+<tr><td>DCTFilter</td><td class="num">8</td><td class="num">0.6</td><td class="num">40000</td><td class="num">0.48</td></tr>
+<tr><td>DCTFilter</td><td class="num">9</td><td class="num">0.6</td><td class="num">40000</td><td class="num">0.47</td></tr>
+<tr><td>Deblock_QED</td><td class="num">10</td><td class="num">0.6</td><td class="num">4800</td><td class="num">0.27</td></tr>
+<tr><td>Deblock_QED</td><td class="num">11</td><td class="num">0.6</td><td class="num">4800</td><td class="num">0.31</td></tr>
+<tr><td>Deblock_QED</td><td class="num">12</td><td class="num">0.5</td><td class="num">4800</td><td class="num">0.25</td></tr>
+<tr><td>DFTTest</td><td class="num">0</td><td class="num">9.4</td><td class="num">20000</td><td class="num">9.20</td></tr>
+<tr><td>DFTTest</td><td class="num">1</td><td class="num">9.9</td><td class="num">20000</td><td class="num">9.66</td></tr>
+<tr><td>DFTTest</td><td class="num">2</td><td class="num">9.8</td><td class="num">20000</td><td class="num">9.62</td></tr>
+<tr><td>DFTTest</td><td class="num">3</td><td class="num">11.2</td><td class="num">20000</td><td class="num">10.99</td></tr>
+<tr><td>LGhost</td><td class="num">4</td><td class="num">0.3</td><td class="num">20000</td><td class="num">0.15</td></tr>
+<tr><td>LGhost</td><td class="num">5</td><td class="num">0.3</td><td class="num">20000</td><td class="num">0.16</td></tr>
+<tr><td>LGhost</td><td class="num">6</td><td class="num">0.3</td><td class="num">20000</td><td class="num">0.15</td></tr>
+<tr><td>LGhost</td><td class="num">7</td><td class="num">0.3</td><td class="num">20000</td><td class="num">0.19</td></tr>
+<tr><td>LGhost</td><td class="num">8</td><td class="num">0.6</td><td class="num">20000</td><td class="num">0.21</td></tr>
+<tr><td>LGhost</td><td class="num">9</td><td class="num">0.3</td><td class="num">20000</td><td class="num">0.15</td></tr>
+<tr><td>LGhost</td><td class="num">10</td><td class="num">0.3</td><td class="num">20000</td><td class="num">0.16</td></tr>
+<tr><td>LGhost</td><td class="num">11</td><td class="num">0.3</td><td class="num">20000</td><td class="num">0.17</td></tr>
+<tr><td>CTMF</td><td class="num">12</td><td class="num">1.8</td><td class="num">20000</td><td class="num">1.65</td></tr>
+<tr><td>CTMF</td><td class="num">13</td><td class="num">1.4</td><td class="num">20000</td><td class="num">1.24</td></tr>
+<tr><td>CTMF</td><td class="num">14</td><td class="num">1.6</td><td class="num">20000</td><td class="num">1.47</td></tr>
+<tr><td>CTMF</td><td class="num">15</td><td class="num">1.3</td><td class="num">20000</td><td class="num">1.19</td></tr>
+<tr><td>CTMF</td><td class="num">16</td><td class="num">1.7</td><td class="num">20000</td><td class="num">1.55</td></tr>
+<tr><td>CTMF</td><td class="num">17</td><td class="num">1.3</td><td class="num">20000</td><td class="num">1.14</td></tr>
+<tr><td>CTMF</td><td class="num">18</td><td class="num">1.4</td><td class="num">20000</td><td class="num">1.20</td></tr>
+<tr><td>CTMF</td><td class="num">19</td><td class="num">1.3</td><td class="num">20000</td><td class="num">1.13</td></tr>
+<tr><td>TCanny</td><td class="num">20</td><td class="num">1.0</td><td class="num">20000</td><td class="num">0.84</td></tr>
+<tr><td>TCanny</td><td class="num">21</td><td class="num">1.0</td><td class="num">20000</td><td class="num">0.78</td></tr>
+<tr><td>TCanny</td><td class="num">22</td><td class="num">1.1</td><td class="num">20000</td><td class="num">0.89</td></tr>
+<tr><td>TCanny</td><td class="num">23</td><td class="num">1.2</td><td class="num">20000</td><td class="num">0.96</td></tr>
+<tr><td>TCanny</td><td class="num">24</td><td class="num">1.3</td><td class="num">20000</td><td class="num">1.05</td></tr>
+<tr><td>TCanny</td><td class="num">25</td><td class="num">1.1</td><td class="num">20000</td><td class="num">0.93</td></tr>
+<tr><td>TCanny</td><td class="num">26</td><td class="num">1.0</td><td class="num">20000</td><td class="num">0.86</td></tr>
+<tr><td>TCanny</td><td class="num">27</td><td class="num">1.2</td><td class="num">20000</td><td class="num">0.98</td></tr>
+<tr><td>MinBlur(r=3), 10-bit</td><td class="num">28</td><td class="num">1.2</td><td class="num">6000</td><td class="num">0.98</td></tr>
+<tr><td>MinBlur(r=3), 10-bit</td><td class="num">29</td><td class="num">1.0</td><td class="num">6000</td><td class="num">0.81</td></tr>
+<tr><td>MinBlur(r=3), 10-bit</td><td class="num">30</td><td class="num">0.9</td><td class="num">6000</td><td class="num">0.76</td></tr>
+</table>
+<p>Limits: an M1 is not a 4-vCPU Windows runner. On the runners the whole task #98 test took 160–177 s for 31 graphs, so its graphs average 5–6 s there. A 90 s limit per graph is more than ten times that, so it trips only on a hang. A graph that hangs is named after 90 s (plus 20 s for stacks), inside the test's 5 minutes. The nightly's per-graph lines will give the real Windows and macOS x64 times; if any graph comes near 90 s, size the limit from them.</p>
+
+<h2>Checks</h2>
+<ul>
+<li><code>vspipe_process_test.dart</code> (push gate): the final-line rule against the Rust (<code>ERROR_PREFIXES</code> in order, <code>GRACE_ENV</code>, <code>DEFAULT_GRACE</code>, the Rust test's own <code>final_kind</code> lines), the grace read from the environment, and <code>runVspipe</code> against stand-in vspipes that print a final line and then hold their pipes (<code>exec sleep 600</code>). A clean <code>Output</code> line passes after the grace, with its stdout. An <code>Error:</code> line before <code>Output</code> fails, and so does a stuck final error. No final line is a named <code>BoundedTimeout</code> with the stderr tail. A vspipe that exits keeps its exit code, stdin and binary stdout. A lint fails on any <code>Process.run</code>/<code>Process.start</code> of vspipe in <code>app/test</code>.</li>
+<li>Run on an M1: the push-gate parts of <code>vapoursynth_integration_test</code>, <code>pipe_source_order_test</code> and <code>template_call_arguments_test</code> (including the 11 stdin-fed <code>_runVspipeScript</code> calls), both stress tests and the akarin parity test (heavy), all through <code>runVspipe</code>, all passing.</li>
+</ul>
+
+<h2>Decisions</h2>
+<ul>
+<li><b>Apply the worker's rule in the tests rather than keep them red.</b> The app stops a vspipe stuck in its exit, so a test that still waited for it would only be measuring Defender. The race the stress tests guard is an abort during the graph, and an abort prints no <code>Output</code> line, so it still fails.</li>
+<li><b>A Dart twin of <code>final_kind</code></b>, listed in <code>docs/TWINS.md</code> and pinned to the Rust, rather than running the worker: these tests exist to run vspipe without it.</li>
+<li><b>Every direct vspipe call, not only the stress tests:</b> all of them can hit the hang, and the lint keeps new ones out.</li>
+<li><b><code>-i</code> runs and <code>--version</code></b> print no final line, so only their limit applies (10 minutes by default, 5 for the plugin-signature probe, 1 for <code>--version</code>). A hang there is named with stacks instead of running into the test's timeout.</li>
+<li>No retry and no <code>knownFailures</code>-style allowance, and the test's 5-minute timeout is unchanged.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li><b>Windows with the change.</b> The stand-in tests are skipped on Windows, for the reason <code>vspipe_exit_guard_test.dart</code> gives: a batch file's child keeps the pipes after <code>cmd.exe</code> is killed, which is not the case under test. The first Windows runs are the PR's push gate and the next nightly. A stuck exit there is shown in the log, not inferred.</li>
+<li>The kill path on Windows (<code>taskkill /T /F</code> of a suspended vspipe) is the worker's, which task #122 saw end a suspended vspipe on a runner. The test kill uses the same <code>ProcessTree.killTree</code> the app uses.</li>
+</ul>
+
+<h2>Files</h2>
+<ul>
+<li><code>scripts/nightly_stress_lines.sh</code>: pulls a heavy leg's job log through <code>gh</code> and prints the stress tests' results, per-graph lines and the orphan cleanup.</li>
+<li><code>data/nightly-stress-lines.txt</code>: its output for the six Windows heavy legs above.</li>
+<li><code>data/m1-stress-graphs.txt</code>: the per-graph lines from the M1 run.</li>
+</ul>
+</body>
+</html>

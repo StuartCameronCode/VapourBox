@@ -1,0 +1,32 @@
+== job 137144122203
+2026-11-22T09:25:04.1432704Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: dctfilter thread safety DCTFilter and Deblock_QED survive many instances starting together (task #96)
+2026-11-22T09:27:54.6309953Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: per-thread buffer maps (task #98) DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances starting together (task #98)
+2026-11-22T09:40:20.7100468Z Cleaning up orphan processes
+2026-11-22T09:40:20.8199851Z Terminate orphan process: pid (7764) (vctip)
+== job 137144122871
+2026-11-22T09:26:32.4865435Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: dctfilter thread safety DCTFilter and Deblock_QED survive many instances starting together (task #96)
+2026-11-22T09:29:22.5598430Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: per-thread buffer maps (task #98) DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances starting together (task #98)
+2026-11-22T09:42:06.4542629Z Cleaning up orphan processes
+2026-11-22T09:42:06.5605724Z Terminate orphan process: pid (1196) (vctip)
+== job 139829981989
+2026-11-26T10:50:23.6929108Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: dctfilter thread safety DCTFilter and Deblock_QED survive many instances starting together (task #96)
+2026-11-26T10:51:44.6287873Z ##[group]❌ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: per-thread buffer maps (task #98) DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances starting together (task #98) (failed)
+2026-11-26T10:59:10.9620824Z Cleaning up orphan processes
+2026-11-26T10:59:11.1287899Z Terminate orphan process: pid (5740) (vctip)
+== job 139829982138
+2026-11-26T11:21:30.1635662Z ##[group]❌ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: dctfilter thread safety DCTFilter and Deblock_QED survive many instances starting together (task #96) (failed)
+2026-11-26T11:21:30.1637686Z TimeoutException after 0:05:00.000000: Test timed out after 5 minutes.
+2026-11-26T11:24:09.8499238Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: per-thread buffer maps (task #98) DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances starting together (task #98)
+2026-11-26T11:32:31.9189253Z Cleaning up orphan processes
+2026-11-26T11:32:31.9606951Z Terminate orphan process: pid (7180) (conhost)
+2026-11-26T11:32:31.9869406Z Terminate orphan process: pid (9552) (vctip)
+== job 140074018121
+2026-11-26T18:38:15.1841116Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: dctfilter thread safety DCTFilter and Deblock_QED survive many instances starting together (task #96)
+2026-11-26T18:41:07.0592118Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: per-thread buffer maps (task #98) DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances starting together (task #98)
+2026-11-26T18:53:38.6622816Z Cleaning up orphan processes
+2026-11-26T18:53:38.7074755Z Terminate orphan process: pid (2368) (vctip)
+== job 140074018128
+2026-11-26T18:40:24.5037736Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: dctfilter thread safety DCTFilter and Deblock_QED survive many instances starting together (task #96)
+2026-11-26T18:43:21.6277135Z ✅ D:/a/VapourBox/VapourBox/app/test/vapoursynth_integration_test.dart: per-thread buffer maps (task #98) DFTTest, LGhost, CTMF, TCanny and MinBlur survive many instances starting together (task #98)
+2026-11-26T18:55:44.0388625Z Cleaning up orphan processes
+2026-11-26T18:55:44.0829941Z Terminate orphan process: pid (6388) (vctip)
