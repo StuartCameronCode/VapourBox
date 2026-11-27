@@ -97,8 +97,15 @@ VapourBox/
 
 **Linux:**
 ```bash
+./Scripts/install-apt-pins-linux.sh   # Ubuntu 24.04; needs sudo
+pip3 install --only-binary :all: --require-hashes -r Scripts/pins/pip-meson.txt
 ./Scripts/download-deps-linux.sh
 ```
+The libraries the bundle copies from the system (fftw, boost, libdvdread, the
+OpenCL loader), their headers, `cython3` and meson are pinned to the versions
+in `Scripts/pins/` and installed from Ubuntu's archive snapshot, and the script
+refuses other versions; `--allow-unpinned` builds with whatever is installed,
+for a local bundle that will not be published.
 Builds VapourSynth R73 and the plugins from source against an embedded Python
 3.12.8. Detects `x86_64` vs `aarch64` and targets `deps/linux-x64` or
 `deps/linux-arm64`.
@@ -107,6 +114,10 @@ Builds VapourSynth R73 and the plugins from source against an embedded Python
 ```bash
 ./Scripts/download-deps-macos.sh
 ```
+Homebrew supplies build tools only (cmake, meson, ninja, nasm, autotools,
+pkg-config). The libraries the bundle carries or compiles against (zimg, fftw,
+boost) are built from release tarballs checked against a SHA-256 in the script,
+and Cython and meson come from the hash-pinned files in `Scripts/pins/`.
 
 **macOS (x64):** built natively on an Intel Mac — the same script (`uname -m`
 reports `x86_64`, so it targets `deps/macos-x64`). FFmpeg is sourced pre-built

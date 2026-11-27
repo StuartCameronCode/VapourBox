@@ -7023,3 +7023,63 @@ Report: [docs/reports/task-115-zimg-neon-v-f32-overread](reports/task-115-zimg-n
   and crop.
 
 Report: [docs/reports/task-123-btbn-ffmpeg-pin](reports/task-123-btbn-ffmpeg-pin/index.html).
+
+### The deps build's last moving inputs: Homebrew libraries, pip, apt (task #114, 2026-11-27)
+
+Task #110 pinned every clone and download. Three more inputs still came from
+whatever a package manager had on the day of the build. Each was read from
+the deps 1.18.0-rc4 build logs (`build-deps-macos` 45777583329,
+`build-deps-linux` 45777587012) and from the rc4 assets (`otool -L`,
+`vtool -show-build`, dist-info).
+
+| Input | Where it came from | Reaches the bundle as | rc4 |
+|---|---|---|---|
+| zimg, macOS arm64 | Homebrew bottle; VapourSynth's meson found it through Homebrew's pkg-config | `vapoursynth/libzimg.dylib`, VapourSynth's resize | 3.0.6 |
+| zimg, macOS x64 | built from a tarball, pinned by version only; but VapourSynth's meson still found **Homebrew's 3.0.6** | `libzimg.dylib` 3.0.5, compiled against 3.0.6's headers | 3.0.5 |
+| boost, macOS | arm64 bottle; x64 tarball (version only) | `lib/libboost_{filesystem,atomic}.dylib`, linked by NNEDI3CL | arm64 1.92.0, x64 1.85.0 |
+| fftw headers, macOS | Homebrew 3.3.11 (`brew --prefix fftw`, meson's `fftw3f`) | headers only; the library is 3.3.10 (yuygfgg's on arm64, a source build on x64) | 3.3.11 headers |
+| Homebrew ffmpeg | `BREW_DEPS` "for convenience" | nothing; but it depends on zimg | |
+| Cython, meson | `pip install cython meson`, unpinned | `python/lib/python3.12/site-packages` (Cython on every platform); meson runs every build | 3.3.2, 1.12.1 |
+| fftw, boost, libdvdread, ocl-icd, Linux | `apt-get install`, unpinned; boost from noble-updates | `lib/` | 3.3.10-1ubuntu3, 1.83.0-2.1ubuntu3.2, 6.1.3-1.1build1, 2.3.2-1build1 |
+| cython3, Linux | apt | compiles `vapoursynth.abi3.so` (task #111: meson takes it, not pip's) | 3.0.8-1ubuntu3 |
+
+What was done:
+
+- **macOS builds zimg, boost and fftw from tarballs on both arches**, each
+  checked against a SHA-256 (`fetch_verified`): zimg 3.0.6 / boost 1.92.0 on
+  arm64 and zimg 3.0.5 / boost 1.85.0 on x64, what rc4 shipped, and fftw
+  3.3.10 on both (arm64 uses only its headers and `.pc`). Hashes were checked
+  against boost.io's published ones and Homebrew's formula checksums (zimg
+  3.0.6). 3.3.10's `fftw3.h` differs from 3.3.11's only by `fftw_copy_plan`,
+  which nothing calls (it is absent from the 3.3.10 library both arches
+  ship). arm64's builds target macOS 15.0, as its bottles did.
+- **VapourSynth's meson setup gets `PKG_CONFIG_PATH="$SRCLIB/lib/pkgconfig"`
+  and fails unless meson found the pinned zimg**, did not fall back to R78's
+  unpinned `zimg.wrap`, and libvapoursynth names the copy that is bundled.
+  That fixes x64's header/runtime skew: libvapoursynth now compiles against
+  the 3.0.5 it loads.
+- **`BREW_DEPS` lists build tools only**; zimg, fftw, boost and ffmpeg are
+  out. Homebrew's cmake, ninja, nasm, autotools, pkg-config and the runner's
+  compilers stay unpinned: they come with the runner image, which hosted
+  runners can't pin. The A/B through `deps_run_id` is what catches a change
+  there.
+- **pip installs from `Scripts/pins/pip-{cython,meson}.txt` with
+  `--require-hashes --only-binary :all:`**, one hash per wheel the bundles
+  take (`cython` cp312 on macOS arm64 and Linux, cp39-abi3 on macOS x86_64,
+  the wheels rc4 installed), and the scripts check the versions after.
+  Linux's Cython decision follows task #111, which kept apt's `cython3` as the
+  compiler: pip's Cython 3.3.2 (shipped, unused) and apt's 3.0.8 (compiles)
+  are both pinned, so nothing changes.
+- **Linux installs the apt packages from Ubuntu's archive snapshot**
+  (`Scripts/install-apt-pins-linux.sh`, snapshot 20261126T074400Z, the time of
+  rc4's build): an extra source plus a priority-1001 version pin per package,
+  exact-version dependencies included, so a version noble-updates has since
+  replaced still installs. `snapshot.ubuntu.com/ubuntu/<id>/` serves arm64
+  as well (`ubuntu-ports/` answers 401). `download-deps-linux.sh` checks every
+  `bundled` and `install` package with `dpkg-query`, and the plugin builds'
+  meson, before it copies anything.
+
+`app/test/build_input_pin_test.dart` (push gate) holds all of it; it failed in
+8 places on main. Out of scope: the runner's toolchains (above),
+python-build-standalone (pinned by URL), and akarin's vendored `libz` /
+`libboost_charconv` (a pinned wheel).
