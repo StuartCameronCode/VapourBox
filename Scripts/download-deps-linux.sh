@@ -238,7 +238,8 @@ while read -r pkg version role; do
     [ "$role" = dep ] && continue
     got=$(dpkg-query -W -f='${db:Status-Abbrev} ${Version}' "$pkg" 2>/dev/null || true)
     if [ "$got" != "ii  $version" ]; then
-        unpinned "apt package $pkg is '${got#ii  }', pinned $version"
+        got=${got#ii  }
+        unpinned "apt package $pkg is ${got:-not installed}, pinned $version"
     fi
 done < <(awk '!/^#/ && NF == 3 {print $1, $2, $3}' "$SCRIPT_DIR/pins/apt-linux.txt")
 MESON_GOT=$(meson --version 2>/dev/null || true)

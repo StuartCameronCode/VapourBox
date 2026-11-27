@@ -330,10 +330,14 @@ FFTW_SHA256="56c932549852cddcfafdab3820b0200c7742675be92179e59e6215b340e26467"
 if [ "$ARCH" = "x86_64" ]; then
     ZIMG_VERSION="$ZIMG_VERSION_X64";   ZIMG_SHA256="$ZIMG_SHA256_X64"
     BOOST_VERSION="$BOOST_VERSION_X64"; BOOST_SHA256="$BOOST_SHA256_X64"
+    BOOST_CXXSTD=""   # the compiler's default, as rc4's x64 build had
     SRCLIB_MINOS="$MACOS_MIN_VERSION"
 else
     ZIMG_VERSION="$ZIMG_VERSION_ARM64";   ZIMG_SHA256="$ZIMG_SHA256_ARM64"
     BOOST_VERSION="$BOOST_VERSION_ARM64"; BOOST_SHA256="$BOOST_SHA256_ARM64"
+    # Homebrew's boost formula builds with C++17, which decides how
+    # boost.system exports its error categories; keep the bottle's exports.
+    BOOST_CXXSTD="-std=c++17"
     SRCLIB_MINOS="15.0"   # what the arm64 bundle's bottles were, and its plugins are
 fi
 
@@ -350,7 +354,7 @@ fetch_verified() {
 }
 
 SRCLIB="$BUILD_DIR/srclib"
-SRCLIB_STAMP="zimg $ZIMG_VERSION $ZIMG_SHA256; boost $BOOST_VERSION $BOOST_SHA256; fftw $FFTW_VERSION $FFTW_SHA256; minos $SRCLIB_MINOS"
+SRCLIB_STAMP="zimg $ZIMG_VERSION $ZIMG_SHA256; boost $BOOST_VERSION $BOOST_SHA256 $BOOST_CXXSTD; fftw $FFTW_VERSION $FFTW_SHA256; minos $SRCLIB_MINOS"
 if [ "$FORCE" = false ] && [ "$(cat "$SRCLIB/.vapourbox-pins" 2>/dev/null)" = "$SRCLIB_STAMP" ]; then
     echo ""
     echo "=== Support libraries already built from the pinned sources ($SRCLIB) ==="
@@ -393,7 +397,7 @@ else
     tar xjf boost.tar.bz2 && cd "$BOOST_DIR"
     ./bootstrap.sh --with-libraries=filesystem,atomic --prefix="$SRCLIB" >/dev/null
     ./b2 -j"$NPROC" --with-filesystem --with-atomic link=shared \
-        cxxflags="-mmacosx-version-min=$SRCLIB_MINOS" \
+        cxxflags="$BOOST_CXXSTD -mmacosx-version-min=$SRCLIB_MINOS" \
         linkflags="-mmacosx-version-min=$SRCLIB_MINOS" \
         install >/dev/null
     )
