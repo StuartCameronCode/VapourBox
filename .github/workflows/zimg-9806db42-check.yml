@@ -1,0 +1,68 @@
+name: zimg 9806db42 check (Linux)
+
+# Task #126: upstream fixed task #109's overrun in graphengine 308d3735 (zimg
+# 9806db42). Before pinning it in place of 67e06032 (graphengine cb5b2ce1),
+# docs/reports/task-126-zimg-9806db42/scripts/compare.sh builds both the way
+# VapourSynth R78 builds its zimg subproject and runs task #109's 158 cases
+# through each: VapourSynth's build (NDEBUG) with the canary and a digest of
+# every picture (auto64 and C kernels), graphengine's guard pages, and ASan.
+# gcc 13 and clang 18 on x64 and on arm64 (the arm64 clang column is for
+# task #115's ASan reports).
+#
+# Dispatch it, or push a change to this file on a branch (a workflow that is
+# not on the default branch cannot be dispatched).
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+    paths: ['.github/workflows/zimg-9806db42-check.yml']
+
+permissions:
+  contents: read
+
+env:
+  R109: docs/reports/task-109-graphengine-tmp-overrun/scripts
+  R: docs/reports/task-126-zimg-9806db42/scripts
+
+jobs:
+  compare:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, arch: x64, cc: gcc-13, cxx: g++-13 }
+          - { os: ubuntu-24.04, arch: x64, cc: clang-18, cxx: clang++-18 }
+          - { os: ubuntu-24.04-arm, arch: arm64, cc: gcc-13, cxx: g++-13 }
+          - { os: ubuntu-24.04-arm, arch: arm64, cc: clang-18, cxx: clang++-18 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc-13 g++-13 clang-18 llvm-18
+          pipx install meson==1.5.2
+          meson --version; $CC --version | head -1
+          grep -m1 'model name' /proc/cpuinfo || true
+          grep -m1 -o 'avx512[a-z]*' /proc/cpuinfo | head -1 || echo "no avx512"
+          ldd --version | head -1
+
+      - name: Fetch zimg, graphengine, VapourSynth
+        run: bash "$R109/fetch.sh" "$RUNNER_TEMP/src"
+
+      - name: Compare 67e06032 (A) with 9806db42 (B)
+        run: bash "$R/compare.sh" "$RUNNER_TEMP/src" out
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: compare-${{ matrix.arch }}-${{ matrix.cc }}
+          path: |
+            out/*.tsv
+            out/*.txt

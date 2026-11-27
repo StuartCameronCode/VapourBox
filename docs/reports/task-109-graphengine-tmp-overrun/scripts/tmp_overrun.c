@@ -13,9 +13,13 @@
  * value itself is still seen. Independent of the allocator and the CPU.
  * Exact mode (--exact): a buffer of exactly tmp_size bytes and no guards, for
  * AddressSanitizer, valgrind, or glibc's own checks at free().
+ * Digest (--digest, task #126): add a last column, a 64-bit FNV-1a hash of
+ * the destination's visible samples (every plane, row by row, stride padding
+ * left out), so two zimg builds can be compared picture for picture. Without
+ * it the output is exactly as before.
  *
- * Usage: tmp_overrun [--exact] [--cpu auto64|auto|none] CASES.tsv
- *        tmp_overrun [--exact] [--cpu ...] - NAME SRC SRCWxH DST DSTWxH FILTER DITHER FIELD
+ * Usage: tmp_overrun [--exact] [--digest] [--cpu auto64|auto|none] CASES.tsv
+ *        tmp_overrun [--exact] [--digest] [--cpu ...] - NAME SRC SRCWxH DST DSTWxH FILTER DITHER FIELD
  * A case line: name, source format, source size, destination format,
  * destination size, resample filter (point|bilinear|bicubic|spline16|spline36|lanczos),
  * dither (none|ordered|random|error_diffusion), field (p = progressive,
@@ -195,6 +199,24 @@ static void alloc_frame(const fmt_t *fmt, frame_t *fr, int fill, uint32_t seed)
 	}
 }
 
+/* 64-bit FNV-1a over each plane's visible bytes, top row first. */
+static uint64_t frame_digest(const fmt_t *fmt, const frame_t *fr)
+{
+	uint64_t h = 1469598103934665603ull;
+	for (unsigned p = 0; p < fmt->planes; ++p) {
+		unsigned w = p ? fmt->f.width >> fmt->f.subsample_w : fmt->f.width;
+		size_t row = (size_t)w * fmt->bytes;
+		for (unsigned y = 0; y < fr->rows[p]; ++y) {
+			const unsigned char *b = fr->data[p] + (size_t)y * (size_t)fr->stride[p];
+			for (size_t k = 0; k < row; ++k) {
+				h ^= b[k];
+				h *= 1099511628211ull;
+			}
+		}
+	}
+	return h;
+}
+
 static void free_frame(const fmt_t *fmt, frame_t *fr)
 {
 	for (unsigned p = 0; p < fmt->planes; ++p)
@@ -228,7 +250,7 @@ static void field_buffers(const fmt_t *sf, const frame_t *src, const fmt_t *df, 
 	}
 }
 
-static int run_case(char **a, zimg_cpu_type_e cpu, int exact, const char *cpu_name)
+static int run_case(char **a, zimg_cpu_type_e cpu, int exact, int digest, const char *cpu_name)
 {
 	const char *name = a[0];
 	unsigned sw, sh, dw, dh;
@@ -270,7 +292,7 @@ static int run_case(char **a, zimg_cpu_type_e cpu, int exact, const char *cpu_na
 		}
 		if (!(graphs[i] = zimg_filter_graph_build(&s.f, &d.f, &params))) {
 			fail(name);
-			printf("%s\t%s\t-\t-\t-\t-\tbuild-error\n", name, cpu_name);
+			printf("%s\t%s\t-\t-\t-\t-\tbuild-error%s\n", name, cpu_name, digest ? "\t-" : "");
 			return 0;
 		}
 		size_t sz;
@@ -303,7 +325,7 @@ static int run_case(char **a, zimg_cpu_type_e cpu, int exact, const char *cpu_na
 			if (zimg_filter_graph_process(graphs[i], &sb, &db, tmp, NULL, NULL, NULL, NULL)) {
 				fail(name);
 				free(block);
-				printf("%s\t%s\t%zu\t-\t-\t-\tprocess-error\n", name, cpu_name, tmp_size);
+				printf("%s\t%s\t%zu\t-\t-\t-\tprocess-error%s\n", name, cpu_name, tmp_size, digest ? "\t-" : "");
 				goto out;
 			}
 		}
@@ -326,10 +348,15 @@ static int run_case(char **a, zimg_cpu_type_e cpu, int exact, const char *cpu_na
 	{
 		const char *status = exact ? "ran" : (r.tail_changed || r.head_changed) ? "OVERRUN" : "ok";
 		if (exact)
-			printf("%s\t%s\t%zu\t-\t-\t-\t%s\n", name, cpu_name, tmp_size, status);
+			printf("%s\t%s\t%zu\t-\t-\t-\t%s", name, cpu_name, tmp_size, status);
 		else
-			printf("%s\t%s\t%zu\t%zu\t%zu\t%zu\t%s\n", name, cpu_name, tmp_size, r.tail_changed, r.tail_max,
+			printf("%s\t%s\t%zu\t%zu\t%zu\t%zu\t%s", name, cpu_name, tmp_size, r.tail_changed, r.tail_max,
 			       r.head_changed, status);
+		/* Every run processes the same source into the same frame, so the
+		 * destination now holds the result. */
+		if (digest)
+			printf("\t%016llx", (unsigned long long)frame_digest(&df, &dst));
+		printf("\n");
 	}
 out:
 	for (int i = 0; i < ngraphs; ++i)
@@ -342,13 +369,15 @@ out:
 
 int main(int argc, char **argv)
 {
-	int exact = 0;
+	int exact = 0, digest = 0;
 	zimg_cpu_type_e cpu = ZIMG_CPU_AUTO_64B; /* VapourSynth's default */
 	const char *cpu_name = "auto64";
 	int i = 1;
 	for (; i < argc && argv[i][0] == '-' && argv[i][1]; ++i) {
 		if (!strcmp(argv[i], "--exact")) {
 			exact = 1;
+		} else if (!strcmp(argv[i], "--digest")) {
+			digest = 1;
 		} else if (!strcmp(argv[i], "--cpu") && i + 1 < argc) {
 			cpu_name = argv[++i];
 			if (!strcmp(cpu_name, "auto64")) cpu = ZIMG_CPU_AUTO_64B;
@@ -361,10 +390,10 @@ int main(int argc, char **argv)
 		}
 	}
 	if (i >= argc) {
-		fprintf(stderr, "usage: tmp_overrun [--exact] [--cpu auto64|auto|none] CASES.tsv | - CASE...\n");
+		fprintf(stderr, "usage: tmp_overrun [--exact] [--digest] [--cpu auto64|auto|none] CASES.tsv | - CASE...\n");
 		return 2;
 	}
-	printf("case\tcpu\ttmp_size\ttail_changed\ttail_max\thead_changed\tstatus\n");
+	printf("case\tcpu\ttmp_size\ttail_changed\ttail_max\thead_changed\tstatus%s\n", digest ? "\tdigest" : "");
 
 	int bad = 0;
 	if (!strcmp(argv[i], "-")) {
@@ -372,7 +401,7 @@ int main(int argc, char **argv)
 			fprintf(stderr, "a case is 8 fields\n");
 			return 2;
 		}
-		int r = run_case(argv + i + 1, cpu, exact, cpu_name);
+		int r = run_case(argv + i + 1, cpu, exact, digest, cpu_name);
 		return r < 0 ? 2 : r;
 	}
 	FILE *fp = fopen(argv[i], "r");
@@ -393,7 +422,7 @@ int main(int argc, char **argv)
 			fprintf(stderr, "skipping malformed line (%d fields)\n", n);
 			continue;
 		}
-		int r = run_case(f, cpu, exact, cpu_name);
+		int r = run_case(f, cpu, exact, digest, cpu_name);
 		if (r < 0)
 			return 2;
 		bad |= r;
