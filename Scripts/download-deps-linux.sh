@@ -248,14 +248,25 @@ PYTHON_INCLUDE="$PYTHON_DIR/include/python${PYTHON_MAJOR_MINOR}"
 # `revision = HEAD`, so unpinned it cloned zimg master at build time:
 # e2e43d09 "Update graphengine" (2026-11-21) reached the 1.18.0-rc3 build
 # and every job that resized aborted with "double free or corruption" in
-# vszimg::real_get_frame. 67e06032 is what deps 1.18.0-rc2's build cloned,
-# so output is unchanged.
+# vszimg::real_get_frame. That was graphengine f6211289 (task #109): a fused
+# error-diffusion node's context is left out of get_tmp_size(). Task #103
+# pinned 67e06032 (graphengine cb5b2ce1), what deps 1.18.0-rc2's build cloned.
+# From 1.18.0-rc5 the pin is 9806db42 (task #127): 67e06032 plus only
+# graphengine 308d3735, upstream's fix (sekrit-twc/zimg#245). It passed
+# #109's 158 graphs with no overrun and every picture byte-identical to
+# 67e06032's, and the bundle passed the Linux test suites against rc4's
+# (docs/reports/task-126-zimg-9806db42). Never pin graphengine f6211289 ..
+# e9b10267 (zimg_pin_test.dart refuses them).
+# zimg master was rewritten once: e2e43d09 is no longer on it (still
+# fetchable by SHA). A SHA pin survives that; if GitHub ever drops the
+# object, the subproject check below fails the build.
 # Git, not a release: R78 reads chromatic_adaptation (ZIMG_API_VERSION 2.5),
 # which no release has (patches/vapoursynth-r78-zimg-api-guard.patch).
-# Bumping either commit changes VapourSynth's own resize on Linux: test it
+# Bumping either commit changes VapourSynth's own resize on Linux: run
+# docs/reports/task-126-zimg-9806db42/scripts/compare.sh and test the bundle
 # through `deps_run_id` first (docs/reports/task-103-linux-zimg-pin).
-ZIMG_COMMIT="67e0603271c080e22c8429856dd4a8a56587e61e"             # 2026-09-04
-ZIMG_GRAPHENGINE_COMMIT="cb5b2ce13384ec2491f0c37256ea210034799f69"  # its graphengine submodule
+ZIMG_COMMIT="9806db428022893543121c94c7069263cd92a71a"             # 2026-11-22
+ZIMG_GRAPHENGINE_COMMIT="308d3735b05d99a1d792b82351be71b8ffc9a46b"  # its graphengine submodule
 
 # A deps/ tree built before task #111 still holds the standalone libzimg.so;
 # remove it so a re-run without --force matches a CI build.
