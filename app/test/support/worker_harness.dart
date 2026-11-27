@@ -523,8 +523,13 @@ class WorkerHarness {
           // The whole tree: on Windows killing the worker alone leaves its
           // vspipe running a network on every core, starving later tests.
           await ProcessTree.killTree(process, ProcessSignal.sigkill);
-          throw TimeoutException(
-              '$label timed out after ${timeout.inSeconds}s${hang.isEmpty ? '' : '\n$hang'}');
+          final tail = stderrTail(logs
+              .where((l) => l.startsWith('[stderr] '))
+              .map((l) => l.substring(9))
+              .join('\n'));
+          throw TimeoutException('$label timed out after ${timeout.inSeconds}s'
+              '${tail.isEmpty ? '' : '\nits stderr ended:\n$tail'}'
+              '${hang.isEmpty ? '' : '\n$hang'}');
         },
       );
       stopwatch.stop();
@@ -837,7 +842,19 @@ class WorkerHarness {
       // hundred KB, which deadlocks if stderr is left unread.
       final stdoutFuture = process.stdout
           .fold<BytesBuilder>(BytesBuilder(), (b, chunk) => b..add(chunk));
-      final stderrFuture = process.stderr.transform(utf8.decoder).join();
+      // Collected as it arrives, not joined: a join() completes only when
+      // the pipe closes, which a worker stuck waiting for vspipe never does,
+      // so a timeout lost everything the worker had said (task #122). A
+      // normal exit still waits for the end of the pipe, briefly.
+      final said = StringBuffer();
+      final stderrDone = Completer<void>();
+      process.stderr.transform(utf8.decoder).listen(said.write,
+          onDone: () => stderrDone.isCompleted ? null : stderrDone.complete(),
+          onError: (_) => stderrDone.isCompleted ? null : stderrDone.complete());
+      Future<String> stderrSoFar(Duration wait) async {
+        await stderrDone.future.timeout(wait, onTimeout: () {});
+        return said.toString();
+      }
 
       final exitCode = await process.exitCode.timeout(timeout, onTimeout: () async {
         // Where each process of the tree is stuck, before it is killed, and
@@ -849,16 +866,15 @@ class WorkerHarness {
         final hang = await describeHang(process.pid,
             budget: const Duration(seconds: 75), perProcess: const Duration(seconds: 25));
         await ProcessTree.killTree(process, ProcessSignal.sigkill);
-        final said = await stderrFuture
-            .timeout(const Duration(seconds: 5), onTimeout: () => '');
-        final lines = said.trimRight().split('\n').where((l) => l.trim().isNotEmpty).toList();
-        final tail = lines.sublist(lines.length > 20 ? lines.length - 20 : 0).join('\n');
+        final tail = stderrTail(await stderrSoFar(const Duration(seconds: 5)));
         throw TimeoutException('$label timed out after ${timeout.inSeconds}s'
             '${tail.isEmpty ? '' : '\nits stderr ended:\n$tail'}'
             '${hang.isEmpty ? '' : '\n$hang'}');
       });
-      final png = (await stdoutFuture).takeBytes();
-      final logs = await stderrFuture;
+      final png = (await stdoutFuture
+              .timeout(const Duration(seconds: 30), onTimeout: () => BytesBuilder()))
+          .takeBytes();
+      final logs = await stderrSoFar(const Duration(seconds: 30));
 
       if (exitCode != 0 || png.isEmpty) {
         return PreviewResult(
@@ -1448,4 +1464,11 @@ class PreviewResult {
 
   @override
   String toString() => success ? 'SUCCESS (${png!.length} bytes)' : 'FAILED: $error\n$workerError';
+}
+
+/// The last [lines] non-blank lines of a process's stderr, for a timeout
+/// report (task #122).
+String stderrTail(String text, {int lines = 20}) {
+  final all = text.trimRight().split('\n').where((l) => l.trim().isNotEmpty).toList();
+  return all.sublist(all.length > lines ? all.length - lines : 0).join('\n');
 }

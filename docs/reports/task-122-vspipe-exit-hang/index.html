@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vspipe exit hang</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>vspipe that does not exit after its last line</h1>
+<p class="meta">Task #122, 2026-11-27. Measured on GitHub's <code>windows-latest</code> runners with deps 1.18.0-rc4, both CPU tiers (windows-x64 and windows-x64-v2 bundles), the worker's debug build, under load (every core but one running <code>yes</code>). Runs 45920512665 and 45927466967 of <code>repro-vspipe-exit.yml</code>. The original failure is task #120's: the format sweep's <code>stabilize/pitchMode=auto</code> row, 720x480 yuv444p16le progressive, past its 360 s budget on Windows, and 3 of 80 previews in task #120's repro (deps 1.18.0-rc3), each with vspipe's last thread in <code>ExitProcess</code> → <code>NtTerminateProcess</code>.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>Fix (in the worker): a vspipe that has printed its final line is given 30 s to exit, then stopped.</b> <code>worker/src/vspipe_exit.rs</code> knows the lines R78's <code>main</code> prints just before it returns (<code>Output N frames in …</code>, <code>Script evaluation failed:</code>, the output-node and header errors). After one, the encode and the preview wait <code>VAPOURBOX_VSPIPE_EXIT_GRACE_SECS</code> (default 30, 0 = forever) and kill vspipe. The job log says so. After a stop the encoder's result decides when vspipe finished cleanly (vspipe flushes its output before printing <code>Output</code>); otherwise vspipe's error does. <code>Output</code> alone does not mean success: R78 prints it after <code>Error: Failed to retrieve frame …</code> too. A vspipe a kill cannot end fails the job and never hangs it.</li>
+<li><b>Reproduced, and the fix seen working on a runner:</b> run 1, v2 leg, guard arm, run 68. vspipe printed <code>Output 1 frames in 0.75 seconds</code> at +988 ms and did not exit. The worker stopped it 30 s later, and the preview returned its frame (32.7 s in all; <code>data/run1-v2-guard-run68-stderr.txt</code>).</li>
+<li><b>Its rate depends on Defender:</b> run 1 saw 1 hang in 3,200 pitch-auto previews across both tiers, in an arm that had Defender on by mistake; run 2, with Defender on throughout, saw 347 in 3,000. Task #120's repro saw 3 in 80.</li>
+<li><b>Cause: Microsoft Defender real-time protection suspends vspipe's last thread while the process exits, and does not resume it.</b> In run 2 (Defender on, guard off), 347 of 3,000 pitch-auto previews hung: 218 of 1,500 on x64 and 129 of 1,500 on v2. Every one printed <code>Output 1 frames</code>. In every one, cdb's non-invasive attach (which adds 1 itself) showed the one thread left at <code>Suspend: 2</code>, and <code>NtResumeProcess</code> let vspipe exit at once (0–0.02 s), after which the worker returned. 343 were in <code>NtTerminateProcess</code>; 4 were earlier in the exit path (<code>atexit</code> destructors, FLS cleanup, and once inside Defender's own <code>MpOav.dll</code>). Defender's DLL is loaded in the process. No WerFault was involved. With Defender off: 0 hangs in 3,200 previews of run 1's Defender-off arms. vspipe's own code does nothing wrong, so the worker-side stop is the fix. A stop terminates the suspended process (run 1's run 68 shows it).</li>
+<li><b>Debugging aid:</b> the preview now echoes vspipe's stderr as it arrives (<code>vspipe: +&lt;ms&gt; ms …</code>; the app leaves those lines out of a failed preview's error text). The test harness puts the stderr tail in a timed-out preview's or job's report, so a hang shows where vspipe got to.</li>
+</ul>
+
+<h2>Method</h2>
+<p><code>scripts/repro-vspipe-exit.ps1</code>, run by <code>scripts/repro-vspipe-exit.yml</code> (copies of <code>.github/scripts/</code> and <code>.github/workflows/</code> as run). It runs the worker's preview of the sweep row's job (<code>data/pitch-job.json</code>, frame 15) directly, one run at a time, with a 60 s limit. Most arms set the guard off (grace 0), so a hang stays a hang. Each arm changes one thing and restores it afterwards. A hung run is examined before it is touched:</p>
+<ol>
+<li>the process tree and the worker's stderr, which carries vspipe's lines;</li>
+<li>vspipe's threads (state, wait reason);</li>
+<li>WerFault processes and Application events 1000/1001/1005;</li>
+<li>cdb's non-invasive stacks;</li>
+<li><code>NtResumeProcess</code>, then <code>TerminateProcess</code>, each with 10 s to take effect, and whether the worker then returns.</li>
+</ol>
+<table>
+<tr><th>Arm</th><th>What it changes</th></tr>
+<tr><td>baseline</td><td>nothing (the pitch-auto job, guard off)</td></tr>
+<tr><td>localdumps</td><td>WER LocalDumps for vspipe.exe</td></tr>
+<tr><td>weroff</td><td>WER disabled</td></tr>
+<tr><td>defenderoff / defenderon</td><td>Defender real-time monitoring off / on</td></tr>
+<tr><td>wheelvspipe</td><td>the R78 wheel's own <code>vspipe.exe</code> instead of the bundle's Zig build (task #68)</td></tr>
+<tr><td>weave / passthrough</td><td>Stabilize with weave only / no pass at all</td></tr>
+<tr><td>guard</td><td>the guard at its default 30 s</td></tr>
+</table>
+
+<h2>Run 1: every arm, 200 runs each</h2>
+<table>
+<tr><th>Arm</th><th>Defender RTP</th><th>x64: ok / hung</th><th>x64 median, max s</th><th>v2: ok / hung</th><th>v2 median, max s</th></tr>
+<tr><td>baseline</td><td>off</td><td class=num>200 / 0</td><td class=num>2.19, 2.89</td><td class=num>200 / 0</td><td class=num>2.37, 5.71</td></tr>
+<tr><td>localdumps</td><td>off</td><td class=num>200 / 0</td><td class=num>2.28, 2.68</td><td class=num>200 / 0</td><td class=num>2.30, 8.16</td></tr>
+<tr><td>weroff</td><td>off</td><td class=num>200 / 0</td><td class=num>2.18, 2.42</td><td class=num>200 / 0</td><td class=num>2.31, 6.81</td></tr>
+<tr><td>defenderoff</td><td>off</td><td class=num>200 / 0</td><td class=num>2.14, 2.32</td><td class=num>200 / 0</td><td class=num>2.35, 2.79</td></tr>
+<tr><td>wheelvspipe</td><td>off</td><td class=num>200 / 0</td><td class=num>2.15, 2.44</td><td class=num>200 / 0</td><td class=num>2.37, 2.79</td></tr>
+<tr><td>weave</td><td>on*</td><td class=num>200 / 0</td><td class=num>1.76, 1.91</td><td class=num>200 / 0</td><td class=num>1.96, 2.32</td></tr>
+<tr><td>passthrough</td><td>on*</td><td class=num>200 / 0</td><td class=num>1.70, 1.83</td><td class=num>200 / 0</td><td class=num>1.76, 2.24</td></tr>
+<tr><td>guard</td><td>on*</td><td class=num>200 / 0</td><td class=num>2.12, 2.75</td><td class="num">200 / 0, <b class=no>1 stopped</b></td><td class=num>2.30, <b>32.71</b></td></tr>
+</table>
+<p>* The hosted image ships with real-time monitoring off. defenderoff's teardown set it <i>on</i> rather than back to how it was, so the last three arms ran with it on (<code>data/run1-*-arms.txt</code>). This is a correction to the script as first run. It has since been fixed, and a <code>defenderon</code> arm added to test the lead.</p>
+
+<h2>Run 2: Defender on, guard off</h2>
+<p>1,500 runs of the pitch-auto job per tier, real-time monitoring switched on by the script and restored after, guard off (grace 0), 60 s limit (<code>data/run2-45927466967-*-summary.md</code>; stacks of one hang and of the 4 that stopped elsewhere: <code>data/run2-defenderon-hang-stacks.txt</code>).</p>
+<table>
+<tr><th>Tier</th><th>Runs</th><th>Ok</th><th>Hung</th><th>Suspend count at the hang (cdb adds 1)</th><th>Exited after NtResumeProcess</th><th>Median, max s (runs that exited)</th></tr>
+<tr><td>windows-x64</td><td class="num">1,500</td><td class="num">1,282</td><td class="num no">218</td><td>2 in all 218</td><td>218 of 218, within 0.02 s</td><td class="num">3.13, 4.97</td></tr>
+<tr><td>windows-x64-v2</td><td class="num">1,500</td><td class="num">1,371</td><td class="num no">129</td><td>2 in all 129</td><td>129 of 129, within 0.02 s</td><td class="num">3.22, 5.34</td></tr>
+</table>
+<p>The rate with Defender on varies a great deal between runs: run 1's three accidentally Defender-on arms hung once in 1,200 (and the weave and passthrough arms never), run 2 about one run in nine. Run 2 had only the pitch-auto job, so whether the job matters is not settled; nothing in the stacks is specific to it.</p>
+
+<h2>The stopped run</h2>
+<pre>vspipe: +   153 ms INPUT_INFO:frames=36,fps_num=30000,fps_den=1001
+vspipe: +   212 ms Warning: Explicitly instantiated a Cache. …
+vspipe: +   215 ms Warning: Explicitly instantiated a Cache. …
+vspipe: +   988 ms Output 1 frames in 0.75 seconds (1.33 fps)
+Preview: vspipe printed "Output 1 frames in 0.75 seconds (1.33 fps)" but had not exited 30s later; stopped it (task #122)
+PREVIEW_INFO:frame=15 sub_frame=0 sub_frames=1 generated=0</pre>
+<p>Nothing in vspipe's own output differs from a run that exits. Its frame reached ffmpeg, so the hang started after vspipe's output was flushed. In task #120's hangs the stacks showed ffmpeg's demuxer still waiting on the pipe. That run printed no stderr timeline, so whether vspipe had printed <code>Output</code> there is not known.</p>
+
+<h2>Tests</h2>
+<ul>
+<li><code>vspipe_exit::tests</code> (Rust, every platform): the final-line table, the grace from the environment, the stop against a fake process and against a real child that prints the summary line and sleeps. The outcome notes are covered too.</li>
+<li><code>app/test/vspipe_exit_guard_test.dart</code> (push gate; not on Windows): a wrapper runs the real vspipe and then becomes <code>sleep 600</code> holding vspipe's pipes, reached through the debug-only <code>VAPOURBOX_VSPIPE</code>. With a 3 s grace the preview returns its frame in about 5 s and the encode writes the whole clip in about 6 s. Each says it stopped vspipe.</li>
+<li><code>app/test/vspipe_echo_prefix_test.dart</code>: the app's <code>vspipeEchoPrefix</code> is the worker's <code>VSPIPE_ECHO_PREFIX</code> (<code>docs/TWINS.md</code>), and <code>previewErrorText</code> drops the echo.</li>
+</ul>
+
+<h2>Limits</h2>
+<ul>
+<li><b>Run 1 saw one hang</b>, with the guard on. Run 2 took stacks of 347 real hangs with the guard off.</li>
+<li><b>Whether Defender was on in task #120's runs is not known.</b> The script found real-time monitoring off on the hosted image, and #120's hang rate (3 in 80) lies between run 1's and run 2's. Two other differences were not tested: deps 1.18.0-rc3, whose Windows plugins partly failed to load (task #116), and the launcher (Dart's <code>Process.start</code> against PowerShell's <code>Start-Process</code>).</li>
+<li>The guard bounds a hang <b>after</b> a final line. A vspipe stuck before printing one is still caught only by the encode's 600 s stall watchdog, or the harness's limits for a preview.</li>
+<li>Hosted runners only, debug worker, one job (the sweep row). <b>Real-time protection is on by default on users' Windows machines</b>, so users may meet this too. No user report of it exists. Without the guard it would be a preview that never returns, or an encode that never finishes after its last frame.</li>
+</ul>
+
+<h2>Files</h2>
+<ul>
+<li><code>scripts/repro-vspipe-exit.ps1</code>, <code>scripts/repro-vspipe-exit.yml</code>: the measurement.</li>
+<li><code>data/run1-45920512665-*-summary.md</code>, <code>*-arms.txt</code>: run 1 per tier.</li>
+<li><code>data/run1-v2-guard-run68-stderr.txt</code>: the stopped run's worker stderr.</li>
+<li><code>data/pitch-job.json</code>: the job every pitch-auto arm ran (from <code>repro_stabilize_test.dart</code>'s <code>VAPOURBOX_REPRO_DUMP</code>).</li>
+<li><code>data/run2-45927466967-*-summary.md</code>: run 2 per tier, every hang's row.</li>
+<li><code>data/run2-defenderon-hang-stacks.txt</code>: cdb stacks and the resume experiment for one hang, and the stacks of the 4 hangs suspended elsewhere in the exit path.</li>
+</ul>
+</body>
+</html>

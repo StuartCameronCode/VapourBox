@@ -6867,3 +6867,30 @@ bash ended the command there.
   `zimg.pc`, or PKG_CONFIG_PATH/CC/CXX on the setup.
 
 Report: [task-111-meson-setup-env](reports/task-111-meson-setup-env/index.html).
+
+### vspipe suspended in its own exit by Defender (task #122, 2026-11-27)
+
+- **Symptom.** Task #120's sweep row `stabilize/pitchMode=auto` hung past
+  360 s on a Windows nightly. vspipe had printed `Output 1 frames`, its
+  last thread was in `ExitProcess` → `NtTerminateProcess`, and its stdout
+  never closed, so ffmpeg and the worker waited forever.
+- **Cause.** Microsoft Defender real-time protection. With it on
+  (`repro-vspipe-exit.yml`, run 45927466967), 347 of 3,000 pitch-auto
+  previews hung across both tiers. In every one the last thread had
+  been suspended once and never resumed: cdb's non-invasive attach,
+  which adds 1, showed `Suspend: 2`. `NtResumeProcess` let vspipe exit
+  within 0.02 s. Defender's `MpOav.dll` is loaded in the process. With
+  Defender off, 0 previews in 3,200 hung. Neither WER nor the bundle's
+  Zig-built vspipe (task #68) was involved. The rate varies a lot from
+  run to run: 1 in 1,200 previews in an arm that had Defender on by
+  mistake, against 1 in 9 in run 2.
+- **Fix.** In the worker, not vspipe (`vspipe_exit.rs`). After vspipe
+  prints a line R78's `main` prints just before it returns, the encode
+  and the preview give it `VAPOURBOX_VSPIPE_EXIT_GRACE_SECS` (default 30)
+  to exit, then kill it. TerminateProcess ends a suspended process: a
+  runner hang was stopped this way, and the preview returned its frame.
+  After a stop, the encoder's result decides the outcome when vspipe
+  finished cleanly; otherwise vspipe's error does. Real-time protection
+  is on by default on users' machines, so this is not CI-only.
+
+Report: [docs/reports/task-122-vspipe-exit-hang](reports/task-122-vspipe-exit-hang/index.html).

@@ -233,6 +233,11 @@ fn decoder_lost_its_reader(code: i32, stderr_tail: &str) -> bool {
 /// dropped a frame of the target's cycle at or before the target (task #46).
 const PREVIEW_DECIMATE_PREFIX: &str = "PREVIEW_DECIMATE:corr=";
 
+/// The prefix of each vspipe stderr line the preview echoes as it arrives
+/// (task #122). The app leaves these lines out of a failed preview's error
+/// text (`PreviewGenerator`), which quotes vspipe's error already.
+pub const VSPIPE_ECHO_PREFIX: &str = "vspipe: +";
+
 /// Where the encode's picture ends, as a source frame number plus one: the
 /// out-point, else the source's length. A preview job carries the source's
 /// length as `total_frames` (the encode's is the trimmed count, but the
@@ -294,6 +299,7 @@ use crate::dependency_locator::DependencyLocator;
 use crate::models::{AspectDeclaration, DeinterlaceMethod, EncoderFamily, FieldOrderSignal, LogLevel, ProcessingPipeline, ProgressInfo, SubtitleForm, SubtitleOutput, VideoCodec, VideoJob};
 use crate::pixel_format;
 use crate::source_decode;
+use crate::vspipe_exit;
 use crate::vspipe_failure::{self, Blame};
 use crate::progress_reporter::ProgressReporter;
 use crate::script_generator::{PreviewParams, ScriptGenerator};
@@ -639,7 +645,7 @@ impl PipelineExecutor {
     where
         F: Fn() -> bool,
     {
-        let vspipe_path = self.deps.vspipe_path()?;
+        let vspipe_path = self.deps.pipeline_vspipe_path()?;
         let ffmpeg_path = self.deps.ffmpeg_path()?;
         let env = self.deps.build_environment();
 
@@ -853,6 +859,11 @@ impl PipelineExecutor {
         let total_frames = Arc::new(AtomicI32::new(0));
         let total_frames_clone = total_frames.clone();
         let reporter_clone = self.reporter.clone();
+        // Stops a vspipe that printed its final line but does not exit
+        // (task #122).
+        let exit_guard = vspipe_exit::ExitGuard::new();
+        let guard_clone = exit_guard.clone();
+        let exit_grace = vspipe_exit::grace_from_env();
 
         let vspipe_thread = thread::spawn(move || {
             let reader = BufReader::new(vspipe_stderr);
@@ -862,6 +873,7 @@ impl PipelineExecutor {
             for line in lossy_lines(reader) {
                 // Log all stderr for debugging
                 reporter_clone.send_log(LogLevel::Debug, &format!("vspipe stderr: {}", line));
+                guard_clone.observe(&line);
                 vspipe_failure::push_tail(&mut tail, &line, vspipe_failure::VSPIPE_TAIL_LINES);
 
                 // Detect the plugin-autoload-skip signature so the worker can
@@ -929,6 +941,8 @@ impl PipelineExecutor {
         // diagnostics at all. That is the hang reported in #50, and whatever its
         // root cause, hanging silently is the wrong failure mode.
         let mut watchdog = StallWatchdog::new(Self::stall_timeout(), Instant::now());
+        // Set when the guard stopped vspipe inside the loop.
+        let mut guarded_exit: Option<vspipe_exit::ExitOutcome> = None;
 
         loop {
             // Check for cancellation
@@ -1010,6 +1024,31 @@ impl PipelineExecutor {
                 break;
             }
 
+            // vspipe has said its last word but not exited: the encoder is
+            // still waiting for the end of its input. Stop vspipe so it gets
+            // it (task #122).
+            if guarded_exit.is_none() {
+                if let (Some(line), Some(vspipe)) =
+                    (exit_guard.overdue(exit_grace, Instant::now()), self.vspipe_process.as_mut())
+                {
+                    if vspipe.try_wait().ok().flatten().is_none() {
+                        let outcome = vspipe_exit::stop_overdue(
+                            vspipe, line, vspipe_exit::KILL_WAIT, Duration::from_millis(20),
+                        )
+                        .context("Failed to stop vspipe")?;
+                        if let Some(note) = outcome.note() {
+                            reporter.send_log(LogLevel::Warning, &note);
+                        }
+                        if let vspipe_exit::ExitOutcome::Unkillable { .. } = outcome {
+                            self.terminate();
+                            let _ = fs::remove_file(&progress_file);
+                            bail!("{}", outcome.note().unwrap_or_default());
+                        }
+                        guarded_exit = Some(outcome);
+                    }
+                }
+            }
+
             if let Some(stalled_for) = watchdog.tick(current_frame, Instant::now()) {
                 // Say how far it got before giving up: without this the user has
                 // a hang and nothing to report.
@@ -1039,6 +1078,47 @@ impl PipelineExecutor {
         }
 
         // Wait for processes to exit FIRST (closes their pipes, unblocking reader threads)
+        let vspipe_outcome = match guarded_exit {
+            Some(outcome) => Some(outcome),
+            None => self
+                .vspipe_process
+                .as_mut()
+                .map(|p| {
+                    vspipe_exit::wait_after_final(
+                        p,
+                        &exit_guard,
+                        exit_grace,
+                        vspipe_exit::KILL_WAIT,
+                        Duration::from_millis(20),
+                    )
+                })
+                .transpose()
+                .context("Failed to wait for vspipe")?,
+        };
+        if let Some(note) = vspipe_outcome.as_ref().and_then(|o| o.note()) {
+            reporter.send_log(LogLevel::Warning, &note);
+        }
+        if let Some(vspipe_exit::ExitOutcome::Unkillable { .. }) = vspipe_outcome {
+            self.terminate();
+            let _ = fs::remove_file(&progress_file);
+            bail!("{}", vspipe_outcome.and_then(|o| o.note()).unwrap_or_default());
+        }
+        // A vspipe stopped after it finished cleanly is not a failure; one
+        // stopped after an error is, with that error (task #122).
+        let (vspipe_status, vspipe_status_text) = match &vspipe_outcome {
+            None => (None, String::new()),
+            Some(vspipe_exit::ExitOutcome::Exited(s)) => (Some(*s), format_exit_status(s)),
+            Some(vspipe_exit::ExitOutcome::KilledAfterFinal { line, waited, status }) => (
+                (!line.finished_cleanly()).then_some(*status),
+                vspipe_exit::stopped_status(&format_exit_status(status), *waited),
+            ),
+            Some(vspipe_exit::ExitOutcome::Unkillable { .. }) => unreachable!("bailed above"),
+        };
+        let vspipe_stopped =
+            matches!(vspipe_outcome, Some(vspipe_exit::ExitOutcome::KilledAfterFinal { .. }));
+
+        // The decoder after vspipe: a decoder writing into a vspipe stuck in
+        // exit would block on the full pipe until the guard stopped vspipe.
         let decoder_status = self
             .decoder_process
             .as_mut()
@@ -1046,12 +1126,6 @@ impl PipelineExecutor {
             .transpose()
             .context("Failed to wait for decoder ffmpeg")?;
 
-        let vspipe_status = self
-            .vspipe_process
-            .as_mut()
-            .map(|p| p.wait())
-            .transpose()
-            .context("Failed to wait for vspipe")?;
 
         let ffmpeg_status = self
             .ffmpeg_process
@@ -1063,7 +1137,7 @@ impl PipelineExecutor {
         // Now safe to join threads (pipes are closed, readers will hit EOF)
         let decoder_stderr_tail = decoder_stderr_thread.join().unwrap_or_default();
         let (vspipe_autoload_failed, vspipe_stderr_tail) =
-            vspipe_thread.join().unwrap_or_default();
+            vspipe_exit::join_bounded(vspipe_thread, Duration::from_secs(10)).unwrap_or_default();
         let ffmpeg_stderr_tail = ffmpeg_stderr_thread.join().unwrap_or_default();
 
         // Clean up progress file
@@ -1118,8 +1192,8 @@ impl PipelineExecutor {
                 bail!(
                     "{}",
                     vspipe_failure::vspipe_failure_message(
-                        &format_exit_status(&status),
-                        is_native_crash(&status),
+                        &vspipe_status_text,
+                        !vspipe_stopped && is_native_crash(&status),
                         &vspipe_stderr_tail,
                     )
                 );
@@ -1735,7 +1809,7 @@ impl PipelineExecutor {
         use std::io::Write;
 
         let ffmpeg_path = self.deps.ffmpeg_path()?;
-        let vspipe_path = self.deps.vspipe_path()?;
+        let vspipe_path = self.deps.pipeline_vspipe_path()?;
         let env = self.deps.build_environment();
 
         let target = frame_index.max(0);
@@ -1979,7 +2053,7 @@ impl PipelineExecutor {
         if let Some(crop) = grid_crop_filter(job) {
             scale_filter = format!("{scale_filter},{}", crop.trim_end_matches(":exact=1"));
         }
-        let ffmpeg_enc = Command::new(&ffmpeg_path)
+        let mut ffmpeg_enc = Command::new(&ffmpeg_path)
             .args([
                 "-f", "yuv4mpegpipe",
                 "-i", "pipe:0",
@@ -1996,13 +2070,23 @@ impl PipelineExecutor {
             .spawn()
             .with_context(|| format!("Failed to start ffmpeg encoder: {:?}", ffmpeg_path))?;
 
-        // Read vspipe stderr in background for error messages
+        // Read vspipe stderr in background for error messages. Each line is
+        // also echoed as it arrives (`vspipe: +<ms> ms <line>`), so a preview
+        // that stops leaves a timeline of what vspipe said (task #122), and
+        // fed to the exit guard, which stops a vspipe that has printed its
+        // final line but does not exit.
+        let exit_guard = vspipe_exit::ExitGuard::new();
+        let vspipe_started = Instant::now();
         let stderr_thread = if let Some(stderr) = vspipe_stderr {
+            let guard = exit_guard.clone();
             Some(thread::spawn(move || {
                 let reader = BufReader::new(stderr);
                 let mut errors = Vec::new();
                 let mut decimate_corr = None;
                 for line in lossy_lines(reader) {
+                    eprintln!("{}{:>6} ms {}", VSPIPE_ECHO_PREFIX,
+                        vspipe_started.elapsed().as_millis(), line);
+                    guard.observe(&line);
                     // The preview script's decimation reports which of the
                     // two outputs it showed (task #46).
                     if let Some(v) = line.strip_prefix(PREVIEW_DECIMATE_PREFIX) {
@@ -2021,18 +2105,82 @@ impl PipelineExecutor {
             None
         };
 
-        // Wait for processes
-        let vspipe_status = vspipe.wait().context("Failed to wait for vspipe")?;
+        // Wait for vspipe, stopping it if it has printed its final line and
+        // not exited within the grace (task #122: seen stuck in ExitProcess
+        // on Windows, so the preview never came back).
+        let exit = vspipe_exit::wait_after_final(
+            &mut vspipe,
+            &exit_guard,
+            vspipe_exit::grace_from_env(),
+            vspipe_exit::KILL_WAIT,
+            Duration::from_millis(5),
+        )
+        .context("Failed to wait for vspipe")?;
+        if let Some(note) = exit.note() {
+            eprintln!("Preview: {note}");
+        }
+        if matches!(exit, vspipe_exit::ExitOutcome::Unkillable { .. }) {
+            // Its end of the pipe may never close: stop the encoder too, so
+            // the worker returns instead of waiting on it.
+            let _ = ffmpeg_enc.kill();
+        }
         let output = ffmpeg_enc.wait_with_output().context("Failed to wait for ffmpeg")?;
 
         // Both processes have exited: nothing holds a file in the scratch
         // directory any more (Windows refuses to delete an open file).
         drop(scratch);
 
-        let (errors, decimate_corr) = stderr_thread.and_then(|t| t.join().ok()).unwrap_or_default();
+        let (errors, decimate_corr) = stderr_thread
+            .and_then(|t| vspipe_exit::join_bounded(t, Duration::from_secs(5)))
+            .unwrap_or_default();
+
+        let png_ok = output.status.success() && !output.stdout.is_empty();
+        // `None`: the guard stopped a vspipe that had finished cleanly and
+        // the frame arrived.
+        let vspipe_status = match exit {
+            vspipe_exit::ExitOutcome::Exited(status) => Some(status),
+            vspipe_exit::ExitOutcome::KilledAfterFinal { line, waited, status } => {
+                // vspipe flushes its output before it prints `Output …`, so
+                // the encoder's result decides, unless vspipe said a frame
+                // failed or ended on an error.
+                if !line.finished_cleanly() {
+                    bail!(
+                        "{}",
+                        vspipe_failure::vspipe_failure_message(
+                            &vspipe_exit::stopped_status(&format_exit_status(&status), waited),
+                            false,
+                            &errors.join("\n"),
+                        )
+                    );
+                }
+                if !png_ok {
+                    bail!(
+                        "vspipe finished its output but did not exit, and the encoder got no \
+                         frame (ffmpeg exited with {}); stopped it {}s after its last line \
+                         (task #122)",
+                        format_exit_status(&output.status),
+                        waited.as_secs()
+                    );
+                }
+                None
+            }
+            vspipe_exit::ExitOutcome::Unkillable { line, waited } => {
+                if !(line.finished_cleanly() && png_ok) {
+                    bail!(
+                        "vspipe printed \"{}\" but had not exited {}s later, and Windows could \
+                         not end the process (task #122){}",
+                        line.line,
+                        waited.as_secs(),
+                        if errors.is_empty() { String::new() } else { format!(":\n{}", errors.join("\n")) }
+                    );
+                }
+                // The frame arrived: show it, as for a stopped vspipe.
+                None
+            }
+        };
 
         // Check for errors
-        if !vspipe_status.success() {
+        if let Some(vspipe_status) = vspipe_status.filter(|s| !s.success()) {
             // The encode's wording (task #28), so a native crash says so
             // rather than quoting the first warning vspipe printed (task #56
             // F9b: a SIGFPE inside MVTools read as "plugin already loaded").
