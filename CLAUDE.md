@@ -3677,8 +3677,8 @@ silently does nothing — behavioural tests matter more than usual here (see
    (docs/reports/task-82-havsfunc-mask-and). That reference is 8-bit
    tables (above 8 bits, the top 8 and the low bits ANDed apart and joined),
    proven equal to upstream's 10-bit table on all 2^20 pairs in every run:
-   upstream's table per call cost ~0.3 s each at 10 bits, and the test timed
-   out on macOS x64 (task #118, docs/reports/task-118-mask-and-test-time).
+   upstream's table cost ~0.3 s a call at 10 bits, and the test timed out
+   on macOS x64 (task #118, docs/reports/task-118-mask-and-test-time).
    Never put a 2^20-entry Python table back in a push-gate test.
 
 ### Linux builds on ubuntu-24.04, and that sets the glibc floor
