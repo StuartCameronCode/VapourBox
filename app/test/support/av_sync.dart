@@ -242,7 +242,6 @@ Future<double> halfPacket(String video) async {
   return longest / 2;
 }
 
-
 /// How far the first audio stream runs ahead of the picture in the file's
 /// byte order: the largest audio DTS less the DTS of the last video packet
 /// stored before it, in seconds (issue #266). A player reads a file in that
