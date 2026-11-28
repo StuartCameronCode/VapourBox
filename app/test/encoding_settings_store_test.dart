@@ -91,8 +91,10 @@ void main() {
     for (final (name, raw) in [
       ('corrupt JSON', '{not json'),
       ('a JSON value that is not an object', '[1, 2]'),
-      ('a codec this build does not know',
-          jsonEncode({...const EncodingSettings().toJson(), 'codec': 'h267'})),
+      (
+        'a codec this build does not know',
+        jsonEncode({...const EncodingSettings().toJson(), 'codec': 'h267'})
+      ),
     ]) {
       test('$name falls back to the defaults', () async {
         SharedPreferences.setMockInitialValues(
