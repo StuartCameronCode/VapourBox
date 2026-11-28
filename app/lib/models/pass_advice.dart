@@ -283,7 +283,8 @@ String _fps(double v) {
 /// The advice for one pass, or null when there is none.
 String? adviceFor(PassType pass, ProcessingPipeline pipeline,
     {VideoInfo? info}) {
-  final matches =
-      adviseOn(pipeline, info: info).where((a) => a.pass == pass).map((a) => a.message);
+  final matches = adviseOn(pipeline, info: info)
+      .where((a) => a.pass == pass)
+      .map((a) => a.message);
   return matches.isEmpty ? null : matches.join('\n\n');
 }
