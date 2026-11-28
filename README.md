@@ -50,7 +50,7 @@ There is no account, no telemetry, and nothing is uploaded.
 
 1. Download the `.dmg` for your Mac (Apple menu → About This Mac): `arm64` for Apple Silicon, `x64` for Intel.
 2. Open it and drag **VapourBox** to Applications.
-3. The first launch downloads its processing components (~130 MB on Apple Silicon, ~105 MB on Intel).
+3. The first launch downloads its processing components (~130 MB on Apple Silicon, ~115 MB on Intel).
 
 VapourBox is signed with an Apple Developer ID and notarized, so it opens without Gatekeeper warnings.
 
@@ -61,7 +61,7 @@ VapourBox is signed with an Apple Developer ID and notarized, so it opens withou
 
 1. Download the `-setup.exe` installer and run it.
 2. The installer isn't code-signed, so SmartScreen may say it "protected your PC". Choose **More info → Run anyway**.
-3. Launch VapourBox from the Start menu. The first launch downloads its processing components (~205 MB).
+3. Launch VapourBox from the Start menu. The first launch downloads its processing components (~215 MB).
 
 It installs for your user only (`%LOCALAPPDATA%\Programs\VapourBox`), so it never asks for administrator rights. A newer installer upgrades in place; uninstalling from **Settings → Apps** also removes the downloaded components, and leaves your presets alone.
 
@@ -78,7 +78,7 @@ It installs for your user only (`%LOCALAPPDATA%\Programs\VapourBox`), so it neve
 
 To get a menu entry and in-place updates, open it with [Gear Lever](https://github.com/mijorus/gearlever), [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate).
 
-Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract it and run `./vapourbox`. It downloads its processing components (~265 MB on x64, ~220 MB on ARM) on first launch.
+Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract it and run `./vapourbox`. It downloads its processing components (~265 MB on x64, ~225 MB on ARM) on first launch.
 
 </details>
 
