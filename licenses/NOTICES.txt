@@ -781,8 +781,9 @@ FFTW — GPL-2.0-or-later
   Used by MVTools, FFT3DFilter, DFTTest and DCTFilter. On Apple Silicon the
   libraries come from yuygfgg/Macos_vapoursynth_plugins; Intel Macs build
   3.3.10 from the release tarball; Linux ships Ubuntu's libfftw3-single3
-  3.3.10 package; Windows ships the official 3.3.5 DLL from fftw.org. zsmooth and the Windows BM3D also carry their own statically
-  linked copy (see their entries).
+  3.3.10 package; Windows ships the official 3.3.5 DLL from fftw.org.
+  zsmooth and the Windows BM3D also carry their own statically linked copy
+  (see their entries).
 
 OpenCL ICD loader (ocl-icd) — BSD-2-Clause
   Copyright (c) 2012-2020, Brice Videau
