@@ -119,8 +119,12 @@ class NoiseReductionParameters {
 
   // --- MCTemporalDenoise Parameters ---
 
-  /// Denoise strength/sigma.
-  final double mcTemporalSigma;
+  /// havsfunc's `post`: an FFT3DFilter pass after the temporal denoise, at
+  /// this sigma (8-bit units). 0 (the default) leaves it out of the script.
+  /// It replaced `mcTemporalSigma`, which havsfunc reads only with
+  /// `pfMode=0` and so changed nothing (task #141); JSON that still carries
+  /// `mcTemporalSigma` loads, and the key is ignored.
+  final double mcTemporalPost;
 
   /// Temporal radius for MCTemporalDenoise.
   final int mcTemporalRadius;
@@ -291,7 +295,7 @@ class NoiseReductionParameters {
     this.smDegrainPrefilter = 2,
     this.smDegrainThSCD1 = 400,
     // MCTemporalDenoise defaults
-    this.mcTemporalSigma = 4.0,
+    this.mcTemporalPost = 0.0,
     this.mcTemporalRadius = 2,
     this.mcTemporalProfile = 'medium',
     // MCDegrainSharp defaults (Didée's published values)
@@ -380,7 +384,7 @@ class NoiseReductionParameters {
     bool? smDegrainRefine,
     int? smDegrainPrefilter,
     int? smDegrainThSCD1,
-    double? mcTemporalSigma,
+    double? mcTemporalPost,
     int? mcTemporalRadius,
     String? mcTemporalProfile,
     int? mcdsFrames,
@@ -442,7 +446,7 @@ class NoiseReductionParameters {
       smDegrainRefine: smDegrainRefine ?? this.smDegrainRefine,
       smDegrainPrefilter: smDegrainPrefilter ?? this.smDegrainPrefilter,
       smDegrainThSCD1: smDegrainThSCD1 ?? this.smDegrainThSCD1,
-      mcTemporalSigma: mcTemporalSigma ?? this.mcTemporalSigma,
+      mcTemporalPost: mcTemporalPost ?? this.mcTemporalPost,
       mcTemporalRadius: mcTemporalRadius ?? this.mcTemporalRadius,
       mcTemporalProfile: mcTemporalProfile ?? this.mcTemporalProfile,
       mcdsFrames: mcdsFrames ?? this.mcdsFrames,

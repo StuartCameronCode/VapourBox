@@ -7164,8 +7164,8 @@ What it found beyond the steps:
   Strong and Very strong.
 - **MCTemporalDenoise's Sigma is inert**: havsfunc reads it only for pfMode 0
   or `post` > 0, which VapourBox never passes. Every sigma from 2 to 12 gave
-  identical output. Strength sets MCTD's own profile instead; the dead control
-  is task #141.
+  identical output. Strength sets MCTD's own profile instead; task #141 then
+  replaced the control with Post-denoise (`post`, entry below).
 - **QTGMC built-in's default did nothing** (EZDenoise 0). Its default is now
   the measured Medium, 5.
 - **SMDegrain's default is 3.6 dB short of its best at sigma 4** (38.8 vs
@@ -7181,3 +7181,38 @@ What it found beyond the steps:
 
 Limits stated in the report: synthetic noise and blur, three 60-frame clips,
 Apple Silicon only, PSNR (checked against crops).
+
+### MCTemporalDenoise's Sigma replaced by Post-denoise (task #141, 2026-11-28)
+
+The Sigma slider of the Noise Reduction pass's MCTemporalDenoise method was
+passed as `sigma=` to havsfunc r31, which reads it only for its `pfMode=0`
+prefilter; VapourBox passes no `pfMode` (havsfunc's 3, DFTTest), so every sigma
+gave the same picture (spread 0.0000 dB over 45 cells). Measured on issue
+#177's fixtures through the worker:
+
+- **Sigma and `mcTemporalSigma` are gone.** Old JSON that carries the key
+  still loads (serde and json_serializable ignore it); a default job's script
+  loses only `sigma=4.0,`, and its output is unchanged.
+- **Post-denoise (`mcTemporalPost`, advanced only, default 0 = off) is
+  havsfunc's `post`**: an FFT3DFilter pass after the temporal denoise. It
+  acts in order (medium at noise sigma 6: 34.5 -> 43.1 dB at post 8), but it
+  is spatial: 1.3-10.7 dB lost on a clean picture, 1.3-1.8x the time. Left
+  out of the script at 0, clamped to 16. `pfMode=0` would also make sigma act,
+  but it replaces the prefilter for every job (default output changes) and
+  recovers less at heavy noise.
+- **The Strength steps don't set it**: at Strong's and Very strong's own noise
+  levels it adds at most 0.5 dB and costs 1.3-3.4 dB on clean pictures.
+- **Issue #177's guess about low/medium on heavy noise is wrong for MCTD.**
+  `thSCD1` 800-2000 gains at most 0.7 dB, `thSAD` 600/1200 0.15, `limit=0`
+  about 3 dB at sigma 6 (2-5 dB lost on clean) and nothing at sigma 9. Low and
+  medium are light-noise profiles; high and very high are the heavy-noise ones.
+  At a real hard cut every `thSCD1` gives the default's output.
+- **MCTD's preview reach was short.** High and very high run MDegrain twice
+  and a stabilizing TTempSmooth, reaching 6 frames each side (7-8 with
+  `post`, 10 at radius 4); the preview decoded 3, and high's preview was up to
+  2 levels off the lossless encode. `NoiseReductionParameters::mctd_reach`
+  declares it from havsfunc's per-profile defaults; previews now match
+  sample for sample (`integration_fft3dfilter_determinism_test.dart`, which
+  also checks `post` keeps FFT3DFilter's patched `measure=0` default).
+
+Report: [docs/reports/task-141-mctd-sigma](reports/task-141-mctd-sigma/index.html).

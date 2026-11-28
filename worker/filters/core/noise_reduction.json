@@ -26,7 +26,7 @@
       "name": "MCTemporalDenoise",
       "description": "Advanced temporal denoising - best for heavy noise",
       "function": "haf.MCTemporalDenoise",
-      "parameters": ["mcTemporalSettings", "mcTemporalSigma"]
+      "parameters": ["mcTemporalSettings", "mcTemporalPost"]
     },
     {
       "id": "qtgmc_builtin",
@@ -130,16 +130,16 @@
         "visibleWhen": { "method": ["mctemporal"] }
       }
     },
-    "mcTemporalSigma": {
+    "mcTemporalPost": {
       "type": "number",
-      "default": 4.0,
+      "default": 0.0,
       "min": 0.0,
-      "max": 20.0,
+      "max": 16.0,
       "step": 0.5,
-      "vapoursynth": { "name": "sigma" },
+      "vapoursynth": { "name": "post" },
       "ui": {
-        "label": "Sigma",
-        "description": "Noise sigma estimate",
+        "label": "Post-denoise",
+        "description": "Extra FFT3D pass after the temporal denoise (0 = off)",
         "widget": "slider",
         "precision": 1,
         "visibleWhen": { "method": ["mctemporal"] }
@@ -161,7 +161,7 @@
       },
       {
         "title": "MCTemporalDenoise Settings",
-        "parameters": ["mcTemporalSettings", "mcTemporalSigma"],
+        "parameters": ["mcTemporalSettings", "mcTemporalPost"],
         "expanded": true
       }
     ]

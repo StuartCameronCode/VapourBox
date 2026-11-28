@@ -679,7 +679,7 @@ void main() {
       const original = NoiseReductionParameters(
         enabled: true,
         method: NoiseReductionMethod.mcTemporalDenoise,
-        mcTemporalSigma: 6.0,
+        mcTemporalPost: 6.0,
         mcTemporalRadius: 3,
         mcTemporalProfile: 'high',
       );
@@ -688,7 +688,7 @@ void main() {
       final restored = ParameterConverter.toNoiseReduction(dynamic);
 
       expect(restored.method, original.method);
-      expect(restored.mcTemporalSigma, original.mcTemporalSigma);
+      expect(restored.mcTemporalPost, original.mcTemporalPost);
       expect(restored.mcTemporalRadius, original.mcTemporalRadius);
       expect(restored.mcTemporalProfile, original.mcTemporalProfile);
     });
@@ -977,8 +977,8 @@ void main() {
           model.smDegrainRefine);
       expect(schema.parameters['smDegrainPrefilter']!.defaultValue,
           model.smDegrainPrefilter);
-      expect(schema.parameters['mcTemporalSigma']!.defaultValue,
-          model.mcTemporalSigma);
+      expect(schema.parameters['mcTemporalPost']!.defaultValue,
+          model.mcTemporalPost);
       expect(schema.parameters['mcTemporalRadius']!.defaultValue,
           model.mcTemporalRadius);
       expect(schema.parameters['mcTemporalProfile']!.defaultValue,
@@ -1185,8 +1185,8 @@ void main() {
           reason: 'smDegrainRefine fallback mismatch');
       expect(result.smDegrainPrefilter, model.smDegrainPrefilter,
           reason: 'smDegrainPrefilter fallback mismatch');
-      expect(result.mcTemporalSigma, model.mcTemporalSigma,
-          reason: 'mcTemporalSigma fallback mismatch');
+      expect(result.mcTemporalPost, model.mcTemporalPost,
+          reason: 'mcTemporalPost fallback mismatch');
       expect(result.mcTemporalRadius, model.mcTemporalRadius,
           reason: 'mcTemporalRadius fallback mismatch');
       expect(result.mcTemporalProfile, model.mcTemporalProfile,
