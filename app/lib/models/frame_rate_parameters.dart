@@ -94,6 +94,10 @@ class FrameRateParameters {
     );
   }
 
+  /// The target in frames per second, as the worker will run it
+  /// ([frameRateTargetFps]).
+  double get targetFps => frameRateTargetFps(target, customFps);
+
   String get summary {
     if (!enabled) return 'Off';
     if (target != FrameRateTarget.custom) return target.displayName;
@@ -107,4 +111,92 @@ class FrameRateParameters {
   factory FrameRateParameters.fromJson(Map<String, dynamic> json) =>
       _$FrameRateParametersFromJson(json);
   Map<String, dynamic> toJson() => _$FrameRateParametersToJson(this);
+}
+
+/// The rate [target] stands for, in frames per second; for
+/// [FrameRateTarget.custom], [customFps] read as the worker reads it
+/// (`custom_fps_fraction`): clamped to 1–240, and an NTSC decimal (23.976,
+/// 29.97, 47.952, 59.94) taken as n×1000/1001. Shared by the Frame Rate and
+/// Unblend passes, whose custom rates the worker reads the same way.
+double frameRateTargetFps(FrameRateTarget target, double customFps) {
+  switch (target) {
+    case FrameRateTarget.pal25:
+      return 25;
+    case FrameRateTarget.ntsc2997:
+      return 30000 / 1001;
+    case FrameRateTarget.film23976:
+      return 24000 / 1001;
+    case FrameRateTarget.film24:
+      return 24;
+    case FrameRateTarget.pal50:
+      return 50;
+    case FrameRateTarget.ntsc5994:
+      return 60000 / 1001;
+    case FrameRateTarget.custom:
+      return customFpsValue(customFps);
+  }
+}
+
+/// [fps] as the worker's `custom_fps_fraction` makes it exact.
+double customFpsValue(double fps) {
+  final v = fps.isFinite ? fps.clamp(1.0, 240.0).toDouble() : 48.0;
+  final ntsc = v * 1.001;
+  if ((v - v.roundToDouble()).abs() > 0.0015 &&
+      (ntsc - ntsc.roundToDouble()).abs() < 0.0015) {
+    return ntsc.roundToDouble() * 1000 / 1001;
+  }
+  return (v * 1000).roundToDouble() / 1000;
+}
+
+/// How a Frame Rate target compares with the rate the pass receives.
+enum FrameRateCloseness {
+  /// Nothing to convert (within 0.05%).
+  equal,
+
+  /// Within 5%: a real conversion, but motion looks no smoother.
+  close,
+
+  /// Anything else.
+  far,
+}
+
+/// Compares [targetFps] with [inputFps], the rate at the pass
+/// ([frameRateInputFps]). The one test behind both the panel's advice and the
+/// starting target ([startingFrameRateTarget]), so the two can't disagree.
+FrameRateCloseness frameRateCloseness(double targetFps, double inputFps) {
+  if (!(inputFps > 0)) return FrameRateCloseness.far;
+  final diff = (targetFps - inputFps).abs() / inputFps;
+  if (diff < 0.0005) return FrameRateCloseness.equal;
+  if (diff <= 0.05) return FrameRateCloseness.close;
+  return FrameRateCloseness.far;
+}
+
+/// The target to start the Frame Rate pass at when it is switched on with a
+/// video selected (task #139): about twice [inputFps], the rate the pass
+/// receives — or `null` to leave [current] alone. Only a target equal or
+/// close to the input rate is replaced (the pass would do nothing visible),
+/// so a deliberate conversion (25 → 29.97, 50 → 25) is kept; and an input of
+/// 45 fps or more is left alone, since doubling it is no sensible default.
+/// The model's own default stays [FrameRateTarget.pal25].
+FrameRateParameters? startingFrameRateTarget(
+    FrameRateParameters current, double inputFps) {
+  if (!(inputFps > 0) || inputFps >= 45) return null;
+  if (frameRateCloseness(current.targetFps, inputFps) ==
+      FrameRateCloseness.far) {
+    return null;
+  }
+  bool near(double a, double b, double tolerance) =>
+      (a - b).abs() / b < tolerance;
+  if (near(inputFps, 25, 0.005)) {
+    return current.copyWith(target: FrameRateTarget.pal50);
+  }
+  if (near(inputFps, 30000 / 1001, 0.0005)) {
+    return current.copyWith(target: FrameRateTarget.ntsc5994);
+  }
+  if (near(inputFps, 24000 / 1001, 0.0005)) {
+    // The worker reads 47.952 as 48000/1001 (custom_fps_fraction).
+    return current.copyWith(target: FrameRateTarget.custom, customFps: 47.952);
+  }
+  final doubled = (inputFps * 2 * 1000).roundToDouble() / 1000;
+  return current.copyWith(target: FrameRateTarget.custom, customFps: doubled);
 }

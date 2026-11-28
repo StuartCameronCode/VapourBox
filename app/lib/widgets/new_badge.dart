@@ -30,3 +30,27 @@ class NewBadge extends StatelessWidget {
     );
   }
 }
+
+/// A "NEW" label overlaid on [child]'s top-right corner, for a control with no
+/// room for a [NewBadge] pill beside it (a tab label, a button, the preview's
+/// view-mode pill). Draws [child] alone when [visible] is false.
+class NewCornerBadge extends StatelessWidget {
+  final bool visible;
+  final Widget child;
+
+  const NewCornerBadge({super.key, required this.visible, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Badge(
+      isLabelVisible: visible,
+      backgroundColor: scheme.tertiaryContainer,
+      textColor: scheme.onTertiaryContainer,
+      textStyle: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.4),
+      offset: const Offset(10, -8),
+      label: const Text('NEW'),
+      child: child,
+    );
+  }
+}

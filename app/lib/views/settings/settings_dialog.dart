@@ -323,6 +323,18 @@ List<AudioCodec> audioCodecChoices(EncodingSettings settings) =>
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({super.key});
 
+  /// Whether Settings → Output holds something new since the last update: a
+  /// codec stamped with [VideoCodec.sinceAppVersion]. Badges the Video Codec
+  /// heading and the Output tab. Anything else new in the Output tab must be
+  /// added here, so the tab and the Settings button lead to it.
+  static bool get isOutputTabNew =>
+      VideoCodec.values.any((c) => WhatsNewService.instance.isNew(c.sinceAppVersion));
+
+  /// Whether any Settings tab carries a NEW badge: the toolbar's Settings
+  /// button marks itself while this is true.
+  static bool get hasNew =>
+      isOutputTabNew || WhatsNewService.instance.isNew(AddonsSettingsTab.sinceAppVersion);
+
   @override
   State<SettingsDialog> createState() => _SettingsDialogState();
 }
@@ -384,7 +396,7 @@ class _SettingsDialogState extends State<SettingsDialog>
               controller: _tabController,
               tabs: [
                 const Tab(text: 'General'),
-                const Tab(text: 'Output'),
+                const Tab(child: OutputTabLabel()),
                 const Tab(text: 'Input'),
                 const Tab(child: AddonsTabLabel()),
                 const Tab(text: 'Changes'),
@@ -723,6 +735,18 @@ class _ChangesSettingsTabState extends State<_ChangesSettingsTab> {
   }
 }
 
+/// The Output tab's label, with its NEW badge overlaid on the corner (as
+/// [AddonsTabLabel]: the tabs share the dialog's width equally).
+class OutputTabLabel extends StatelessWidget {
+  const OutputTabLabel({super.key});
+
+  @override
+  Widget build(BuildContext context) => NewCornerBadge(
+        visible: SettingsDialog.isOutputTabNew,
+        child: const Text('Output'),
+      );
+}
+
 class _OutputSettingsTab extends StatefulWidget {
   const _OutputSettingsTab();
 
@@ -1029,6 +1053,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
             _buildSection(
               context,
               title: 'Video Codec',
+              isNew: SettingsDialog.isOutputTabNew,
               child: _buildCodecList(context, viewModel, settings),
             ),
 
@@ -1967,6 +1992,12 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
               style: clickable ? null : disabledStyle,
             ),
           ),
+          // Badged whether or not it can be chosen here: a disabled AV1 in
+          // MOV is still where the user learns it exists, beside the reason.
+          if (WhatsNewService.instance.isNew(codec.sinceAppVersion)) ...[
+            const SizedBox(width: 6),
+            const NewBadge(),
+          ],
           if (indicator != null) ...[
             const SizedBox(width: 8),
             indicator,
@@ -2064,16 +2095,25 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     BuildContext context, {
     required String title,
     required Widget child,
+    bool isNew = false,
   }) {
+    final heading = Text(
+      title,
+      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-        ),
+        if (isNew)
+          Row(children: [
+            Flexible(child: heading),
+            const SizedBox(width: 6),
+            const NewBadge(),
+          ])
+        else
+          heading,
         const SizedBox(height: 12),
         child,
       ],

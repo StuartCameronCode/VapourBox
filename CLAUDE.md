@@ -779,7 +779,11 @@ in [docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md). **Stamp only what is new**
 (the option, not the parameter it was added to; never a hidden parameter):
 every control leading to it badges automatically — its dropdown, the switch
 that reveals it, its section, the pass row, and for a new Settings tab the
-Settings button.
+Settings button. Things outside the schemas take a hard-coded stamp: a codec
+`VideoCodec.sinceAppVersion` (badging its radio, the Video Codec heading, the
+Output tab and the Settings button through `SettingsDialog.isOutputTabNew` /
+`hasNew`), other UI a `static const sinceAppVersion` (`AddonsSettingsTab`,
+`CropDetectPanel`, `ComparisonViewMode`); see FILTER_SCHEMA.md.
 
 Several ongoing rules for schemas and the panel that renders them, each guarded by
 `filter_schema_curation_test.dart` unless noted — see
@@ -2103,6 +2107,29 @@ download.
 recreated; `setOverride` verifies writability with a probe file before accepting
 a path.
 
+### Output Settings Persist Across Launches (issue #264)
+
+`EncodingSettings` (codec, container, quality, audio, colour format, output
+folder, filename pattern, ProRes options, cache override, custom FFmpeg
+arguments and custom VapourSynth: every field) is saved by
+`EncodingSettingsStore` (`app/lib/services/encoding_settings_store.dart`) as
+JSON under the shared_preferences key `encodingSettings`. Rules, asserted in
+`encoding_settings_store_test.dart`:
+
+- **Loaded once, in `main()`, before the view model exists**; `MainViewModel`
+  starts from `EncodingSettingsStore.instance.initial`. Unreadable or
+  unrecognised JSON (a codec a newer version saved) falls back to the
+  defaults and never stops the app starting.
+- **Saved from the two places settings change**: `updateEncodingSettings`
+  (every Settings control) and `loadPreset`. Anything that sets
+  `_encodingSettings` another way must save too, or it is lost on restart.
+  Tests inject `initialEncodingSettings` / `saveEncodingSettings`.
+- **A preset that names no output folder keeps the current one.** Built-in
+  presets name none, and loading one used to reset the folder to "same as
+  input". A preset with its own folder still sets it.
+- Restored as saved: an unavailable codec or a refused container pairing is
+  handled by the same checks as a preset carrying it, never swapped silently.
+
 ### Existing Output Files (issue #85)
 
 Before a job starts, `_getConflictingItems` (`main_window.dart`) checks whether
@@ -2341,6 +2368,18 @@ rate is `FrameRateParameters.customFps` (a plain number, default 48).
   x64 ship v24 (`floor((n - 1) * ratio) + 1`). The script trims or extends
   to `floor(n * ratio)` after the call (`test_184`); a frame-count assertion
   that passes on one platform proves nothing about the others.
+- **The target is chosen against the rate the pass receives (task #139).**
+  That rate is `frameRateInputFps` (app): the source's after Deinterlace and
+  Unblend, the only passes ahead that change it (the worker's
+  `rate_before(PassType::FrameRate)`). The model's default stays `pal25`.
+  Switching the pass on with a video selected starts it at about twice that
+  rate (`startingFrameRateTarget`: 25 → 50, 29.97 → 59.94, 23.976 → Custom
+  47.952), but only when the current target is equal or within 5% of it
+  (`frameRateCloseness`), so a deliberate conversion is kept, and never from
+  45 fps up. A target equal or within 5% is also advised on
+  (`pass_advice.dart`, enabled pass only, never blocking): at the same rate
+  RIFE and Repeat frames pass every frame through, and nearby motion looks no
+  smoother (issue #177).
 - **Don't check an NTSC output rate on an MKV.** Matroska's 1/1000 timebase
   can't hold 60000/1001, so ffprobe reports an estimate (`19001/317`) for any
   NTSC rate. `integration_frame_mapping_test.dart` encodes its custom-rate
@@ -2868,7 +2907,11 @@ table. Rules:
   checks too: the source model's audio codecs (`audioStreams`), refused with
   `audioCopyMessage` (`audio_copy_problem`, Dart
   `AudioCompatibilityService.copyProblem`); a stream Audio Restoration
-  re-encodes is not checked.
+  re-encodes is not checked. The Passthrough dialog's container choices
+  (`AudioCompatibilityService.compatibleContainers`) and the message's "save
+  as" list are also filtered by the video codec's verdict (`offered` only;
+  `audio_copy_problem(codec, container, Some(video))`), so a container switch
+  never lands on a pair the worker refuses (task #132).
 - **Checked against FFmpeg both ways** in the push gate
   (`output_capabilities_test.dart`): every video row muxed (hardware encoders
   through their software twin, `muxEncoder`), every Convert codec, every
@@ -3570,6 +3613,11 @@ cd worker && cargo run --release -- --config test_job.json
 > 23-30 s there and failed 8 nightly legs (task #99, as task #95 did for
 > Descale). Don't raise the default in `dart_test.yaml`: it would hide real
 > hangs everywhere.
+> **A slow encode also passes `runJob` a `timeout:` below the test's own**
+> (its default is 5 min), and a smoke encode covers only the frames its
+> pass needs: BM3D on the whole 79-frame fixture took up to 300+ s on the
+> Macs and hit that limit 9 times in 40 nightlies; it now encodes 24
+> (task #128).
 > A `setUpAll` can't state one: package:test gives it 12 minutes, fixed,
 > which is why the nightly prefetches add-ons before the tests (task #117,
 > "Add-ons").

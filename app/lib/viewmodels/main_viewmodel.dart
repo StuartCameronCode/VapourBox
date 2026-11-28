@@ -18,10 +18,13 @@ import '../models/qtgmc_parameters.dart';
 import '../models/queue_item.dart';
 import '../models/source_model.dart';
 import '../models/processing_pipeline.dart';
+import '../models/frame_rate_parameters.dart';
+import '../models/unblend_parameters.dart';
 import '../models/subtitle_parameters.dart';
 import '../models/video_job.dart';
 import '../models/processing_preset.dart';
 import '../services/disc_detector.dart';
+import '../services/encoding_settings_store.dart';
 import '../services/dvd_service.dart';
 import '../services/field_order_detector.dart';
 import '../services/frame_math.dart';
@@ -78,7 +81,10 @@ class MainViewModel extends ChangeNotifier {
 
   // Settings
   QTGMCParameters _qtgmcParams = const QTGMCParameters();
-  EncodingSettings _encodingSettings = const EncodingSettings();
+  // Starts from the settings the last session saved (issue #264).
+  EncodingSettings _encodingSettings;
+  // Remembers the settings for the next launch on every change.
+  final void Function(EncodingSettings settings) _saveEncodingSettings;
   bool _autoFieldOrder = true;
   FieldOrder _manualFieldOrder = FieldOrder.topFieldFirst;
 
@@ -903,7 +909,13 @@ class MainViewModel extends ChangeNotifier {
     TimestampContinuityService? continuityService,
     PreviewGenerator? previewGenerator,
     FieldOrderDetector? fieldOrderDetector,
-  })  : _workerManager = runner ?? WorkerManager(),
+    EncodingSettings? initialEncodingSettings,
+    void Function(EncodingSettings settings)? saveEncodingSettings,
+  })  : _encodingSettings =
+            initialEncodingSettings ?? EncodingSettingsStore.instance.initial,
+        _saveEncodingSettings =
+            saveEncodingSettings ?? EncodingSettingsStore.instance.save,
+        _workerManager = runner ?? WorkerManager(),
         _previewGenerator = previewGenerator ?? PreviewGenerator(),
         _fieldOrderDetector = fieldOrderDetector ?? FieldOrderDetector(),
         _continuity = continuityService ?? const TimestampContinuityService(),
@@ -1916,6 +1928,7 @@ class MainViewModel extends ChangeNotifier {
   void updateEncodingSettings(EncodingSettings settings) {
     final previous = _encodingSettings;
     _encodingSettings = settings;
+    _saveEncodingSettings(settings);
     // Log audio setting changes so a recurrence of the "audio reverted to copy"
     // class of bug (issue #12) is diagnosable from a user's log.
     if (previous.audioMode != settings.audioMode ||
@@ -1976,7 +1989,11 @@ class MainViewModel extends ChangeNotifier {
 
   /// Toggles a pass on or off.
   void togglePass(PassType pass, bool enabled) {
+    final wasEnabled = _processingPipeline.isPassEnabled(pass);
     _processingPipeline = _processingPipeline.togglePass(pass, enabled);
+    if (pass == PassType.frameRate && enabled && !wasEnabled) {
+      _startFrameRateFromSource();
+    }
     // Keep qtgmcParams in sync
     _qtgmcParams = _processingPipeline.deinterlace;
     // Sync dynamic params cache with new enabled state
@@ -1988,6 +2005,24 @@ class MainViewModel extends ChangeNotifier {
     _regenerateOutputPath();
     notifyListeners();
     _requestPreviewUpdate();
+  }
+
+  /// Switching the Frame Rate pass on with a video selected starts it at
+  /// about twice the rate it receives (task #139), when its target would
+  /// otherwise convert nothing visible (`startingFrameRateTarget`). The
+  /// cached panel parameters are rebuilt so the dropdown shows the new target
+  /// and a later panel edit doesn't write the old one back.
+  void _startFrameRateFromSource() {
+    final info = videoInfo;
+    if (info == null || info.frameRate <= 0) return;
+    final input = frameRateInputFps(_processingPipeline.deinterlace,
+        _processingPipeline.unblend, info.frameRate,
+        softTelecineDecimates: info.softTelecineDecimates);
+    final started =
+        startingFrameRateTarget(_processingPipeline.frameRate, input);
+    if (started == null) return;
+    _processingPipeline = _processingPipeline.copyWith(frameRate: started);
+    _dynamicParams['frame_rate'] = ParameterConverter.fromFrameRate(started);
   }
 
   /// Convert PassType to filter ID.
@@ -2807,7 +2842,14 @@ class MainViewModel extends ChangeNotifier {
   void loadPreset(ProcessingPreset preset) {
     _processingPipeline = preset.pipeline;
     _qtgmcParams = preset.pipeline.deinterlace;
-    _encodingSettings = preset.encodingSettings;
+    // A preset that names no output folder keeps the one the user chose:
+    // built-in presets name none, and loading one used to reset the folder
+    // to "same as input" (issue #264). A preset with a folder still sets it.
+    _encodingSettings = preset.encodingSettings.outputDirectory == null
+        ? preset.encodingSettings
+            .copyWith(outputDirectory: _encodingSettings.outputDirectory)
+        : preset.encodingSettings;
+    _saveEncodingSettings(_encodingSettings);
     _selectedPass = null;
 
     // Clear dynamic params cache to force refresh

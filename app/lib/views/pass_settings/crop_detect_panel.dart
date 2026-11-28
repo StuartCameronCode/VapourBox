@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/crop_detect_report.dart';
 import '../../services/whats_new_service.dart';
 import '../../viewmodels/main_viewmodel.dart';
+import '../../widgets/new_badge.dart';
 import '../../widgets/warning_banner.dart';
 
 /// Crop & Resize's Detect (app 1.7.0): measures the selected video's black
@@ -24,17 +25,11 @@ class CropDetectPanel extends StatelessWidget {
     final report = viewModel.cropReport;
     final running = viewModel.detectingCrop;
     final canRun = viewModel.selectedItem != null && !running;
-    final scheme = theme.colorScheme;
     final children = <Widget>[
       Row(
         children: [
-          Badge(
-            isLabelVisible: WhatsNewService.instance.isNew(sinceAppVersion),
-            backgroundColor: scheme.tertiaryContainer,
-            textColor: scheme.onTertiaryContainer,
-            textStyle: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.4),
-            offset: const Offset(10, -8),
-            label: const Text('NEW'),
+          NewCornerBadge(
+            visible: WhatsNewService.instance.isNew(sinceAppVersion),
             child: OutlinedButton.icon(
               onPressed: canRun ? viewModel.detectCrop : null,
               icon: running

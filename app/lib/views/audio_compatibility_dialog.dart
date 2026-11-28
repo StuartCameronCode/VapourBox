@@ -67,17 +67,6 @@ class AudioCompatibilityDialog extends StatefulWidget {
 }
 
 class _AudioCompatibilityDialogState extends State<AudioCompatibilityDialog> {
-  ContainerFormat? _selectedContainer;
-
-  @override
-  void initState() {
-    super.initState();
-    // Pre-select first compatible container if available
-    if (widget.compatibility.compatibleContainers.isNotEmpty) {
-      _selectedContainer = widget.compatibility.compatibleContainers.first;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -306,7 +295,7 @@ class _AudioCompatibilityDialogState extends State<AudioCompatibilityDialog> {
                       style: theme.textTheme.titleSmall,
                     ),
                     Text(
-                      'Keep original audio, use a compatible container',
+                      'Keep the original audio and video codec, in a container that holds both',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
@@ -320,19 +309,16 @@ class _AudioCompatibilityDialogState extends State<AudioCompatibilityDialog> {
           Wrap(
             spacing: 8,
             runSpacing: 8,
+            // Each chip is the choice itself, so none starts selected: a
+            // selected ChoiceChip reports a tap as onSelected(false), and the
+            // pre-selected first container could never be picked (task #132).
             children: containers.map((container) {
-              final isSelected = container == _selectedContainer;
               return ChoiceChip(
                 label: Text(container.displayName),
-                selected: isSelected,
-                onSelected: (selected) {
-                  if (selected) {
-                    setState(() => _selectedContainer = container);
-                    Navigator.of(context).pop(
-                      AudioCompatibilityDialogResult.switchContainer(container),
-                    );
-                  }
-                },
+                selected: false,
+                onSelected: (_) => Navigator.of(context).pop(
+                  AudioCompatibilityDialogResult.switchContainer(container),
+                ),
               );
             }).toList(),
           ),
