@@ -565,7 +565,8 @@ void main() {
     );
     final r = await WorkerHarness.runJob(job.toJson(), label: 'opus copy');
     expect(r.success, isFalse);
-    expect(r.error, AudioCompatibilityService.copyProblem('opus', ContainerFormat.avi));
+    expect(r.error, AudioCompatibilityService.copyProblem('opus', ContainerFormat.avi,
+        videoCodec: VideoCodec.ffv1));
     expect(r.logs.any((l) => l.contains('Generating VapourSynth script')), isFalse);
   });
 }

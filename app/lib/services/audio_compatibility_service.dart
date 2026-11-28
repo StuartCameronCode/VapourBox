@@ -77,11 +77,15 @@ class AudioCompatibilityService {
       {for (final codecs in outputAudioCopy.values) ...codecs};
 
   /// Why a copy of [codec] can't go into [container], or null when it can.
-  /// The same words as the worker's refusal (`audio_copy_problem`).
-  static String? copyProblem(String codec, ContainerFormat container) {
+  /// The same words as the worker's refusal (`audio_copy_problem`). With
+  /// [videoCodec], the "save as" list names only containers that also offer
+  /// that video codec (task #132), as the worker's does for the job's codec.
+  static String? copyProblem(String codec, ContainerFormat container,
+      {VideoCodec? videoCodec}) {
     if (container.copies(codec)) return null;
     final others = ContainerFormat.values
         .where((k) => k != container && k.copies(codec))
+        .where((k) => videoCodec == null || videoCodec.supportsContainer(k))
         .map((k) => k.shortName);
     final message = outputAudioCopyMessage
         .replaceAll('{codec}', codec.toUpperCase())
@@ -146,16 +150,15 @@ class AudioCompatibilityService {
   bool isCodecCompatible(String codec, ContainerFormat container) =>
       container.copies(codec);
 
-  /// Get all containers that support the given audio codec.
-  List<ContainerFormat> getCompatibleContainers(String codec) {
-    final result = <ContainerFormat>[];
-    for (final container in ContainerFormat.values) {
-      if (isCodecCompatible(codec, container)) {
-        result.add(container);
-      }
-    }
-    return result;
-  }
+  /// The containers that can take a copy of [codec] and are offered for
+  /// [videoCodec] (task #132): the audio copy table and the video verdict
+  /// together, so a container switch never makes a pair the worker refuses
+  /// (AV1 in MOV/AVI, v210 or ProRes in MP4) or one the app doesn't offer.
+  static List<ContainerFormat> compatibleContainers(
+          String codec, VideoCodec videoCodec) =>
+      ContainerFormat.values
+          .where((k) => k.copies(codec) && videoCodec.supportsContainer(k))
+          .toList();
 
   /// Get the suggested fallback codec for a container.
   String getSuggestedCodec(ContainerFormat container) {
@@ -165,38 +168,53 @@ class AudioCompatibilityService {
   /// Check audio compatibility for an export operation.
   ///
   /// Returns a result indicating whether the input audio codec is compatible
-  /// with the selected output container, and provides alternatives if not.
+  /// with the selected output container, and provides alternatives if not:
+  /// containers that hold both the copied sound and [videoCodec].
   Future<AudioCompatibilityResult> checkCompatibility({
     required String inputPath,
     required ContainerFormat outputContainer,
     required AudioMode audioMode,
+    required VideoCodec videoCodec,
   }) async {
     final audioInfo = await getAudioInfo(inputPath);
+    return resultFor(
+      audioInfo: audioInfo,
+      outputContainer: outputContainer,
+      audioMode: audioMode,
+      videoCodec: videoCodec,
+    );
+  }
 
+  /// [checkCompatibility] for an already probed [audioInfo].
+  static AudioCompatibilityResult resultFor({
+    required AudioInfo audioInfo,
+    required ContainerFormat outputContainer,
+    required AudioMode audioMode,
+    required VideoCodec videoCodec,
+  }) {
+    final suggested = _fallbackCodecs[outputContainer] ?? 'aac';
     // If no audio, audio disabled, or re-encoding audio, always compatible
     if (!audioInfo.hasAudio || audioMode != AudioMode.passthrough) {
       return AudioCompatibilityResult(
         audioInfo: audioInfo,
         container: outputContainer,
         isCompatible: true,
-        compatibleContainers: ContainerFormat.values.toList(),
-        suggestedCodec: getSuggestedCodec(outputContainer),
+        compatibleContainers: ContainerFormat.values
+            .where(videoCodec.supportsContainer)
+            .toList(),
+        suggestedCodec: suggested,
       );
     }
 
     final codec = audioInfo.codec!;
-    final isCompatible = isCodecCompatible(codec, outputContainer);
-    final compatibleContainers = getCompatibleContainers(codec);
-
-    final reason = copyProblem(codec, outputContainer);
-
     return AudioCompatibilityResult(
       audioInfo: audioInfo,
       container: outputContainer,
-      isCompatible: isCompatible,
-      incompatibilityReason: reason,
-      compatibleContainers: compatibleContainers,
-      suggestedCodec: getSuggestedCodec(outputContainer),
+      isCompatible: outputContainer.copies(codec),
+      incompatibilityReason:
+          copyProblem(codec, outputContainer, videoCodec: videoCodec),
+      compatibleContainers: compatibleContainers(codec, videoCodec),
+      suggestedCodec: suggested,
     );
   }
 
