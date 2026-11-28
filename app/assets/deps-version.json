@@ -1,7 +1,7 @@
 {
-  "version": "1.18.0-rc4",
-  "releaseTag": "deps-v1.18.0-rc4",
-  "releaseDate": "2026-11-26",
+  "version": "1.18.0-rc5",
+  "releaseTag": "deps-v1.18.0-rc5",
+  "releaseDate": "2026-11-28",
   "tierFormat": "delta",
   "githubRepo": "StuartCameronCode/VapourBox"
 }
