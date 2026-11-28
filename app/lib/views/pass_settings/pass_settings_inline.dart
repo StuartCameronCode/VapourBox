@@ -184,7 +184,8 @@ class PassSettingsInline extends StatelessWidget {
   /// in the advisory (not error) style, because every combination it comments on
   /// still renders. See [adviceFor].
   Widget _buildInteractionAdvice(BuildContext context, MainViewModel viewModel) {
-    final message = adviceFor(passType, viewModel.processingPipeline);
+    final message = adviceFor(passType, viewModel.processingPipeline,
+        info: viewModel.videoInfo);
     if (message == null) return const SizedBox.shrink();
     return WarningBanner(message: message);
   }
@@ -198,7 +199,9 @@ class PassSettingsInline extends StatelessWidget {
     final pipeline = viewModel.processingPipeline;
     final message = unblendTargetProblem(
       pipeline.unblend.targetFps,
-      unblendInputFps(pipeline.deinterlace, fps),
+      unblendInputFps(pipeline.deinterlace, fps,
+          softTelecineDecimates:
+              viewModel.videoInfo!.softTelecineDecimates),
     );
     if (message == null) return const SizedBox.shrink();
     return WarningBanner(message: message);

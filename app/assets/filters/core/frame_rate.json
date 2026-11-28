@@ -69,7 +69,7 @@
       ],
       "ui": {
         "label": "Target rate",
-        "description": "The frame rate the output should run at. Custom lets you type any rate.",
+        "description": "The frame rate the output should run at. Custom lets you type any rate. Switched on with a video selected, the pass starts at about twice the video's rate when 25 fps would change nothing visible.",
         "widget": "dropdown",
         "optionLabels": {
           "pal25": "PAL / SECAM (25 fps)",
