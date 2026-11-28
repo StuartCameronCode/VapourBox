@@ -3128,6 +3128,15 @@ the simple slots are full at four).
 - **The Noise Reduction pass's preview radius is per method**
   (`NoiseReductionParameters::temporal_radius`): BM3D's Final step re-reads
   its basic estimate's neighbours, so it reaches 2r; a fixed 3 was too few.
+  MCTemporalDenoise's high and very high profiles reach 6-10 frames
+  (`mctd_reach`: two MDegrain passes, TTempSmooth, and `post`'s FFT3D
+  window), and their preview was off its encode until task #141. A new
+  argument that reads more frames must be added there.
+- **MCTemporalDenoise has no Sigma** (task #141): havsfunc reads `sigma`
+  only with `pfMode=0`, which the template never passes. Its strength beyond
+  the profile is Post-denoise (`mcTemporalPost`, havsfunc's `post`, an
+  FFT3DFilter pass), off at 0 and left out of the script then
+  (docs/reports/task-141-mctd-sigma).
 
 ### SangNom, NLMeans (CPU) and the vs-jetpack ports (deps 1.16.0, app 1.7.0)
 
@@ -4093,7 +4102,8 @@ Rules:
   second process did, on some runners. Every template call passes
   `measure=0` (FFTW_ESTIMATE: one plan per machine, in every process;
   `test_261`), and the patch makes 0 the plugin's default (deps 1.18.0-rc2),
-  for havsfunc's calls (QTGMC, MCTemporalDenoise), which pass none. Both are
+  for havsfunc's calls (QTGMC, MCTemporalDenoise's prefilter and its `post`
+  pass, task #141), which pass none. Both are
   needed: FFTW reuses a measured plan made earlier in a process for a later
   ESTIMATE request of the same problem, so one measured call undoes the rest
   (docs/reports/task-80-fft3dfilter-fftw-estimate).

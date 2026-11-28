@@ -1147,6 +1147,30 @@ void main() {
     // that fails silently: a name mismatch anywhere and the filter runs with
     // its defaults while the UI shows the user's values.
 
+    // Task #141: Sigma did nothing (havsfunc reads it only with pfMode=0)
+    // and is gone; Post-denoise passes `post`, off (absent) at its default.
+    test('noise reduction: MCTemporalDenoise post, no sigma', () async {
+      final schema = loadSchema('noise_reduction');
+      expect(schema.parameters.containsKey('mcTemporalSigma'), isFalse);
+      expect(schema.parameters['mcTemporalPost']!.defaultValue, 0.0);
+      for (final (post, expected) in [(0.0, null), (6.0, '6.0'), (2.5, '2.5')]) {
+        // Through the panel's path: the converter's dynamic values.
+        final dyn = ParameterConverter.fromNoiseReduction(const NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.mcTemporalDenoise,
+          mcTemporalProfile: 'high',
+        )).withValue('mcTemporalPost', post);
+        final typed = ParameterConverter.toNoiseReduction(dyn);
+        final job = buildJob(testName: 'nr_mctd_post_$post', noiseReduction: typed);
+        final script = await generateScriptViaWorker(job);
+        expect(script, contains('haf.MCTemporalDenoise('));
+        final actual = parseFilterParams(script, 'haf.MCTemporalDenoise(');
+        expect(actual['settings'], '"high"');
+        expect(actual.containsKey('sigma'), isFalse, reason: 'post=$post');
+        expect(actual['post'], expected, reason: 'post=$post');
+      }
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
     test('noise reduction: DFTTest params', () async {
       loadSchema('noise_reduction');
       final typed = const NoiseReductionParameters(
@@ -2297,7 +2321,7 @@ void main() {
   group('Strength steps (issue #177)', () {
     const keywords = {
       'smDegrainTr': 'tr', 'smDegrainThSAD': 'thSAD',
-      'mcTemporalProfile': 'settings', 'mcTemporalSigma': 'sigma', 'mcTemporalRadius': 'radius',
+      'mcTemporalProfile': 'settings', 'mcTemporalPost': 'post', 'mcTemporalRadius': 'radius',
       'qtgmcEzDenoise': 'EZDenoise',
       'mcleanStrength': 'strength', 'mcleanThsad': 'thSAD', 'mcleanRn': 'rn', 'mcleanSharp': 'sharp',
       'strength': 'strength', 'overshoot': 'overshoot', 'undershoot': 'undershoot',

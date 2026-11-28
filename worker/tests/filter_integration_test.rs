@@ -240,7 +240,6 @@ fn test_06_noise_reduction_mctemporal() {
             enabled: true,
             preset: NoiseReductionPreset::Moderate,
             method: NoiseReductionMethod::McTemporalDenoise,
-            mc_temporal_sigma: 4.0,
             mc_temporal_radius: 2,
             ..NoiseReductionParameters::default()
         },
@@ -10786,7 +10785,7 @@ fn test_272_strength_steps_reach_the_script() {
             "smDegrainTr" => "tr",
             "smDegrainThSAD" => "thSAD",
             "mcTemporalProfile" => "settings",
-            "mcTemporalSigma" => "sigma",
+            "mcTemporalPost" => "post",
             "mcTemporalRadius" => "radius",
             "qtgmcEzDenoise" => "EZDenoise",
             "mcleanStrength" => "strength",
@@ -10854,4 +10853,43 @@ fn test_272_strength_steps_reach_the_script() {
         }
     }
     assert_eq!(count, 7 * 4, "seven methods, four steps each");
+}
+
+/// Task #141: MCTemporalDenoise's Sigma did nothing (havsfunc reads `sigma`
+/// only with `pfMode=0`, which the template never passes), so it is gone, and
+/// Post-denoise passes havsfunc's `post` (an FFT3D pass after the denoise)
+/// instead. 0, the default, leaves `post` out of the call, so a default job's
+/// output is what it was. Encode and preview carry the same call.
+#[test]
+fn test_273_mctd_post_replaces_the_inert_sigma() {
+    create_output_dir();
+    let generator = ScriptGenerator::new().unwrap();
+    let mctd_call = |script: &str| -> String {
+        let start = script.find("haf.MCTemporalDenoise(").expect("MCTD call");
+        let end = start + script[start..].find("\n    )").expect("end of MCTD call");
+        script[start..end].to_string()
+    };
+    for (post, expected) in [(0.0, None), (6.0, Some("post=6.0,")), (2.5, Some("post=2.5,")),
+                             (99.0, Some("post=16.0,")), (-1.0, None), (f64::NAN, None)] {
+        let mut job = create_base_job("test_273_mctd_post");
+        let mut pipeline = ProcessingPipeline::default();
+        pipeline.deinterlace.enabled = false;
+        pipeline.noise_reduction.enabled = true;
+        pipeline.noise_reduction.method = NoiseReductionMethod::McTemporalDenoise;
+        pipeline.noise_reduction.mc_temporal_post = post;
+        job.qtgmc_parameters = pipeline.deinterlace.clone();
+        job.processing_pipeline = Some(pipeline);
+        let (encode, preview) = both_scripts_with(&generator, &job).unwrap();
+        for (name, script) in [("encode", &encode), ("preview", &preview)] {
+            let call = mctd_call(script);
+            assert!(call.contains("settings=\"medium\","), "{name} {post}: {call}");
+            assert!(!call.contains("sigma="), "{name} {post} still passes sigma: {call}");
+            match expected {
+                Some(arg) => assert!(call.contains(arg), "{name} {post} lacks {arg}: {call}"),
+                None => assert!(!call.contains("post="), "{name} {post} passes post: {call}"),
+            }
+            assert!(!script.contains("NR_POST") && !script.contains("NR_SIGMA"),
+                    "{name} {post} left a template tag");
+        }
+    }
 }

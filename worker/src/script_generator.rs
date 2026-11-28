@@ -1423,7 +1423,14 @@ impl ScriptGenerator {
                     script = remove_block("{{#NR_TTEMPSMOOTH}}", "{{/NR_TTEMPSMOOTH}}", script);
 
                     script = process_optional_string("NR_SETTINGS", Some(&nr.mc_temporal_profile), script);
-                    script = process_optional_double("NR_SIGMA", Some(nr.mc_temporal_sigma), script);
+                    // `post` (FFT3D after the denoise) only when asked for: 0
+                    // leaves the call as havsfunc's default (task #141).
+                    let post = if nr.mc_temporal_post.is_finite() && nr.mc_temporal_post > 0.0 {
+                        Some(nr.mc_temporal_post.min(16.0))
+                    } else {
+                        None
+                    };
+                    script = process_optional_double("NR_POST", post, script);
                     script = process_optional_int("NR_RADIUS", Some(nr.mc_temporal_radius), script);
                 }
                 NoiseReductionMethod::McDegrainSharp => {

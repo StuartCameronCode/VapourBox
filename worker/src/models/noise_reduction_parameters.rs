@@ -162,9 +162,13 @@ pub struct NoiseReductionParameters {
 
     // --- MCTemporalDenoise Parameters ---
 
-    /// Denoise strength/sigma.
-    #[serde(default = "default_mc_temporal_sigma")]
-    pub mc_temporal_sigma: f64,
+    /// havsfunc's `post`: an FFT3DFilter pass after the temporal denoise, at
+    /// this sigma (8-bit units). 0 (the default) leaves it out of the script.
+    /// It replaced `mcTemporalSigma`, which havsfunc reads only with
+    /// `pfMode=0` (never passed), so it changed nothing (task #141). Old JSON
+    /// that still carries `mcTemporalSigma` loads; the key is ignored.
+    #[serde(default)]
+    pub mc_temporal_post: f64,
 
     /// Temporal radius for MCTemporalDenoise.
     #[serde(default = "default_mc_temporal_radius")]
@@ -348,7 +352,6 @@ fn default_true() -> bool { true }
 fn default_sm_degrain_prefilter() -> i32 { 2 }
 fn default_sm_degrain_th_scd1() -> i32 { 400 }
 fn default_qtgmc_ez_denoise() -> f64 { 5.0 }
-fn default_mc_temporal_sigma() -> f64 { 4.0 }
 fn default_mc_temporal_radius() -> i32 { 2 }
 fn default_mc_temporal_profile() -> String { "medium".to_string() }
 fn default_mcds_frames() -> i32 { 2 }
@@ -415,7 +418,7 @@ impl Default for NoiseReductionParameters {
             sm_degrain_refine: true,
             sm_degrain_prefilter: default_sm_degrain_prefilter(),
             sm_degrain_th_scd1: default_sm_degrain_th_scd1(),
-            mc_temporal_sigma: default_mc_temporal_sigma(),
+            mc_temporal_post: 0.0,
             mc_temporal_radius: default_mc_temporal_radius(),
             mc_temporal_profile: default_mc_temporal_profile(),
             mcds_frames: default_mcds_frames(),
@@ -488,10 +491,12 @@ impl NoiseReductionParameters {
     }
 
     /// Frames each side the method reads, for the preview's decode window. 3
-    /// covers every motion-compensated method; BM3D's Final step re-reads its
+    /// covers every motion-compensated method but MCTemporalDenoise's
+    /// stronger profiles (`mctd_reach`); BM3D's Final step re-reads its
     /// basic estimate's neighbours, so it reaches twice its radius.
     pub fn temporal_radius(&self) -> u32 {
         let own = match self.method {
+            NoiseReductionMethod::McTemporalDenoise => self.mctd_reach(),
             NoiseReductionMethod::Bm3d => {
                 let r = self.bm3d_effective_radius();
                 if self.bm3d_final { 2 * r } else { r }
@@ -500,6 +505,32 @@ impl NoiseReductionParameters {
             _ => 0,
         };
         own.max(3) as u32
+    }
+
+    /// MCTemporalDenoise's reach in frames each side, from havsfunc r31's
+    /// profile defaults: MDegrain at `radius`, run twice (each pass reads the
+    /// first's neighbours) by high / very high, whose stabilizing TTempSmooth
+    /// reads `maxr` more; `post` (task #141) adds FFT3DFilter's `bt` window
+    /// (bt 2 and 3 read one frame back, 4 two). The default window of 3 was
+    /// short at high, so its preview was up to 2 levels off its encode.
+    pub fn mctd_reach(&self) -> i32 {
+        let profile = ["very low", "low", "medium", "high", "very high"]
+            .iter()
+            .position(|p| p.eq_ignore_ascii_case(self.mc_temporal_profile.trim()))
+            .unwrap_or(1); // havsfunc's own default, "low"
+        let twopass = [false, false, false, true, true][profile];
+        let stabilize = [false, false, false, true, true][profile];
+        let maxr = [1, 1, 2, 2, 2][profile];
+        let bt = [1, 3, 3, 3, 4][profile];
+        let radius = self.mc_temporal_radius.max(1);
+        let mut reach = if twopass { 2 * radius } else { radius };
+        if stabilize {
+            reach += maxr;
+        }
+        if self.mc_temporal_post.is_finite() && self.mc_temporal_post > 0.0 {
+            reach += match bt { 1 => 0, 4 => 2, _ => 1 };
+        }
+        reach
     }
 
     /// BM3D's luma and chroma strengths, clamped to 0-50 (8-bit units).
@@ -676,6 +707,48 @@ mod tests {
         assert!(json.contains("\"dfttestSigma\":8.0"));
         assert!(json.contains("\"fft3dSigma\":2.0"));
         assert!(json.contains("\"ttempMaxr\":3"));
+    }
+
+    /// Task #141: `mcTemporalSigma` did nothing and was removed. JSON saved
+    /// before still loads (serde ignores the key), and `post` stays off.
+    #[test]
+    fn mc_temporal_sigma_in_old_json_is_ignored_and_post_defaults_off() {
+        let p: NoiseReductionParameters = serde_json::from_str(
+            r#"{"enabled":true,"method":"mcTemporalDenoise","mcTemporalSigma":6.0}"#,
+        )
+        .unwrap();
+        assert_eq!(p.mc_temporal_post, 0.0);
+        assert_eq!(NoiseReductionParameters::default().mc_temporal_post, 0.0);
+        let json = serde_json::to_string(&NoiseReductionParameters {
+            mc_temporal_post: 6.0,
+            ..Default::default()
+        })
+        .unwrap();
+        assert!(json.contains("\"mcTemporalPost\":6.0"), "{json}");
+        assert!(!json.contains("mcTemporalSigma"), "{json}");
+    }
+
+    /// Task #141: MCTD's high / very high profiles read past the default
+    /// window of 3, and `post` adds its FFT3D window.
+    #[test]
+    fn mctd_reach_follows_the_profile_and_post() {
+        let reach = |profile: &str, radius: i32, post: f64| {
+            NoiseReductionParameters {
+                method: NoiseReductionMethod::McTemporalDenoise,
+                mc_temporal_profile: profile.to_string(),
+                mc_temporal_radius: radius,
+                mc_temporal_post: post,
+                ..Default::default()
+            }
+            .temporal_radius()
+        };
+        assert_eq!(reach("medium", 2, 0.0), 3, "within the old window");
+        assert_eq!(reach("very low", 1, 4.0), 3);
+        assert_eq!(reach("high", 2, 0.0), 6);
+        assert_eq!(reach("high", 2, 4.0), 7);
+        assert_eq!(reach("very high", 2, 4.0), 8);
+        assert_eq!(reach("very high", 4, 0.0), 10);
+        assert_eq!(reach("medium", 4, 2.0), 5);
     }
 
     #[test]

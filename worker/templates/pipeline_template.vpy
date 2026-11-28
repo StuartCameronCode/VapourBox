@@ -1059,9 +1059,9 @@ def _nr_mctd(clip):
 {{#NR_SETTINGS}}
         settings="{{NR_SETTINGS}}",
 {{/NR_SETTINGS}}
-{{#NR_SIGMA}}
-        sigma={{NR_SIGMA}},
-{{/NR_SIGMA}}
+{{#NR_POST}}
+        post={{NR_POST}},
+{{/NR_POST}}
 {{#NR_RADIUS}}
         radius={{NR_RADIUS}},
 {{/NR_RADIUS}}

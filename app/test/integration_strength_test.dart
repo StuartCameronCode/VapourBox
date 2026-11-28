@@ -152,4 +152,25 @@ void main() {
       });
     }
   }
+
+  // Task #141: MCTD's Sigma did nothing and was replaced by Post-denoise
+  // (havsfunc's `post`). At sigma 6 the medium profile barely denoises
+  // (34.5 dB from 32.6 in the report); post 6 takes it most of the way to
+  // clean (42.5). Preview = encode for it is checked in
+  // integration_fft3dfilter_determinism_test.dart.
+  test('noise_reduction mc_temporal_denoise: Post-denoise acts on heavy noise', () async {
+    Future<String> encode(double post) => _run(
+        _job(noisy, 'mctd_post_$post', ProcessingPipeline(
+            deinterlace: const QTGMCParameters(enabled: false),
+            noiseReduction: NoiseReductionParameters(
+                enabled: true,
+                method: NoiseReductionMethod.mcTemporalDenoise,
+                mcTemporalPost: post))),
+        'MCTD post $post');
+    final off = await _psnrY(await encode(0), clean);
+    final on = await _psnrY(await encode(6), clean);
+    // ignore: avoid_print
+    print('MCTD medium at sigma 6: post 0 $off dB, post 6 $on dB');
+    expect(on, greaterThan(off + 3.0), reason: 'post 6 should remove clearly more noise');
+  });
 }

@@ -16,7 +16,8 @@
 // Task #80: a preview and its encode are two processes, and FFT3DFilter's
 // old default (measure=1) let FFTW time a different plan in each. The
 // templates pass measure=0; havsfunc's QTGMC call passes nothing and relies
-// on the patched default (deps 1.18.0-rc2 on), checked by the QTGMC case.
+// on the patched default (deps 1.18.0-rc2 on), checked by the QTGMC case,
+// as does MCTemporalDenoise's `post` pass (task #141, the mctd_post case).
 // docs/reports/task-80-fft3dfilter-fftw-estimate.
 @Tags(['heavy'])
 @Timeout(Duration(minutes: 30))
@@ -123,6 +124,29 @@ void main() {
           enabled: true, method: NoiseReductionMethod.temporalDegrain2, td2PostFft: 1),
       deint: noDeint,
       since: '1.18.0-rc1',
+    ),
+    // Task #141: MCTD's Post-denoise is havsfunc's own FFT3DFilter call (bt 3
+    // at high, 4 at very high), which passes no measure and so relies on the
+    // patched default, like QTGMC's. These two profiles also read past the
+    // preview's old window of 3 (two MDegrain passes and TTempSmooth): before
+    // `mctd_reach`, high's preview was up to 2 levels off its encode.
+    'mctd_high_post': (
+      nr: NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.mcTemporalDenoise,
+          mcTemporalProfile: 'high',
+          mcTemporalPost: 4.0),
+      deint: noDeint,
+      since: '1.18.0-rc2',
+    ),
+    'mctd_very_high_post': (
+      nr: NoiseReductionParameters(
+          enabled: true,
+          method: NoiseReductionMethod.mcTemporalDenoise,
+          mcTemporalProfile: 'very high',
+          mcTemporalPost: 6.0),
+      deint: noDeint,
+      since: '1.18.0-rc2',
     ),
     // havsfunc's FFT3DFilter call (NoiseTR 1: bt 3) takes the plugin's
     // default; single rate, so output frame n is source frame n.

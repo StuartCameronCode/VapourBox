@@ -811,7 +811,6 @@ void main() {
           noiseReduction: const NoiseReductionParameters(
             enabled: true,
             method: NoiseReductionMethod.mcTemporalDenoise,
-            mcTemporalSigma: 4.0,
             mcTemporalRadius: 2,
           ),
         ),
@@ -1584,7 +1583,6 @@ void main() {
           noiseReduction: NoiseReductionParameters(
             enabled: true,
             method: NoiseReductionMethod.mcTemporalDenoise,
-            mcTemporalSigma: 4.0,
             mcTemporalRadius: 2,
           ),
         ),

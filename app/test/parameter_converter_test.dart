@@ -217,13 +217,13 @@ void main() {
         const params = NoiseReductionParameters(
           enabled: true,
           method: NoiseReductionMethod.mcTemporalDenoise,
-          mcTemporalSigma: 5.0,
+          mcTemporalPost: 5.0,
           mcTemporalRadius: 3,
         );
         final dynamic = ParameterConverter.fromNoiseReduction(params);
 
         expect(dynamic.values['method'], 'mc_temporal_denoise');
-        expect(dynamic.values['mcTemporalSigma'], 5.0);
+        expect(dynamic.values['mcTemporalPost'], 5.0);
         expect(dynamic.values['mcTemporalRadius'], 3);
       });
     });
