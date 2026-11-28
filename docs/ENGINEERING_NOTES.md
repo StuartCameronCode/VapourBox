@@ -7107,3 +7107,37 @@ python-build-standalone (pinned by URL), and akarin's vendored `libz` /
   Never a retry.
 
 Report: [docs/reports/task-128-bm3d-heavy-test-time](reports/task-128-bm3d-heavy-test-time/index.html).
+
+### Automatic white balance compiled an expression every frame (issue #253, 2026-11-28)
+
+Reported by a user: Colour Correction with automatic white balance and CLAHE
+ran a 706x480 VHS chain at 16.8 fps against 47.6 without it, at ~20% CPU,
+and a 48-core EPYC ran it slower than a desktop. `_auto_white` returned a new
+`_expr(...)` from a `std.FrameEval` on every frame, with the offsets written
+into the expression text. `_expr` sends it to akarin wherever akarin is
+installed (every bundle but macOS x64), so each frame was an LLVM compile in
+a Python callback holding the GIL: ~17 ms a frame on an M1, serial whatever
+the core count.
+
+- **Fix:** with akarin, PlaneStats stamps the chroma means on each frame
+  (`_AwbU*`, `_AwbV*`, removed afterwards) and one expression reads them.
+  The FrameEval is only the fallback where akarin is absent, where a
+  `std.Expr` per frame costs ~0.35 ms. The filter alone at 706x480: ~60 fps
+  → ~8,000 fps. The whole chain through the worker did not change measurably
+  (10.8 → 10.9 fps), but that was on a machine loaded by another task's
+  tests, where the other passes ran far below the old filter's ~60 fps serial
+  ceiling; the issue's desktop ran them at 47.6 fps, where it was the limit.
+- **Output:** identical at 8-12 bits and on the fallback. At 16 bits 17 of
+  10,800 chroma planes (0.16%) were one 16-bit step apart, because akarin
+  reads a frame property as a 32-bit float (~0.004 of a step at a 16-bit
+  peak) and the old code wrote the offset as a 6-decimal literal.
+- **Automatic levels is unchanged.** It builds a `std.Levels` (a lookup
+  table) per frame, ~0.2 ms; caching the nodes changed nothing measurable.
+  One akarin expression doing `std.Levels`' arithmetic is not bit-exact:
+  akarin compiles with fast-math, so its division misses .5 ties in 2.0% of
+  (min, max) pairs, one level off (55/110 × 219 + 16 = 125.5: std.Levels
+  126, akarin 125), with `opt=0` or `opt=1`.
+- CLAUDE.md ("One script template") now says never to build an akarin
+  expression per frame, and gives the fast-math caveat.
+
+Report: [docs/reports/issue-253-auto-colour-per-frame-expr](reports/issue-253-auto-colour-per-frame-expr/index.html).

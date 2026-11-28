@@ -1,0 +1,3 @@
+load before (1/5/15 min): { 164.86 176.20 158.37 }; another task's heavy tests were running on this 8-core M1
+load after isolated bench: { 164.68 180.35 163.82 }
+load after chain timing: { 219.02 193.04 171.52 }

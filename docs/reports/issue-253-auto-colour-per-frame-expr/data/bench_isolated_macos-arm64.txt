@@ -1,0 +1,10 @@
+8-bit 706x480 4:2:0, 600 frames; no filter: 344 fps
+  _auto_white   before (main)                         6 fps
+  _auto_white   after, akarin                      1415 fps
+  _auto_white   after, no akarin (macOS x64)        530 fps
+  _auto_levels  (unchanged)                        1162 fps
+10-bit 706x480 4:2:0, 600 frames; no filter: 2614 fps
+  _auto_white   before (main)                        20 fps
+  _auto_white   after, akarin                      2251 fps
+  _auto_white   after, no akarin (macOS x64)        595 fps
+  _auto_levels  (unchanged)                         944 fps

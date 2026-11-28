@@ -1,0 +1,8 @@
+(lo, hi, output range) cases: 4488
+ternary (flat frame kept)                opt=0: 91 cases differ (2.0%)
+ternary (flat frame kept)                opt=1: 91 cases differ (2.0%)
+plain                                    opt=0: 91 cases differ (2.0%)
+plain                                    opt=1: 91 cases differ (2.0%)
+clamp, +0.5, trunc (std.Levels order)    opt=0: 91 cases differ (2.0%)
+clamp, +0.5, trunc (std.Levels order)    opt=1: 91 cases differ (2.0%)
+example: min_in=52 max_in=162 min_out=16 max_out=235 input 107: std.Levels 126, akarin 125
