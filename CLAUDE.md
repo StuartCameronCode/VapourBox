@@ -891,6 +891,19 @@ the first one's effect. The same goes for `-af`: every audio filter is chosen in
 `AudioPlan::new` and each ffmpeg run gets exactly one `-af`; the encode itself
 never filters audio (`test_real_ffmpeg_builder_delegates_audio_to_audio_restoration`).
 
+**A source's subtitles reach the encoder through an input of their own,
+never the sound's (issue #266).** Between cues a sparse subtitle stream is
+the output stream FFmpeg's scheduler waits for, so sharing input 1 let the
+source's sound run ahead of the picture vspipe was still making, and the
+muxer wrote it up to ~38 s ahead (players dropped the sound; a remux fixed
+it). `pipeline_executor::subtitle_mapping` is the one decision: a second `-i`
+of the source with input 1's own seek, last of the inputs, added only when
+the probe finds a subtitle stream (a failed probe keeps Matroska's old
+`1:s?`). Never `-max_interleave_delta 0` instead: it buffers the sound until
+the next cue. Trimmed encodes were never affected (`-shortest`'s sync
+queue). `integration_subtitle_interleave_test.dart` (heavy) measures the
+file order (docs/reports/issue-266-subtitle-interleave).
+
 **Nothing of unbounded length goes on a child process's command line.**
 Windows caps it at 32,767 characters and refuses to start the process (os
 error 206). The source's `comment` tag is the case that hit it (issue #138: AI

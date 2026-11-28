@@ -1358,7 +1358,8 @@ impl PipelineExecutor {
         // doesn't read the entire audio track (which hangs for small segments of
         // large files). One decision with the video delay below and Audio
         // Restoration's window: `VideoJob::source_audio_start`.
-        args.extend(source_audio_input_seek(job, self.encoder_priming.as_ref()));
+        let source_seek = source_audio_input_seek(job, self.encoder_priming.as_ref());
+        args.extend(source_seek.iter().cloned());
         args.extend(["-i".to_string(), job.input_path.clone()]);
 
         // Input 2: the output's comment, as an FFMETADATA file (issue #138)
@@ -1378,47 +1379,41 @@ impl PipelineExecutor {
         let cut = sound_cut_input(self.sound_cut.as_ref(), self.sound_copy.as_ref(), self.restored_audio.is_some());
         args.extend(sound_cut_input_args(job, self.sound_copy.as_ref(), self.sound_cut.as_ref()));
 
+        // Last input: the source again, for its subtitle streams only, seeked
+        // exactly as input 1 (issue #266). A sparse subtitle stream sharing
+        // the sound's input let the sound run ahead of the encoded picture
+        // and be written up to ~40 s ahead of it (see `subtitle_mapping`).
+        let subtitle_embed_pending = job.subtitle_settings.as_ref()
+            .is_some_and(|s| s.enabled && !matches!(s.output, SubtitleOutput::SrtFile));
+        let subtitle_form = settings.container.traits().subtitles;
+        let subtitle_codecs = if subtitle_mapping_probes(subtitle_form, subtitle_embed_pending) {
+            self.probe_subtitle_codecs(&job.input_path)
+        } else {
+            None
+        };
+        let subtitles = subtitle_mapping(
+            subtitle_form,
+            subtitle_embed_pending,
+            subtitle_codecs.as_deref(),
+            input_count(&args),
+        );
+        if subtitles.own_input {
+            args.extend(subtitle_input_args(job, &source_seek));
+        }
+
         // Progress output to a temp file (avoids Windows pipe buffering delay)
         args.extend(["-progress".to_string(), progress_file.to_string_lossy().to_string()]);
 
-        // Map streams: video from input 0 (processed), audio and subtitles from input 1 (original)
+        // Map streams: video from input 0 (processed), audio from input 1
+        // (original), subtitles from their own input of the source
         args.extend(["-map".to_string(), "0:v".to_string()]);  // Video from Y4M pipe
         // Audio from the original (every stream, `1:a?`), or — when audio
         // restoration rendered a track — that track (input 3) first, then the
         // source's other audio streams. One decision site: audio_restoration.
         args.extend(audio_restoration::encode_map_args(settings, self.restored_audio.as_ref(), 3, sound, cut));
 
-        // Preserve existing subtitle streams from source (? = optional, no error if none)
-        let subtitle_embed_pending = job.subtitle_settings.as_ref()
-            .is_some_and(|s| s.enabled && !matches!(s.output, SubtitleOutput::SrtFile));
-        match settings.container.traits().subtitles {
-            SubtitleForm::Copy => {
-                args.extend(["-map".to_string(), "1:s?".to_string()]);
-                args.extend(["-c:s".to_string(), "copy".to_string()]);
-            }
-            SubtitleForm::MovText if !subtitle_embed_pending => {
-                // mov_text only holds text subtitles. Image-based subs (PGS/VobSub
-                // from DVD/Blu-ray rips) cannot be transcoded to mov_text — ffmpeg
-                // does NOT skip them, it aborts the whole encode with
-                // "Subtitle encoding currently only possible from text to text..."
-                // (exit -22). So probe the source and map only text-based streams.
-                if let Some(codecs) = self.probe_subtitle_codecs(&job.input_path) {
-                    let mut mapped_any = false;
-                    for (rel_idx, codec) in codecs.iter().enumerate() {
-                        if Self::is_text_subtitle(codec) {
-                            args.extend(["-map".to_string(), format!("1:s:{}", rel_idx)]);
-                            mapped_any = true;
-                        }
-                    }
-                    if mapped_any {
-                        args.extend(["-c:s".to_string(), "mov_text".to_string()]);
-                    }
-                }
-                // If probing fails, map no subtitles — a missing subtitle track must
-                // never fail the encode.
-            }
-            _ => {} // AVI: no subtitle stream
-        }
+        // Subtitles: from their own input (above), or none.
+        args.extend(subtitles.args);
 
         // Video codec
         args.extend(["-c:v".to_string(), settings.codec.ffmpeg_codec().to_string()]);
@@ -2387,6 +2382,95 @@ pub fn sound_copy_input_args(job: &VideoJob, copy: Option<&SoundCopy>, priming: 
     args
 }
 
+/// The number of inputs an ffmpeg argument list declares so far: the index
+/// the next `-i` will have.
+fn input_count(args: &[String]) -> usize {
+    args.iter().filter(|a| *a == "-i").count()
+}
+
+/// The output's subtitle streams, and whether they need an input of their own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubtitleMapping {
+    /// The maps read a second input of the source, added after every other
+    /// input ([`subtitle_input_args`]).
+    pub own_input: bool,
+    /// `-map …` and `-c:s …`.
+    pub args: Vec<String>,
+}
+
+/// Whether [`subtitle_mapping`] needs the source's subtitle codecs probed.
+pub fn subtitle_mapping_probes(form: SubtitleForm, embed_pending: bool) -> bool {
+    match form {
+        SubtitleForm::Copy => true,
+        SubtitleForm::MovText => !embed_pending,
+        SubtitleForm::None => false,
+    }
+}
+
+/// Which subtitle streams the encode copies, and from where (issue #266).
+///
+/// **Never from the input the sound comes from.** FFmpeg's scheduler lets an
+/// input run only while it feeds the output stream furthest behind, and a
+/// sparse subtitle stream is that stream between cues. Sharing input 1 with
+/// the sound let the source's sound run ahead of the picture (which vspipe
+/// makes far slower than the file demuxes), and once the muxer's queue
+/// spanned `max_interleave_delta` (10 s) it wrote the sound out ahead: an
+/// MKV with ~38 s of sound clusters before the matching picture, whose sound
+/// a player with a bounded read-ahead dropped. From an input of their own
+/// the sound is held to the picture's pace and the subtitle input reads to
+/// its end at once. Never `-max_interleave_delta 0` instead: it buffers the
+/// sound until the next cue (docs/reports/issue-266-subtitle-interleave).
+///
+/// `codecs` is the source's subtitle codecs (`s:N` order), `None` when the
+/// probe failed; `input` is the index the subtitle input would take. No
+/// subtitle stream adds no input, so the source is read twice only when it
+/// has one. A failed probe keeps Matroska's old copy from input 1 (losing
+/// the user's subtitles to a probe is worse) and maps none into MP4/MOV, as
+/// before: mov_text can't take image subtitles and the encode would fail.
+pub fn subtitle_mapping(form: SubtitleForm, embed_pending: bool, codecs: Option<&[String]>, input: usize) -> SubtitleMapping {
+    let none = SubtitleMapping { own_input: false, args: Vec::new() };
+    if !subtitle_mapping_probes(form, embed_pending) {
+        return none;
+    }
+    match (form, codecs) {
+        (SubtitleForm::Copy, None) => SubtitleMapping {
+            own_input: false,
+            args: vec!["-map".into(), "1:s?".into(), "-c:s".into(), "copy".into()],
+        },
+        (SubtitleForm::Copy, Some(c)) if !c.is_empty() => SubtitleMapping {
+            own_input: true,
+            args: vec!["-map".into(), format!("{input}:s?"), "-c:s".into(), "copy".into()],
+        },
+        (SubtitleForm::MovText, Some(c)) => {
+            // mov_text only holds text subtitles. Image-based subs (PGS/VobSub
+            // from DVD/Blu-ray rips) cannot be transcoded to mov_text: ffmpeg
+            // does NOT skip them, it aborts the whole encode with "Subtitle
+            // encoding currently only possible from text to text..." (exit
+            // -22). So only text-based streams are mapped.
+            let mut args = Vec::new();
+            for (k, codec) in c.iter().enumerate() {
+                if PipelineExecutor::is_text_subtitle(codec) {
+                    args.extend(["-map".to_string(), format!("{input}:s:{k}")]);
+                }
+            }
+            if args.is_empty() {
+                return none;
+            }
+            args.extend(["-c:s".to_string(), "mov_text".to_string()]);
+            SubtitleMapping { own_input: true, args }
+        }
+        _ => none,
+    }
+}
+
+/// The subtitle input of [`subtitle_mapping`]: the source, with input 1's own
+/// seek (`source_seek`), so every cue keeps its time against the sound.
+pub fn subtitle_input_args(job: &VideoJob, source_seek: &[String]) -> Vec<String> {
+    let mut args = source_seek.to_vec();
+    args.extend(["-i".to_string(), job.input_path.clone()]);
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3348,7 +3432,7 @@ mod tests {
         let body = &src[start..];
         let body = &body[..body.find("\n    }\n").expect("end of builder")];
         let seek = body
-            .find("args.extend(source_audio_input_seek(job, self.encoder_priming.as_ref()));")
+            .find("let source_seek = source_audio_input_seek(job, self.encoder_priming.as_ref());\n        args.extend(source_seek.iter().cloned());")
             .expect("audio seek");
         let input = body.find(r#"args.extend(["-i".to_string(), job.input_path.clone()]);"#).unwrap();
         assert!(seek < input, "the sound's seek is an input option of the source");
@@ -4994,5 +5078,104 @@ mod tests {
         let sw_args = build_ffmpeg_args_for_test(&sw);
         let sw_idx = sw_args.iter().position(|a| a == "-preset").unwrap();
         assert_eq!(sw_args[sw_idx + 1], "veryslow");
+    }
+
+    fn codecs(c: &[&str]) -> Vec<String> {
+        c.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// Issue #266: a Matroska output takes a source's subtitles from an input
+    /// of their own, never the sound's input 1.
+    #[test]
+    fn matroska_subtitles_come_from_their_own_input() {
+        let c = codecs(&["subrip", "hdmv_pgs_subtitle"]);
+        let m = subtitle_mapping(SubtitleForm::Copy, false, Some(&c), 4);
+        assert!(m.own_input);
+        assert_eq!(m.args, ["-map", "4:s?", "-c:s", "copy"]);
+        // A transcript to embed later doesn't change what Matroska copies.
+        assert_eq!(subtitle_mapping(SubtitleForm::Copy, true, Some(&c), 4), m);
+        // The index is whatever the caller counted: it moves with the
+        // restored track, the sound copy and the sound cut.
+        for input in [3, 5, 6] {
+            assert_eq!(subtitle_mapping(SubtitleForm::Copy, false, Some(&c), input).args[1], format!("{input}:s?"));
+        }
+    }
+
+    /// No subtitle stream adds no input: the source is read twice only when
+    /// it has subtitles.
+    #[test]
+    fn a_source_without_subtitles_adds_no_input() {
+        for form in [SubtitleForm::Copy, SubtitleForm::MovText, SubtitleForm::None] {
+            let m = subtitle_mapping(form, false, Some(&[]), 3);
+            assert_eq!(m, SubtitleMapping { own_input: false, args: vec![] }, "{form:?}");
+        }
+    }
+
+    /// A failed probe keeps Matroska's old copy from input 1 (a probe must
+    /// not cost the user their subtitles) and maps none into MP4/MOV.
+    #[test]
+    fn a_failed_subtitle_probe_keeps_the_old_mapping() {
+        let mkv = subtitle_mapping(SubtitleForm::Copy, false, None, 3);
+        assert_eq!(mkv, SubtitleMapping { own_input: false, args: codecs(&["-map", "1:s?", "-c:s", "copy"]) });
+        assert_eq!(subtitle_mapping(SubtitleForm::MovText, false, None, 3).args, Vec::<String>::new());
+    }
+
+    /// MP4/MOV take text subtitles only, as mov_text, from their own input;
+    /// image subtitles alone map nothing and add no input; nothing is
+    /// mapped while a transcript waits to be embedded, and AVI takes none.
+    #[test]
+    fn mov_text_subtitles_come_from_their_own_input() {
+        let c = codecs(&["hdmv_pgs_subtitle", "subrip", "ass"]);
+        let m = subtitle_mapping(SubtitleForm::MovText, false, Some(&c), 3);
+        assert!(m.own_input);
+        assert_eq!(m.args, ["-map", "3:s:1", "-map", "3:s:2", "-c:s", "mov_text"]);
+        let images = codecs(&["dvd_subtitle"]);
+        assert!(!subtitle_mapping(SubtitleForm::MovText, false, Some(&images), 3).own_input);
+        assert!(!subtitle_mapping_probes(SubtitleForm::MovText, true));
+        assert!(subtitle_mapping(SubtitleForm::MovText, true, Some(&c), 3).args.is_empty());
+        assert!(!subtitle_mapping_probes(SubtitleForm::None, false));
+        assert!(subtitle_mapping(SubtitleForm::None, false, Some(&c), 3).args.is_empty());
+    }
+
+    /// The subtitle input is seeked exactly as input 1, so every cue keeps
+    /// its time against the sound in a trimmed encode.
+    #[test]
+    fn the_subtitle_input_is_seeked_as_the_sound_input() {
+        let mut job = create_test_job("/tmp/out.mkv");
+        job.input_frame_rate = Some(25.0);
+        job.start_frame = Some(125);
+        job.end_frame = Some(500);
+        let seek = source_audio_input_seek(&job, None);
+        assert_eq!(seek, ["-ss", "5.000000"]);
+        assert_eq!(subtitle_input_args(&job, &seek), ["-ss", "5.000000", "-i", "input.mp4"]);
+        let untrimmed = create_test_job("/tmp/out.mkv");
+        let seek = source_audio_input_seek(&untrimmed, None);
+        assert_eq!(subtitle_input_args(&untrimmed, &seek), ["-i", "input.mp4"]);
+    }
+
+    #[test]
+    fn input_count_counts_inputs() {
+        let args = codecs(&["-f", "yuv4mpegpipe", "-i", "-", "-ss", "1", "-i", "a.mkv", "-map", "0:v"]);
+        assert_eq!(input_count(&args), 2);
+    }
+
+    /// The real builder adds the subtitle input last, after every other
+    /// input and before any output option, with input 1's own seek, and maps
+    /// subtitles only through `subtitle_mapping`. And never
+    /// `-max_interleave_delta 0`, which buffers the sound instead.
+    #[test]
+    fn the_builder_wires_the_subtitle_input_last() {
+        let src = include_str!("pipeline_executor.rs").replace("\r\n", "\n");
+        let start = src.find("fn build_ffmpeg_args(\n").expect("real builder");
+        let end = start + src[start..].find("\n    }\n").expect("builder end");
+        let body = &src[start..end];
+        let cut = body.find("sound_cut_input_args(job").expect("cut input");
+        let sub = body.find("subtitle_input_args(job, &source_seek)").expect("subtitle input");
+        let progress = body.find("\"-progress\"").expect("progress");
+        assert!(cut < sub && sub < progress);
+        assert!(body.contains("args.extend(source_seek.iter().cloned());"));
+        assert!(body.contains("args.extend(subtitles.args);"));
+        assert!(!body.contains(":s?\""), "subtitles mapped outside subtitle_mapping");
+        assert!(!src.contains(concat!("\"-max_", "interleave_delta\"")));
     }
 }

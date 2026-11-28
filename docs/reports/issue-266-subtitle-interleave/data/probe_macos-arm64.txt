@@ -1,0 +1,7 @@
+ffmpeg version 9.0.2-https://www.martin-riedl.de Copyright (c) 2000-2026 the FFmpeg developers
+no_subtitles                 lead   0.04 s   peak RSS   30 MB
+subtitles_today              lead  38.10 s   peak RSS   31 MB
+subtitles_today_unthrottled  lead  37.66 s   peak RSS   57 MB
+pcm71_today                  lead  37.91 s   peak RSS  153 MB
+pcm71_own_input              lead   0.04 s   peak RSS   83 MB
+pcm71_mid0                   lead   0.04 s   peak RSS  265 MB

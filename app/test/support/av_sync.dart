@@ -242,3 +242,38 @@ Future<double> halfPacket(String video) async {
   return longest / 2;
 }
 
+
+/// How far the first audio stream runs ahead of the picture in the file's
+/// byte order: the largest audio DTS less the DTS of the last video packet
+/// stored before it, in seconds (issue #266). A player reads a file in that
+/// order with a bounded read-ahead, so a large lead starves its sound while
+/// it reads the picture that catches up. Measures the layout, not playback.
+Future<double> soundLeadInFileOrder(String path) async {
+  final j = await WorkerHarness.ffprobeJson([
+    '-v', 'error', '-show_entries', 'packet=stream_index,dts_time,pts_time,pos',
+    '-show_entries', 'stream=index,codec_type', '-of', 'json', path,
+  ]);
+  final types = {
+    for (final s in j['streams'] as List) s['index'] as int: '${s['codec_type']}',
+  };
+  final packets = [
+    for (final pk in j['packets'] as List)
+      if (int.tryParse('${pk['pos']}') != null &&
+          double.tryParse('${pk['dts_time'] ?? pk['pts_time']}') != null)
+        (
+          pos: int.parse('${pk['pos']}'),
+          type: types[pk['stream_index']] ?? '',
+          t: double.parse('${pk['dts_time'] ?? pk['pts_time']}'),
+        ),
+  ]..sort((a, b) => a.pos.compareTo(b.pos));
+  double? lastVideo;
+  var lead = double.negativeInfinity;
+  for (final pk in packets) {
+    if (pk.type == 'video') {
+      lastVideo = pk.t;
+    } else if (pk.type == 'audio' && lastVideo != null) {
+      lead = pk.t - lastVideo > lead ? pk.t - lastVideo : lead;
+    }
+  }
+  return lead;
+}
