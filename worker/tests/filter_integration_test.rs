@@ -10702,3 +10702,53 @@ fn test_270_both_scripts_end_with_the_pipe_output_tracker() {
         }
     }
 }
+
+/// Issue #253: automatic white balance must not build an expression per frame.
+/// It returned a new `_expr` from a FrameEval on every frame, and on akarin
+/// (every bundle but macOS x64) each one is an LLVM compile, serialised under
+/// the GIL: ~60 fps for the filter alone at 706x480. With akarin it is now one
+/// expression reading PlaneStats' frame properties, and the FrameEval is only
+/// macOS x64's fallback, after that branch returns. Automatic levels stays a
+/// per-frame std.Levels (cheap, and akarin's fast-math division would put
+/// .5 ties a level off).
+#[test]
+fn test_271_auto_colour_builds_no_node_per_frame() {
+    create_output_dir();
+    let mut job = create_base_job("test_271_auto_colour");
+    job.qtgmc_parameters.enabled = false;
+    job.processing_pipeline = Some(ProcessingPipeline {
+        deinterlace: QTGMCParameters { enabled: false, ..QTGMCParameters::default() },
+        color_correction: ColorCorrectionParameters {
+            enabled: true,
+            apply_auto_levels: true,
+            apply_auto_white_balance: true,
+            auto_white_balance_strength: 0.8,
+            ..ColorCorrectionParameters::default()
+        },
+        ..ProcessingPipeline::default()
+    });
+    let (encode, preview) = generate_both_scripts(&job);
+    for (side, script) in [("encode", &encode), ("preview", &preview)] {
+        let white = &script[script.find("def _auto_white(").expect("auto white block")..];
+        let white = &white[..white.find("clip = _auto_white(").expect("auto white call")];
+        let akarin = white.find("if _akarin_expr is not None:").expect("akarin branch");
+        let branch = &white[akarin..];
+        let branch_end = branch.find("\n        return ").expect("akarin branch returns");
+        let branch_end = branch_end + branch[branch_end..].find(")\n").expect("return ends");
+        let (branch, fallback) = branch.split_at(branch_end);
+        assert!(branch.contains("x._AwbUAverage") && branch.contains("x._AwbVAverage"),
+            "{side}: the akarin branch must read the chroma means from frame properties");
+        assert!(!branch.contains("FrameEval") && !branch.contains("def _apply"),
+            "{side}: the akarin branch must not evaluate anything per frame");
+        assert!(!white[..akarin].contains("FrameEval"),
+            "{side}: nothing per frame may run before the akarin branch");
+        assert!(fallback.contains("FrameEval"), "{side}: macOS x64 keeps the FrameEval fallback");
+        assert!(script.contains("clip = _auto_white(clip, 0.8)"), "{side}");
+
+        let levels = &script[script.find("def _auto_levels(").expect("auto levels block")..];
+        let levels = &levels[..levels.find("clip = _auto_levels(").expect("auto levels call")];
+        assert!(levels.contains("core.std.Levels("), "{side}: auto levels stays std.Levels");
+        assert!(!levels.contains("_expr("),
+            "{side}: auto levels stays std.Levels (bit-exact), never an expression");
+    }
+}

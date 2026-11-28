@@ -2152,6 +2152,13 @@ clip = _colorize.colorize(
 #
 # PlaneStatsMin/Max come back in the CLIP's own depth, so they are used raw;
 # only the user's targets, which are in 8-bit UI units, get scaled to the format.
+#
+# This builds a std.Levels per frame, which is cheap (a lookup table; ~5,000
+# fps for the filter alone at 706x480) and needs no change for speed. Don't
+# turn it into one akarin expression reading the points from frame properties
+# as the white balance below does: akarin compiles with fast-math, and its
+# division puts a .5 tie on the other side of std.Levels' in ~2% of (min, max)
+# pairs, one level off (issue #253, docs/reports/issue-253-auto-colour-per-frame-expr).
 def _auto_levels(c, black_8bit, white_8bit, strength):
     peak = (1 << c.format.bits_per_sample) - 1
     to_fmt = lambda v: int(round(v * peak / 255.0))
@@ -2184,12 +2191,34 @@ clip = _auto_levels(clip, {{CC_AUTO_LEVELS_BLACK}}, {{CC_AUTO_LEVELS_WHITE}}, {{
 #
 # Chroma means are averages already, so they are far steadier frame to frame
 # than the luma min/max above and need no outlier handling.
+#
+# With akarin the means are stamped on each frame by PlaneStats and ONE
+# expression, compiled once, reads them (issue #253). This used to return a
+# new expression per frame from a FrameEval, which on akarin is an LLVM compile
+# per frame (~20 ms, serialised under the GIL): ~60 fps for this filter alone
+# at 706x480, ~8,000 now. The output is identical at 8-12 bits; at 16 bits
+# akarin reads the mean as a 32-bit float, and about 2 chroma planes in 1,000
+# come out one 16-bit step apart from the old per-frame literal. The fallback
+# below is for macOS x64, which has no akarin; there each frame's std.Expr is
+# cheap (docs/reports/issue-253-auto-colour-per-frame-expr).
 def _auto_white(c, strength):
     if c.format.num_planes < 3:
         return c  # GRAY: PlaneStats(plane=1) would error
     bits = c.format.bits_per_sample
     peak = (1 << bits) - 1
     neutral = 1 << (bits - 1)
+
+    if _akarin_expr is not None:
+        st = core.std.PlaneStats(c, plane=1, prop='_AwbU')
+        st = core.std.PlaneStats(st, plane=2, prop='_AwbV')
+        out = _expr(st, [
+            '',
+            f'x {neutral} x._AwbUAverage {peak} * - {strength} * +',
+            f'x {neutral} x._AwbVAverage {peak} * - {strength} * +',
+        ])
+        return core.std.RemoveFrameProps(
+            out, props=[f'_Awb{p}{s}' for p in 'UV' for s in ('Min', 'Max', 'Average')])
+
     su = core.std.PlaneStats(c, plane=1)
     sv = core.std.PlaneStats(c, plane=2)
 

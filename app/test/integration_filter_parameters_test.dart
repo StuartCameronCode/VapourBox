@@ -526,6 +526,35 @@ void main() {
       print('  PASS');
     }, timeout: const Timeout(Duration(minutes: 2)));
 
+    // Issue #253: automatic white balance reads the chroma means from frame
+    // properties in one akarin expression, instead of building an expression
+    // (an LLVM compile on akarin) per frame. Rust-side twin: test_271.
+    test('color_correction: automatic colour builds no node per frame',
+        () async {
+      loadSchema('color_correction');
+      final script = await generateScriptViaWorker(buildJob(
+        testName: 'auto_colour',
+        colorCorrection: const ColorCorrectionParameters(
+          enabled: true,
+          applyAutoLevels: true,
+          applyAutoWhiteBalance: true,
+          autoWhiteBalanceStrength: 0.8,
+        ),
+      ));
+      expect(script, contains('clip = _auto_white(clip, 0.8)'));
+      expect(script, contains('x._AwbUAverage'));
+      expect(script, contains('x._AwbVAverage'));
+      final white = script.substring(script.indexOf('def _auto_white('),
+          script.indexOf('clip = _auto_white('));
+      final akarin = white.indexOf('if _akarin_expr is not None:');
+      final fallback = white.indexOf('su = core.std.PlaneStats(c, plane=1)');
+      expect(akarin, greaterThan(0));
+      expect(fallback, greaterThan(akarin));
+      expect(white.substring(0, fallback), isNot(contains('FrameEval')),
+          reason: 'the akarin path must evaluate nothing per frame');
+      print('  PASS');
+    }, timeout: const Timeout(Duration(minutes: 2)));
+
 
     // Issue #50: CCD chroma denoise, the pass that pulls in the zsmooth plugin.
     test('chroma_denoise: CCD params + derived scale', () async {

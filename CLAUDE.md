@@ -1954,6 +1954,23 @@ that havsfunc's QTGMC takes none of them (setting one failed every encode).
   720x480), so memory grew with the job's length. Keep the pool until the
   bundle has the fixed release (task #63); `removedirt_determinism_test.dart`
   checks it.
+- **Never build an akarin expression per frame** (issue #253). A FrameEval
+  that returns a new `_expr(...)` compiles it with LLVM on every frame
+  wherever akarin is installed (every bundle but macOS x64): ~20 ms each,
+  serialised under the GIL. Automatic white balance did this and ran at ~60
+  fps on its own at 706x480 (~8,000 fps now; identical at 8-12 bits, about 2
+  chroma planes in 1,000 one step apart at 16, as akarin reads a property as
+  a 32-bit float). It is also the IVTC fade fix's hang
+  pattern. Read per-frame values as frame properties in **one** akarin
+  expression (`x x.PropName …`, stamped by PlaneStats, ModifyFrame or
+  CopyFrameProps), keeping a std.Expr FrameEval only as the no-akarin
+  fallback, or memoise a bounded set of nodes. **But akarin compiles with
+  fast-math**: a division can land a .5 tie on the other side of IEEE's, so a
+  prop-reading expression is not bit-exact against a plugin that divides
+  (std.Levels: one level off in about 2% of (min, max) pairs). That is why
+  automatic levels stays a per-frame std.Levels, which is cheap (a lookup
+  table, ~5,000 fps at 706x480). `test_271` guards both
+  (docs/reports/issue-253-auto-colour-per-frame-expr).
 
 ### VapourSynth Frame Cache (issue #107)
 
