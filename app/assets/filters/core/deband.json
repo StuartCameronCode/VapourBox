@@ -133,7 +133,7 @@
       "vapoursynth": { "name": "output_depth" },
       "ui": {
         "label": "Working Depth",
-        "description": "The bit depth the passes after Deband work at (8, 10, 12, 14, 16). The file gets the Color Format's depth: \"Original\" is the source's",
+        "description": "The bit depth the passes after Deband work at (8, 10, 12, 14, 16). The file gets the Color Format's depth: \"Match source\" keeps the source's.",
         "widget": "dropdown"
       }
     }

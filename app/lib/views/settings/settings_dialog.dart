@@ -56,26 +56,31 @@ const List<(String, String)> chromaFormatHelpSections = [
   (
     'Which one to pick',
     'Match source — no conversion, so nothing is lost. The archival choice. '
-        'Note that a 10-bit source stays 10-bit, which encodes as H.264 High '
-        '4:2:2: correct, but a profile QuickTime, most browsers and phones '
-        'refuse to open.\n\n'
+        'Note that a 10-bit source stays 10-bit: a 10-bit 4:2:2 capture encodes '
+        'as H.264 High 4:2:2, and a 10-bit 4:2:0 one as High 10. Correct, but '
+        'profiles QuickTime, most browsers and phones refuse to open.\n\n'
         '4:2:0 8-bit — plays on everything. Use it for anything going to '
         "someone else's device, the web, or a TV.\n\n"
         '4:2:0 10-bit — the same universal colour layout with the finer '
-        'grading. This is the one to pick for a 10-bit source on a GPU '
-        'encoder: NVENC, QSV and AMF can all encode it, and none of them can '
-        'encode 4:2:2 on most cards.\n\n'
+        'grading. This is the one to pick for a 10-bit source on an NVIDIA '
+        'or Intel GPU encoder: NVENC and QSV encode it with H.265, and none '
+        'of them can encode 4:2:2 on most cards. AMF always encodes 8-bit '
+        '4:2:0, whatever is chosen here.\n\n'
         '4:2:2 8-bit — keeps the extra colour detail of a 4:2:2 or '
         'analogue-captured source, at 8-bit precision.\n\n'
         '4:2:2 10-bit — keeps the colour detail and the 10-bit grading. Best '
         'when the file is going on for more work; needs a player that handles '
         '10-bit.\n\n'
         '4:4:4 10-bit — no chroma subsampling at all. ProRes 4444 and the '
-        'software H.264/H.265 encoders can store it; no GPU encoder here can. '
+        'x264/x265 software encoders can store it; AV1 and the GPU encoders '
+        'cannot. '
         'Reach for it when the output is going into compositing or keying, '
         'where subsampled chroma shows up on edges. It will not recover colour '
         'a subsampled source never had — on an ordinary capture it just makes '
-        'a larger file.',
+        'a larger file.\n\n'
+        'Some codecs decide this for themselves. ProRes and uncompressed v210 '
+        'store their own format (10-bit 4:2:2, or 4:4:4 for ProRes 4444) and '
+        'ignore this setting; AV1 stores only 4:2:0, at 8 or 10 bits.',
   ),
 ];
 
@@ -183,7 +188,7 @@ const List<(String, String)> colourPipelineHelpSections = [
   (
     'Processing',
     'Filters run in whatever format the frame arrived in. Where a plugin cannot '
-        'handle the depth — a few are 8-bit only, one caps at 10 — the pipeline '
+        'handle the depth — a couple are 8-bit only, two cap at 10 — the pipeline '
         'converts down for that pass alone and restores the format immediately '
         'after, rather than dropping the whole clip to 8-bit.\n\n'
         'Every threshold, level and offset in the interface is expressed in '
@@ -223,7 +228,9 @@ const List<(String, String)> colourPipelineHelpSections = [
         'So the format is chosen for hardware encoders rather than negotiated: '
         'anything they cannot take is converted to 4:2:0 first, keeping 10-bit '
         'precision where the codec allows it (H.265 does, H.264 has no 10-bit '
-        'mode at all). The job log names the substitution whenever one happens. '
+        'mode at all). AMF is the exception: it always gets 8-bit 4:2:0, because '
+        'a card without a 10-bit mode crashes the driver rather than failing. '
+        'The job log names the substitution whenever one happens. '
         'A later -pix_fmt in Custom FFmpeg Arguments overrides it, which is the '
         'way to use a mode your card really does have.',
   ),
@@ -1248,7 +1255,8 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
                     'that means a 10-bit file, which some players and browsers '
                     'will not open. 4:2:0 8-bit plays everywhere. 4:2:2 keeps '
                     'more colour detail; its 10-bit form keeps a 10-bit '
-                    "source's precision.",
+                    "source's precision. ProRes, v210 and AV1 store a format "
+                    'of their own.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context)
                               .colorScheme
@@ -1869,7 +1877,8 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
     final detector = HardwareEncoderDetector.instance;
     final isSupported = codec.supportsContainer(settings.container);
     final isHw = codec.isHardwareEncoder;
-    // Hardware encoders, and AV1 (missing from the macOS x64 FFmpeg).
+    // Hardware encoders, and AV1 (in every bundled FFmpeg since deps
+    // 1.17.0-rc2, but not in every FFmpeg build).
     final checked = codec.needsAvailabilityCheck;
     final compiledIn = detector.isCompiledIn(codec);
     // Still querying whether this (compiled-in) hardware encoder works here.
@@ -1892,7 +1901,7 @@ class _OutputSettingsTabState extends State<_OutputSettingsTab> {
         : (checked && !compiledIn)
             ? (isHw
                 ? 'Not available in this build'
-                : "Not in this platform's FFmpeg (Intel Macs don't have it yet)")
+                : 'Not in this FFmpeg build')
             : null;
     final clickable = blockedReason == null;
 
@@ -2245,10 +2254,12 @@ class _GeneralSettingsTabState extends State<_GeneralSettingsTab> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Generated VapourSynth scripts, preview frames, job files and '
-                'extracted DVD titles are written here. Point it at a fast '
-                'drive with room to spare — DVD extraction alone can need '
-                'several GB. Takes effect for the next job.',
+                'Generated VapourSynth scripts, preview frames, job files, '
+                'extracted DVD titles, and the joined copy of a .vob, .mpg or '
+                '.ts whose timestamps restart (about the size of the file) are '
+                'written here. Point it at a fast drive with room to spare — '
+                'DVD extraction alone can need several GB. Takes effect for the '
+                'next job.',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context)
                           .colorScheme

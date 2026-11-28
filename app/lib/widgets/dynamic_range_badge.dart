@@ -28,8 +28,8 @@ class DynamicRangeBadge extends StatelessWidget {
           'Blu-ray and phones) are not affected.';
     }
     final hdr = 'Shown tone-mapped for this screen. The output keeps the '
-        'source\'s HDR colour tags; H.265 (x265) also keeps its mastering '
-        'display and light-level metadata.';
+        'source\'s HDR colour tags; H.265 (x265) and AV1 (SVT-AV1) also keep '
+        'its mastering display and light-level metadata.';
     if (dv != null) {
       return '$hdr The Dolby Vision dynamic metadata is not carried over, '
           'so the output plays as standard HDR.';

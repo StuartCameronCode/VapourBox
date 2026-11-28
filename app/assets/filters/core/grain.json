@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "name": "Film Grain",
   "description": "Add film grain back after denoising",
-  "longDescription": "Adds grain to a picture that has had its own removed. Denoising strips the fine texture that made the image look photographic, and what is left often reads as plastic or waxy — a little grain puts the life back.\n\nIt also hides banding. The noise in an original recording was dithering its own gradients; take it away and skies and fades break into visible steps. Grain restores that dithering, and it survives the encoder better than the banding does.\n\nThis runs last of all the video steps, after resizing and debanding. Anything else would remove what it just added — grain applied before a resize is resampled away, and before debanding is smoothed away.",
+  "longDescription": "Adds grain to a picture that has had its own removed. Denoising strips the fine texture that made the image look photographic, and what is left often reads as plastic or waxy — a little grain puts the life back.\n\nIt also hides banding. The noise in an original recording was dithering its own gradients; take it away and skies and fades break into visible steps. Grain restores that dithering, and it survives the encoder better than the banding does.\n\nThis runs after resizing and debanding, near the very end: only a frame rate conversion comes after it. Anything else would remove what it just added — grain applied before a resize is resampled away, and before debanding is smoothed away.",
   "category": "enhancement",
   "icon": "grain",
   "order": 13,
