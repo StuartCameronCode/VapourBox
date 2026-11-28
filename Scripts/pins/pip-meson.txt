@@ -1,0 +1,7 @@
+# meson, for every deps build that runs it (task #114): the embedded Python's
+# (VapourSynth's setup on both platforms, and every macOS plugin build) and
+# build-deps-linux.yml's system pip (the Linux plugin builds). Installed with
+# --require-hashes; 1.12.1 is what deps 1.18.0-rc4 installed everywhere.
+# Take a new hash from https://pypi.org/pypi/meson/<version>/json.
+meson==1.12.1 \
+    --hash=sha256:930bc7542cbd9f57009e182fd014eba48cf1a0180a7b9006d2d32d8f168d8b02

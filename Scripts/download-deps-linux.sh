@@ -3,13 +3,16 @@
 # Builds VapourSynth plugins from source for native architecture support
 # Creates a fully self-contained app with no system runtime dependencies
 #
-# Prerequisites:
-#   sudo apt install -y meson ninja-build cmake nasm patchelf autoconf automake \
-#     libtool pkg-config gcc g++ git python3 cython3 \
-#     libfftw3-dev libboost-filesystem-dev libboost-atomic-dev \
-#     ocl-icd-opencl-dev libdvdread-dev
+# Prerequisites (Ubuntu 24.04):
+#   sudo apt install -y ninja-build cmake nasm patchelf autoconf automake \
+#     libtool pkg-config gcc g++ git python3 python3-pip unzip
+#   ./Scripts/install-apt-pins-linux.sh      # the pinned libraries + cython3
+#   pip3 install --only-binary :all: --require-hashes -r Scripts/pins/pip-meson.txt
+# The libraries the bundle copies, cython3 and meson are pinned (task #114,
+# Scripts/pins/), and this script refuses other versions unless given
+# --allow-unpinned (a local build only; CI never passes it).
 #
-# Usage: ./Scripts/download-deps-linux.sh [--force] [--tier v3|v2]
+# Usage: ./Scripts/download-deps-linux.sh [--force] [--tier v3|v2] [--allow-unpinned]
 
 set -e
 
@@ -23,6 +26,7 @@ curl() { command curl --fail --retry 6 --retry-delay 15 --retry-all-errors "$@";
 
 FORCE=false
 TIER=v3
+ALLOW_UNPINNED=false
 while [[ $# -gt 0 ]]; do
     case $1 in
         --force)
@@ -33,9 +37,13 @@ while [[ $# -gt 0 ]]; do
             TIER="$2"
             shift 2
             ;;
+        --allow-unpinned)
+            ALLOW_UNPINNED=true
+            shift
+            ;;
         *)
             echo "Unknown option: $1"
-            echo "Usage: $0 [--force] [--tier v3|v2]"
+            echo "Usage: $0 [--force] [--tier v3|v2] [--allow-unpinned]"
             exit 1
             ;;
     esac
@@ -192,12 +200,52 @@ if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
     echo "ERROR: Missing build tools: ${MISSING_DEPS[*]}"
     echo ""
     echo "Install with:"
-    echo "  sudo apt install -y meson ninja-build cmake nasm patchelf autoconf automake \\"
-    echo "    libtool pkg-config gcc g++ git python3 cython3"
+    echo "  sudo apt install -y ninja-build cmake nasm patchelf autoconf automake \\"
+    echo "    libtool pkg-config gcc g++ git python3 python3-pip unzip"
+    echo "  ./Scripts/install-apt-pins-linux.sh"
+    echo "  pip3 install --only-binary :all: --require-hashes -r Scripts/pins/pip-meson.txt"
     exit 1
 fi
 
 echo "  All build tools found"
+
+# ----------------------------------------------------------------------------
+# Pinned build inputs (task #114)
+# ----------------------------------------------------------------------------
+# The apt packages whose libraries this script copies into lib/ (fftw, boost,
+# libdvdread, the OpenCL ICD loader) and the ones that shape what it compiles
+# (their -dev packages, the OpenCL headers, cython3, which compiles
+# vapoursynth.abi3.so), at the versions in Scripts/pins/apt-linux.txt; and the
+# meson every plugin build runs, at Scripts/pins/pip-meson.txt's. Before task
+# #114 they were whatever the archive and PyPI had that day: the bundle's boost
+# came from noble-updates. Install them with Scripts/install-apt-pins-linux.sh.
+unpinned() {  # <message>
+    if [ "$ALLOW_UNPINNED" = true ]; then
+        echo "  WARNING (--allow-unpinned): $1"
+    else
+        echo "  ERROR: $1" >&2
+        echo "  Install the pinned versions (Scripts/install-apt-pins-linux.sh, Scripts/pins/)," >&2
+        echo "  or pass --allow-unpinned for a local build that will not be published." >&2
+        exit 1
+    fi
+}
+# The version Scripts/pins/pip-<name>.txt pins <name> to.
+pip_pin() {  # <name>
+    sed -n "s/^$1==\([^ ]*\).*/\1/p" "$SCRIPT_DIR/pins/pip-$1.txt"
+}
+echo "  Checking the pinned apt packages (Scripts/pins/apt-linux.txt)..."
+while read -r pkg version role; do
+    [ "$role" = dep ] && continue
+    got=$(dpkg-query -W -f='${db:Status-Abbrev} ${Version}' "$pkg" 2>/dev/null || true)
+    if [ "$got" != "ii  $version" ]; then
+        got=${got#ii  }
+        unpinned "apt package $pkg is ${got:-not installed}, pinned $version"
+    fi
+done < <(awk '!/^#/ && NF == 3 {print $1, $2, $3}' "$SCRIPT_DIR/pins/apt-linux.txt")
+MESON_GOT=$(meson --version 2>/dev/null || true)
+if [ "$MESON_GOT" != "$(pip_pin meson)" ]; then
+    unpinned "meson on PATH is '$MESON_GOT', pinned $(pip_pin meson)"
+fi
 
 # Create directories
 mkdir -p "$DEPS_DIR"/{vapoursynth,ffmpeg,python,python-packages,lib,resources/NNEDI3CL}
@@ -332,10 +380,18 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.so" ] \
     sed -i -e "s/^revision = HEAD\$/revision = $ZIMG_COMMIT/" -e '/^depth = /d' "$ZIMG_WRAP"
     echo "  Pinned subprojects/zimg.wrap to ${ZIMG_COMMIT:0:8}"
 
-    # meson for the setup below. (pip's Cython is installed alongside but not
-    # used here: meson takes apt's cython3, checked below.)
-    echo "  Installing meson in embedded Python..."
-    "$PYTHON_BIN" -m pip install --quiet cython meson
+    # meson for the setup below, and Cython, which ships in the bundle's
+    # site-packages but is not used here (meson takes apt's cython3, pinned in
+    # Scripts/pins/apt-linux.txt and checked above). Both at the versions and
+    # wheel hashes in Scripts/pins/ (task #114).
+    echo "  Installing Cython and meson in embedded Python (Scripts/pins/)..."
+    "$PYTHON_BIN" -m pip install --quiet --only-binary :all: --require-hashes \
+        -r "$SCRIPT_DIR/pins/pip-cython.txt" -r "$SCRIPT_DIR/pins/pip-meson.txt"
+    PIP_GOT=$("$PYTHON_BIN" -c 'import Cython, mesonbuild.coredata as c; print(Cython.__version__, c.version)')
+    if [ "$PIP_GOT" != "$(pip_pin cython) $(pip_pin meson)" ]; then
+        echo "  ERROR: the embedded Python has Cython and meson '$PIP_GOT', Scripts/pins/ says '$(pip_pin cython) $(pip_pin meson)'" >&2
+        exit 1
+    fi
 
     # The toolchain is the system one, and that is deliberate (task #111):
     # R78 needs GCC >= 13 (float16_helper.h uses _Float16 in C++ and
@@ -348,12 +404,13 @@ if [ "$FORCE" = true ] || [ ! -f "$DEPS_DIR/vapoursynth/libvapoursynth.so" ] \
     fi
 
     # R78's vapoursynth.pyx uses Cython 3 syntax (`noexcept`), and meson
-    # takes the system's cython3 (apt's 3.0.8 on ubuntu-24.04). An older one
-    # fails with "Syntax error in C variable declaration".
+    # takes the system's cython3 (apt's 3.0.8 on ubuntu-24.04, pinned in
+    # Scripts/pins/apt-linux.txt). An older one fails with "Syntax error in C
+    # variable declaration".
     CYTHON_MAJOR=$(cython3 --version 2>&1 | sed -n 's/.*version \([0-9][0-9]*\)\..*/\1/p' | head -1)
     if [ -z "$CYTHON_MAJOR" ] || [ "$CYTHON_MAJOR" -lt 3 ]; then
         echo "  ERROR: VapourSynth $VS_TAG needs Cython 3 as cython3; found: $(cython3 --version 2>&1 | head -1)" >&2
-        echo "  Install it with: sudo apt install cython3 (ubuntu-24.04 has 3.0.8)" >&2
+        echo "  Install it with: ./Scripts/install-apt-pins-linux.sh (cython3 3.0.8)" >&2
         exit 1
     fi
     echo "  VapourSynth builds with gcc $GCC_MAJOR, $(cython3 --version 2>&1 | head -1)"
@@ -628,7 +685,8 @@ echo "=== Copying FFTW3 ==="
 LIB_DIR="$DEPS_DIR/lib"
 mkdir -p "$LIB_DIR"
 
-# Copy system FFTW if available
+# Copy system FFTW if available: libfftw3-single3, pinned in
+# Scripts/pins/apt-linux.txt (3.3.10-1ubuntu3 in deps 1.18.0-rc4).
 FFTW_FOUND=false
 for libdir in /usr/lib/$ARCH-linux-gnu /usr/lib64 /usr/lib; do
     if [ -f "$libdir/libfftw3f.so" ] || [ -f "$libdir/libfftw3f.so.3" ]; then
@@ -642,7 +700,7 @@ done
 
 if [ "$FFTW_FOUND" = false ]; then
     echo "  WARNING: FFTW3 not found. Some plugins may not work."
-    echo "  Install with: sudo apt install libfftw3-dev"
+    echo "  Install with: ./Scripts/install-apt-pins-linux.sh"
 fi
 
 # Fix FFTW RPATHs
@@ -655,6 +713,8 @@ done
 # ============================================================================
 echo ""
 echo "=== Copying Boost libraries ==="
+# libboost-filesystem1.83.0 and libboost-atomic1.83.0, pinned in
+# Scripts/pins/apt-linux.txt (1.83.0-2.1ubuntu3.2, from noble-updates).
 
 BOOST_FOUND=false
 for libdir in /usr/lib/$ARCH-linux-gnu /usr/lib64 /usr/lib; do
@@ -681,6 +741,7 @@ done
 # ============================================================================
 echo ""
 echo "=== Copying OpenCL ICD loader ==="
+# ocl-icd-libopencl1, pinned in Scripts/pins/apt-linux.txt (2.3.2-1build1).
 
 OPENCL_FOUND=false
 for libdir in /usr/lib/$ARCH-linux-gnu /usr/lib64 /usr/lib; do
@@ -694,7 +755,7 @@ done
 
 if [ "$OPENCL_FOUND" = false ]; then
     echo "  WARNING: OpenCL ICD loader not found (optional — GPU plugins degrade gracefully)"
-    echo "  Install with: sudo apt install ocl-icd-libopencl1"
+    echo "  Install with: ./Scripts/install-apt-pins-linux.sh"
 fi
 
 # ============================================================================
@@ -2421,6 +2482,7 @@ fi
 # ============================================================================
 echo ""
 echo "=== Copying libdvdread ==="
+# libdvdread8t64, pinned in Scripts/pins/apt-linux.txt (6.1.3-1.1build1).
 
 DVDREAD_FOUND=false
 for libdir in /usr/lib/$ARCH-linux-gnu /usr/lib64 /usr/lib /usr/local/lib; do
@@ -2442,7 +2504,7 @@ done
 # fails on a bundle without it (_extraFiles in deps-expected-plugins.json).
 if [ "$DVDREAD_FOUND" = false ]; then
     echo "  ERROR: libdvdread not found (needed for DVD import)" >&2
-    echo "  Install with: sudo apt install libdvdread-dev" >&2
+    echo "  Install with: ./Scripts/install-apt-pins-linux.sh" >&2
     exit 1
 fi
 

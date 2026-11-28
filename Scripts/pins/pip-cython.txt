@@ -1,0 +1,13 @@
+# Cython for the deps' embedded Python 3.12 (task #114). Installed with
+# --require-hashes by download-deps-macos.sh and download-deps-linux.sh, and
+# shipped in the bundle (python/lib/python3.12/site-packages). On macOS it
+# compiles vapoursynth.abi3.so; on Linux that is apt's cython3, pinned in
+# apt-linux.txt (task #111). 3.3.2 is what deps 1.18.0-rc4 installed.
+# One hash per wheel the four bundles take: macOS arm64 (cp312), macOS x86_64
+# (cp39-abi3), Linux x86_64 and aarch64 (cp312), in that order. Take new
+# hashes from https://pypi.org/pypi/cython/<version>/json, never from memory.
+cython==3.3.2 \
+    --hash=sha256:087dd0dfd85a40f17f88befdd7a9448fcc7ed6689e70aae1ca003c7b87951138 \
+    --hash=sha256:77f7eb2b1615ff1c6504c7a9986130910c0064ac5f46a6be29cee9910ce7a8e0 \
+    --hash=sha256:15aec2b43368e9781a80e7e52ff470ffda8d93e1f115a47467b14fe189af1536 \
+    --hash=sha256:0acfcf02010f56bb211e9b4e03c262ce85a2e15bbc041038b7f2958058b3752a

@@ -1,0 +1,45 @@
+# The apt packages the Linux deps build bundles or compiles against, at the
+# versions deps 1.18.0-rc4 installed (task #114), on ubuntu-24.04 (noble),
+# x64 and arm64 alike.
+#
+# Scripts/install-apt-pins-linux.sh installs them from Ubuntu's snapshot of the
+# archive at `snapshot` below, so a superseded version (boost's is a
+# noble-updates one) stays installable; download-deps-linux.sh checks every
+# `install` and `bundled` package with dpkg-query before it copies anything.
+# Change a version only together with the snapshot that has it, and A/B the
+# bundle through deps_run_id: the `bundled` packages' files ship in lib/.
+#
+# <package> <version> <role>
+#   bundled  its library is copied into the bundle's lib/
+#   install  a build input, installed by name
+#   dep      an exact-version dependency of one of the above, pinned only so
+#            apt resolves it to the same version (absent on some arches)
+snapshot 20261126T074400Z
+
+libfftw3-single3            3.3.10-1ubuntu3          bundled
+libfftw3-dev                3.3.10-1ubuntu3          install
+libfftw3-bin                3.3.10-1ubuntu3          dep
+libfftw3-double3            3.3.10-1ubuntu3          dep
+libfftw3-long3              3.3.10-1ubuntu3          dep
+libfftw3-quad3              3.3.10-1ubuntu3          dep
+
+libboost-filesystem1.83.0   1.83.0-2.1ubuntu3.2      bundled
+libboost-atomic1.83.0       1.83.0-2.1ubuntu3.2      bundled
+libboost-filesystem-dev     1.83.0.1ubuntu2          install
+libboost-atomic-dev         1.83.0.1ubuntu2          install
+libboost-filesystem1.83-dev 1.83.0-2.1ubuntu3.2      install
+libboost-atomic1.83-dev     1.83.0-2.1ubuntu3.2      install
+libboost1.83-dev            1.83.0-2.1ubuntu3.2      dep
+libboost-system1.83-dev     1.83.0-2.1ubuntu3.2      dep
+libboost-system1.83.0       1.83.0-2.1ubuntu3.2      dep
+
+libdvdread8t64              6.1.3-1.1build1          bundled
+libdvdread-dev              6.1.3-1.1build1          install
+
+ocl-icd-libopencl1          2.3.2-1build1            bundled
+ocl-icd-opencl-dev          2.3.2-1build1            install
+opencl-headers              3.0~2023.12.14-1         install
+opencl-c-headers            3.0~2023.12.14-1         dep
+opencl-clhpp-headers        3.0~2023.12.14-1ubuntu1  dep
+
+cython3                     3.0.8-1ubuntu3           install
