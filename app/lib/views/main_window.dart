@@ -1322,6 +1322,7 @@ class MainWindow extends StatelessWidget {
       inputPath: viewModel.decodePath!,
       outputContainer: viewModel.encodingSettings.container,
       audioMode: viewModel.encodingSettings.audioMode,
+      videoCodec: viewModel.encodingSettings.codec,
     );
 
     // If compatible or no audio, proceed directly

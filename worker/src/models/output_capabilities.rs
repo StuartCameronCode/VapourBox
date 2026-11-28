@@ -231,14 +231,21 @@ pub fn audio_copy_allowed(codec: &str, container: ContainerFormat) -> bool {
 }
 
 /// Why a copy of `codec` can't go into `container`, or `None` when it can.
-/// The same words as Dart's `AudioCompatibilityService.copyProblem`.
-pub fn audio_copy_problem(codec: &str, container: ContainerFormat) -> Option<String> {
+/// The same words as Dart's `AudioCompatibilityService.copyProblem`. With
+/// `video`, the "save as" list names only containers that also offer that
+/// video codec (task #132), so it never suggests a pair the worker refuses.
+pub fn audio_copy_problem(
+    codec: &str,
+    container: ContainerFormat,
+    video: Option<VideoCodec>,
+) -> Option<String> {
     if audio_copy_allowed(codec, container) {
         return None;
     }
     let others: Vec<&str> = ContainerFormat::ALL
         .iter()
         .filter(|&&k| k != container && audio_copy_allowed(codec, k))
+        .filter(|&&k| video.map_or(true, |v| v.container_verdict(k) == Verdict::Offered))
         .map(|k| k.short_name())
         .collect();
     let mut message = OutputCapabilities::get()
@@ -354,15 +361,47 @@ mod tests {
     fn copy_problems() {
         assert!(audio_copy_allowed("mp2", ContainerFormat::Avi));
         assert!(audio_copy_allowed("AAC", ContainerFormat::Mp4));
-        assert_eq!(audio_copy_problem("aac", ContainerFormat::Mp4), None);
+        assert_eq!(audio_copy_problem("aac", ContainerFormat::Mp4, None), None);
         assert_eq!(
-            audio_copy_problem("opus", ContainerFormat::Avi).as_deref(),
+            audio_copy_problem("opus", ContainerFormat::Avi, None).as_deref(),
             Some("OPUS audio can't be copied into AVI files. Choose Convert in Settings \u{2192} Audio, or save as MP4 or MKV.")
         );
         assert_eq!(
-            audio_copy_problem("wmav2", ContainerFormat::Mkv).as_deref(),
+            audio_copy_problem("wmav2", ContainerFormat::Mkv, None).as_deref(),
             Some("WMAV2 audio can't be copied into MKV files. Choose Convert in Settings \u{2192} Audio.")
         );
+    }
+
+    /// The "save as" list names only containers that offer the job's video
+    /// codec (task #132): AV1 can't go into MOV or AVI, v210 not into MP4.
+    #[test]
+    fn copy_problems_name_only_containers_the_video_codec_is_offered_in() {
+        assert_eq!(
+            audio_copy_problem("pcm_u8", ContainerFormat::Mp4, Some(VideoCodec::Av1)).as_deref(),
+            Some("PCM_U8 audio can't be copied into MP4 files. Choose Convert in Settings \u{2192} Audio, or save as MKV.")
+        );
+        assert_eq!(
+            audio_copy_problem("opus", ContainerFormat::Avi, Some(VideoCodec::V210)).as_deref(),
+            Some("OPUS audio can't be copied into AVI files. Choose Convert in Settings \u{2192} Audio, or save as MKV.")
+        );
+        // Every codec, copy codec and container: a container the message
+        // names is one the video codec is offered in.
+        let names: Vec<&String> = OutputCapabilities::get().audio_copy.values().flatten().collect();
+        for &v in VideoCodec::ALL {
+            for &k in ContainerFormat::ALL {
+                for codec in names.iter().map(|s| s.as_str()).chain(["wmav2"]) {
+                    let Some(message) = audio_copy_problem(codec, k, Some(v)) else { continue };
+                    let Some((_, list)) = message.split_once(", or save as ") else { continue };
+                    for &other in ContainerFormat::ALL {
+                        let name = other.short_name();
+                        let named = list.trim_end_matches('.').split([',', ' ']).any(|w| w == name);
+                        if named {
+                            assert_eq!(v.container_verdict(other), Verdict::Offered, "{v:?} {codec} {k:?}: {message}");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Convert's codec x container table and its wording (task #39).

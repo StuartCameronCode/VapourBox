@@ -2851,7 +2851,11 @@ table. Rules:
   checks too: the source model's audio codecs (`audioStreams`), refused with
   `audioCopyMessage` (`audio_copy_problem`, Dart
   `AudioCompatibilityService.copyProblem`); a stream Audio Restoration
-  re-encodes is not checked.
+  re-encodes is not checked. The Passthrough dialog's container choices
+  (`AudioCompatibilityService.compatibleContainers`) and the message's "save
+  as" list are also filtered by the video codec's verdict (`offered` only;
+  `audio_copy_problem(codec, container, Some(video))`), so a container switch
+  never lands on a pair the worker refuses (task #132).
 - **Checked against FFmpeg both ways** in the push gate
   (`output_capabilities_test.dart`): every video row muxed (hardware encoders
   through their software twin, `muxEncoder`), every Convert codec, every

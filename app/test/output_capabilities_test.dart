@@ -34,7 +34,8 @@ void main() {
       expect(service.isCodecCompatible('mp2', container), isTrue,
           reason: 'mp2 must be allowed in ${container.displayName}');
     }
-    expect(service.getCompatibleContainers('mp2'),
+    // H.264 is offered in every container, so only the sound decides.
+    expect(AudioCompatibilityService.compatibleContainers('mp2', VideoCodec.h264),
         unorderedEquals(ContainerFormat.values));
   });
 

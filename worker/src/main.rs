@@ -1143,7 +1143,13 @@ fn audio_copy_problem(job: &VideoJob) -> Option<String> {
         .enumerate()
         .filter(|(i, _)| Some(*i) != restored)
         .filter_map(|(_, s)| s.codec.as_deref())
-        .find_map(|codec| models::audio_copy_problem(codec, job.encoding_settings.container))
+        .find_map(|codec| {
+            models::audio_copy_problem(
+                codec,
+                job.encoding_settings.container,
+                Some(job.encoding_settings.codec),
+            )
+        })
 }
 
 fn run_worker(
