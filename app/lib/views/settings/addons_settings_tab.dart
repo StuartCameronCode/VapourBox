@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/addon_service.dart';
 import '../../services/whats_new_service.dart';
+import '../../widgets/new_badge.dart';
 import '../addon_dialogs.dart';
 
 /// Settings → Add-ons: every optional download, grouped by the feature that
@@ -174,14 +175,8 @@ class AddonsTabLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Badge(
-      isLabelVisible: WhatsNewService.instance.isNew(AddonsSettingsTab.sinceAppVersion),
-      backgroundColor: scheme.tertiaryContainer,
-      textColor: scheme.onTertiaryContainer,
-      textStyle: const TextStyle(fontSize: 9, fontWeight: FontWeight.w700, letterSpacing: 0.4),
-      offset: const Offset(10, -8),
-      label: const Text('NEW'),
+    return NewCornerBadge(
+      visible: WhatsNewService.instance.isNew(AddonsSettingsTab.sinceAppVersion),
       child: const Text('Add-ons'),
     );
   }

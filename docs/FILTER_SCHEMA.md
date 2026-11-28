@@ -258,6 +258,23 @@ badges nothing (`filter_schema_curation_test.dart` refuses one).
 `new_badges_shipped_test.dart` pins the current release's badges on the real
 schemas; extend it when stamping a release's additions.
 
+**Outside the schemas**, a thing that is not a schema element carries a
+hard-coded stamp, read through the same `WhatsNewService.isNew`:
+
+| What is new | Stamp | Badged |
+|---|---|---|
+| a Settings tab | `static const sinceAppVersion` on the tab (`AddonsSettingsTab`) | its tab label |
+| a panel control | `static const sinceAppVersion` on the widget (`CropDetectPanel`) | the control |
+| a codec | `VideoCodec.sinceAppVersion` (`app/lib/models/video_job.dart`) | its radio in Settings → Output |
+| the preview's Original / Split / Processed control | `ComparisonViewMode.sinceAppVersion` | the control |
+
+The same leading rule applies: a new codec badges its radio, the Video Codec
+heading and the Output tab (`SettingsDialog.isOutputTabNew`), and any new tab
+content badges the toolbar's Settings button (`SettingsDialog.hasNew`). Add a
+new kind of Settings item to those two getters, or nothing leads to it. The
+rules below hold for these stamps too. `new_badges_outside_schemas_test.dart`
+pins them and checks the badges.
+
 ```json
 {
   "sinceAppVersion": "1.2.0",

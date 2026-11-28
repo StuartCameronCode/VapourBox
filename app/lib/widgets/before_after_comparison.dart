@@ -7,8 +7,10 @@ import 'package:flutter/services.dart';
 
 import '../models/app_shortcut.dart';
 import '../services/image_dimensions.dart';
+import '../services/whats_new_service.dart';
 import 'comparison_view_mode.dart';
 import 'comparison_zoom_controller.dart';
+import 'new_badge.dart';
 
 /// A widget that displays a before/after comparison with a draggable divider.
 ///
@@ -737,6 +739,13 @@ class _BeforeAfterComparisonWidgetState
   /// Original | Split | Processed, styled like the zoom pill, in the order
   /// the panes sit.
   Widget _buildViewModeControl() {
+    return NewCornerBadge(
+      visible: WhatsNewService.instance.isNew(ComparisonViewMode.sinceAppVersion),
+      child: _buildViewModePill(),
+    );
+  }
+
+  Widget _buildViewModePill() {
     return Container(
       key: const Key('comparison-view-mode'),
       decoration: BoxDecoration(
