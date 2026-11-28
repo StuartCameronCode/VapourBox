@@ -2351,6 +2351,18 @@ rate is `FrameRateParameters.customFps` (a plain number, default 48).
   x64 ship v24 (`floor((n - 1) * ratio) + 1`). The script trims or extends
   to `floor(n * ratio)` after the call (`test_184`); a frame-count assertion
   that passes on one platform proves nothing about the others.
+- **The target is chosen against the rate the pass receives (task #139).**
+  That rate is `frameRateInputFps` (app): the source's after Deinterlace and
+  Unblend, the only passes ahead that change it (the worker's
+  `rate_before(PassType::FrameRate)`). The model's default stays `pal25`.
+  Switching the pass on with a video selected starts it at about twice that
+  rate (`startingFrameRateTarget`: 25 → 50, 29.97 → 59.94, 23.976 → Custom
+  47.952), but only when the current target is equal or within 5% of it
+  (`frameRateCloseness`), so a deliberate conversion is kept, and never from
+  45 fps up. A target equal or within 5% is also advised on
+  (`pass_advice.dart`, enabled pass only, never blocking): at the same rate
+  RIFE and Repeat frames pass every frame through, and nearby motion looks no
+  smoother (issue #177).
 - **Don't check an NTSC output rate on an MKV.** Matroska's 1/1000 timebase
   can't hold 60000/1001, so ffprobe reports an estimate (`19001/317`) for any
   NTSC rate. `integration_frame_mapping_test.dart` encodes its custom-rate

@@ -18,6 +18,8 @@ import '../models/qtgmc_parameters.dart';
 import '../models/queue_item.dart';
 import '../models/source_model.dart';
 import '../models/processing_pipeline.dart';
+import '../models/frame_rate_parameters.dart';
+import '../models/unblend_parameters.dart';
 import '../models/subtitle_parameters.dart';
 import '../models/video_job.dart';
 import '../models/processing_preset.dart';
@@ -1987,7 +1989,11 @@ class MainViewModel extends ChangeNotifier {
 
   /// Toggles a pass on or off.
   void togglePass(PassType pass, bool enabled) {
+    final wasEnabled = _processingPipeline.isPassEnabled(pass);
     _processingPipeline = _processingPipeline.togglePass(pass, enabled);
+    if (pass == PassType.frameRate && enabled && !wasEnabled) {
+      _startFrameRateFromSource();
+    }
     // Keep qtgmcParams in sync
     _qtgmcParams = _processingPipeline.deinterlace;
     // Sync dynamic params cache with new enabled state
@@ -1999,6 +2005,24 @@ class MainViewModel extends ChangeNotifier {
     _regenerateOutputPath();
     notifyListeners();
     _requestPreviewUpdate();
+  }
+
+  /// Switching the Frame Rate pass on with a video selected starts it at
+  /// about twice the rate it receives (task #139), when its target would
+  /// otherwise convert nothing visible (`startingFrameRateTarget`). The
+  /// cached panel parameters are rebuilt so the dropdown shows the new target
+  /// and a later panel edit doesn't write the old one back.
+  void _startFrameRateFromSource() {
+    final info = videoInfo;
+    if (info == null || info.frameRate <= 0) return;
+    final input = frameRateInputFps(_processingPipeline.deinterlace,
+        _processingPipeline.unblend, info.frameRate,
+        softTelecineDecimates: info.softTelecineDecimates);
+    final started =
+        startingFrameRateTarget(_processingPipeline.frameRate, input);
+    if (started == null) return;
+    _processingPipeline = _processingPipeline.copyWith(frameRate: started);
+    _dynamicParams['frame_rate'] = ParameterConverter.fromFrameRate(started);
   }
 
   /// Convert PassType to filter ID.

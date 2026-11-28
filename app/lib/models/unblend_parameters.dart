@@ -42,25 +42,9 @@ class UnblendParameters {
     );
   }
 
-  /// The target in frames per second.
-  double get targetFps {
-    switch (target) {
-      case FrameRateTarget.pal25:
-        return 25;
-      case FrameRateTarget.ntsc2997:
-        return 30000 / 1001;
-      case FrameRateTarget.film23976:
-        return 24000 / 1001;
-      case FrameRateTarget.film24:
-        return 24;
-      case FrameRateTarget.pal50:
-        return 50;
-      case FrameRateTarget.ntsc5994:
-        return 60000 / 1001;
-      case FrameRateTarget.custom:
-        return customFps;
-    }
-  }
+  /// The target in frames per second, as the worker reads it
+  /// ([frameRateTargetFps]).
+  double get targetFps => frameRateTargetFps(target, customFps);
 
   String get summary {
     if (!enabled) return 'Off';
@@ -79,18 +63,35 @@ class UnblendParameters {
 /// The rate the Unblend pass converts from: the source's, as changed by the
 /// Deinterlace pass ahead of it. Mirrors the worker's `FrameMap`s for that
 /// pass (`deinterlace_frame_map`): double rate doubles it, IVTC keeps
-/// cycle-1 of every cycle.
-double unblendInputFps(QTGMCParameters deinterlace, double sourceFps) {
+/// cycle-1 of every cycle. Soft Telecine decimates only a source decoded at a
+/// pulldown rate ([softTelecineDecimates], `VideoInfo.softTelecineDecimates`);
+/// at the film rate it keeps every frame, as the worker's map does.
+double unblendInputFps(QTGMCParameters deinterlace, double sourceFps,
+    {bool softTelecineDecimates = true}) {
   if (!deinterlace.enabled) return sourceFps;
   switch (deinterlace.method) {
     case DeinterlaceMethod.qtgmc:
     case DeinterlaceMethod.bwdif:
       return (deinterlace.fpsDivisor ?? 1) == 1 ? sourceFps * 2 : sourceFps;
-    case DeinterlaceMethod.ivtc:
     case DeinterlaceMethod.softTelecine:
+      if (!softTelecineDecimates) return sourceFps;
+      return sourceFps * 4 / 5;
+    case DeinterlaceMethod.ivtc:
       final cycle = (deinterlace.ivtcCycle ?? 5).clamp(2, 1000);
       return sourceFps * (cycle - 1) / cycle;
   }
+}
+
+/// The rate the Frame Rate pass receives: the source's, as changed by
+/// Deinterlace ([unblendInputFps]) and then Unblend, the only passes ahead of
+/// it that change the rate. Mirrors the worker's
+/// `rate_before(PassType::FrameRate)`.
+double frameRateInputFps(
+    QTGMCParameters deinterlace, UnblendParameters unblend, double sourceFps,
+    {bool softTelecineDecimates = true}) {
+  final afterDeinterlace = unblendInputFps(deinterlace, sourceFps,
+      softTelecineDecimates: softTelecineDecimates);
+  return unblend.enabled ? unblend.targetFps : afterDeinterlace;
 }
 
 /// Why Unblend can't recover [targetFps] from a pass running at [inputFps],

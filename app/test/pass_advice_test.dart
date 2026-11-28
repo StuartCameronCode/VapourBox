@@ -19,7 +19,10 @@ import 'package:vapourbox/models/noise_reduction_parameters.dart';
 import 'package:vapourbox/models/pass_advice.dart';
 import 'package:vapourbox/models/processing_pipeline.dart';
 import 'package:vapourbox/models/qtgmc_parameters.dart';
+import 'package:vapourbox/models/frame_rate_parameters.dart';
 import 'package:vapourbox/models/sharpen_parameters.dart';
+import 'package:vapourbox/models/unblend_parameters.dart';
+import 'package:vapourbox/services/field_order_detector.dart';
 
 void main() {
   group('silence by default', () {
@@ -434,6 +437,142 @@ void main() {
               reason: 'advice attached to disabled pass ${advice.pass}');
         }
       }
+    });
+  });
+
+  group('frame rate target near the input rate (task #139)', () {
+    VideoInfo info(double fps, {bool pulldownRate = true, ScanType? scan}) =>
+        VideoInfo(
+          width: 720,
+          height: 576,
+          frameRate: fps,
+          duration: 60,
+          frameCount: 1500,
+          codec: 'h264',
+          pixelFormat: 'yuv420p',
+          scanType: scan ?? ScanType.progressive,
+          hasAudio: true,
+          pulldownRate: pulldownRate,
+        );
+    const film = 24000 / 1001;
+    const ntsc = 30000 / 1001;
+    const noDeint = QTGMCParameters(enabled: false);
+
+    ProcessingPipeline fr(FrameRateParameters f,
+            {QTGMCParameters deinterlace = noDeint,
+            UnblendParameters unblend = const UnblendParameters()}) =>
+        ProcessingPipeline(
+            deinterlace: deinterlace, unblend: unblend, frameRate: f);
+
+    const on25 = FrameRateParameters(enabled: true);
+
+    String? advice(ProcessingPipeline p, VideoInfo? i) =>
+        adviceFor(PassType.frameRate, p, info: i);
+
+    test('an untouched pipeline is silent with a video selected', () {
+      expect(adviseOn(const ProcessingPipeline(), info: info(25)), isEmpty);
+    });
+
+    test('silent when the pass is off', () {
+      expect(adviseOn(fr(const FrameRateParameters()), info: info(25)),
+          isEmpty);
+    });
+
+    test('silent with no video selected', () {
+      expect(advice(fr(on25), null), isNull);
+    });
+
+    test('25 to 25 converts nothing', () {
+      final all = adviseOn(fr(on25), info: info(25));
+      expect(all.map((a) => a.pass), [PassType.frameRate],
+          reason: 'the advice attaches to the Frame Rate pass only');
+      expect(all.single.message, contains('nothing to convert'));
+      expect(all.single.message, contains('25 fps'));
+    });
+
+    test('23.976 to 25 is close', () {
+      final m = advice(fr(on25), info(film))!;
+      expect(m, contains('within 4.3%'));
+      expect(m, contains('23.976 fps'));
+      expect(m, contains('not look smoother'));
+    });
+
+    test('29.97 to Custom 30 is close, Custom 29.97 is equal', () {
+      expect(
+          advice(
+              fr(on25.copyWith(target: FrameRateTarget.custom, customFps: 30)),
+              info(ntsc)),
+          contains('within 0.1%'));
+      expect(
+          advice(
+              fr(on25.copyWith(
+                  target: FrameRateTarget.custom, customFps: 29.97)),
+              info(ntsc)),
+          contains('nothing to convert'));
+    });
+
+    test('a real conversion is silent', () {
+      expect(advice(fr(on25.copyWith(target: FrameRateTarget.pal50)), info(25)),
+          isNull);
+      expect(
+          advice(
+              fr(on25.copyWith(target: FrameRateTarget.custom, customFps: 48)),
+              info(24)),
+          isNull);
+      expect(advice(fr(on25), info(ntsc)), isNull);
+    });
+
+    test('a double-rate deinterlace reaches the pass at 50: 25 is silent', () {
+      expect(
+          advice(
+              fr(on25, deinterlace: const QTGMCParameters(enabled: true)),
+              info(25, scan: ScanType.interlaced)),
+          isNull);
+    });
+
+    test('a single-rate deinterlace keeps 25: 25 converts nothing', () {
+      expect(
+          advice(
+              fr(on25,
+                  deinterlace:
+                      const QTGMCParameters(enabled: true, fpsDivisor: 2)),
+              info(25, scan: ScanType.interlaced)),
+          contains('nothing to convert'));
+    });
+
+    test('IVTC from 29.97 reaches the pass at 23.976', () {
+      expect(
+          advice(
+              fr(on25.copyWith(target: FrameRateTarget.film23976),
+                  deinterlace: const QTGMCParameters(
+                      enabled: true, method: DeinterlaceMethod.ivtc)),
+              info(ntsc, scan: ScanType.telecine)),
+          contains('nothing to convert'));
+    });
+
+    test('Soft Telecine at the film rate keeps every frame', () {
+      const st =
+          QTGMCParameters(enabled: true, method: DeinterlaceMethod.softTelecine);
+      final target = on25.copyWith(target: FrameRateTarget.film23976);
+      expect(
+          advice(fr(target, deinterlace: st),
+              info(film, pulldownRate: false, scan: ScanType.softTelecine)),
+          contains('nothing to convert'));
+      expect(
+          advice(fr(target, deinterlace: st),
+              info(ntsc, scan: ScanType.softTelecine)),
+          contains('nothing to convert'));
+    });
+
+    test('Unblend to 25 ahead of a 25 target converts nothing', () {
+      expect(
+          advice(
+              fr(on25,
+                  deinterlace: const QTGMCParameters(enabled: true),
+                  unblend: const UnblendParameters(
+                      enabled: true, target: FrameRateTarget.pal25)),
+              info(25, scan: ScanType.interlaced)),
+          contains('nothing to convert'));
     });
   });
 }

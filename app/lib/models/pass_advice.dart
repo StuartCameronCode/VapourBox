@@ -1,5 +1,8 @@
+import '../services/field_order_detector.dart' show VideoInfo;
+import 'frame_rate_parameters.dart';
 import 'processing_pipeline.dart';
 import 'qtgmc_parameters.dart';
+import 'unblend_parameters.dart';
 
 /// A note about how an enabled pass interacts with the rest of the pipeline.
 class PassAdvice {
@@ -39,7 +42,11 @@ class PassAdvice {
 /// Pass order is fixed (see `PassListPanel.stages` and `script_generator.rs`),
 /// which is what makes the ordering advice statable at all: Sharpen genuinely
 /// always runs after Noise Reduction, so there is no case to qualify.
-List<PassAdvice> adviseOn(ProcessingPipeline pipeline) {
+///
+/// [info] is the selected video, when there is one: advice that depends on the
+/// source (the Frame Rate target against the rate the pass receives) is
+/// silent without it.
+List<PassAdvice> adviseOn(ProcessingPipeline pipeline, {VideoInfo? info}) {
   final advice = <PassAdvice>[];
 
   bool on(PassType pass) => pipeline.isPassEnabled(pass);
@@ -142,6 +149,46 @@ List<PassAdvice> adviseOn(ProcessingPipeline pipeline) {
     }
   }
 
+  // --- A Frame Rate target at (or near) the rate the pass receives ---
+  // The target defaults to 25 fps whatever the source (task #139, issue #177).
+  // At the rate the pass already receives it converts nothing (RIFE and Repeat
+  // frames pass every real frame through); within a few percent it is a real
+  // conversion, but motion looks no smoother. The rate is the one at the pass,
+  // after Deinterlace and Unblend: a 25i source deinterlaced at double rate
+  // reaches it at 50, where a 25 target is a halving and says nothing here.
+  if (on(PassType.frameRate) && info != null && info.frameRate > 0) {
+    final input = frameRateInputFps(
+        pipeline.deinterlace, pipeline.unblend, info.frameRate,
+        softTelecineDecimates: info.softTelecineDecimates);
+    final target = pipeline.frameRate.targetFps;
+    switch (frameRateCloseness(target, input)) {
+      case FrameRateCloseness.equal:
+        advice.add(PassAdvice(
+          PassType.frameRate,
+          'The target, ${_fps(target)} fps, is the rate this pass already '
+          'receives, so there is nothing to convert: the output has the same '
+          'frames as the input (RIFE and Repeat frames pass them through '
+          'unchanged). For smoother motion choose a higher rate, 50 or 59.94 '
+          'fps or Custom (48 for film), or switch the pass off.',
+        ));
+        break;
+      case FrameRateCloseness.close:
+        final percent = ((target - input).abs() / input * 100);
+        advice.add(PassAdvice(
+          PassType.frameRate,
+          'The target, ${_fps(target)} fps, is within '
+          '${percent.toStringAsFixed(1)}% of the rate this pass receives '
+          '(${_fps(input)} fps). That suits matching a delivery standard, but '
+          'motion will not look smoother: most output frames sit close to a '
+          'real one. For smoother motion choose 50 or 59.94 fps, or Custom '
+          '(48 for film).',
+        ));
+        break;
+      case FrameRateCloseness.far:
+        break;
+    }
+  }
+
   // --- Levels set by hand on top of levels set automatically ---
   // Automatic levels measures the picture and places black and white itself,
   // and it runs first — so the manual input/output points are dropped (the
@@ -227,9 +274,17 @@ List<PassAdvice> adviseOn(ProcessingPipeline pipeline) {
   return advice;
 }
 
+/// A rate to three decimals, trailing zeros dropped: 25, 23.976, 29.97.
+String _fps(double v) {
+  final s = v.toStringAsFixed(3);
+  return s.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '');
+}
+
 /// The advice for one pass, or null when there is none.
-String? adviceFor(PassType pass, ProcessingPipeline pipeline) {
-  final matches =
-      adviseOn(pipeline).where((a) => a.pass == pass).map((a) => a.message);
+String? adviceFor(PassType pass, ProcessingPipeline pipeline,
+    {VideoInfo? info}) {
+  final matches = adviseOn(pipeline, info: info)
+      .where((a) => a.pass == pass)
+      .map((a) => a.message);
   return matches.isEmpty ? null : matches.join('\n\n');
 }
