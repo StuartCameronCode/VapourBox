@@ -706,48 +706,45 @@ class PresetSelectorWidget extends StatelessWidget {
     required this.onChanged,
   });
 
-  /// Find which option matches the current parameter values.
-  String? _findCurrentOption() {
-    for (final entry in preset.options.entries) {
-      final optionName = entry.key;
-      final optionValues = entry.value;
-
-      // Check if all values in this option match current values
-      bool matches = true;
-      for (final paramEntry in optionValues.entries) {
-        if (currentValues[paramEntry.key] != paramEntry.value) {
-          matches = false;
-          break;
-        }
-      }
-      if (matches) return optionName;
-    }
-    return null;
-  }
+  /// The option whose values all match the current ones, if any.
+  String? _findCurrentOption() => preset.matchingOption(currentValues);
 
   @override
   Widget build(BuildContext context) {
-    final currentOption = _findCurrentOption() ?? preset.defaultOption ?? preset.options.keys.first;
+    final matched = _findCurrentOption();
     final options = preset.options.keys.toList();
+    // Values that match no option (edited in advanced mode): say so when the
+    // preset names a custom state, rather than claim the default.
+    final custom = matched == null ? preset.customOption : null;
+    final currentOption = matched ?? custom ?? preset.defaultOption ?? options.first;
+    final items = [
+      for (final option in options)
+        DropdownMenuItem(value: option, child: Text(option)),
+      if (custom != null)
+        DropdownMenuItem(value: custom, enabled: false, child: Text(custom)),
+    ];
+    final label = Text(preset.label, style: Theme.of(context).textTheme.labelLarge);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(preset.label, style: Theme.of(context).textTheme.labelLarge),
+        WhatsNewService.instance.isPresetNew(preset)
+            ? Row(mainAxisSize: MainAxisSize.min, children: [
+                Flexible(child: label),
+                const SizedBox(width: 6),
+                const NewBadge(),
+              ])
+            : label,
         const SizedBox(height: 8),
         DropdownButtonFormField<String>(
-          value: options.contains(currentOption) ? currentOption : options.first,
+          key: ValueKey('preset-$presetId-$currentOption'),
+          initialValue: items.any((i) => i.value == currentOption) ? currentOption : options.first,
           isExpanded: true,
           decoration: const InputDecoration(
             border: OutlineInputBorder(),
             contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           ),
-          items: options.map((option) {
-            return DropdownMenuItem(
-              value: option,
-              child: Text(option),
-            );
-          }).toList(),
+          items: items,
           onChanged: (newOption) {
             if (newOption != null) {
               final newValues = preset.options[newOption];
@@ -760,7 +757,9 @@ class PresetSelectorWidget extends StatelessWidget {
         ...[
           const SizedBox(height: 4),
           Text(
-            _getDescription(context, currentOption),
+            custom != null
+                ? 'Set in Advanced mode. Choosing an option here replaces those values.'
+                : _getDescription(context, currentOption),
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.6),
                 ),
@@ -782,7 +781,7 @@ class PresetSelectorWidget extends StatelessWidget {
         return '${inputFmt}i \u2192 ${outputFmt}p';
       }
     }
-    return preset.description ?? '';
+    return preset.optionDescriptions?[currentOption] ?? preset.description ?? '';
   }
 
   String _formatRate(double rate) {

@@ -75,7 +75,7 @@
       "type": "integer",
       "default": 100,
       "min": 0,
-      "max": 200,
+      "max": 500,
       "step": 5,
       "optional": true,
       "vapoursynth": {
@@ -83,7 +83,7 @@
       },
       "ui": {
         "label": "Strength",
-        "description": "Sharpening strength (50-100 for VHS)",
+        "description": "Sharpening strength",
         "widget": "slider",
         "visibleWhen": {
           "method": [
@@ -167,7 +167,7 @@
       },
       "ui": {
         "label": "CAS Sharpness",
-        "description": "CAS sharpening strength (0.3-0.5 for VHS)",
+        "description": "CAS sharpening strength (0-1; 1 is the plugin's maximum)",
         "widget": "slider",
         "precision": 2,
         "visibleWhen": {
@@ -244,6 +244,112 @@
             "awarpsharp2"
           ]
         }
+      }
+    }
+  },
+  "parameterPresets": {
+    "warpStrength": {
+      "label": "Strength",
+      "description": "How hard to sharpen. Advanced mode shows the values each step sets.",
+      "default": "Medium",
+      "custom": "Custom",
+      "sinceAppVersion": "1.8.0",
+      "visibleWhen": {
+        "method": [
+          "awarpsharp2"
+        ]
+      },
+      "options": {
+        "Light": {
+          "warpDepth": 8
+        },
+        "Medium": {
+          "warpDepth": 16
+        },
+        "Strong": {
+          "warpDepth": 24
+        },
+        "Very strong": {
+          "warpDepth": 48
+        }
+      },
+      "optionDescriptions": {
+        "Light": "A subtle lift for a picture that is only slightly soft.",
+        "Medium": "The default.",
+        "Strong": "For a clearly soft picture. Fine noise is sharpened along with the edges.",
+        "Very strong": "For a very soft picture. Sharpens noise and fine texture too; check strong edges for halos in the preview."
+      }
+    },
+    "casStrength": {
+      "label": "Strength",
+      "description": "How hard to sharpen. Advanced mode shows the values each step sets.",
+      "default": "Medium",
+      "custom": "Custom",
+      "sinceAppVersion": "1.8.0",
+      "visibleWhen": {
+        "method": [
+          "cas"
+        ]
+      },
+      "options": {
+        "Light": {
+          "casSharpness": 0.4
+        },
+        "Medium": {
+          "casSharpness": 0.5
+        },
+        "Strong": {
+          "casSharpness": 0.8
+        },
+        "Very strong": {
+          "casSharpness": 1.0
+        }
+      },
+      "optionDescriptions": {
+        "Light": "A subtle lift for a picture that is only slightly soft.",
+        "Medium": "The default.",
+        "Strong": "For a clearly soft picture. Fine noise is sharpened along with the edges.",
+        "Very strong": "For a very soft picture. Sharpens noise and fine texture too; check strong edges for halos in the preview."
+      }
+    },
+    "lsfmodStrength": {
+      "label": "Strength",
+      "description": "How hard to sharpen. Advanced mode shows the values each step sets.",
+      "default": "Medium",
+      "custom": "Custom",
+      "sinceAppVersion": "1.8.0",
+      "visibleWhen": {
+        "method": [
+          "lsfmod"
+        ]
+      },
+      "options": {
+        "Light": {
+          "overshoot": 8,
+          "strength": 50,
+          "undershoot": 8
+        },
+        "Medium": {
+          "overshoot": 1,
+          "strength": 100,
+          "undershoot": 1
+        },
+        "Strong": {
+          "overshoot": 8,
+          "strength": 400,
+          "undershoot": 8
+        },
+        "Very strong": {
+          "overshoot": 8,
+          "strength": 500,
+          "undershoot": 8
+        }
+      },
+      "optionDescriptions": {
+        "Light": "A subtle lift for a picture that is only slightly soft.",
+        "Medium": "The default.",
+        "Strong": "For a clearly soft picture. Fine noise is sharpened along with the edges.",
+        "Very strong": "For a very soft picture. Sharpens noise and fine texture too; check strong edges for halos in the preview."
       }
     }
   },

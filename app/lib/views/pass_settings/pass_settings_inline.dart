@@ -10,6 +10,7 @@ import '../../models/filter_registry.dart';
 import '../../models/filter_schema.dart';
 import '../../models/pass_advice.dart';
 import '../../models/processing_pipeline.dart';
+import '../../models/strength_advice.dart';
 import '../../models/unblend_parameters.dart';
 import '../../models/gpu_plugin_status.dart';
 import '../../services/addon_service.dart';
@@ -120,6 +121,13 @@ class PassSettingsInline extends StatelessWidget {
             _buildKnlmNotice(viewModel, filterId, params),
             if (filterId == 'audio_restoration')
               _buildVideoStartNotice(context, viewModel),
+            if (filterId == 'noise_reduction')
+              _buildInfoNotice(
+                context,
+                noiseStrengthNotice(viewModel.noiseHaloReport,
+                    enabled: params.enabled,
+                    hasStrength: hasStrengthFor(schema, params.values['method'])),
+              ),
             if (animeJanaiSelectedBy(filterId, params.values))
               const AnimeJanaiNotice()
             else if (modelAddonSelectedBy(filterId, params.values) case final id?)
@@ -314,9 +322,15 @@ class PassSettingsInline extends StatelessWidget {
   /// What the source's timestamps say about where its sound starts, for Audio
   /// Restoration's "start the sound with the picture". Shown whenever there
   /// is a gap, badge or not, and never changes a value.
-  Widget _buildVideoStartNotice(BuildContext context, MainViewModel viewModel) {
-    final message = videoStartNotice(viewModel.videoInfo?.videoStartOffset ?? 0,
-        container: viewModel.encodingSettings.container);
+  Widget _buildVideoStartNotice(BuildContext context, MainViewModel viewModel) =>
+      _buildInfoNotice(
+          context,
+          videoStartNotice(viewModel.videoInfo?.videoStartOffset ?? 0,
+              container: viewModel.encodingSettings.container));
+
+  /// An advisory line in the panel (nothing when [message] is null). Text
+  /// only: it never changes a value or disables a control.
+  Widget _buildInfoNotice(BuildContext context, String? message) {
     if (message == null) return const SizedBox.shrink();
     final scheme = Theme.of(context).colorScheme;
     return Padding(

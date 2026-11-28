@@ -417,6 +417,23 @@ A dropdown that writes several parameters at once — distinct from the top-leve
 | `default` | string | No | Initially selected option key |
 | `options` | object | **Yes** | Option name → parameter values to apply |
 | `visibleWhen` | object | No | Conditional visibility |
+| `custom` | string | No | Label shown when the values match no option (e.g. `"Custom"`, after an edit in advanced mode). Without it the selector shows `default` whatever the values are |
+| `optionDescriptions` | object | No | Option name → help text shown under the selector for the current option; falls back to `description` |
+| `sinceAppVersion` | string | No | App version that introduced the selector, for its NEW badge (which also badges its section, the method dropdown when it depends on `method`, and the pass row) |
+
+The selector shows the option whose values **all** equal the current ones
+(`ParameterPreset.matchingOption`); nothing records which option was chosen, so
+an edit in advanced mode is visible as `custom` the moment it moves a value off
+every option.
+
+**Strength (issue #177) is the worked example.** Noise Reduction and Sharpen
+give every simple-mode method one `"label": "Strength"` preset (Light / Medium /
+Strong / Very strong, `"custom": "Custom"`, `visibleWhen` on its method). Medium
+is the schema's own defaults, so a pass switched on is at Medium, and the other
+values were measured in
+[docs/reports/issue-177-strength-mapping](reports/issue-177-strength-mapping/index.html).
+`strength_presets_test.dart` pins the options to that report's
+`data/steps.json`: change a step there, with the probe re-run, not here.
 
 **Where it is drawn.** In simple mode a preset replaces the controls it sets
 (they are hidden; advanced mode shows them and hides the preset), and it is

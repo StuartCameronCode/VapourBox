@@ -226,11 +226,17 @@ class ProcessingPreset {
         // them because it is built not to add halos — which matters here more
         // than usual, since the dehalo pass above has just removed some.
         // Modest strength: this runs after a denoise, and sharpening a denoised
-        // picture hard is how tape captures end up looking artificial.
+        // picture hard is how tape captures end up looking artificial. The
+        // Strength step Light (issue #177): it was strength 80 / overshoot 1,
+        // which the probe found barely changed a picture; Light restores more
+        // of a slight softening at a lower strength, and stays under the halo
+        // threshold.
         sharpen: SharpenParameters(
           enabled: true,
           method: SharpenMethod.lsfmod,
-          strength: 80,
+          strength: 50,
+          overshoot: 8,
+          undershoot: 8,
         ),
         // Dirty edge rows are near-universal on tape, and cropping them away
         // throws picture away with them. Two rows all round is the common case;
@@ -535,10 +541,11 @@ class ProcessingPreset {
           // the preset says what its name promises whatever the default.
           convertToBt709: Bt709Conversion.on,
         ),
+        // The Strength step Light (issue #177; it was 0.3, between steps).
         sharpen: SharpenParameters(
           enabled: true,
           method: SharpenMethod.cas,
-          casSharpness: 0.3,
+          casSharpness: 0.4,
         ),
       ),
       encodingSettings: EncodingSettings(

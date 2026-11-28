@@ -7141,3 +7141,43 @@ the core count.
   expression per frame, and gives the fast-math caveat.
 
 Report: [docs/reports/issue-253-auto-colour-per-frame-expr](reports/issue-253-auto-colour-per-frame-expr/index.html).
+
+### One Strength control for Noise Reduction and Sharpen (issue #177, task #140, 2026-11-28)
+
+Issue #177 found both passes "not effective". In simple mode every method now
+has one **Strength** selector (Light / Medium / Strong / Very strong): a schema
+`parameterPresets` entry that hides the controls it sets, with **Medium = the
+existing defaults** (the user's decision). The other steps were measured on
+three clips with AddGrain noise at sigma 2/4/6/9 (Noise Reduction) and a
+Gaussian blur of 0.5/0.8/1.2/1.6 px (Sharpen), luma PSNR against the clean
+original, with "stronger" meaning more damage to a clean picture. The report
+is [docs/reports/issue-177-strength-mapping](reports/issue-177-strength-mapping/index.html).
+What it found beyond the steps:
+
+- **SMDegrain switched itself off on heavy noise.** At sigma 9 no thSAD up to
+  4000 removed anything (29.1 dB in and out). havsfunc's `thSCD1=400` is under
+  the block SAD of that much noise alone, so every frame read as a scene cut.
+  `thSCD1` 800 recovers 36.8 dB (tr 3, thSAD 2000). Every value from 800 to
+  4000 gives identical output, a real hard cut is still found, and nothing
+  changes on a clean picture or up to sigma 6. It is now a parameter
+  (`smDegrainThSCD1`, default 400, left out of the script at 400), raised by
+  Strong and Very strong.
+- **MCTemporalDenoise's Sigma is inert**: havsfunc reads it only for pfMode 0
+  or `post` > 0, which VapourBox never passes. Every sigma from 2 to 12 gave
+  identical output. Strength sets MCTD's own profile instead; the dead control
+  is task #141.
+- **QTGMC built-in's default did nothing** (EZDenoise 0). Its default is now
+  the measured Medium, 5.
+- **SMDegrain's default is 3.6 dB short of its best at sigma 4** (38.8 vs
+  42.4). It stays the default (Medium); Strong is where that gain is.
+- **aWarpSharp2 can't be judged by PSNR** (warping reads as error at every
+  depth), so its steps are an even ladder of mean change (x0.5 / 1 / 1.5 / 2 of
+  Medium's).
+- Built-in presets were moved onto named steps: DV Camcorder, Low-Light and SD
+  Tape -> HD Noise Reduction tr 1 -> 2 (Light, tr 2 / thSAD 200); VHS Cleanup's
+  LSFmod 80/1 -> 50/8; SD Tape -> HD CAS 0.3 -> 0.4. Schema maximums rose
+  where a step needed it (thSAD 2000, thSADC 1000, EZDenoise 10, LSFmod
+  strength 500).
+
+Limits stated in the report: synthetic noise and blur, three 60-frame clips,
+Apple Silicon only, PSNR (checked against crops).

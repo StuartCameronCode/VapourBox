@@ -149,6 +149,24 @@ void main() {
               }
             }
 
+            // In simple mode a parameter preset (e.g. Strength) replaces the
+            // controls it sets. One with a `custom` state shows that when the
+            // values match no option, which would name nothing the user can
+            // reach without advanced mode: the built-in must land on an option.
+            for (final pp in schema.parameterPresets?.values ?? const <ParameterPreset>[]) {
+              if (pp.customOption == null) continue;
+              if (!pp.options.values.any((o) => o.containsKey(key))) continue;
+              final vw = pp.visibleWhen ?? const {};
+              final shown = vw.entries.every((g) => g.value is List
+                  ? (g.value as List).contains(params.values[g.key])
+                  : params.values[g.key] == g.value);
+              if (!shown) continue;
+              expect(pp.matchingOption(params.values), isNotNull,
+                  reason: '$filterId.$key is set to ${entry.value}, which no '
+                      '"${pp.label}" option sets, so simple mode would show '
+                      '"${pp.customOption}"');
+            }
+
             if (advancedOnly.contains(key)) {
               expect(_advancedAllowed, contains('$filterId.$key'),
                   reason: '$filterId.$key is set to ${entry.value} but only '

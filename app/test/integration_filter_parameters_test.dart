@@ -2291,4 +2291,55 @@ void main() {
       expect(span4, isNot(contains('// _ai_scale')));
     }, timeout: const Timeout(Duration(minutes: 5)), tags: ['gpu']);
   });
+
+  // Issue #177: each Strength step, chosen as the panel chooses it (the
+  // schema's preset values through the converter), reaches the script.
+  group('Strength steps (issue #177)', () {
+    const keywords = {
+      'smDegrainTr': 'tr', 'smDegrainThSAD': 'thSAD',
+      'mcTemporalProfile': 'settings', 'mcTemporalSigma': 'sigma', 'mcTemporalRadius': 'radius',
+      'qtgmcEzDenoise': 'EZDenoise',
+      'mcleanStrength': 'strength', 'mcleanThsad': 'thSAD', 'mcleanRn': 'rn', 'mcleanSharp': 'sharp',
+      'strength': 'strength', 'overshoot': 'overshoot', 'undershoot': 'undershoot',
+      'casSharpness': 'sharpness', 'warpDepth': 'depth',
+    };
+    String literal(Object v) => switch (v) {
+          String s => '"$s"',
+          double d when d == d.roundToDouble() => d.toStringAsFixed(1),
+          _ => '$v',
+        };
+
+    for (final filter in ['noise_reduction', 'sharpen']) {
+      final schema = loadSchema(filter);
+      for (final preset in schema.parameterPresets!.values.where((p) => p.label == 'Strength')) {
+        final method = (preset.visibleWhen!['method'] as List).single as String;
+        for (final step in ['Light', 'Strong', 'Very strong']) {
+          test('$filter $method $step', () async {
+            final enabled = filter == 'noise_reduction'
+                ? ParameterConverter.fromNoiseReduction(
+                    const NoiseReductionParameters(enabled: true))
+                : ParameterConverter.fromSharpen(const SharpenParameters(enabled: true));
+            final dyn = enabled.withValues({'method': method, ...preset.options[step]!});
+            final job = filter == 'noise_reduction'
+                ? buildJob(
+                    testName: 'strength_${method}_$step',
+                    // QTGMC's built-in denoiser exists only with deinterlacing on.
+                    deinterlace: method == 'qtgmc_builtin'
+                        ? const QTGMCParameters(enabled: true, tff: true)
+                        : null,
+                    noiseReduction: ParameterConverter.toNoiseReduction(dyn))
+                : buildJob(
+                    testName: 'strength_${method}_$step',
+                    sharpen: ParameterConverter.toSharpen(dyn));
+            final script = await generateScriptViaWorker(job);
+            for (final MapEntry(key: id, value: v) in preset.options[step]!.entries) {
+              final kw = keywords[id];
+              if (kw == null) continue; // thSADC (only when it differs), keep grain
+              expect(script, contains('$kw=${literal(v)}'), reason: '$method $step $id');
+            }
+          });
+        }
+      }
+    }
+  });
 }
