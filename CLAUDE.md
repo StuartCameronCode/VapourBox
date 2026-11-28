@@ -2086,6 +2086,29 @@ download.
 recreated; `setOverride` verifies writability with a probe file before accepting
 a path.
 
+### Output Settings Persist Across Launches (issue #264)
+
+`EncodingSettings` (codec, container, quality, audio, colour format, output
+folder, filename pattern, ProRes options, cache override, custom FFmpeg
+arguments and custom VapourSynth: every field) is saved by
+`EncodingSettingsStore` (`app/lib/services/encoding_settings_store.dart`) as
+JSON under the shared_preferences key `encodingSettings`. Rules, asserted in
+`encoding_settings_store_test.dart`:
+
+- **Loaded once, in `main()`, before the view model exists**; `MainViewModel`
+  starts from `EncodingSettingsStore.instance.initial`. Unreadable or
+  unrecognised JSON (a codec a newer version saved) falls back to the
+  defaults and never stops the app starting.
+- **Saved from the two places settings change**: `updateEncodingSettings`
+  (every Settings control) and `loadPreset`. Anything that sets
+  `_encodingSettings` another way must save too, or it is lost on restart.
+  Tests inject `initialEncodingSettings` / `saveEncodingSettings`.
+- **A preset that names no output folder keeps the current one.** Built-in
+  presets name none, and loading one used to reset the folder to "same as
+  input". A preset with its own folder still sets it.
+- Restored as saved: an unavailable codec or a refused container pairing is
+  handled by the same checks as a preset carrying it, never swapped silently.
+
 ### Existing Output Files (issue #85)
 
 Before a job starts, `_getConflictingItems` (`main_window.dart`) checks whether

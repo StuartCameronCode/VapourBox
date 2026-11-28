@@ -6,6 +6,7 @@ import 'package:window_manager/window_manager.dart';
 import 'models/filter_registry.dart';
 import 'services/advanced_mode_service.dart';
 import 'services/dependency_manager.dart';
+import 'services/encoding_settings_store.dart';
 import 'services/hardware_encoder_detector.dart';
 import 'services/overwrite_behavior_service.dart';
 import 'services/preset_service.dart';
@@ -45,6 +46,10 @@ void main() async {
   // Load the saved default for existing output files (issue #85) before the
   // first job can be started.
   await OverwriteBehaviorService.instance.initialize();
+
+  // Load the output and encoding settings the last session saved (issue
+  // #264) before the view model is created, so it starts from them.
+  await EncodingSettingsStore.instance.initialize();
 
   // Initialize window manager for desktop
   await windowManager.ensureInitialized();

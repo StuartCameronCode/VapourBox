@@ -204,6 +204,8 @@ Every button with a shortcut shows it in its tooltip, and **?** lists them all. 
 
 Your own presets are saved alongside these, and can be **exported and imported** to share a setup that works for a particular camcorder or capture card. Because a preset can contain custom VapourSynth code and FFmpeg arguments, VapourBox shows you any it contains before importing, and lets you import the preset without them.
 
+Your output settings (folder, filename pattern, codec, container, audio and the rest) are remembered between launches. Picking a preset that doesn't name an output folder keeps the folder you chose.
+
 </details>
 
 <details>
