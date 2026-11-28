@@ -7182,6 +7182,35 @@ What it found beyond the steps:
 Limits stated in the report: synthetic noise and blur, three 60-frame clips,
 Apple Silicon only, PSNR (checked against crops).
 
+### A source's subtitles let its sound run 38 s ahead of the picture (issue #266, 2026-11-28)
+
+The report: on a Mac, an MKV made with Audio Passthrough lost its sound in
+stretches, although the sound was all there; re-muxing with MKVToolNix fixed
+it. So the packets were right and their placement in the file was wrong. The
+encoder took the source's subtitles from the same input as its sound
+(`-map 1:a? -map 1:s?`). FFmpeg's scheduler (7.0+) only holds back an input
+that doesn't feed the output stream furthest behind, and between cues that
+is the sparse subtitle stream. So the source input ran freely, its sound got
+ahead of the picture vspipe was still making, and once the muxer's queue
+spanned `max_interleave_delta` (10 s) it wrote the sound out ahead: ~38 s of
+sound before the matching picture with cues 49 s apart (0.04 s without
+subtitles), in MKV and MP4 alike. A player with a bounded read-ahead runs out
+of sound while it reads the picture that catches up.
+
+The subtitles now come from a second `-i` of the source with input 1's own
+seek, last of the inputs (`pipeline_executor::subtitle_mapping`); the sound's
+input is then held to the picture's pace. Through the worker on a 40 s
+fixture with cues 34 s apart: 22.7 s (MKV) and 23.3 s (MP4) ahead before,
+0.10 s after. `-max_interleave_delta 0` gives the same layout by buffering
+every sound packet until the next cue (265 MB against 83 MB for a 7.1 PCM
+minute), so it was rejected. The source is probed first, so one without
+subtitles is still read once; a failed probe keeps Matroska's old `1:s?`.
+Trimmed encodes were never affected: `-shortest` runs the streams through a
+sync queue (0.13 s before the fix). Only the layout was measured, on macOS
+arm64; no player was tested.
+
+Report: [docs/reports/issue-266-subtitle-interleave](reports/issue-266-subtitle-interleave/index.html).
+
 ### MCTemporalDenoise's Sigma replaced by Post-denoise (task #141, 2026-11-28)
 
 The Sigma slider of the Noise Reduction pass's MCTemporalDenoise method was

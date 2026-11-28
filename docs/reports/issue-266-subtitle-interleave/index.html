@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subtitle interleave</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>A source's subtitles let its sound run 38 s ahead of the picture</h1>
+<p class="meta">GitHub issue #266 (task #142), 2026-11-28. Measured on an Apple M1 with the bundled FFmpeg 9.0.2 (martin-riedl build, deps 1.17.0-rc1 macOS arm64). The behaviour is FFmpeg's scheduler and muxer, not macOS's, so every platform's bundle should behave the same; only macOS arm64 was measured.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>The report:</b> on a Mac, an MKV made with Audio Passthrough had its sound "cut out completely in parts of the video". The sound was all there, and separating and re-muxing the streams with MKVToolNix fixed the file. So the packets and their times were right, and their <b>placement in the file</b> was wrong.</li>
+<li><b>Cause:</b> the encoder took the source's subtitles from the same input as its sound (<code>-map 1:a? -map 1:s? -c:s copy</code>). Between cues a sparse subtitle stream is the output stream furthest behind, and FFmpeg's scheduler (7.0+) only holds back inputs that don't feed that stream. So the source input was never held back, and its sound ran ahead of the picture vspipe was still making. Once the muxer's interleave queue spanned <code>max_interleave_delta</code> (10 s), FFmpeg wrote the sound out ahead. The MKV had long runs of sound followed by long runs of picture, up to ~38 s apart. A player that reads ahead a bounded amount runs out of sound while it reads through the picture. mkvmerge interleaves by timestamp, which is why a remux fixed it.</li>
+<li><b>Fix (worker):</b> subtitles come from <b>an input of their own</b>, a second <code>-i</code> of the source with input 1's own seek, added after every other input (<code>pipeline_executor.rs</code>, <code>subtitle_mapping</code>). The sound's input is then held to the picture's pace, and the subtitle input reads to its end at once (a few small packets). The source is probed first, so a source with no subtitle stream adds no input and is read once, as before. If the probe fails, Matroska keeps the old mapping from input 1 rather than lose the user's subtitles.</li>
+<li><b>Through the worker</b> (<code>app/test/integration_subtitle_interleave_test.dart</code>, a 40 s fixture with cues at 1 s and 35 s): an untrimmed encode stored the sound 22.66 s ahead in MKV and 23.3–23.4 s in MP4 before the fix, and 0.099 s in both after. The cues keep their times. <b>Trimmed encodes were never affected</b> (0.13 s before the fix): they end with <code>-shortest</code>, whose sync queue already holds the streams together.</li>
+<li><b>Rejected:</b> <code>-max_interleave_delta 0</code> also gives a correct layout, but only by holding every sound packet in memory until the next cue arrives. The memory grows with the gap between cues and the sound's bitrate: 265 MB against 83 MB for a 7.1 PCM minute, and gigabytes for a lossless film soundtrack over a long gap with no cues.</li>
+</ul>
+
+<h2>The metric and its limits</h2>
+<p><code>scripts/lead.py</code> sorts a file's packets by byte position and reports the largest amount by which an audio packet's DTS exceeds the DTS of the last video packet stored before it: how far the sound runs ahead of the picture in the order a player reads the file. Its limits:</p>
+<ul>
+<li>It measures the <b>layout</b>, not playback. No player was tested here, and the reporter's player and source are unknown. A large lead explains a dropout in a player with a bounded read-ahead; how much lead a given player tolerates was not measured.</li>
+<li>About 0.04–0.1 s is the floor: x264's own delay (lookahead and B-frames) holds the picture back that much in any encode.</li>
+<li>The sources are synthetic (testsrc2, a sine tone, SRT cues). A real source would differ in its bitrates, not in the mechanism.</li>
+</ul>
+
+<h2>FFmpeg alone</h2>
+<p><code>scripts/probe.sh</code> builds the sources and runs the encoder in the worker's shape: a Y4M pipe (the source decoded, optionally throttled to twice real time by <code>scripts/throttle.py</code> to stand in for vspipe), x264, sound and subtitles copied. Output: <code>data/probe_macos-arm64.txt</code>. Peak RSS is the encoder's, from <code>/usr/bin/time -l</code>.</p>
+<table>
+<tr><th>Source and mapping</th><th>Pipe</th><th>Sound ahead of picture</th><th>Encoder peak RSS</th></tr>
+<tr><td>60 s, AAC, <b>no subtitles</b>, today's mapping</td><td>throttled</td><td class="num">0.04 s</td><td class="num">30 MB</td></tr>
+<tr><td>same + 2 SRT cues (1 s, 50 s), today's mapping</td><td>throttled</td><td class="num"><b>38.10 s</b></td><td class="num">31 MB</td></tr>
+<tr><td>same</td><td>unthrottled, x264 medium</td><td class="num"><b>37.66 s</b></td><td class="num">57 MB</td></tr>
+<tr><td>7.1 PCM s32 96 kHz + the cues, today's mapping</td><td>throttled</td><td class="num"><b>37.91 s</b></td><td class="num">153 MB</td></tr>
+<tr><td>↳ subtitles from <b>their own input</b> (the fix)</td><td>throttled</td><td class="num">0.04 s</td><td class="num"><b>83 MB</b></td></tr>
+<tr><td>↳ <code>-max_interleave_delta 0</code></td><td>throttled</td><td class="num">0.04 s</td><td class="num">265 MB</td></tr>
+</table>
+<p>The fault needs no throttling: vspipe, or even decoding and re-encoding the picture as in the unthrottled row, is always slower than demuxing the file. Without subtitles the sound input is held to the picture's pace and the layout is right; the lead is roughly the gap to the next cue.</p>
+<p class="box">A trimmed encode was also checked in the first look (<code>-ss 5</code> on both source inputs, <code>-shortest</code>): 0.04 s with the subtitles on their own input. That says nothing about the fix on its own: through the worker, a trimmed encode was already fine before it (next section).</p>
+
+<h2>Through the worker</h2>
+<p><code>Tests/TestResources/generate_sparse_subtitle_test.sh</code> writes <code>sparse_subs.mkv</code>: 160x120 testsrc2 at 25 fps, 40 s, H.264, mono AAC, SRT cues at 1 s and 35 s. <code>integration_subtitle_interleave_test.dart</code> (heavy) encodes it with Passthrough and x264, then checks the lead (under 1 s) and the cues:</p>
+<table>
+<tr><th>Case</th><th>Worker before (main)</th><th>Worker after</th></tr>
+<tr><td>MKV, untrimmed</td><td class="num">22.66 s ahead</td><td class="num">0.099 s</td></tr>
+<tr><td>MP4 (mov_text), untrimmed</td><td class="num">23.34 s, 23.41 s ahead (two runs)</td><td class="num">0.099 s</td></tr>
+<tr><td>MKV, trimmed from 5 s</td><td class="num">0.128 s ahead; the 35 s cue at 30.0 s from the first picture</td><td class="num">0.168 s; the cue at 30.0 s</td></tr>
+</table>
+<p>"Before" was the same test run against a worker built from main (the old binary). The leads are smaller than in the FFmpeg-only table because the fixture's cues are 34 s apart, not 49. A trimmed encode ends with <code>-shortest</code>, and FFmpeg then runs every stream through a sync queue that keeps them within a short span of each other, so the sound could not run ahead; the untrimmed encode has no such queue. The trimmed case stays in the test to check that the subtitle input's seek matches the sound's.</p>
+
+<h3>A correction made during the work</h3>
+<p>The first version of the trimmed check expected the second cue at 30.0 s on the file's own timeline, and it read 30.968 s, on the old and the new worker alike. That isn't an error in either. A trimmed copy into MKV keeps the sound from the keyframe before the in-point, and the output stores the picture that much later (task #24, CLAUDE.md "Source Frame Size"). Here the picture starts at 0.968 s, so the check now measures the cue from the first picture.</p>
+
+<h2>The change</h2>
+<pre>// before (one input, sound and subtitles)
+-ss T -i source.mkv ... -map 1:a? -map 1:s? -c:s copy
+
+// after (the source's subtitles from an input of their own, last)
+-ss T -i source.mkv ... -ss T -i source.mkv -progress ... -map 1:a? -map N:s? -c:s copy</pre>
+<ul>
+<li>The decision is <code>subtitle_mapping(form, embed_pending, codecs, input)</code>, a pure function that is unit-tested. It covers Matroska (copy), MP4/MOV (text codecs only, as mov_text, as before), AVI (none), no subtitle stream (no input), and a failed probe (Matroska's old <code>1:s?</code>, MP4 none).</li>
+<li>The subtitle input reuses the exact argument list input 1 got (<code>source_audio_input_seek</code>). An encoder priming changes that seek only for Convert into AVI, which takes no subtitles.</li>
+<li>Chapters and global tags are unchanged: chapters still come from the first input that has them (input 1), and tags from the metadata file (input 2).</li>
+</ul>
+
+<h2>Decisions</h2>
+<ul>
+<li><b>Own input, not <code>-max_interleave_delta 0</code>:</b> the same layout without buffering the sound (memory above).</li>
+<li><b>Probe first, add the input only for a source with subtitles:</b> otherwise every Matroska encode would read its source twice, which costs on a network share. The probe is the one the MP4 path already ran.</li>
+<li><b>A failed probe keeps the old mapping for Matroska:</b> a layout fault is better than silently dropping the user's subtitle tracks.</li>
+<li><b>Not added to the output conformance matrix:</b> the matrix's sources have no subtitles. A subtitle source class there would multiply its cases for one property this standalone test covers.</li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>Playback in any player (VLC, IINA, Infuse), and the reporter's own source.</li>
+<li>Windows and Linux bundles (same FFmpeg 9.0 series, BtbN builds).</li>
+<li>Image subtitles (PGS, VobSub) into Matroska through the worker; the mapping is the same <code>N:s?</code>.</li>
+<li>The subtitle mux post-pass (an embedded transcript) is a stream copy of a finished file with no slow input, and was not re-measured.</li>
+</ul>
+
+<h2>Reproducing</h2>
+<pre>docs/reports/issue-266-subtitle-interleave/scripts/probe.sh deps/macos-arm64
+Tests/TestResources/generate_sparse_subtitle_test.sh Tests/TestResources deps/macos-arm64/ffmpeg/ffmpeg
+(cd worker &amp;&amp; cargo build)
+(cd app &amp;&amp; flutter test --tags heavy test/integration_subtitle_interleave_test.dart)</pre>
+</body>
+</html>
