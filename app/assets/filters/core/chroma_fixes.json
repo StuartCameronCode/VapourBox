@@ -259,7 +259,7 @@
       "default": false,
       "ui": {
         "label": "Remove dot crawl",
-        "description": "The pattern of dots crawling along sharp colour edges on composite captures. Decided within each frame.",
+        "description": "The pattern of dots crawling along sharp colour edges on composite captures. Decided within each frame. Works at up to 10 bits: on a deeper source it decides on a 10-bit copy and applies only its change at full depth.",
         "widget": "checkbox"
       }
     },
@@ -391,7 +391,7 @@
       "default": false,
       "ui": {
         "label": "Remove rainbow shimmer",
-        "description": "Shimmering colour bands over fine detail on composite captures — the companion to dot crawl, which sits along edges instead. Decided within each frame.",
+        "description": "Shimmering colour bands over fine detail on composite captures — the companion to dot crawl, which sits along edges instead. Decided within each frame. Works at up to 10 bits: on a deeper source it decides on a 10-bit copy and applies only its change at full depth.",
         "widget": "checkbox"
       }
     },

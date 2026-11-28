@@ -50,7 +50,7 @@ There is no account, no telemetry, and nothing is uploaded.
 
 1. Download the `.dmg` for your Mac (Apple menu → About This Mac): `arm64` for Apple Silicon, `x64` for Intel.
 2. Open it and drag **VapourBox** to Applications.
-3. The first launch downloads its processing components (~130 MB on Apple Silicon, ~105 MB on Intel).
+3. The first launch downloads its processing components (~130 MB on Apple Silicon, ~115 MB on Intel).
 
 VapourBox is signed with an Apple Developer ID and notarized, so it opens without Gatekeeper warnings.
 
@@ -61,7 +61,7 @@ VapourBox is signed with an Apple Developer ID and notarized, so it opens withou
 
 1. Download the `-setup.exe` installer and run it.
 2. The installer isn't code-signed, so SmartScreen may say it "protected your PC". Choose **More info → Run anyway**.
-3. Launch VapourBox from the Start menu. The first launch downloads its processing components (~205 MB).
+3. Launch VapourBox from the Start menu. The first launch downloads its processing components (~215 MB).
 
 It installs for your user only (`%LOCALAPPDATA%\Programs\VapourBox`), so it never asks for administrator rights. A newer installer upgrades in place; uninstalling from **Settings → Apps** also removes the downloaded components, and leaves your presets alone.
 
@@ -78,7 +78,7 @@ It installs for your user only (`%LOCALAPPDATA%\Programs\VapourBox`), so it neve
 
 To get a menu entry and in-place updates, open it with [Gear Lever](https://github.com/mijorus/gearlever), [AppImageLauncher](https://github.com/TheAssassin/AppImageLauncher) or [AppImageUpdate](https://github.com/AppImageCommunity/AppImageUpdate).
 
-Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract it and run `./vapourbox`. It downloads its processing components (~265 MB on x64, ~220 MB on ARM) on first launch.
+Where an AppImage can't be mounted, use the `.tar.gz` of the same build: extract it and run `./vapourbox`. It downloads its processing components (~265 MB on x64, ~225 MB on ARM) on first launch.
 
 </details>
 
@@ -317,20 +317,26 @@ Full licence texts, copyright holders and every bundled component are listed in 
 
 Components taken pre-built rather than compiled from source come unmodified from:
 
-- **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — ARM64 VapourSynth plugins for macOS, and the sse2neon port of DFTTest ([yuygfgg/VapourSynth-DFTTest](https://github.com/yuygfgg/VapourSynth-DFTTest)) the Apple Silicon build compiles
-- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — cross-platform VapourSynth plugins: most of the Intel Mac build's plugins, TemporalMedian and RemoveDirt on Apple Silicon, and RemoveDirt on Linux x64
+- **[yuygfgg/Macos_vapoursynth_plugins](https://github.com/yuygfgg/Macos_vapoursynth_plugins)** — neo_f3kdb, TTempSmooth, VIVTC and the FFTW libraries on Apple Silicon
+- **[Stefan-Olt/vs-plugin-build](https://github.com/Stefan-Olt/vs-plugin-build)** — several of the Intel Mac build's plugins (MVTools, znedi3, EEDI3m, MiscFilters, RemoveGrain, AddGrain, CAS, Deblock and AWarpSharp2), TemporalMedian on both Macs, and RemoveDirt on both Macs and Linux x64
 - **[ffmpeg.martin-riedl.de](https://ffmpeg.martin-riedl.de)** — static FFmpeg for Apple Silicon and Intel Macs
-- **[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)** — static FFmpeg for Windows and Linux
+- **[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds)** — static FFmpeg for Windows and Linux; the pinned build is kept unchanged on this project's [`ffmpeg-mirror-v1`](https://github.com/StuartCameronCode/VapourBox/releases/tag/ffmpeg-mirror-v1) release, because BtbN deletes its dated builds after a few weeks
 - **[python-build-standalone](https://github.com/astral-sh/python-build-standalone)** — the relocatable Python used on macOS and Linux
 - **[python.org](https://www.python.org/downloads/windows/)** — the embeddable Python used on Windows
-- **[PyPI](https://pypi.org)** — the plugins their authors publish as wheels: akarin, bwdif, dedot, descale, SangNom and vszip (and on Windows also BM3D and KNLMeansCL)
-- **The plugins' own GitHub releases** — most Windows plugins, VapourSynth itself on Windows, and zsmooth
+- **[PyPI](https://pypi.org)** — the plugins their authors publish as wheels: akarin, Bifrost, bwdif, dedot, descale, SangNom and vszip (and on Windows also BM3D and KNLMeansCL). The Intel Mac build compiles dedot and vszip itself, and has no akarin
+- **The plugins' own GitHub releases** — about half of the Windows plugins, the VapourSynth R78 wheel on Windows (its `vspipe.exe` is replaced, see below), and zsmooth
+- **[ldesoras.fr](https://ldesoras.fr/)** — fmtconv on Windows
+- **[fftw.org](https://www.fftw.org/install/windows.html)** — FFTW on Windows
+- **[ShiftMediaProject/libdvdread](https://github.com/ShiftMediaProject/libdvdread)** — libdvdread on Windows
+- **[Ubuntu's archive](https://snapshot.ubuntu.com)** — on Linux, the FFTW, Boost, libdvdread and OpenCL ICD loader libraries, at the versions of one pinned archive snapshot
 - **[styler00dollar/VapourSynth-RIFE-ncnn-Vulkan](https://github.com/styler00dollar/VapourSynth-RIFE-ncnn-Vulkan)** — the RIFE plugin
 - **[AmusementClub/vs-mlrt](https://github.com/AmusementClub/vs-mlrt)** — VSNCNN on Windows (macOS and Linux build it from source)
 - **[Tencent/ncnn](https://github.com/Tencent/ncnn)** — the ncnn library VSNCNN is built against on macOS and Linux
 - **[KhronosGroup/MoltenVK](https://github.com/KhronosGroup/MoltenVK)** — Vulkan on macOS
 - **[Homebrew](https://brew.sh)** — the `whisper-cpp` build used for the macOS subtitle add-on
 
-The Intel Mac build compiles its support libraries from source to run on macOS 12, and is the one build without `akarin`, whose only macOS build needs macOS 14. Intel Macs don't need it: VapourSynth's own expression compiler covers them.
+Some components are built from source with VapourBox's own patches, on every platform: VapourSynth's `vspipe` (an upstream fix backported), FFT3DFilter, DCTFilter, DFTTest (on Apple Silicon from [yuygfgg's sse2neon fork](https://github.com/yuygfgg/VapourSynth-DFTTest)), LGhost, CTMF, TCanny and Retinex, plus EEDI3m on Apple Silicon and Linux and fmtconv on macOS and Linux. On Windows these are compiled with Zig. The patches are in [`Scripts/patches/`](Scripts/patches/), each with the reason in its header.
+
+Both Mac builds compile zimg and Boost from checksum-verified release tarballs. The Intel Mac build also compiles FFTW and its other support libraries to run on macOS 12, and is the one build without `akarin`, whose only macOS build needs macOS 14. Intel Macs don't need it: VapourSynth's own expression compiler covers them.
 
 </details>

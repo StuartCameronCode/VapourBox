@@ -65,7 +65,7 @@
       ],
       "ui": {
         "label": "Output",
-        "description": "SRT writes alongside video; Embed muxes into container (MKV/MP4)",
+        "description": "SRT writes alongside video; Embed muxes into the container (MKV, MP4 or MOV; AVI takes no subtitles)",
         "widget": "dropdown"
       }
     },

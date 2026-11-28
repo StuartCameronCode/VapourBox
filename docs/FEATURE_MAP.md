@@ -8,11 +8,11 @@ archive video:
 - script editors;
 - the archival tools that sit beside all of them.
 
-**As of 2026-11-10.** Every tool here is under active development, so check the
+**As of 2026-11-28.** Every tool here is under active development, so check the
 links at the end of this page before you rely on a cell. Corrections are welcome
 as an [issue](https://github.com/StuartCameronCode/VapourBox/issues).
 
-The VapourBox column was last checked on 2026-11-14, against the current source
+The VapourBox column was last checked on 2026-11-28, against the current source
 rather than only the latest release (1.7.0). Anything added since 1.7.0 is marked
 "(1.8.0)", the release it is due in.
 
@@ -27,7 +27,8 @@ rather than only the latest release (1.7.0). Anything added since 1.7.0 is marke
 | — | Outside what the tool is built for |
 
 **Method and limits.** Each cell comes from the tool's own README,
-documentation, release notes or source code, read on 2026-11-10. Licence,
+documentation, release notes or source code, read on 2026-11-10 and re-checked
+on 2026-11-28 for releases and changes since. Licence,
 release and activity data come from the GitHub API. Nothing was installed or
 tested hands-on, so a ✅ means "documented", not "works well". ❓ is used
 whenever the documentation is silent; it never means "probably". The VapourBox
@@ -60,7 +61,7 @@ to the same standard as the others.
 | sd-video-restore | Win, Colab | No licence stated | ✅ | ❓ | 🟡 a few | 🟡 separate release | ❓ | ❓ | ❓ | ❓ / ❓ | ❓ | 🟡 NVENC | ❓ |
 | Video Enhancer (ErynVorn) | Win + NVIDIA | MIT, free | ❌ | ❓ | 🟡 a few | ✅ | ❓ | ✅ | ❓ | ❓ / ❓ | ❓ | 🟡 NVENC | 🟡 |
 | RestoraX | Any (Python, Docker) | MIT, free | ❓ | ❓ | 🟡 AI dust/scratch | ✅ | ✅ RIFE | ✅ | ❓ | ❓ / ❓ | ❓ | ❓ | 🟡 |
-| LTX-2.5 Enhancer Studio | Win + NVIDIA RTX | No licence stated | ❓ | ❓ | — | 🟡 generative | ❓ | ❌ | ❓ | ❓ / ❓ | ❓ | 🟡 NVENC | ✅ |
+| LTX-2.5 Enhancer Studio | Win + NVIDIA RTX | No licence stated | ❓ | ❓ | — | 🟡 generative; 2× SPAN | ❓ | ❌ | ❓ | ❓ / ❓ | ❓ | 🟡 NVENC | ✅ |
 | VCG Deinterlacer (v1) | Win | MIT, free | ✅ | ✅ | ✅ several | ❌ | ❓ | ❓ | ❓ | ✅ / ✅ | ❓ | ❓ | ✅ |
 | vhs-vapourizer | ❓ (Windows paths) | No licence stated | ✅ | ❓ | ❌ | ❌ | ❓ | ❓ | ❓ | ✅ / ✅ | ❓ | ❓ | 🟡 test mode |
 | Auto-VHS-Deinterlacer | macOS, Win, Linux | MIT, free | ✅ | ❓ | 🟡 QTGMC's own | ❓ | ❓ | ❓ | ❓ | ✅ / ❓ | ✅ | 🟡 AV1 NVENC | ❓ |
@@ -139,7 +140,7 @@ converter with some AI features.
 | ProRes / FFV1 | ✅ Proxy–4444 XQ / ✅; also uncompressed v210 (1.8.0) | ✅ / ✅ | ❌ / ❌ | ❓ / ❓ | ✅ / ✅ | ✅ / ✅ |
 | Hardware encoders | NVENC, QSV, AMF, VideoToolbox | NVENC, QSV, AMF, VideoToolbox, MF, VAAPI | NVENC, QSV, AMF, VideoToolbox, VAAPI | NVENC, QSV, AMF | NVENC, QSV, AMF, VideoToolbox (ProRes) | NVENC, QSV, AMF, VideoToolbox, MF, VAAPI |
 | 10-bit | ✅ | ✅ | ✅ | ✅ | ❓ | ❓ |
-| HDR10 static metadata kept | ✅ (x265) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| HDR10 static metadata kept | ✅ (x265; SVT-AV1 from 1.8.0) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Dolby Vision RPU / HDR10+ kept | ❌ / ❌ | ✅ / ✅ | 🟡 rigaya encoders / ✅ | ✅ / ✅ | ❓ / ✅ | ❓ / ❓ |
 | Chapters kept | ❓ not handled explicitly | ✅ | ✅ | ✅ | ✅ | ❓ |
 | Containers | MKV, MP4, MOV, AVI | MP4, MKV, WebM, MOV | MKV, MP4 (+ GIF/WebP/AVIF) | MKV, MP4, others via FFmpeg | MOV, MP4, MKV, M2TS, WebM, AVI, Blu-ray | many, incl. MXF |
@@ -152,8 +153,8 @@ converter with some AI features.
 | Chunked / parallel encoding | ❌ | ❓ | 🟡 NVEncC only | ✅ | 🟡 experimental | ❓ |
 
 "In development" means the feature is on HandBrake's main branch (BM3D and
-deband from PR #7693; audio filters and loudnorm from PR #8101) but not in
-release 1.11.2.
+deband from PR #7693; audio filters and loudnorm from PR #8101), listed for
+the unreleased 1.12.0 in its NEWS.markdown, but not in release 1.11.2.
 
 ## AI enhancement apps
 
@@ -226,7 +227,7 @@ columns reflect what they document now.
 | Licence | GPL-3.0 | none stated | MIT (models have their own) | MIT | none stated; source not published | MIT | none stated | MIT | MIT |
 | Interface | GUI | Scripts + dialog | GUI + CLI | Web UI, REST API, CLI | GUI | GUI wizard | CLI script | CLI launcher | GUI |
 | Engine | VapourSynth + FFmpeg | VapourSynth + FFmpeg | FFmpeg + PyTorch | PyTorch + FFmpeg | ComfyUI + LTX-2.5 + FFmpeg | VapourSynth + FFmpeg | VapourSynth + FFmpeg | VapourSynth + FFmpeg | FFmpeg + AviSynth+ / VapourSynth |
-| Latest release | 1.7.0 (2026-11-10) | v0.1-ai (2026-06-19) | none (first commit 2026-10-12) | none (active) | v1.2.0 (2026-10-11) | v1.8.0 (2026-10-05) | none (last commit 2025-09-24) | v1.1.9 (2026-10-20) | 3.17.5 (2026-11-06) |
+| Latest release | 1.7.0 (2026-11-10) | v0.1-ai (2026-06-19) | none (first commit 2026-10-12) | none (active) | v1.2.1 (2026-11-18) | v1.8.0 (2026-10-05) | none (last commit 2025-09-24) | v1.1.9 (2026-10-20) | 3.17.10 (2026-11-13) |
 | **Input** | | | | | | | | | |
 | NTSC DV (4:1:1) | ✅ | ✅ DV presets | 🟡 `.dv` files | ❓ | ❓ | ✅ | ❓ | ❓ | ❓ |
 | DVD | ✅ discs, `VIDEO_TS` | ❓ | 🟡 `.vob` files | ❓ | ❓ | 🟡 MPEG-2 files | ❓ | ❓ | ❓ |
@@ -237,7 +238,7 @@ columns reflect what they document now.
 | Border / crop detection | ✅ | ❓ | ❓ | ❓ | ❓ | ❓ (v2.0 claims auto-crop) | ❓ | ❓ | ❓ |
 | Noise / halo measurement | ✅ | ❓ | ❓ | ❓ | ❓ | ✅ noise, halo, cast, bleed | ❓ | ❓ | — (VMAF CRF search instead) |
 | **Deinterlace** | | | | | | | | | |
-| QTGMC | ✅ all parameters | ✅ field order only | ❌ | ❓ | ❓ | ✅ fixed settings | ✅ hard-coded | ✅ several parameters | ✅ QTGMC (Win) or QTempGaussMC |
+| QTGMC | ✅ all parameters | ✅ field order only | ❌ | ❓ | ❓ | ✅ fixed settings | ✅ hard-coded | ✅ several parameters | ✅ QTGMC (AviSynth+; Win, or your own install on Linux) or QTempGaussMC |
 | Yadif / Bwdif | ✅ | ❓ | ✅ Bwdif | ✅ Yadif | ❓ | ❓ | ❓ | ❌ | ✅ |
 | Inverse telecine | ✅ | ❓ | ❓ | ❓ | ❓ | ✅ | ❓ | ❓ | ❓ |
 | **Classical restoration** | | | | | | | | | |
@@ -247,7 +248,7 @@ columns reflect what they document now.
 | Stabilisation | ✅ | ❓ | ❓ | 🟡 | ❓ | ❓ | ❓ | ❓ | ❓ |
 | Colour correction / grain | ✅ / ✅ | ❓ / ❓ | ❓ / ❓ | ❓ / ❓ | ❓ / ❓ | ✅ / ✅ | ❓ / ❓ | ❓ / ❓ | ❓ / ❓ |
 | **AI** | | | | | | | | | |
-| Upscaling | ✅ | 🟡 Real-CUGAN in the AI release asset | ✅ SPAN, Real-ESRGAN, RealPLKSR | ✅ Real-ESRGAN, BasicVSR++, VRT, … | 🟡 generative, to a target size | ❌ NNEDI3 | ❌ NNEDI3 | ❓ | ❓ |
+| Upscaling | ✅ | 🟡 Real-CUGAN in the AI release asset | ✅ SPAN, Real-ESRGAN, RealPLKSR | ✅ Real-ESRGAN, BasicVSR++, VRT, … | 🟡 generative, to a target size; 2× LiveAction SPAN (1.2.1) | ❌ NNEDI3 | ❌ NNEDI3 | ❓ | ❓ |
 | Interpolation / face / colour | ✅ / ✅ / ✅ | ❓ | ❓ | ✅ RIFE / ✅ CodeFormer, GFPGAN / ✅ DDColor | ❓ | ❓ | ❓ | ❓ | ❓ |
 | Diffusion restoration | ❌ | ❓ | ❓ | ❌ not implemented yet | ✅ LTX-2.5 + LoRAs | ❓ | ❓ | ❓ | ❓ |
 | **Audio** | | | | | | | | | |
@@ -257,7 +258,7 @@ columns reflect what they document now.
 | **Subtitles** | | | | | | | | | |
 | Keep existing / speech-to-text | 🟡 / ✅ | ❓ / ❓ | ❌ / ❓ | ❓ / ❓ | ✅ / ❓ | ❓ / ❓ | ❓ / ❓ | ❓ / ❓ | ✅ / ❓ |
 | **Output** | | | | | | | | | |
-| Codecs | H.264, H.265, AV1 (1.8.0), ProRes, v210 (1.8.0), FFV1, HuffYUV, FFVHuff | H.264 | H.264, H.265 (NVENC) | H.264 | H.265 (NVENC) | H.264, ProRes HQ, FFV1, HuffYUV, UT Video | ProRes HQ, FFV1 | ProRes HQ, AV1 | H.264, H.265, AV1, VP9, ProRes, VVC |
+| Codecs | H.264, H.265, AV1 (1.8.0), ProRes, v210 (1.8.0), FFV1, HuffYUV, FFVHuff | H.264 | H.264, H.265 (NVENC) | H.264 by default; any FFmpeg encoder through the API's `output_codec` | H.265 (NVENC) | H.264, ProRes HQ, FFV1, HuffYUV, UT Video | ProRes HQ, FFV1 | ProRes HQ, AV1 | H.264, H.265, AV1, VP9, ProRes, VVC |
 | 10-bit output | ✅ | ❌ | ❌ | ❌ | ✅ | 🟡 ProRes only | ✅ | ✅ | 🟡 |
 | Containers | MKV, MP4, MOV, AVI | MP4 | MP4 | by file extension | MP4, MOV, MKV | MP4, MOV, MKV, AVI | MKV, MOV | MOV, MKV | MKV, MP4, AVI, MOV, WebM |
 | **Workflow** | | | | | | | | | |
@@ -268,9 +269,10 @@ columns reflect what they document now.
 Notes:
 - **VCG Deinterlacer** has a successor, a Rust rewrite called
   [VCG-Deinterlacer 2.0](https://github.com/Video-Capture-Guide/VCG-Deinterlacer-2.0)
-  (MIT, v2.0.6, 2026-11-07). It says it "measures your capture, auto-crops the
-  blanking, and writes an archival master". The v1 column above is not a
-  statement about 2.0.
+  (MIT, v2.0.9, 2026-11-18). It says it "measures your capture, tells you what
+  it found and what it recommends doing about it, and writes an archival
+  master", and documents automatic cropping of the blanking. The v1 column
+  above is not a statement about 2.0.
 - **videer** chooses a CRF per file by measuring quality (VMAF, SSIM and
   others). None of the other tools here do this.
 - **Auto-VHS-Deinterlacer** encodes in resumable 5-minute segments.
@@ -306,7 +308,7 @@ archival workflow:
 | [vrecord](https://github.com/amiaopensource/vrecord) | Captures analogue or SDI video through Blackmagic cards (and DV on macOS) to archival formats (FFV1, v210, ProRes…), with framemd5, MediaConch checks and QCTools reports | macOS, Linux | CC BY 4.0 | 2026-10-05 | Capture before restoration; VapourBox doesn't capture |
 | [DVRescue](https://github.com/mipops/dvrescue) | Transfers DV tape over FireWire, reports DV errors from per-frame metadata, merges several transfers into the best copy | macOS (GUI), Windows and Linux (CLI) | BSD-3-Clause | v24.07 (2025-03-02) | The best possible DV master before VapourBox processes it |
 | [QCTools](https://github.com/bavc/qctools) | Graphs per-frame signal statistics (levels, TOUT, VREP, crop, PSNR) to find capture errors; `qcli` makes reports headlessly | macOS, Windows, Linux | GPL-3.0 (BAVC's code BSD-3-Clause) | 1.4 (2025-01-03) | Check a capture before restoring; compare before/after statistics |
-| [RAWcooked](https://github.com/MediaArea/RAWcooked) | Losslessly and reversibly packs DPX/TIFF/EXR film-scan sequences into FFV1/FLAC MKV | macOS, Windows, Linux | BSD-2-Clause (paid support for some formats) | v25.12 (2025-12-30) | Store film scans compactly, then feed the MKV to VapourBox |
+| [RAWcooked](https://github.com/MediaArea/RAWcooked) | Losslessly and reversibly packs DPX/TIFF/EXR film-scan sequences into FFV1/FLAC MKV | macOS, Windows, Linux | BSD-2-Clause (paid support for some formats) | v26.11 (2026-11-18) | Store film scans compactly, then feed the MKV to VapourBox |
 | [MediaConch](https://mediaarea.net/MediaConch) | Checks preservation files (MKV, FFV1, LPCM) against specifications and policies | macOS, Windows, Linux | BSD-2-Clause | v25.04 (2025-05-05) | Validate the FFV1 masters VapourBox writes |
 
 ## Where VapourBox fits
@@ -341,7 +343,10 @@ archival workflow:
   in sync and counts frames from the first picture, and a picture left
   interlaced is written with its field order flagged (ProRes, v210, FFV1,
   HuffYUV, FFVHuff) or coded as interlaced (H.264; in 4:2:0 only at a
-  height that is a multiple of 4, so 720x486 is coded progressive).
+  height that is a multiple of 4, so 720x486 is coded progressive). Also from
+  1.8.0, a JPEG camera's 4:4:0 video keeps its full horizontal colour, and a
+  picture stored at an odd size keeps that size wherever the output codec can
+  store it.
 - **A preview that matches the encode.** The before/after preview is
   frame-accurate and shows every generated frame of a rate conversion, at 1:1
   if you want. The presets are named after the source, not the technique.
@@ -394,7 +399,8 @@ are in [docs/reports/issue-117-qtempgaussmc](reports/issue-117-qtempgaussmc/inde
 
 ## Sources
 
-Read on 2026-11-10. GitHub licence, release and activity data come from the
+Read on 2026-11-10; releases, release notes and README changes re-checked on
+2026-11-28. GitHub licence, release and activity data come from the
 GitHub API.
 
 - **VapourBox:**
@@ -404,6 +410,8 @@ GitHub API.
     `VideoCodec::field_order_signal`)
   - `worker/src/pipeline_executor.rs` (stream mapping)
   - `worker/src/source_decode.rs` (the video's start offset)
+  - `worker/src/hdr_metadata.rs` (HDR10 metadata for x265 and SVT-AV1)
+  - `worker/src/pixel_format.rs` (4:4:0 and odd-size sources)
 - **HandBrake:**
   - [filters](https://handbrake.fr/docs/en/latest/technical/filters-summary.html)
   - [HDR and Dolby Vision](https://handbrake.fr/docs/en/latest/technical/hdr.html)
@@ -418,6 +426,7 @@ GitHub API.
   - [`test/test.c`](https://github.com/HandBrake/HandBrake/blob/master/test/test.c)
   - [BM3D commits](https://github.com/HandBrake/HandBrake/commits/master/libhb/bm3d.c)
   - [audio filter commits](https://github.com/HandBrake/HandBrake/commits/master/libhb/avaudiofilters.c)
+  - [`NEWS.markdown`](https://github.com/HandBrake/HandBrake/blob/master/NEWS.markdown) (the unreleased 1.12.0)
 - **FastFlix:**
   - [README](https://github.com/cdgriffith/FastFlix/blob/master/README.md)
   - [`advanced_panel.py`](https://github.com/cdgriffith/FastFlix/blob/master/fastflix/widgets/panels/advanced_panel.py)
@@ -486,21 +495,25 @@ GitHub API.
   - [README, `restore.vpy`, `convert.bat`, `create.ps1`](https://github.com/gljuks/sd-video-restore)
   - [releases](https://github.com/gljuks/sd-video-restore/releases)
 - **Video Enhancer:** [README and `enhancer.py`](https://github.com/ErynVornTechnologies/Video-Enhancer)
-- **RestoraX:** [README, `restorax/video/writer.py`, presets](https://github.com/karailker/restorax)
+- **RestoraX:**
+  - [README, `restorax/video/writer.py`, presets](https://github.com/karailker/restorax)
+  - [commit 04918c74](https://github.com/karailker/restorax/commit/04918c74) (`output_codec` honoured)
 - **LTX-2.5 Enhancer Studio:**
   - [README and screenshots](https://github.com/skv89/LTX-2.5-Enhancer-Studio)
-  - [releases](https://github.com/skv89/LTX-2.5-Enhancer-Studio/releases)
+  - [releases](https://github.com/skv89/LTX-2.5-Enhancer-Studio/releases), including [v1.2.1](https://github.com/skv89/LTX-2.5-Enhancer-Studio/releases/tag/v1.2.1)
 - **VCG Deinterlacer:**
   - [README, release notes, `vcg_deinterlacer_v130.py`](https://github.com/Video-Capture-Guide/VCG-Deinterlacer)
   - [VCG-Deinterlacer 2.0](https://github.com/Video-Capture-Guide/VCG-Deinterlacer-2.0)
 - **vhs-vapourizer:** [README, `upscale.vpy`, `vs_pipeline.py`](https://github.com/Hank-tha-Cowdog/vhs-vapourizer)
 - **Auto-VHS-Deinterlacer:** [README, `config.yaml`, `modules/runtime/`](https://github.com/ventura8/Auto-VHS-Deinterlacer)
-- **videer:** [README, `utils/ffmpeg_utils.py`, `modules/frameservers/`](https://github.com/hclivess/videer)
+- **videer:**
+  - [README, `utils/ffmpeg_utils.py`, `modules/frameservers/`](https://github.com/hclivess/videer)
+  - [releases 3.17.6–3.17.10](https://github.com/hclivess/videer/releases)
 - **Archival tools:**
   - [vrecord](https://github.com/amiaopensource/vrecord)
   - [DVRescue documentation](https://mipops.github.io/dvrescue/)
   - [QCTools](https://mediaarea.net/QCTools)
-  - [RAWcooked](https://mediaarea.net/RAWcooked)
+  - [RAWcooked](https://mediaarea.net/RAWcooked) and its [v26.11 release](https://github.com/MediaArea/RAWcooked/releases/tag/v26.11)
   - [MediaConch](https://mediaarea.net/MediaConch)
 - **Also considered:**
   - [MeGUI files](https://sourceforge.net/projects/megui/files/)

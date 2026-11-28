@@ -16,8 +16,8 @@ Some components are shipped only on some platforms; that is noted per entry.
 Full texts of the longer licences are in the accompanying files:
   GPL-2.0.txt, GPL-3.0.txt, LGPL-2.1.txt, LGPL-3.0.txt,
   Apache-2.0.txt, Apache-2.0-LLVM-Exception.txt
-The short permissive licences (MIT, ISC, BSD 3-Clause, WTFPL, Boost, zlib,
-Unlicense) are reproduced in full in the appendix at the end of this file.
+The short permissive licences (MIT, ISC, BSD 2-Clause, BSD 3-Clause, WTFPL,
+Boost, zlib, Unlicense, ZPL 2.1) are reproduced in full in the appendix at the end of this file.
 
 
 -------------------------------------------------------------------------------
@@ -41,7 +41,9 @@ zimg — WTFPL
   Copyright (c) sekrit-twc
   https://github.com/sekrit-twc/zimg
   The scaling/format-conversion library behind core.resize. Bundled because
-  VapourSynth links it.
+  VapourSynth links it. macOS builds release 3.0.6 (Apple Silicon) or 3.0.5
+  (Intel) from source; Linux links commit 9806db42 (graphengine 308d3735)
+  statically into libvapoursynth; Windows uses the copy in R78's wheel.
 
 Python (CPython) — Python Software Foundation License 2.0
   Copyright (c) 2001-2024 Python Software Foundation
@@ -155,6 +157,9 @@ MVTools — GPL-2.0
   A port of the AviSynth plugin by Manao, with later work by Fizick
   (Alexander G. Balakhnin), Pinterf and the SVP team. Licence text: GPL-2.0.txt
   Motion estimation and compensation — the engine QTGMC and SMDegrain use.
+  The macOS x64 older-CPU (v2) tier builds release v24 from source with
+  VapourBox's Scripts/patches/mvtools-v24-no-avx2.patch, which leaves out
+  its AVX2 code; the patched source is the v24 tag plus that file.
 
 nnedi3 — GPL-2.0
   Copyright (C) 2010-2011 Kevin Stone (tritical); VapourSynth port by dubhater
@@ -162,7 +167,9 @@ nnedi3 — GPL-2.0
   Licence text: GPL-2.0.txt
   Shipped on the ARM bundles only (macos-arm64, linux-arm64), where its NEON
   kernels are several times faster than znedi3's scalar fallback. The x86
-  bundles ship znedi3 alone.
+  bundles ship znedi3 alone. The Linux arm64 build changes one preprocessor
+  line in src/cpufeatures.cpp so its NEON kernels are enabled on aarch64
+  Linux as they are on macOS (see Scripts/download-deps-linux.sh).
 
 znedi3 — GPL-2.0
   Copyright (c) sekrit-twc; based on work by dubhater, Kevin Stone and
@@ -228,7 +235,20 @@ LLVM — Apache-2.0 WITH LLVM-exception
   https://llvm.org
   Licence text: Apache-2.0-LLVM-Exception.txt
   LLVM 22.1.8 is statically linked into the akarin plugin above, which is where
-  its JIT comes from. Listed here because that binary carries LLVM code.
+  its JIT comes from. LLVM's C++ runtime (libc++, libc++abi, libunwind) and
+  compiler-rt are also linked statically into the Windows C++ binaries
+  VapourBox compiles with Zig: vspipe.exe, FFT3DFilter, DCTFilter, DFTTest,
+  LGhost, CTMF, TCanny and Retinex. Listed here because those binaries carry
+  LLVM code.
+
+mingw-w64 runtime — Zope Public License 2.1 (parts Public Domain)
+  Copyright (c) 2009 - 2013 by the mingw-w64 project
+  https://www.mingw-w64.org
+  The C runtime startup and support code Zig links into the Windows binaries
+  VapourBox compiles with it (vspipe.exe, FFT3DFilter, DCTFilter, DFTTest,
+  LGhost, CTMF, TCanny, Retinex and the older-CPU (v2) zsmooth). Most of it,
+  the startup code included, is in the Public Domain; the rest is under the
+  ZPL 2.1, whose text is in the appendix.
 
 zsmooth — MIT
   Copyright (c) 2024 Austin Dworaczyk Wiltshire
@@ -237,6 +257,11 @@ zsmooth — MIT
   of RemoveGrain/TemporalMedian/FluxSmooth-family filters.
   CCD — Camcorder Colour Denoiser — was originally written by Sergey
   Stolyarevsky for VirtualDub.
+  Includes FFTW (GPL-2.0-or-later, see its entry below), from the author's
+  Zig port (https://github.com/adworacz/fftw), linked in statically. Where
+  VapourBox builds zsmooth itself (macOS x64, and the older-CPU tier on
+  Windows), that port is built with one change on macOS: memalign(), which
+  macOS lacks, is turned off so posix_memalign() is used.
 
 vszip — MIT
   Copyright (c) 2024 Julek
@@ -551,6 +576,10 @@ CAS — MIT
 DCTFilter — MIT
   Copyright (c) 2017 HolyWu
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-DCTFilter
+  Built from source at tag r3.2 on every platform with VapourBox's patch
+  Scripts/patches/dctfilter-r3.2-thread-safety.patch, a backport of upstream
+  commit c924a7a, which gives each call its own scratch buffer (task #96);
+  the patched source is the r3.2 tag plus that file.
 
 Deblock — GPL-2.0
   Copyright (c) 2004 Manao (originally a function in MVTools 0.9.6.2)
@@ -573,10 +602,18 @@ Retinex — GPL-3.0
   Copyright (C) 2014 mawen1250
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-Retinex
   Licence text: GPL-3.0.txt
+  Built from source at commit 6bfbdd42 (r4 plus upstream's fix for sigma
+  being appended to the defaults) on every platform. VapourBox applies
+  Scripts/patches/retinex-6bfbdd4-vapourbox-marker.patch, which changes no
+  code: it adds "(VapourBox: 6bfbdd42, sigma not appended, task #113)" to
+  the plugin's description, so a build can be identified.
 
 BM3D — MIT
   Copyright (c) 2015-2016 mawen1250
   https://github.com/HomeOfVapourSynthEvolution/VapourSynth-BM3D
+  Release r12: built from source on macOS and Linux, taken unmodified from
+  the project's PyPI wheel on Windows, which includes FFTW
+  (GPL-2.0-or-later, see its entry below) linked in statically.
 
 descale — MIT
   Copyright © 2017-2022 Frechdachs (the LICENSE file says © 2021 Frechdachs);
@@ -686,11 +723,19 @@ FFmpeg — GPL-3.0-or-later (as built)
   configured with --enable-gpl --enable-version3, which makes the resulting
   binaries GPL-3.0-or-later. They also link, among others, x264 and x265
   (GPL-2.0-or-later), which is why the GPL configuration is used.
-  Binaries are taken pre-built and unmodified from:
-    - macOS (arm64 and x64): https://ffmpeg.martin-riedl.de
-    - Windows and Linux: https://github.com/BtbN/FFmpeg-Builds
-  Run `ffmpeg -version` on the bundled binary for its exact configuration, and
-  see https://ffmpeg.org/legal.html for source availability.
+  Binaries are taken pre-built and unmodified, FFmpeg 9.0.2, each pinned by
+  its SHA-256:
+    - macOS (arm64 and x64): https://ffmpeg.martin-riedl.de, builds
+      1789931890 (arm64) and 1789931006 (x64)
+    - Windows and Linux: https://github.com/BtbN/FFmpeg-Builds, build
+      n9.0.2-963-g4d831360c9. BtbN keeps its dated builds for a few weeks,
+      so VapourBox redistributes these exact files from its own
+      ffmpeg-mirror-v1 release, unchanged.
+  The source of each build is the FFmpeg version it names (for BtbN's,
+  FFmpeg commit 4d831360c9), configured by the build scripts its builder
+  publishes. Run `ffmpeg -version` on the
+  bundled binary for its exact configuration, and see
+  https://ffmpeg.org/legal.html.
 
 whisper.cpp — MIT
   Copyright (c) 2023-2026 The ggml authors (project started by Georgi Gerganov)
@@ -700,6 +745,13 @@ whisper.cpp — MIT
   the Homebrew whisper-cpp bottle, on Windows from the project's own release,
   on Linux from an unmodified build published on this repository's releases.
   Installed and removed in Settings → Add-ons.
+
+SDL2 — zlib licence
+  Copyright (C) 1997-2023 Sam Lantinga
+  https://github.com/libsdl-org/SDL
+  Shipped only in the Windows Whisper add-on: whisper.cpp's Windows release
+  includes SDL2.dll, which the add-on installs beside whisper-cli.exe,
+  unmodified. VapourBox itself does not use it.
 
 Whisper models — MIT
   Copyright (c) 2022 OpenAI
@@ -718,12 +770,28 @@ libdvdread — GPL-2.0-or-later
   source with one modification, Scripts/patches/libdvdread-6.1.3-macos-dvdcss-
   paths.patch in the VapourBox source (it also looks for a user-installed
   libdvdcss in /opt/homebrew/lib, /usr/local/lib and /opt/local/lib).
+  Windows uses ShiftMediaProject's unmodified 6.1.3-1 MSVC build
+  (https://github.com/ShiftMediaProject/libdvdread); Linux uses Ubuntu's
+  libdvdread8t64 6.1.3-1.1build1 package.
 
 FFTW — GPL-2.0-or-later
   Copyright (c) Matteo Frigo and the Massachusetts Institute of Technology
   https://www.fftw.org
   Licence text: GPL-2.0.txt
-  Required by MVTools and FFT3DFilter.
+  Used by MVTools, FFT3DFilter, DFTTest and DCTFilter. On Apple Silicon the
+  libraries come from yuygfgg/Macos_vapoursynth_plugins; Intel Macs build
+  3.3.10 from the release tarball; Linux ships Ubuntu's libfftw3-single3
+  3.3.10 package; Windows ships the official 3.3.5 DLL from fftw.org.
+  zsmooth and the Windows BM3D also carry their own statically linked copy
+  (see their entries).
+
+OpenCL ICD loader (ocl-icd) — BSD-2-Clause
+  Copyright (c) 2012-2020, Brice Videau
+  Copyright (c) 2012-2020, Vincent Danjean
+  https://github.com/OCL-dev/ocl-icd
+  Shipped on Linux only (libOpenCL.so, Ubuntu's ocl-icd-libopencl1
+  2.3.2-1build1 package), unmodified. It finds the OpenCL driver installed
+  on the machine for the OpenCL plugins (NNEDI3CL, KNLMeansCL).
 
 Boost — Boost Software License 1.0
   Copyright (c) the Boost authors
@@ -745,8 +813,9 @@ Zstandard — BSD 3-Clause (dual-licensed BSD/GPL-2.0 upstream)
 5. Build tooling present in the dependency bundle
 -------------------------------------------------------------------------------
 
-The bundled Python installation carries the tools its own build needed. They
-are not used at runtime but are distributed, so they are listed here.
+On macOS and Linux, the bundled Python installation carries the tools its
+own build needed. They are not used at runtime but are distributed, so they
+are listed here. (Windows' embeddable Python carries none of them.)
 
 Cython — Apache-2.0        https://github.com/cython/cython
 Meson  — Apache-2.0        https://github.com/mesonbuild/meson
@@ -850,6 +919,70 @@ DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE, Version 2
   0. You just DO WHAT THE FUCK YOU WANT TO.
 
 
+Zope Public License (ZPL) Version 2.1
+-------------------------------------
+(Applies to the parts of the mingw-w64 runtime not placed in the Public
+Domain. Copyright (c) 2009 - 2013 by the mingw-w64 project.)
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+   1. Redistributions in source code must retain the accompanying copyright
+      notice, this list of conditions, and the following disclaimer.
+   2. Redistributions in binary form must reproduce the accompanying
+      copyright notice, this list of conditions, and the following disclaimer
+      in the documentation and/or other materials provided with the
+      distribution.
+   3. Names of the copyright holders must not be used to endorse or promote
+      products derived from this software without prior written permission
+      from the copyright holders.
+   4. The right to distribute this software or to use it for any purpose does
+      not give you the right to use Servicemarks (sm) or Trademarks (tm) of
+      the copyright holders.  Use of them is covered by separate agreement
+      with the copyright holders.
+   5. If any files are modified, you must cause the modified files to carry
+      prominent notices stating that you changed the files and the date of
+      any change.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY EXPRESSED
+OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO
+EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA,
+OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
+BSD 2-Clause License
+--------------------
+(Applies to the OpenCL ICD loader (ocl-icd), under the copyright notice given
+above.)
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
+ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+
 BSD 3-Clause License
 --------------------
 (Applies to Flutter, Zstandard, ncnn, the core of glslang, Protocol Buffers,
@@ -909,8 +1042,8 @@ DEALINGS IN THE SOFTWARE.
 
 zlib License
 ------------
-(Applies to zlib and to the SIMD math headers ncnn includes, under the
-copyright notices given above.)
+(Applies to zlib, to SDL2 and to the SIMD math headers ncnn includes, under
+the copyright notices given above.)
 
 This software is provided 'as-is', without any express or implied warranty. In
 no event will the authors be held liable for any damages arising from the use

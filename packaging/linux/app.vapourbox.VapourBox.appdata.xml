@@ -38,9 +38,11 @@
       <li>Converts DV, AVCHD, MPEG-2, MXF and ordinary MP4, MKV, AVI and MOV files, DVD folders and discs</li>
       <li>Deinterlaces with QTGMC and reverses telecine, after detecting how the source is stored</li>
       <li>Optional cleanup filters for tape noise, colour bleed, film dust and scratches, ghosting and more</li>
+      <li>Optional AI models, each a separate download: upscaling, frame interpolation, face restoration and colourisation</li>
+      <li>Restores the sound: hum, clicks, hiss, a dead channel, speech, and sound out of sync or drifting</li>
       <li>Presets named after the source: VHS, DV camcorder tape, DVD and broadcast, anime, 8mm and Super 8 film</li>
       <li>A side-by-side preview of the source and the processed result, and a queue for batches</li>
-      <li>Encodes to H.264, HEVC, ProRes and lossless formats, with hardware encoders where available</li>
+      <li>Encodes to H.264, HEVC, AV1, ProRes, uncompressed 10-bit (v210) and lossless formats, with hardware encoders where available</li>
       <li>Transcribes speech to subtitles</li>
     </ul>
     <p>
