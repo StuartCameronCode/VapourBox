@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Auto white balance cost</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+pre { background: var(--code); padding: 8px 12px; overflow-x: auto; font-size: .85em; }
+.box { border-left: 3px solid var(--line); padding: .2em 1em; color: var(--muted); }
+</style>
+</head>
+<body>
+<h1>Automatic white balance compiled an expression for every frame</h1>
+<p class="meta">GitHub issue #253 (task #136), 2026-11-28. Measured on an Apple M1 (8 cores), deps 1.18.0-rc5 (macOS arm64) unless stated. The issue's own numbers are from a Windows desktop and a 48-core EPYC.</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>The issue is right, and the cost was worse than it says.</b> Colour Correction's automatic white balance (<code>_auto_white</code>) returned a new expression from a <code>std.FrameEval</code> on every frame, with the frame's offsets written into the expression text. The template's <code>_expr()</code> sends an expression to <b>akarin</b> wherever akarin is installed (every bundle but macOS x64), so every frame paid for an <b>LLVM compile</b>, inside a Python callback that holds the GIL. That is ~17 ms a frame on an M1, and no number of cores helps: the issue's 20% CPU and the EPYC running slower than the desktop.</li>
+<li><b>Fix:</b> with akarin, PlaneStats stamps each chroma plane's mean on the frame and <b>one</b> expression, compiled once, reads it (<code>x x._AwbUAverage …</code>). No Python runs per frame. The FrameEval stays only as the fallback where akarin is absent (macOS x64), where each frame's <code>std.Expr</code> is cheap (~0.35 ms).</li>
+<li><b>Speed, the filter alone at 706x480:</b> ~60 fps → ~8,000 fps (see <a href="#isolated">below</a>). Through the worker on this machine under heavy load the issue's whole chain did not speed up measurably (10.8 → 10.9 fps): the rest of the chain was slower than the old filter's serial limit there. On a free machine whose other passes run faster than ~60 fps, as the issue's did (47.6 fps without Colour Correction), the old filter was the limit; that case was not measured here.</li>
+<li><b>Output:</b> the fallback is identical everywhere, as is the akarin path at 8, 10 and 12 bits. At 16 bits, 17 of 10,800 chroma planes (0.16%) came out one 16-bit step apart (1/256 of an 8-bit level): akarin reads a frame property as a 32-bit float, and the old code wrote the offset as a 6-decimal literal. Neither is the more correct.</li>
+<li><b>Automatic levels is left as it is.</b> The issue suggested the same treatment, but it costs ~0.2 ms a frame (a <code>std.Levels</code> is a lookup table, not a compile), and the akarin version is not bit-exact: akarin compiles with fast-math, and its division lands a .5 tie on the other side of <code>std.Levels</code>' in 2.0% of (min, max) pairs, one level off.</li>
+<li>The old code was also the pattern the IVTC fade fix forbids (an akarin node per frame inside a FrameEval; there it aborted or hung jobs). CLAUDE.md now states it as a rule for every pass.</li>
+</ul>
+
+<h2>The code</h2>
+<p>Before (<code>worker/templates/pipeline_template.vpy</code>, <code>{{#CC_AUTO_WHITE}}</code>):</p>
+<pre>su = core.std.PlaneStats(c, plane=1)
+sv = core.std.PlaneStats(c, plane=2)
+
+def _apply(n, f, clip_in):
+    du = (neutral - f[0].props['PlaneStatsAverage'] * peak) * strength
+    dv = (neutral - f[1].props['PlaneStatsAverage'] * peak) * strength
+    return _expr(clip_in, ['', 'x {:.6f} +'.format(du), 'x {:.6f} +'.format(dv)])
+
+return core.std.FrameEval(c, functools.partial(_apply, clip_in=c), prop_src=[su, sv])</pre>
+<p>After, where akarin is present:</p>
+<pre>st = core.std.PlaneStats(c, plane=1, prop='_AwbU')
+st = core.std.PlaneStats(st, plane=2, prop='_AwbV')
+out = _expr(st, ['',
+    f'x {neutral} x._AwbUAverage {peak} * - {strength} * +',
+    f'x {neutral} x._AwbVAverage {peak} * - {strength} * +'])
+return core.std.RemoveFrameProps(out, props=[...the six _Awb* properties...])</pre>
+<p>The same arithmetic, per frame. The prefixed property names keep the stats from colliding with a later pass's <code>PlaneStats</code>, and they are removed afterwards. Everything before the akarin branch, and the fallback after it, is unchanged.</p>
+
+<h2 id="isolated">Speed of the filter alone</h2>
+<p><code>scripts/bench_isolated.py</code> takes <code>_auto_white</code> verbatim from the template before (main) and after, and pulls it through <code>frames()</code> on a synthetic 706x480 4:2:0 clip: AddGrain noise, a chroma cast that changes every frame, and a luma contrast that drifts. No decoder or encoder. <code>_auto_levels</code>, unchanged, is timed alongside for scale.</p>
+<p>The machine was never idle while this was measured: another task's heavy tests were running. Two runs are shown. Run A, 1,200 frames, came right after this task's own test suite finished, and the load was not recorded. Run B, 600 frames, was taken with a load average of 165–180 on 8 cores (<code>data/timing_conditions.txt</code>; output in <code>data/bench_isolated_macos-arm64.txt</code>). Absolute numbers swing with the load (B's "no filter" row: 344 fps at 8 bits, 2,614 at 10). The ratio is the result: the old filter's cost is one serial compile per frame, and it does not shrink with spare cores.</p>
+<table>
+<tr><th rowspan="2"><code>_auto_white</code></th><th colspan="2">Run A (load not recorded)</th><th colspan="2">Run B (load ~170)</th></tr>
+<tr><th>8-bit</th><th>10-bit</th><th>8-bit</th><th>10-bit</th></tr>
+<tr><td>before (main)</td><td class="num no">59 fps</td><td class="num no">61 fps</td><td class="num no">6 fps</td><td class="num no">20 fps</td></tr>
+<tr><td>after, akarin</td><td class="num ok">8,399 fps</td><td class="num ok">7,949 fps</td><td class="num ok">1,415 fps</td><td class="num ok">2,251 fps</td></tr>
+<tr><td>after, no akarin (macOS x64's fallback, unchanged)</td><td class="num">2,862 fps</td><td class="num">2,967 fps</td><td class="num">530 fps</td><td class="num">595 fps</td></tr>
+<tr><td><code>_auto_levels</code> (unchanged), for scale</td><td class="num">~5,000 fps</td><td class="num">~4,500 fps</td><td class="num">1,162 fps</td><td class="num">944 fps</td></tr>
+</table>
+<p>Run A was made with an earlier version of the script, while automatic levels was being tried with a node cache (since dropped); its <code>_auto_white</code> rows are the same code as now, and its levels figure is the before/after range given further down. Run A's output file was overwritten by run B; its numbers, and the first-look numbers below, are copied from the session's terminal output.</p>
+<p>The first measurement, made while planning (<code>scripts/bench_first_look.py</code>, the two versions written out inline, deps 1.16.0, machine load not recorded), agreed: old 47.4 fps, new 8,088 fps at 8 bits, old 38.3, new 1,873 at 10 bits, with a <code>std.Expr</code> per frame (the macOS x64 path) at 2,856 fps.</p>
+
+<h2>Speed of the issue's chain</h2>
+<p><code>scripts/chain_timing.py</code> runs the issue's chain through the worker binary (<code>--config</code>): SMDegrain, LSFmod, then Colour Correction with automatic white balance and local contrast (CLAHE), x264 CRF 10. The source is <code>Tests/TestResources/pal-sd-25.mov</code>, looped to 300 frames, scaled to 706x480 and stored as 8-bit 4:2:0 FFV1. "Before" puts main's templates beside the worker, which reads them first. The generated scripts were checked: "before" has no <code>_AwbU</code>, "after" has it. Wall time per job, the faster of two runs, with the load average at 165–220 (<code>data/chain_timing_macos-arm64.txt</code>, <code>data/timing_conditions.txt</code>).</p>
+<table>
+<tr><th>Job</th><th>Seconds (300 frames)</th><th>fps</th></tr>
+<tr><td>SMDegrain + LSFmod</td><td class="num">20.6</td><td class="num">14.6</td></tr>
+<tr><td>+ Colour Correction (auto WB + CLAHE), before</td><td class="num">27.8</td><td class="num">10.8</td></tr>
+<tr><td>+ Colour Correction (auto WB + CLAHE), after</td><td class="num">27.4</td><td class="num">10.9</td></tr>
+</table>
+<p><b>No measurable change here, and why.</b> The old filter's cost is serial: ~17 ms a frame on this M1, a ceiling of ~60 fps for the job. Here the rest of the chain, sharing 8 cores with another task's tests, ran at ~11 fps, far below that ceiling, so the old filter's work overlapped the other passes and cost almost nothing extra. It becomes the limit when the rest of the chain runs faster than its ceiling, as on the issue's desktop (47.6 fps for SMDegrain + LSFmod, 16.8 with Colour Correction: ~38 ms a frame for the colour correction, at 20% CPU). That case, a free machine fast enough to hit the ceiling, was not measured here. The isolated numbers above are what this change is shown to remove; how much of a whole job that is depends on the machine and the rest of the chain.</p>
+
+<h2>Is the picture the same?</h2>
+<p><code>scripts/probe_exact.py</code> runs both versions of <code>_auto_white</code> on the same clips: 60 frames at 706x480, every depth (8/10/12/16), every subsampling, strengths 0, 0.37, 0.8 and 1. The new function runs once with akarin and once bound to <code>std.Expr</code> (the fallback). <code>data/probe_exact.txt</code>:</p>
+<table>
+<tr><th>Path</th><th>Cases</th><th>Identical</th></tr>
+<tr><td>akarin</td><td class="num">48</td><td class="num">46; <span class="no">16-bit 4:2:2 and 4:4:4 at strength 0.8: max 1</span></td></tr>
+<tr><td>fallback (std.Expr)</td><td class="num">48</td><td class="num ok">48</td></tr>
+</table>
+<p><code>scripts/probe_white_rate.py</code> counts how often, over 600 frames per case (<code>data/probe_white_rate.txt</code>):</p>
+<table>
+<tr><th>Depth</th><th>Chroma planes that differ (of 1,200 per case, 9 cases)</th><th>Largest difference</th></tr>
+<tr><td>8, 10, 12-bit</td><td class="num ok">0 of 10,800 at each depth</td><td class="num">0</td></tr>
+<tr><td>16-bit</td><td class="num">17 of 10,800 (0.16%): 0–5 per case</td><td class="num">1 sample step</td></tr>
+</table>
+<p>Why: the integer sample x plus the offset rounds to x + round(offset), so only the offset's rounding matters. The old code computed the offset in double precision and wrote it with 6 decimals; akarin reads the PlaneStats mean (a double in [0, 1]) as a 32-bit float, which times a 16-bit peak leaves about 0.004 of a step of error. Where the offset's fraction is that close to .5, the plane rounds the other way. At 12 bits the error is under 0.0003 of a step, and nothing differed. A Python callback stamping a double-precision offset (as the fade fix does) would remove the difference at the cost of Python on every frame again; for 1/65,535 of full range on 0.16% of planes, it is not worth it.</p>
+<p>The heavy test <code>app/test/integration_auto_colour_test.dart</code> also checks, through the worker on a real clip (<code>small_clip.mp4</code>), that each automatic filter changes the picture and that the preview of a frame is the lossless encode's frame, sample for sample (max 0).</p>
+
+<h2>Why automatic levels stays a std.Levels</h2>
+<p>Automatic levels has the same shape, a <code>std.Levels</code> (and <code>std.Merge</code> below strength 1) per frame, but a <code>std.Levels</code> is a lookup table built in microseconds, not a compile: ~5,000 fps on its own at 706x480 before and after. Caching each (min, max) pair's node was tried and made no measurable difference on the drifting clip (5,052 → 5,432 fps at 8 bits, 4,843 → 4,118 at 10; machine load not recorded), so it was not kept.</p>
+<p>One akarin expression reading the measured points from frame properties was tried too, written as <code>std.Levels</code>' own arithmetic (R78 <code>genericfilters.cpp</code>: clamp, <code>(v − min_in) / (max_in − min_in)</code>, × range, + <code>min_out</code>, clamp, + 0.5, truncate). It is not bit-exact. akarin compiles with fast-math, so the division becomes a multiplication by a reciprocal, and where the exact result is a .5 tie the reciprocal's rounding drops it: <code>min_in=52 max_in=162 min_out=16 max_out=235</code>, input 107 is 55/110 × 219 + 16 = 125.5, <code>std.Levels</code> 126, akarin 125. <code>scripts/probe_akarin_levels.py</code>, <code>data/probe_akarin_levels.txt</code>:</p>
+<table>
+<tr><th>Spelling of the expression</th><th><code>opt=0</code></th><th><code>opt=1</code></th></tr>
+<tr><td>with the flat-frame test (<code>max ≤ min</code> keeps the frame)</td><td class="num">91 of 4,488 (2.0%)</td><td class="num">91 (2.0%)</td></tr>
+<tr><td>plain</td><td class="num">91 (2.0%)</td><td class="num">91 (2.0%)</td></tr>
+<tr><td>clamp, + 0.5, truncate (<code>std.Levels</code>' order)</td><td class="num">91 (2.0%)</td><td class="num">91 (2.0%)</td></tr>
+</table>
+<p>Cases are seeded random (min, max) pairs at 8 bits, with three output ranges (16–235, 0–255, 40–200); a case differs if any of the 256 inputs does. With constants in place of properties, <code>opt=1</code> happened to match and <code>opt=0</code> did not; with properties neither does. The white balance has no division, which is why it can be one expression.</p>
+
+<h2>What changed</h2>
+<ul>
+<li><code>worker/templates/pipeline_template.vpy</code>: <code>_auto_white</code>'s akarin branch; a comment on <code>_auto_levels</code> saying why it is left alone.</li>
+<li>Tests: <code>test_271</code> (Rust) and <code>color_correction: automatic colour builds no node per frame</code> (Flutter, push gate) check that the akarin branch reads the means from properties, evaluates nothing per frame and comes before the fallback, and that automatic levels stays a <code>std.Levels</code>. <code>integration_auto_colour_test.dart</code> (heavy) is described above.</li>
+<li>CLAUDE.md, "One script template": never build an akarin expression per frame, and the fast-math caveat.</li>
+</ul>
+
+<h2>Corrections made during the work</h2>
+<ul>
+<li>The plan proposed moving automatic levels into one akarin expression too, after a first check that found no difference. That check covered too few (min, max) pairs; the wider one above found 2.0% of pairs one level off, so the idea was dropped. A node cache tried next gained nothing measurable and was dropped as well.</li>
+<li>The first run of the exactness probe built its white-balance clips without grain (the bundle has no <code>noise</code> plugin; it now uses AddGrain), and its format table made every "4:2:2" case 4:2:0. It found no difference. The run reported above has grain and real 4:2:2, and it found the two 16-bit cases.</li>
+</ul>
+
+<h2>Limits</h2>
+<div class="box">
+<p>The machine was shared with another task's heavy tests for every timing: the load average was not recorded for run A and was 165–220 for run B and the chain. Whole-job speed on a free machine was not measured. All speeds are one M1 on macOS. The issue's machine is Windows x86, where akarin's compile cost per frame will differ, but the cost was per frame and serial on every platform, and it is gone on every platform. The isolated numbers are synthetic clips through <code>frames()</code>, the filter's own cost; the chain's speed depends on the other passes and the encoder. The chain's source is a camera clip, not a VHS capture. macOS x64 (no akarin) keeps the fallback: it ran a <code>std.Expr</code> per frame before and still does, so nothing changes there; its speed was not measured on Intel hardware. The exactness probes use synthetic clips (grain plus a moving chroma cast); the 16-bit rate depends on how often a frame's offset lands within ~0.004 of a half step, which is a property of the arithmetic, not the picture.</p>
+</div>
+</body>
+</html>

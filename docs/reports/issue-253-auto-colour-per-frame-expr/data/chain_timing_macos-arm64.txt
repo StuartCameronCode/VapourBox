@@ -1,0 +1,4 @@
+[in#0 @ 0x14d805460] Referenced QT chapter track not found
+SMDegrain + LSFmod                               300 frames    20.6 s   14.6 fps
++ Colour Correction (auto WB + CLAHE), before    300 frames    27.8 s   10.8 fps
++ Colour Correction (auto WB + CLAHE), after     300 frames    27.4 s   10.9 fps
