@@ -5,10 +5,11 @@ This document tracks patches and configuration needed to build VapourSynth and p
 > **`Scripts/download-deps-macos.sh` is the authority**, not this file. These are
 > notes from the original arm64 bring-up, kept because the reasoning behind the
 > install-name and code-signing work is not obvious from the script. Where the two
-> disagree, the script wins. In particular, arm64 now takes **most plugins
-> pre-built** from the `yuygfgg/Macos_vapoursynth_plugins` pool rather than
-> building them, so several build patches below apply only to the x86_64 path (or
-> no longer run at all).
+> disagree, the script wins. In particular, arm64 now takes only neo_f3kdb,
+> TTempSmooth, VIVTC and the FFTW libraries pre-built from the
+> `yuygfgg/Macos_vapoursynth_plugins` pool; most other plugins are built from
+> source (several with VapourBox's patches in `Scripts/patches/`), so some build
+> notes below are out of date or no longer run at all.
 
 ## VapourSynth Core
 

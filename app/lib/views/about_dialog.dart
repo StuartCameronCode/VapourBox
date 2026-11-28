@@ -577,6 +577,12 @@ class _AboutDialogState extends State<AboutDialog> {
                         url: 'https://github.com/ggml-org/whisper.cpp',
                       ),
                       _ComponentTile(
+                        name: 'SDL2 (in the Windows Whisper download)',
+                        license: 'zlib',
+                        copyright: 'Sam Lantinga',
+                        url: 'https://github.com/libsdl-org/SDL',
+                      ),
+                      _ComponentTile(
                         name: 'Whisper models (optional download)',
                         license: 'MIT',
                         copyright: 'OpenAI',
@@ -617,6 +623,18 @@ class _AboutDialogState extends State<AboutDialog> {
                         license: 'GPL 2.0+',
                         copyright: 'Matteo Frigo and MIT',
                         url: 'https://www.fftw.org',
+                      ),
+                      _ComponentTile(
+                        name: 'OpenCL ICD loader (ocl-icd, Linux)',
+                        license: 'BSD 2-Clause',
+                        copyright: 'Brice Videau and Vincent Danjean',
+                        url: 'https://github.com/OCL-dev/ocl-icd',
+                      ),
+                      _ComponentTile(
+                        name: 'mingw-w64 runtime (Windows)',
+                        license: 'ZPL 2.1 (parts Public Domain)',
+                        copyright: 'The mingw-w64 project',
+                        url: 'https://www.mingw-w64.org',
                       ),
                       _ComponentTile(
                         name: 'Boost',

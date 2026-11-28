@@ -376,6 +376,7 @@ Set<String> _licenceFamilies(String text) {
     'no licence': 'none stated', 'no license': 'none stated', 'no copyright': 'no copyright',
     'microsoft software license': 'microsoft proprietary',
     's-lab license': 's-lab', 'nvidia source code license': 'nvidia-nc',
+    'zpl': 'zpl', 'zope public': 'zpl',
   };
   final out = {for (final MapEntry(key: w, value: f) in words.entries) if (t.contains(w)) f};
   for (final m in RegExp(r'(?<!l)gpl[ -]?v?([23])').allMatches(t)) {
