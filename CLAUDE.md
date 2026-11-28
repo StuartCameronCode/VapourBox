@@ -3580,6 +3580,11 @@ cd worker && cargo run --release -- --config test_job.json
 > 23-30 s there and failed 8 nightly legs (task #99, as task #95 did for
 > Descale). Don't raise the default in `dart_test.yaml`: it would hide real
 > hangs everywhere.
+> **A slow encode also passes `runJob` a `timeout:` below the test's own**
+> (its default is 5 min), and a smoke encode covers only the frames its
+> pass needs: BM3D on the whole 79-frame fixture took up to 300+ s on the
+> Macs and hit that limit 9 times in 40 nightlies; it now encodes 24
+> (task #128).
 > A `setUpAll` can't state one: package:test gives it 12 minutes, fixed,
 > which is why the nightly prefetches add-ons before the tests (task #117,
 > "Add-ons").

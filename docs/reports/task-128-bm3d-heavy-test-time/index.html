@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BM3D heavy test time</title>
+<style>
+:root { --fg:#1d1f23; --muted:#5b6170; --bg:#fff; --line:#d9dce3; --ok:#1f7a3a; --no:#b3261e; --code:#f3f4f7; --dot:#2f5fb3; }
+@media (prefers-color-scheme: dark) { :root { --fg:#e6e7ea; --muted:#a2a7b3; --bg:#16181c; --line:#30343c; --ok:#6fd08c; --no:#ff8a80; --code:#22252b; --dot:#8fb3f5; } }
+body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); max-width: 980px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6em; margin-bottom: .2em; } h2 { margin-top: 2em; border-bottom: 1px solid var(--line); padding-bottom: .2em; }
+.meta { color: var(--muted); }
+table { border-collapse: collapse; margin: 1em 0; font-size: .92em; display: block; overflow-x: auto; }
+th, td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; vertical-align: top; }
+th { background: var(--code); }
+td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); } .no { color: var(--no); }
+code { background: var(--code); padding: 1px 4px; border-radius: 3px; font-size: .92em; }
+svg .grid { stroke: var(--line); } svg .limit { stroke: var(--no); stroke-dasharray: 4 3; }
+svg .ax { fill: var(--muted); font-size: 12px; } svg .lim { fill: var(--no); font-size: 12px; }
+svg .p { fill: var(--dot); fill-opacity: .6; } svg .f { fill: var(--no); }
+figcaption { color: var(--muted); font-size: .9em; }
+</style>
+</head>
+<body>
+<h1>The BM3D smoke encode that outgrew the 300 s job limit</h1>
+<p class="meta">Task #128, 2026-11-28. The failure: <code>integration_new_passes_test.dart</code> › <code>noise reduction: BM3D runs end-to-end, chroma included</code>, <code>TimeoutException: nr_bm3d timed out after 300s</code> on the macos-arm64 heavy leg of nightly 46018310484 (job 140571075844, a <code>deps_run_id</code> dispatch of task #114's deps build). The worker log there shows the encode finished, 79/79 frames at 0.27 fps (ffmpeg <code>elapsed=0:04:49</code>), just as the job limit expired. The evidence is the logs of the last 40 <code>nightly.yml</code> runs (<code>scripts/bm3d_times.py</code>, <code>data/bm3d_times.txt</code>).</p>
+
+<h2>Outcome</h2>
+<ul>
+<li><b>The test sat at the limit on every Mac, not on one draw.</b> The test allows 6 minutes, but it called <code>WorkerHarness.runJob</code> without a <code>timeout:</code>, so the harness's default job limit, 5 minutes, applied. The encode was the whole fixture, <code>interlaced_test.avi</code> (720x576, 79 frames), through V-BM3D at radius 1 with chroma: on macos-arm64 it took 222–300+ s, and the job limit killed it on 5 of 21 legs; on the x64 Macs 4 of 47.</li>
+<li><b>Not the deps.</b> On an M1, task #114's bundle and rc4's run the template's BM3D block at the same speed (32.2 s vs 33.3 s for 24 frames, measured in task #114), and the arm64 heavy step's total time was unchanged.</li>
+<li><b>Fix (the test): 24 frames, an explicit job limit, a frame count.</b> The job is trimmed to frames 0–23 (<code>startFrame: 0</code>, so no seek is added). V-BM3D at radius 1 still has a neighbour each side, and both steps, every plane and the 16-bit round trip still run. <code>runJob</code> gets <code>timeout: 5 min</code>, below the test's 6, so a real hang is still named and sampled by the harness (task #99). The test asserts the output has 24 frames, so a trim that stopped applying could not bring the long run back unnoticed. No retry.</li>
+<li><b>Expected time:</b> ~3.6 s a frame on the slowest Mac legs (79 frames in 280–300 s), so ~85–90 s for 24, over 3x inside the job limit. Not yet measured on the runners (see "Not tested").</li>
+</ul>
+
+<h2>Measured: the test's time on every heavy leg</h2>
+<p>Tests in one file run one after another, so the BM3D test's time is its result line's timestamp minus the previous test's (TTempSmooth). <b>Limits of the metric:</b> it includes a few seconds of ffprobe and test overhead, and a timeout row is a floor (~300 s, or up to 320 s with the hang sampling), not the encode's real time. Two Linux rows where the whole file failed in <code>setUpAll</code> (6 s and 13 s) are left out; they are not BM3D.</p>
+<table>
+<tr><th>Bundle</th><th>Legs</th><th>Min (s)</th><th>Mean (s)</th><th>Max (s)</th><th>Timeouts</th></tr>
+<tr><td>macos-arm64</td><td class="num">21</td><td class="num">222</td><td class="num">279</td><td class="num">320*</td><td class="num no">5</td></tr>
+<tr><td>macos-x64</td><td class="num">23</td><td class="num">105</td><td class="num">201</td><td class="num">300*</td><td class="num no">2</td></tr>
+<tr><td>macos-x64-v2</td><td class="num">24</td><td class="num">102</td><td class="num">194</td><td class="num">300*</td><td class="num no">2</td></tr>
+<tr><td>linux-x64</td><td class="num">23</td><td class="num">80</td><td class="num">154</td><td class="num">205</td><td class="num ">0</td></tr>
+<tr><td>linux-x64-v2</td><td class="num">22</td><td class="num">117</td><td class="num">159</td><td class="num">232</td><td class="num ">0</td></tr>
+<tr><td>windows-x64</td><td class="num">20</td><td class="num">76</td><td class="num">123</td><td class="num">190</td><td class="num ">0</td></tr>
+<tr><td>windows-x64-v2</td><td class="num">21</td><td class="num">75</td><td class="num">132</td><td class="num">178</td><td class="num ">0</td></tr>
+</table>
+<p class="meta">* the maximum is a timeout, so the real time was higher.</p>
+<figure>
+<svg viewBox="0 0 900 260" width="100%" role="img" aria-label="BM3D test time per nightly leg, by bundle">
+<line x1="130" y1="10" x2="130" y2="230" class="grid"/><text x="130" y="248" class="ax" text-anchor="middle">0 s</text>
+<line x1="262" y1="10" x2="262" y2="230" class="grid"/><text x="262" y="248" class="ax" text-anchor="middle">60 s</text>
+<line x1="395" y1="10" x2="395" y2="230" class="grid"/><text x="395" y="248" class="ax" text-anchor="middle">120 s</text>
+<line x1="527" y1="10" x2="527" y2="230" class="grid"/><text x="527" y="248" class="ax" text-anchor="middle">180 s</text>
+<line x1="659" y1="10" x2="659" y2="230" class="grid"/><text x="659" y="248" class="ax" text-anchor="middle">240 s</text>
+<line x1="792" y1="10" x2="792" y2="230" class="grid"/><text x="792" y="248" class="ax" text-anchor="middle">300 s</text>
+<line x1="792" y1="10" x2="792" y2="230" class="limit"/><text x="796" y="22" class="lim">300 s job limit</text>
+<text x="122" y="34" class="ax" text-anchor="end">macos-arm64</text>
+<circle cx="782.9" cy="30" r="4" class="p"><title>macos-arm64: 296 s ok</title></circle>
+<circle cx="683.7" cy="30" r="4" class="p"><title>macos-arm64: 251 s ok</title></circle>
+<circle cx="820.4" cy="30" r="4" class="f"><title>macos-arm64: 313 s FAIL</title></circle>
+<circle cx="835.9" cy="30" r="4" class="f"><title>macos-arm64: 320 s FAIL</title></circle>
+<circle cx="763.1" cy="30" r="4" class="p"><title>macos-arm64: 287 s ok</title></circle>
+<circle cx="674.9" cy="30" r="4" class="p"><title>macos-arm64: 247 s ok</title></circle>
+<circle cx="632.9" cy="30" r="4" class="p"><title>macos-arm64: 228 s ok</title></circle>
+<circle cx="747.6" cy="30" r="4" class="p"><title>macos-arm64: 280 s ok</title></circle>
+<circle cx="752.1" cy="30" r="4" class="p"><title>macos-arm64: 282 s ok</title></circle>
+<circle cx="679.3" cy="30" r="4" class="p"><title>macos-arm64: 249 s ok</title></circle>
+<circle cx="791.8" cy="30" r="4" class="f"><title>macos-arm64: 300 s FAIL</title></circle>
+<circle cx="705.7" cy="30" r="4" class="p"><title>macos-arm64: 261 s ok</title></circle>
+<circle cx="619.7" cy="30" r="4" class="p"><title>macos-arm64: 222 s ok</title></circle>
+<circle cx="763.1" cy="30" r="4" class="p"><title>macos-arm64: 287 s ok</title></circle>
+<circle cx="791.8" cy="30" r="4" class="f"><title>macos-arm64: 300 s FAIL</title></circle>
+<circle cx="765.3" cy="30" r="4" class="p"><title>macos-arm64: 288 s ok</title></circle>
+<circle cx="791.8" cy="30" r="4" class="p"><title>macos-arm64: 300 s ok</title></circle>
+<circle cx="791.8" cy="30" r="4" class="f"><title>macos-arm64: 300 s FAIL</title></circle>
+<circle cx="785.1" cy="30" r="4" class="p"><title>macos-arm64: 297 s ok</title></circle>
+<circle cx="694.7" cy="30" r="4" class="p"><title>macos-arm64: 256 s ok</title></circle>
+<circle cx="791.8" cy="30" r="4" class="p"><title>macos-arm64: 300 s ok</title></circle>
+<text x="122" y="64" class="ax" text-anchor="end">macos-x64</text>
+<circle cx="555.7" cy="60" r="4" class="p"><title>macos-x64: 193 s ok</title></circle>
+<circle cx="555.7" cy="60" r="4" class="p"><title>macos-x64: 193 s ok</title></circle>
+<circle cx="535.9" cy="60" r="4" class="p"><title>macos-x64: 184 s ok</title></circle>
+<circle cx="688.1" cy="60" r="4" class="p"><title>macos-x64: 253 s ok</title></circle>
+<circle cx="388.1" cy="60" r="4" class="p"><title>macos-x64: 117 s ok</title></circle>
+<circle cx="644.0" cy="60" r="4" class="p"><title>macos-x64: 233 s ok</title></circle>
+<circle cx="646.2" cy="60" r="4" class="p"><title>macos-x64: 234 s ok</title></circle>
+<circle cx="606.5" cy="60" r="4" class="p"><title>macos-x64: 216 s ok</title></circle>
+<circle cx="591.0" cy="60" r="4" class="p"><title>macos-x64: 209 s ok</title></circle>
+<circle cx="624.1" cy="60" r="4" class="p"><title>macos-x64: 224 s ok</title></circle>
+<circle cx="533.7" cy="60" r="4" class="p"><title>macos-x64: 183 s ok</title></circle>
+<circle cx="416.8" cy="60" r="4" class="p"><title>macos-x64: 130 s ok</title></circle>
+<circle cx="516.0" cy="60" r="4" class="p"><title>macos-x64: 175 s ok</title></circle>
+<circle cx="513.8" cy="60" r="4" class="p"><title>macos-x64: 174 s ok</title></circle>
+<circle cx="361.6" cy="60" r="4" class="p"><title>macos-x64: 105 s ok</title></circle>
+<circle cx="500.6" cy="60" r="4" class="p"><title>macos-x64: 168 s ok</title></circle>
+<circle cx="390.3" cy="60" r="4" class="p"><title>macos-x64: 118 s ok</title></circle>
+<circle cx="780.7" cy="60" r="4" class="p"><title>macos-x64: 295 s ok</title></circle>
+<circle cx="791.8" cy="60" r="4" class="f"><title>macos-x64: 300 s FAIL</title></circle>
+<circle cx="586.6" cy="60" r="4" class="p"><title>macos-x64: 207 s ok</title></circle>
+<circle cx="791.8" cy="60" r="4" class="f"><title>macos-x64: 300 s FAIL</title></circle>
+<circle cx="588.8" cy="60" r="4" class="p"><title>macos-x64: 208 s ok</title></circle>
+<circle cx="580.0" cy="60" r="4" class="p"><title>macos-x64: 204 s ok</title></circle>
+<text x="122" y="94" class="ax" text-anchor="end">macos-x64-v2</text>
+<circle cx="399.1" cy="90" r="4" class="p"><title>macos-x64-v2: 122 s ok</title></circle>
+<circle cx="602.1" cy="90" r="4" class="p"><title>macos-x64-v2: 214 s ok</title></circle>
+<circle cx="401.3" cy="90" r="4" class="p"><title>macos-x64-v2: 123 s ok</title></circle>
+<circle cx="752.1" cy="90" r="4" class="p"><title>macos-x64-v2: 282 s ok</title></circle>
+<circle cx="465.3" cy="90" r="4" class="p"><title>macos-x64-v2: 152 s ok</title></circle>
+<circle cx="500.6" cy="90" r="4" class="p"><title>macos-x64-v2: 168 s ok</title></circle>
+<circle cx="434.4" cy="90" r="4" class="p"><title>macos-x64-v2: 138 s ok</title></circle>
+<circle cx="516.0" cy="90" r="4" class="p"><title>macos-x64-v2: 175 s ok</title></circle>
+<circle cx="666.0" cy="90" r="4" class="p"><title>macos-x64-v2: 243 s ok</title></circle>
+<circle cx="471.9" cy="90" r="4" class="p"><title>macos-x64-v2: 155 s ok</title></circle>
+<circle cx="478.5" cy="90" r="4" class="p"><title>macos-x64-v2: 158 s ok</title></circle>
+<circle cx="721.2" cy="90" r="4" class="p"><title>macos-x64-v2: 268 s ok</title></circle>
+<circle cx="712.4" cy="90" r="4" class="p"><title>macos-x64-v2: 264 s ok</title></circle>
+<circle cx="703.5" cy="90" r="4" class="p"><title>macos-x64-v2: 260 s ok</title></circle>
+<circle cx="489.6" cy="90" r="4" class="p"><title>macos-x64-v2: 163 s ok</title></circle>
+<circle cx="355.0" cy="90" r="4" class="p"><title>macos-x64-v2: 102 s ok</title></circle>
+<circle cx="516.0" cy="90" r="4" class="p"><title>macos-x64-v2: 175 s ok</title></circle>
+<circle cx="445.4" cy="90" r="4" class="p"><title>macos-x64-v2: 143 s ok</title></circle>
+<circle cx="516.0" cy="90" r="4" class="p"><title>macos-x64-v2: 175 s ok</title></circle>
+<circle cx="564.6" cy="90" r="4" class="p"><title>macos-x64-v2: 197 s ok</title></circle>
+<circle cx="430.0" cy="90" r="4" class="p"><title>macos-x64-v2: 136 s ok</title></circle>
+<circle cx="657.2" cy="90" r="4" class="p"><title>macos-x64-v2: 239 s ok</title></circle>
+<circle cx="791.8" cy="90" r="4" class="f"><title>macos-x64-v2: 300 s FAIL</title></circle>
+<circle cx="791.8" cy="90" r="4" class="f"><title>macos-x64-v2: 300 s FAIL</title></circle>
+<text x="122" y="124" class="ax" text-anchor="end">linux-x64</text>
+<circle cx="441.0" cy="120" r="4" class="p"><title>linux-x64: 141 s ok</title></circle>
+<circle cx="390.3" cy="120" r="4" class="p"><title>linux-x64: 118 s ok</title></circle>
+<circle cx="498.4" cy="120" r="4" class="p"><title>linux-x64: 167 s ok</title></circle>
+<circle cx="392.5" cy="120" r="4" class="p"><title>linux-x64: 119 s ok</title></circle>
+<circle cx="306.5" cy="120" r="4" class="p"><title>linux-x64: 80 s ok</title></circle>
+<circle cx="505.0" cy="120" r="4" class="p"><title>linux-x64: 170 s ok</title></circle>
+<circle cx="383.7" cy="120" r="4" class="p"><title>linux-x64: 115 s ok</title></circle>
+<circle cx="381.5" cy="120" r="4" class="p"><title>linux-x64: 114 s ok</title></circle>
+<circle cx="452.1" cy="120" r="4" class="p"><title>linux-x64: 146 s ok</title></circle>
+<circle cx="582.2" cy="120" r="4" class="p"><title>linux-x64: 205 s ok</title></circle>
+<circle cx="498.4" cy="120" r="4" class="p"><title>linux-x64: 167 s ok</title></circle>
+<circle cx="502.8" cy="120" r="4" class="p"><title>linux-x64: 169 s ok</title></circle>
+<circle cx="507.2" cy="120" r="4" class="p"><title>linux-x64: 171 s ok</title></circle>
+<circle cx="502.8" cy="120" r="4" class="p"><title>linux-x64: 169 s ok</title></circle>
+<circle cx="502.8" cy="120" r="4" class="p"><title>linux-x64: 169 s ok</title></circle>
+<circle cx="377.1" cy="120" r="4" class="p"><title>linux-x64: 112 s ok</title></circle>
+<circle cx="505.0" cy="120" r="4" class="p"><title>linux-x64: 170 s ok</title></circle>
+<circle cx="498.4" cy="120" r="4" class="p"><title>linux-x64: 167 s ok</title></circle>
+<circle cx="544.7" cy="120" r="4" class="p"><title>linux-x64: 188 s ok</title></circle>
+<circle cx="557.9" cy="120" r="4" class="p"><title>linux-x64: 194 s ok</title></circle>
+<circle cx="549.1" cy="120" r="4" class="p"><title>linux-x64: 190 s ok</title></circle>
+<circle cx="438.8" cy="120" r="4" class="p"><title>linux-x64: 140 s ok</title></circle>
+<text x="122" y="154" class="ax" text-anchor="end">linux-x64-v2</text>
+<circle cx="390.3" cy="150" r="4" class="p"><title>linux-x64-v2: 118 s ok</title></circle>
+<circle cx="394.7" cy="150" r="4" class="p"><title>linux-x64-v2: 120 s ok</title></circle>
+<circle cx="388.1" cy="150" r="4" class="p"><title>linux-x64-v2: 117 s ok</title></circle>
+<circle cx="513.8" cy="150" r="4" class="p"><title>linux-x64-v2: 174 s ok</title></circle>
+<circle cx="511.6" cy="150" r="4" class="p"><title>linux-x64-v2: 173 s ok</title></circle>
+<circle cx="447.6" cy="150" r="4" class="p"><title>linux-x64-v2: 144 s ok</title></circle>
+<circle cx="388.1" cy="150" r="4" class="p"><title>linux-x64-v2: 117 s ok</title></circle>
+<circle cx="505.0" cy="150" r="4" class="p"><title>linux-x64-v2: 170 s ok</title></circle>
+<circle cx="421.2" cy="150" r="4" class="p"><title>linux-x64-v2: 132 s ok</title></circle>
+<circle cx="511.6" cy="150" r="4" class="p"><title>linux-x64-v2: 173 s ok</title></circle>
+<circle cx="500.6" cy="150" r="4" class="p"><title>linux-x64-v2: 168 s ok</title></circle>
+<circle cx="505.0" cy="150" r="4" class="p"><title>linux-x64-v2: 170 s ok</title></circle>
+<circle cx="505.0" cy="150" r="4" class="p"><title>linux-x64-v2: 170 s ok</title></circle>
+<circle cx="641.8" cy="150" r="4" class="p"><title>linux-x64-v2: 232 s ok</title></circle>
+<circle cx="502.8" cy="150" r="4" class="p"><title>linux-x64-v2: 169 s ok</title></circle>
+<circle cx="505.0" cy="150" r="4" class="p"><title>linux-x64-v2: 170 s ok</title></circle>
+<circle cx="505.0" cy="150" r="4" class="p"><title>linux-x64-v2: 170 s ok</title></circle>
+<circle cx="553.5" cy="150" r="4" class="p"><title>linux-x64-v2: 192 s ok</title></circle>
+<circle cx="445.4" cy="150" r="4" class="p"><title>linux-x64-v2: 143 s ok</title></circle>
+<circle cx="432.2" cy="150" r="4" class="p"><title>linux-x64-v2: 137 s ok</title></circle>
+<circle cx="542.5" cy="150" r="4" class="p"><title>linux-x64-v2: 187 s ok</title></circle>
+<text x="122" y="184" class="ax" text-anchor="end">windows-x64</text>
+<circle cx="403.5" cy="180" r="4" class="p"><title>windows-x64: 124 s ok</title></circle>
+<circle cx="370.4" cy="180" r="4" class="p"><title>windows-x64: 109 s ok</title></circle>
+<circle cx="366.0" cy="180" r="4" class="p"><title>windows-x64: 107 s ok</title></circle>
+<circle cx="330.7" cy="180" r="4" class="p"><title>windows-x64: 91 s ok</title></circle>
+<circle cx="460.9" cy="180" r="4" class="p"><title>windows-x64: 150 s ok</title></circle>
+<circle cx="454.3" cy="180" r="4" class="p"><title>windows-x64: 147 s ok</title></circle>
+<circle cx="549.1" cy="180" r="4" class="p"><title>windows-x64: 190 s ok</title></circle>
+<circle cx="304.3" cy="180" r="4" class="p"><title>windows-x64: 79 s ok</title></circle>
+<circle cx="478.5" cy="180" r="4" class="p"><title>windows-x64: 158 s ok</title></circle>
+<circle cx="419.0" cy="180" r="4" class="p"><title>windows-x64: 131 s ok</title></circle>
+<circle cx="368.2" cy="180" r="4" class="p"><title>windows-x64: 108 s ok</title></circle>
+<circle cx="432.2" cy="180" r="4" class="p"><title>windows-x64: 137 s ok</title></circle>
+<circle cx="410.1" cy="180" r="4" class="p"><title>windows-x64: 127 s ok</title></circle>
+<circle cx="363.8" cy="180" r="4" class="p"><title>windows-x64: 106 s ok</title></circle>
+<circle cx="297.6" cy="180" r="4" class="p"><title>windows-x64: 76 s ok</title></circle>
+<circle cx="308.7" cy="180" r="4" class="p"><title>windows-x64: 81 s ok</title></circle>
+<circle cx="496.2" cy="180" r="4" class="p"><title>windows-x64: 166 s ok</title></circle>
+<circle cx="452.1" cy="180" r="4" class="p"><title>windows-x64: 146 s ok</title></circle>
+<circle cx="308.7" cy="180" r="4" class="p"><title>windows-x64: 81 s ok</title></circle>
+<circle cx="460.9" cy="180" r="4" class="p"><title>windows-x64: 150 s ok</title></circle>
+<text x="122" y="214" class="ax" text-anchor="end">windows-x64-v2</text>
+<circle cx="491.8" cy="210" r="4" class="p"><title>windows-x64-v2: 164 s ok</title></circle>
+<circle cx="359.4" cy="210" r="4" class="p"><title>windows-x64-v2: 104 s ok</title></circle>
+<circle cx="368.2" cy="210" r="4" class="p"><title>windows-x64-v2: 108 s ok</title></circle>
+<circle cx="370.4" cy="210" r="4" class="p"><title>windows-x64-v2: 109 s ok</title></circle>
+<circle cx="372.6" cy="210" r="4" class="p"><title>windows-x64-v2: 110 s ok</title></circle>
+<circle cx="458.7" cy="210" r="4" class="p"><title>windows-x64-v2: 149 s ok</title></circle>
+<circle cx="465.3" cy="210" r="4" class="p"><title>windows-x64-v2: 152 s ok</title></circle>
+<circle cx="427.8" cy="210" r="4" class="p"><title>windows-x64-v2: 135 s ok</title></circle>
+<circle cx="295.4" cy="210" r="4" class="p"><title>windows-x64-v2: 75 s ok</title></circle>
+<circle cx="412.4" cy="210" r="4" class="p"><title>windows-x64-v2: 128 s ok</title></circle>
+<circle cx="299.9" cy="210" r="4" class="p"><title>windows-x64-v2: 77 s ok</title></circle>
+<circle cx="432.2" cy="210" r="4" class="p"><title>windows-x64-v2: 137 s ok</title></circle>
+<circle cx="434.4" cy="210" r="4" class="p"><title>windows-x64-v2: 138 s ok</title></circle>
+<circle cx="396.9" cy="210" r="4" class="p"><title>windows-x64-v2: 121 s ok</title></circle>
+<circle cx="474.1" cy="210" r="4" class="p"><title>windows-x64-v2: 156 s ok</title></circle>
+<circle cx="522.6" cy="210" r="4" class="p"><title>windows-x64-v2: 178 s ok</title></circle>
+<circle cx="357.2" cy="210" r="4" class="p"><title>windows-x64-v2: 103 s ok</title></circle>
+<circle cx="454.3" cy="210" r="4" class="p"><title>windows-x64-v2: 147 s ok</title></circle>
+<circle cx="491.8" cy="210" r="4" class="p"><title>windows-x64-v2: 164 s ok</title></circle>
+<circle cx="482.9" cy="210" r="4" class="p"><title>windows-x64-v2: 160 s ok</title></circle>
+<circle cx="471.9" cy="210" r="4" class="p"><title>windows-x64-v2: 155 s ok</title></circle>
+</svg>
+<figcaption>Each dot is one nightly heavy leg's BM3D test time (blue: passed, red: timed out at the job limit). The Mac rows crowd the dashed 300 s line; Linux and Windows stay well under it.</figcaption>
+</figure>
+
+<h2>Local run after the change</h2>
+<p>Apple M1, deps 1.18.0-rc5, debug worker: the test <span class="ok">passed</span>, 24 frames out, in 95 s. <b>That time is not representative:</b> the machine's load average was 135 on 8 cores during the run (another job's VapourSynth). It shows the trim, the count and the job limit work, not the speed.</p>
+
+<h2>Decisions</h2>
+<ul>
+<li><b>Both a trim and an explicit limit, not one.</b> A larger limit alone (~12 min) would have kept ~4.5 minutes of arm64 nightly time on one smoke test, which checks only that BM3D runs. A trim alone would have left the test on the default, against CLAUDE.md's rule that a slow heavy test states its timeout.</li>
+<li><b>24 frames:</b> the M1 measurement in the task used 24, and it leaves BM3D's temporal step real neighbours on both sides with room to spare.</li>
+<li><b>The harness's default stays at 5 minutes</b>: raising it would hide hangs in every other test.</li>
+<li><b>Never a retry.</b></li>
+</ul>
+
+<h2>Not tested</h2>
+<ul>
+<li>The new time on the CI runners: the first nightly after the change gives it. Re-run <code>scripts/bm3d_times.py</code> then; with the trim, the delta it prints is the 24-frame test's time.</li>
+<li>Other timeouts in the same logs (many 30-second test timeouts in other files, a macOS x64 plugin-format probe child at 3600 s) were not examined; they are not this test.</li>
+</ul>
+
+<h2>Reproduce</h2>
+<p><code>python3 scripts/bm3d_times.py --runs 40 &gt; data/bm3d_times.txt</code> with an authenticated <code>gh</code>; job logs are cached in <code>$BM3D_LOG_DIR</code> (a temporary directory otherwise). Newer runs push older ones out of the 40, so the rows will differ.</p>
+</body>
+</html>

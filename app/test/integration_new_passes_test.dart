@@ -45,6 +45,9 @@ import 'support/worker_harness.dart';
 
 String get _outDir => '${WorkerHarness.outputDir}/new_passes';
 
+/// Frames the BM3D encode covers (task #128): enough for its temporal step.
+const _bm3dFrames = 24;
+
 VideoJob _baseJob(
   String name, {
   ProcessingPipeline? pipeline,
@@ -223,6 +226,11 @@ void main() {
     }, timeout: const Timeout(Duration(minutes: 6)));
 
     test('noise reduction: BM3D runs end-to-end, chroma included', () async {
+      // The whole 79-frame fixture took 222-300+ s on macos-arm64 and up to
+      // 300+ s on the x64 Macs, and hit the harness's 300 s job limit 9
+      // times in 40 nightlies (task #128). 24 frames still give V-BM3D's
+      // radius 1 neighbours on both sides, at ~90 s on the slowest Mac; the
+      // job limit stays below the test's so a hang is named and sampled.
       final job = _baseJob(
         'nr_bm3d',
         pipeline: const ProcessingPipeline(
@@ -233,9 +241,14 @@ void main() {
             bm3dChromaSigma: 2.0,
           ),
         ),
-      );
-      final result = await WorkerHarness.runJob(job.toJson(), label: 'nr_bm3d');
+      ).copyWith(startFrame: 0, endFrame: _bm3dFrames - 1);
+      final result = await WorkerHarness.runJob(job.toJson(),
+          label: 'nr_bm3d', timeout: const Duration(minutes: 5));
       await _expectValidVideo(result);
+      // A trim that stopped applying would bring the 300 s run back quietly.
+      final v = await WorkerHarness.firstStream(result.outputPath!,
+          selector: 'v:0', entries: ['nb_read_frames'], countFrames: true);
+      expect(v?['nb_read_frames'], '$_bm3dFrames');
     }, timeout: const Timeout(Duration(minutes: 6)));
 
     test('noise reduction: KNLMeans runs end-to-end where OpenCL works',

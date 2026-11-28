@@ -7087,3 +7087,23 @@ What was done:
 8 places on main. Out of scope: the runner's toolchains (above),
 python-build-standalone (pinned by URL), and akarin's vendored `libz` /
 `libboost_charconv` (a pinned wheel).
+
+### The BM3D smoke encode outgrew the harness's job limit (task #128, 2026-11-28)
+
+- **Symptom.** `integration_new_passes_test.dart`'s `noise reduction: BM3D
+  runs end-to-end, chroma included` failed with `nr_bm3d timed out after
+  300s` on the macos-arm64 heavy leg of nightly 46018310484, after the encode
+  had finished (79/79 frames, 0.27 fps). The test allows 6 minutes, but
+  `WorkerHarness.runJob`'s default job limit is 5.
+- **Measured** from the logs of the last 40 nightlies (165 heavy legs): the
+  test took 222–300+ s on macos-arm64 (mean 279 s), 102–300+ s on the x64
+  Macs, at most 232 s on Linux and 190 s on Windows, and timed out 9 times,
+  all on Mac legs. A standing flake, not one draw. #114's bundle and
+  rc4's run BM3D at the same speed on an M1, so it is runner speed.
+- **Fix.** The test encodes 24 frames (`endFrame: 23`), which still gives
+  V-BM3D's radius 1 a neighbour each side; it passes `runJob` an explicit
+  5-minute limit (below the test's 6) and asserts 24 output frames, so a
+  trim that stopped applying would not bring the long run back quietly.
+  Never a retry.
+
+Report: [docs/reports/task-128-bm3d-heavy-test-time](reports/task-128-bm3d-heavy-test-time/index.html).
