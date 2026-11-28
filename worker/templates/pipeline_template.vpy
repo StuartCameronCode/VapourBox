@@ -1036,6 +1036,9 @@ def _nr_smdegrain(clip):
 {{#NR_PREFILTER}}
         prefilter={{NR_PREFILTER}},
 {{/NR_PREFILTER}}
+{{#NR_TH_SCD1}}
+        thSCD1={{NR_TH_SCD1}},
+{{/NR_TH_SCD1}}
 {{#NR_CONTRASHARP}}
         contrasharp={{NR_CONTRASHARP}},
 {{/NR_CONTRASHARP}}

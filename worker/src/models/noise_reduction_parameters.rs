@@ -151,6 +151,15 @@ pub struct NoiseReductionParameters {
     #[serde(default = "default_sm_degrain_prefilter", rename = "smDegrainPrefilter")]
     pub sm_degrain_prefilter: i32,
 
+    /// MVTools' scene-change threshold (`thSCD1`): a block whose SAD is over it
+    /// counts as changed, and a frame with enough changed blocks is treated as
+    /// a cut, where SMDegrain does nothing. havsfunc's 400 is below the SAD of
+    /// heavy noise alone, so on a noisy source every frame read as a cut and
+    /// SMDegrain switched itself off (issue #177: sigma 9 noise, 29.1 dB in,
+    /// 29.1 dB out). The Strong and Very strong Strength steps raise it.
+    #[serde(default = "default_sm_degrain_th_scd1", rename = "smDegrainThSCD1")]
+    pub sm_degrain_th_scd1: i32,
+
     // --- MCTemporalDenoise Parameters ---
 
     /// Denoise strength/sigma.
@@ -194,8 +203,9 @@ pub struct NoiseReductionParameters {
 
     // --- QTGMC Built-in Parameters ---
 
-    /// EZDenoise strength (0.0 to 5.0+).
-    #[serde(default)]
+    /// EZDenoise strength (0 = off). Defaults to 5, the Strength step Medium
+    /// measured in issue #177; it was 0, so the method did nothing until set.
+    #[serde(default = "default_qtgmc_ez_denoise")]
     pub qtgmc_ez_denoise: f64,
 
     /// EZKeepGrain amount (0.0 to 1.0).
@@ -336,6 +346,8 @@ fn default_sm_degrain_th_sad() -> i32 { 300 }
 fn default_sm_degrain_th_sadc() -> i32 { 150 }
 fn default_true() -> bool { true }
 fn default_sm_degrain_prefilter() -> i32 { 2 }
+fn default_sm_degrain_th_scd1() -> i32 { 400 }
+fn default_qtgmc_ez_denoise() -> f64 { 5.0 }
 fn default_mc_temporal_sigma() -> f64 { 4.0 }
 fn default_mc_temporal_radius() -> i32 { 2 }
 fn default_mc_temporal_profile() -> String { "medium".to_string() }
@@ -402,6 +414,7 @@ impl Default for NoiseReductionParameters {
             sm_degrain_th_sadc: default_sm_degrain_th_sadc(),
             sm_degrain_refine: true,
             sm_degrain_prefilter: default_sm_degrain_prefilter(),
+            sm_degrain_th_scd1: default_sm_degrain_th_scd1(),
             mc_temporal_sigma: default_mc_temporal_sigma(),
             mc_temporal_radius: default_mc_temporal_radius(),
             mc_temporal_profile: default_mc_temporal_profile(),
@@ -411,7 +424,7 @@ impl Default for NoiseReductionParameters {
             mcds_blur_search: true,
             mcds_th_sad: default_mcds_th_sad(),
             mcds_plane: default_mcds_plane(),
-            qtgmc_ez_denoise: 0.0,
+            qtgmc_ez_denoise: default_qtgmc_ez_denoise(),
             qtgmc_ez_keep_grain: 0.0,
             dfttest_sigma: default_dfttest_sigma(),
             dfttest_tbsize: default_dfttest_tbsize(),

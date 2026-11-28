@@ -189,6 +189,7 @@ VapourBox/
 | `app/lib/models/native_res_report.dart` | What `--detect-native` found, as the Descale panel's Detect shows and applies it |
 | `app/lib/models/crop_detect_report.dart` | What `--detect-crop` found, and which suggestion (`CropApply`) the panel applies |
 | `app/lib/models/noise_halo_report.dart` | What `--detect-noise-halo` measured; stored on `QueueItem.noiseHalo`, read by `relevanceFor` |
+| `app/lib/models/strength_advice.dart` | Which Noise Reduction Strength step suits the measured noise: the panel's advisory line (issue #177) |
 | `app/lib/views/pass_settings/crop_detect_panel.dart` | Crop & Resize's Detect borders panel: findings, Apply crop / Crop the bars too / Repair the band instead |
 | `app/lib/services/addon_service.dart` | Every optional third-party download (Whisper, AnimeJaNai): catalogue, install with requirements, remove with dependants (see "Add-ons") |
 | `app/lib/services/manifest_addon.dart` | `AddonManifest` + `ManifestAddonInstaller`: the generic installer for `app/assets/addons/*.json` (docs/ADDONS.md) |
@@ -627,7 +628,10 @@ tried again — is in the renderer's header comment.
 > preset: NoiseReductionPreset.light)` leaves every threshold at its default, so
 > "light" denoises exactly as hard as "moderate". Use the
 > `NoiseReductionParameters.fromPreset(...)` factory, which applies the matching
-> values.
+> values: SMDegrain's Light / Medium / Strong Strength steps (issue #177,
+> pinned by `strength_presets_test.dart`). A built-in preset's Noise Reduction
+> and Sharpen values must be a named Strength step, or simple mode shows
+> "Custom" (`preset_visibility_test.dart`).
 
 **Name presets after the source, not the technique.** The user knows they
 captured a DV tape; they don't know it wants SMDegrain with a chroma-bleed fix.
@@ -837,6 +841,23 @@ output frames / diff pixels for exactly this reason — see docs/ENGINEERING_NOT
 if you're touching `FrameMap`, trim/frame-count plumbing, or crop/resize geometry,
 since the "obviously correct" arithmetic has been wrong in ways only an actual
 encode caught.
+
+**Strength (issue #177): Noise Reduction's and Sharpen's simple-mode control.**
+Every simple-mode method of the two passes has one schema `parameterPresets`
+entry labelled "Strength" (Light / Medium / Strong / Very strong, `"custom":
+"Custom"`), which in simple mode replaces the controls it sets; advanced mode
+shows those controls and hides it. No model or worker field stores the step:
+the selector shows whichever option the values match, and "Custom" when none
+does. **Medium is the schema's defaults** (the user's decision, so existing
+output did not change), except QTGMC built-in, whose old default (EZDenoise 0)
+did nothing. The other steps were measured in
+[docs/reports/issue-177-strength-mapping](docs/reports/issue-177-strength-mapping/index.html)
+and are pinned to its `data/steps.json` by `strength_presets_test.dart` (and
+`test_272` reads the same file): change a step only with the probe re-run. An
+advanced-only method gets none (a preset is hidden in advanced mode, where
+only such a method is offered). The Noise Reduction panel's noise line
+(`strength_advice.dart`) is advisory like the rest: shown for an enabled pass
+whose method has a Strength, only when the worker judged the source noisy.
 
 **Advisory UI (`pass_relevance.dart`, `pass_advice.dart`) must stay advisory.**
 Neither may block a job, disable a control, or change a value — they only badge

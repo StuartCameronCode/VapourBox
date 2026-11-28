@@ -111,6 +111,12 @@ class NoiseReductionParameters {
   /// Prefilter mode (0-4). Higher = stronger prefiltering.
   final int smDegrainPrefilter;
 
+  /// MVTools' scene-change threshold (havsfunc's `thSCD1`, default 400). Heavy
+  /// noise alone is over 400, so on a noisy source every frame read as a cut
+  /// and SMDegrain did nothing; the Strong and Very strong Strength steps
+  /// raise it (issue #177).
+  final int smDegrainThSCD1;
+
   // --- MCTemporalDenoise Parameters ---
 
   /// Denoise strength/sigma.
@@ -283,6 +289,7 @@ class NoiseReductionParameters {
     this.smDegrainThSADC = 150,
     this.smDegrainRefine = true,
     this.smDegrainPrefilter = 2,
+    this.smDegrainThSCD1 = 400,
     // MCTemporalDenoise defaults
     this.mcTemporalSigma = 4.0,
     this.mcTemporalRadius = 2,
@@ -295,7 +302,7 @@ class NoiseReductionParameters {
     this.mcdsThSad = 400,
     this.mcdsPlane = 4,
     // QTGMC built-in defaults
-    this.qtgmcEzDenoise = 0.0,
+    this.qtgmcEzDenoise = 5.0,
     this.qtgmcEzKeepGrain = 0.0,
     this.dfttestSigma = 8.0,
     this.dfttestTbsize = 3,
@@ -316,7 +323,10 @@ class NoiseReductionParameters {
     this.ctmfPlanes = 2,
   });
 
-  /// Create parameters from a preset.
+  /// Create parameters from a preset: light / moderate / heavy are SMDegrain's
+  /// Light / Medium / Strong Strength steps (issue #177, measured in
+  /// docs/reports/issue-177-strength-mapping; strength_presets_test.dart pins
+  /// them to the schema's).
   factory NoiseReductionParameters.fromPreset(NoiseReductionPreset preset) {
     switch (preset) {
       case NoiseReductionPreset.off:
@@ -329,7 +339,7 @@ class NoiseReductionParameters {
           enabled: true,
           preset: NoiseReductionPreset.light,
           method: NoiseReductionMethod.smDegrain,
-          smDegrainTr: 1,
+          smDegrainTr: 2,
           smDegrainThSAD: 200,
           smDegrainThSADC: 100,
         );
@@ -348,8 +358,9 @@ class NoiseReductionParameters {
           preset: NoiseReductionPreset.heavy,
           method: NoiseReductionMethod.smDegrain,
           smDegrainTr: 3,
-          smDegrainThSAD: 500,
-          smDegrainThSADC: 250,
+          smDegrainThSAD: 1200,
+          smDegrainThSADC: 600,
+          smDegrainThSCD1: 800,
         );
       case NoiseReductionPreset.custom:
         return const NoiseReductionParameters(
@@ -368,6 +379,7 @@ class NoiseReductionParameters {
     int? smDegrainThSADC,
     bool? smDegrainRefine,
     int? smDegrainPrefilter,
+    int? smDegrainThSCD1,
     double? mcTemporalSigma,
     int? mcTemporalRadius,
     String? mcTemporalProfile,
@@ -429,6 +441,7 @@ class NoiseReductionParameters {
       smDegrainThSADC: smDegrainThSADC ?? this.smDegrainThSADC,
       smDegrainRefine: smDegrainRefine ?? this.smDegrainRefine,
       smDegrainPrefilter: smDegrainPrefilter ?? this.smDegrainPrefilter,
+      smDegrainThSCD1: smDegrainThSCD1 ?? this.smDegrainThSCD1,
       mcTemporalSigma: mcTemporalSigma ?? this.mcTemporalSigma,
       mcTemporalRadius: mcTemporalRadius ?? this.mcTemporalRadius,
       mcTemporalProfile: mcTemporalProfile ?? this.mcTemporalProfile,

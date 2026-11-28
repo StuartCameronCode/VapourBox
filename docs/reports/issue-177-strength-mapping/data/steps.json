@@ -1,0 +1,136 @@
+{
+ "noiseHint": {
+  "Strong": 4.7,
+  "Very strong": 7.0
+ },
+ "noise_reduction": {
+  "mc_temporal_denoise": {
+   "Light": {
+    "mcTemporalProfile": "low"
+   },
+   "Medium": {
+    "mcTemporalProfile": "medium"
+   },
+   "Strong": {
+    "mcTemporalProfile": "high"
+   },
+   "Very strong": {
+    "mcTemporalProfile": "very high"
+   }
+  },
+  "mclean": {
+   "Light": {
+    "mcleanRn": 14,
+    "mcleanStrength": 5,
+    "mcleanThsad": 200
+   },
+   "Medium": {
+    "mcleanRn": 14,
+    "mcleanStrength": 20,
+    "mcleanThsad": 400
+   },
+   "Strong": {
+    "mcleanRn": 14,
+    "mcleanStrength": 20,
+    "mcleanThsad": 900
+   },
+   "Very strong": {
+    "mcleanRn": 0,
+    "mcleanStrength": 20,
+    "mcleanThsad": 900
+   }
+  },
+  "qtgmc_builtin": {
+   "Light": {
+    "qtgmcEzDenoise": 2.0
+   },
+   "Medium": {
+    "qtgmcEzDenoise": 5.0
+   },
+   "Strong": {
+    "qtgmcEzDenoise": 8.0
+   },
+   "Very strong": {
+    "qtgmcEzDenoise": 10.0
+   }
+  },
+  "smdegrain": {
+   "Light": {
+    "smDegrainThSAD": 200,
+    "smDegrainThSADC": 100,
+    "smDegrainThSCD1": 400,
+    "smDegrainTr": 2
+   },
+   "Medium": {
+    "smDegrainThSAD": 300,
+    "smDegrainThSADC": 150,
+    "smDegrainThSCD1": 400,
+    "smDegrainTr": 2
+   },
+   "Strong": {
+    "smDegrainThSAD": 1200,
+    "smDegrainThSADC": 600,
+    "smDegrainThSCD1": 800,
+    "smDegrainTr": 3
+   },
+   "Very strong": {
+    "smDegrainThSAD": 2000,
+    "smDegrainThSADC": 1000,
+    "smDegrainThSCD1": 800,
+    "smDegrainTr": 3
+   }
+  }
+ },
+ "sharpen": {
+  "awarpsharp2": {
+   "Light": {
+    "warpDepth": 8
+   },
+   "Medium": {
+    "warpDepth": 16
+   },
+   "Strong": {
+    "warpDepth": 24
+   },
+   "Very strong": {
+    "warpDepth": 48
+   }
+  },
+  "cas": {
+   "Light": {
+    "casSharpness": 0.4
+   },
+   "Medium": {
+    "casSharpness": 0.5
+   },
+   "Strong": {
+    "casSharpness": 0.8
+   },
+   "Very strong": {
+    "casSharpness": 1.0
+   }
+  },
+  "lsfmod": {
+   "Light": {
+    "overshoot": 8,
+    "strength": 50,
+    "undershoot": 8
+   },
+   "Medium": {
+    "overshoot": 1,
+    "strength": 100,
+    "undershoot": 1
+   },
+   "Strong": {
+    "overshoot": 8,
+    "strength": 400,
+    "undershoot": 8
+   },
+   "Very strong": {
+    "overshoot": 8,
+    "strength": 500,
+    "undershoot": 8
+   }
+  }
+ }
+}

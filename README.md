@@ -28,7 +28,7 @@ VapourBox runs [VapourSynth](https://www.vapoursynth.com/), QTGMC and FFmpeg for
 ## How it works
 
 1. **Add a source.** Drop in a file, a folder, or a `VIDEO_TS` folder, or open a DVD. VapourBox reports what it found (interlaced, telecined or progressive), so you don't have to guess.
-2. **Choose the output and any processing.** Pick a format, then start from a preset named after your source (VHS Cleanup, DV Camcorder Tape, Anime DVD, …) or switch filters on yourself. Filters that suit the source are marked **Suggested** — Noise Reduction and Dehalo too, when a quick measurement of the picture (run in the background as the video loads) finds it clearly noisy or ringing around its edges.
+2. **Choose the output and any processing.** Pick a format, then start from a preset named after your source (VHS Cleanup, DV Camcorder Tape, Anime DVD, …) or switch filters on yourself. Filters that suit the source are marked **Suggested** — Noise Reduction and Dehalo too, when a quick measurement of the picture (run in the background as the video loads) finds it clearly noisy or ringing around its edges. For a noisy source the Noise Reduction panel also says which Strength suits the noise it measured.
 3. **Check the preview, then run.** A before/after preview updates as you change settings. Queue as many files as you like and leave them to run.
 
 ## Download
@@ -117,7 +117,7 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 6 | **DeScratch** | Vertical scratches on scanned film |
 | 7 | **SpotLess** | Dust, dirt and single-frame specks |
 | 8 | **Descale** | Soft, haloed line art in anime the studio upscaled; **Detect** finds the original resolution |
-| 9 | **Noise Reduction** | Grain and video noise. Motion-compensated by default, with BM3D, KNLMeans and more under advanced options |
+| 9 | **Noise Reduction** | Grain and video noise. Motion-compensated by default, with one **Strength** control (Light to Very strong) and BM3D, KNLMeans and more under advanced options |
 | 10 | **Chroma Denoise** | Blotchy, smeared colour, common on VHS |
 | 11 | **Dehalo** | Bright outlines and ringing around edges |
 | 12 | **Deblock** | Blocking from heavy compression |
@@ -130,7 +130,7 @@ Most sources need only a few of these, and the presets pick them for you. Filter
 | 19 | **Rotate / Flip** | Sideways, upside-down or mirrored footage |
 | 20 | **Crop & Resize** | Black borders, tape blanking and head-switching noise (measured for you by **Detect borders**), scaling and upscaling (edge-directed or AI) with SD colour converted to BT.709 (for HD, or always), and borders to reach an exact frame size |
 | 21 | **Face Restoration** | Blurry, low-resolution faces, redrawn by AI at the output resolution (optional download) |
-| 22 | **Sharpen** | Soft pictures, sharpened after the resize so the result isn't softened again |
+| 22 | **Sharpen** | Soft pictures, sharpened after the resize so the result isn't softened again. One **Strength** control, Light to Very strong |
 | 23 | **Film Grain** | Grain added back after denoising, so the picture doesn't look plastic |
 | 24 | **Frame Rate** | PAL ↔ NTSC and other rate changes, or any custom rate, by motion interpolation, RIFE, or frame repetition |
 | 25 | **Audio Restoration** | A dead channel, hum, rumble, clicks, clipping, hiss, sound out of sync or drifting, uneven loudness; speech enhancement with DeepFilterNet; sound that starts before the picture (broadcast captures) |

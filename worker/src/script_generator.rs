@@ -1402,6 +1402,9 @@ impl ScriptGenerator {
                     script = process_optional_int("NR_TH_SADC", if nr.sm_degrain_th_sadc != nr.sm_degrain_th_sad { Some(nr.sm_degrain_th_sadc) } else { None }, script);
                     script = process_optional_bool("NR_REFINE_MOTION", Some(nr.sm_degrain_refine), script);
                     script = process_optional_int("NR_PREFILTER", if nr.sm_degrain_prefilter != 2 { Some(nr.sm_degrain_prefilter) } else { None }, script);
+                    // havsfunc's own default (400) is left out, so a job that
+                    // doesn't raise it keeps its script byte for byte.
+                    script = process_optional_int("NR_TH_SCD1", if nr.sm_degrain_th_scd1 != 400 { Some(nr.sm_degrain_th_scd1.clamp(1, 1_000_000)) } else { None }, script);
                     script = process_optional_bool("NR_CONTRASHARP", None, script); // Not in current model
                 }
                 NoiseReductionMethod::McTemporalDenoise => {

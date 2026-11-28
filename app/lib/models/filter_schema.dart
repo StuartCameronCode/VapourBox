@@ -358,13 +358,37 @@ class ParameterPreset {
   /// Condition for when this preset is visible.
   final Map<String, dynamic>? visibleWhen;
 
+  /// Label shown when the current values match none of [options] (values
+  /// edited in advanced mode, say), e.g. "Custom". Opt-in: without it the
+  /// selector falls back to [defaultOption], as it always has.
+  @JsonKey(name: 'custom')
+  final String? customOption;
+
+  /// Per-option help text, shown under the selector for the option that is
+  /// current. Falls back to [description].
+  final Map<String, String>? optionDescriptions;
+
+  /// App version that introduced this selector, for the "NEW" badge.
+  final String? sinceAppVersion;
+
   const ParameterPreset({
     required this.label,
     this.description,
     this.defaultOption,
     required this.options,
     this.visibleWhen,
+    this.customOption,
+    this.optionDescriptions,
+    this.sinceAppVersion,
   });
+
+  /// The option whose values all equal [values], or null if none does.
+  String? matchingOption(Map<String, dynamic> values) {
+    for (final entry in options.entries) {
+      if (entry.value.entries.every((v) => values[v.key] == v.value)) return entry.key;
+    }
+    return null;
+  }
 
   factory ParameterPreset.fromJson(Map<String, dynamic> json) =>
       _$ParameterPresetFromJson(json);

@@ -105,6 +105,7 @@ class WhatsNewService {
     if (schema == null) return false;
     if (isNew(schema.sinceAppVersion)) return true;
     if (isMethodChoiceNew(schema)) return true;
+    if (schema.parameterPresets?.values.any(isPresetNew) ?? false) return true;
     return schema.parameters.entries
         .any((e) => e.value.ui?.hidden != true && isParameterNew(schema, e.key));
   }
@@ -119,6 +120,9 @@ class WhatsNewService {
 
   /// Whether [method] is new.
   bool isMethodNew(MethodDefinition method) => isNew(method.sinceAppVersion);
+
+  /// Whether a parameter preset selector (e.g. a pass's Strength) is new.
+  bool isPresetNew(ParameterPreset preset) => isNew(preset.sinceAppVersion);
 
   /// Whether parameter [id]'s control should carry a badge: it is new itself,
   /// one of its options is, or a control it reveals is — any parameter whose
@@ -138,11 +142,19 @@ class WhatsNewService {
   /// control that only some methods show is.
   bool isMethodChoiceNew(FilterSchema schema) =>
       schema.methods.any(isMethodNew) ||
-      _dependents(schema, 'method').any((d) => isParameterNew(schema, d, {'method'}));
+      _dependents(schema, 'method').any((d) => isParameterNew(schema, d, {'method'})) ||
+      (schema.parameterPresets?.values.any(
+              (p) => (p.visibleWhen?.containsKey('method') ?? false) && isPresetNew(p)) ??
+          false);
 
-  /// Whether a section's title should carry a badge: anything it holds does.
-  bool isSectionNew(FilterSchema schema, UiSection section) => section.parameters
-      .any((id) => id == 'method' ? isMethodChoiceNew(schema) : isParameterNew(schema, id));
+  /// Whether a section's title should carry a badge: anything it holds does,
+  /// a parameter preset drawn in it included.
+  bool isSectionNew(FilterSchema schema, UiSection section) =>
+      section.parameters
+          .any((id) => id == 'method' ? isMethodChoiceNew(schema) : isParameterNew(schema, id)) ||
+      (schema.parameterPresets?.values
+              .any((p) => isPresetNew(p) && schema.sectionForPreset(p) == section) ??
+          false);
 
   /// The visible parameters whose `visibleWhen` depends on [id].
   Iterable<String> _dependents(FilterSchema schema, String id) => schema.parameters.entries

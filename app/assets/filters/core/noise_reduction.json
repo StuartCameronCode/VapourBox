@@ -279,7 +279,7 @@
       "type": "integer",
       "default": 300,
       "min": 0,
-      "max": 1000,
+      "max": 2000,
       "step": 25,
       "optional": true,
       "vapoursynth": {
@@ -287,7 +287,7 @@
       },
       "ui": {
         "label": "Luma Threshold",
-        "description": "SAD threshold for luma denoising (250-400 for VHS)",
+        "description": "SAD threshold for luma denoising: how different a matched block may be and still be averaged in. Higher removes more noise and risks smearing detail",
         "widget": "slider",
         "visibleWhen": {
           "method": [
@@ -300,7 +300,7 @@
       "type": "integer",
       "default": 150,
       "min": 0,
-      "max": 500,
+      "max": 1000,
       "step": 25,
       "optional": true,
       "vapoursynth": {
@@ -347,6 +347,27 @@
       "ui": {
         "label": "Prefilter",
         "description": "Prefilter strength for motion estimation",
+        "widget": "slider",
+        "visibleWhen": {
+          "method": [
+            "smdegrain"
+          ]
+        }
+      }
+    },
+    "smDegrainThSCD1": {
+      "type": "integer",
+      "default": 400,
+      "min": 100,
+      "max": 4000,
+      "step": 50,
+      "vapoursynth": {
+        "name": "thSCD1"
+      },
+      "sinceAppVersion": "1.8.0",
+      "ui": {
+        "label": "Scene-change threshold",
+        "description": "How different a block may be before the frame counts as a cut, where nothing is averaged. Heavy noise alone is over the default 400, so raise it (800) for a very noisy source; real cuts are still found",
         "widget": "slider",
         "visibleWhen": {
           "method": [
@@ -425,9 +446,9 @@
     },
     "qtgmcEzDenoise": {
       "type": "number",
-      "default": 0.0,
+      "default": 5.0,
       "min": 0.0,
-      "max": 5.0,
+      "max": 10.0,
       "step": 0.1,
       "optional": true,
       "vapoursynth": {
@@ -435,7 +456,7 @@
       },
       "ui": {
         "label": "EZ Denoise",
-        "description": "QTGMC easy denoise strength (0 = off, 2-4 for VHS)",
+        "description": "QTGMC easy denoise strength (0 = off)",
         "widget": "slider",
         "precision": 1,
         "visibleWhen": {
@@ -1280,6 +1301,156 @@
       }
     }
   },
+  "parameterPresets": {
+    "mcTemporalStrength": {
+      "label": "Strength",
+      "description": "How hard to denoise. Advanced mode shows the values each step sets.",
+      "default": "Medium",
+      "custom": "Custom",
+      "sinceAppVersion": "1.8.0",
+      "visibleWhen": {
+        "method": [
+          "mc_temporal_denoise"
+        ]
+      },
+      "options": {
+        "Light": {
+          "mcTemporalProfile": "low"
+        },
+        "Medium": {
+          "mcTemporalProfile": "medium"
+        },
+        "Strong": {
+          "mcTemporalProfile": "high"
+        },
+        "Very strong": {
+          "mcTemporalProfile": "very high"
+        }
+      },
+      "optionDescriptions": {
+        "Light": "For a fairly clean source with a little grain. Keeps the most fine detail.",
+        "Medium": "The default. For moderate noise, such as most DVD and broadcast captures.",
+        "Strong": "For clearly visible noise, such as most VHS captures. Softens fine texture.",
+        "Very strong": "For heavy noise. Removes the most, and smooths fine detail and texture with it."
+      }
+    },
+    "mcleanStrengthPreset": {
+      "label": "Strength",
+      "description": "How hard to denoise. Advanced mode shows the values each step sets.",
+      "default": "Medium",
+      "custom": "Custom",
+      "sinceAppVersion": "1.8.0",
+      "visibleWhen": {
+        "method": [
+          "mclean"
+        ]
+      },
+      "options": {
+        "Light": {
+          "mcleanRn": 14,
+          "mcleanStrength": 5,
+          "mcleanThsad": 200
+        },
+        "Medium": {
+          "mcleanRn": 14,
+          "mcleanStrength": 20,
+          "mcleanThsad": 400
+        },
+        "Strong": {
+          "mcleanRn": 14,
+          "mcleanStrength": 20,
+          "mcleanThsad": 900
+        },
+        "Very strong": {
+          "mcleanRn": 0,
+          "mcleanStrength": 20,
+          "mcleanThsad": 900
+        }
+      },
+      "optionDescriptions": {
+        "Light": "For a fairly clean source with a little grain. Keeps the most fine detail.",
+        "Medium": "The default. For moderate noise, such as most DVD and broadcast captures.",
+        "Strong": "For clearly visible noise, such as most VHS captures. Softens fine texture.",
+        "Very strong": "For heavy noise. Removes the most, and smooths fine detail and texture with it."
+      }
+    },
+    "qtgmcStrength": {
+      "label": "Strength",
+      "description": "How hard to denoise. Advanced mode shows the values each step sets.",
+      "default": "Medium",
+      "custom": "Custom",
+      "sinceAppVersion": "1.8.0",
+      "visibleWhen": {
+        "method": [
+          "qtgmc_builtin"
+        ]
+      },
+      "options": {
+        "Light": {
+          "qtgmcEzDenoise": 2.0
+        },
+        "Medium": {
+          "qtgmcEzDenoise": 5.0
+        },
+        "Strong": {
+          "qtgmcEzDenoise": 8.0
+        },
+        "Very strong": {
+          "qtgmcEzDenoise": 10.0
+        }
+      },
+      "optionDescriptions": {
+        "Light": "For a fairly clean source with a little grain. Keeps the most fine detail.",
+        "Medium": "The default. For moderate noise, such as most DVD and broadcast captures.",
+        "Strong": "For clearly visible noise, such as most VHS captures. Softens fine texture.",
+        "Very strong": "For heavy noise. Removes the most, and smooths fine detail and texture with it."
+      }
+    },
+    "smDegrainStrength": {
+      "label": "Strength",
+      "description": "How hard to denoise. Advanced mode shows the values each step sets.",
+      "default": "Medium",
+      "custom": "Custom",
+      "sinceAppVersion": "1.8.0",
+      "visibleWhen": {
+        "method": [
+          "smdegrain"
+        ]
+      },
+      "options": {
+        "Light": {
+          "smDegrainThSAD": 200,
+          "smDegrainThSADC": 100,
+          "smDegrainThSCD1": 400,
+          "smDegrainTr": 2
+        },
+        "Medium": {
+          "smDegrainThSAD": 300,
+          "smDegrainThSADC": 150,
+          "smDegrainThSCD1": 400,
+          "smDegrainTr": 2
+        },
+        "Strong": {
+          "smDegrainThSAD": 1200,
+          "smDegrainThSADC": 600,
+          "smDegrainThSCD1": 800,
+          "smDegrainTr": 3
+        },
+        "Very strong": {
+          "smDegrainThSAD": 2000,
+          "smDegrainThSADC": 1000,
+          "smDegrainThSCD1": 800,
+          "smDegrainTr": 3
+        }
+      },
+      "optionDescriptions": {
+        "Light": "For a fairly clean source with a little grain. Keeps the most fine detail.",
+        "Medium": "The default. For moderate noise, such as most DVD and broadcast captures.",
+        "Strong": "For clearly visible noise, such as most VHS captures. Softens fine texture.",
+        "Very strong": "For heavy noise. Removes the most, and smooths fine detail and texture with it."
+      }
+    }
+  },
   "ui": {
     "sections": [
       {
@@ -1289,7 +1460,8 @@
           "smDegrainThSAD",
           "smDegrainThSADC",
           "smDegrainRefine",
-          "smDegrainPrefilter"
+          "smDegrainPrefilter",
+          "smDegrainThSCD1"
         ],
         "expanded": true
       },
@@ -1396,17 +1568,10 @@
           "mcleanStrength",
           "mcleanSharp",
           "mcleanRn",
+          "mcleanThsad",
           "mcleanChroma"
         ],
         "expanded": true
-      },
-      {
-        "title": "mClean tuning",
-        "parameters": [
-          "mcleanThsad"
-        ],
-        "expanded": false,
-        "advancedOnly": true
       },
       {
         "title": "TemporalDegrain2",

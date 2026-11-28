@@ -10752,3 +10752,106 @@ fn test_271_auto_colour_builds_no_node_per_frame() {
             "{side}: auto levels stays std.Levels (bit-exact), never an expression");
     }
 }
+
+/// Issue #177: every Strength step of Noise Reduction and Sharpen, read from
+/// the report's `steps.json` (the same file the app's schemas are pinned to by
+/// `strength_presets_test.dart`), reaches the generated script with its values.
+#[test]
+fn test_272_strength_steps_reach_the_script() {
+    create_output_dir();
+    let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    let path = PathBuf::from(manifest)
+        .parent().unwrap()
+        .join("docs/reports/issue-177-strength-mapping/data/steps.json");
+    let text = std::fs::read_to_string(&path).expect("steps.json");
+    let steps: serde_json::Value = serde_json::from_str(&text).unwrap();
+
+    let fmt_num = |v: &serde_json::Value| -> String {
+        match v {
+            serde_json::Value::Number(n) if n.is_f64() => {
+                let f = n.as_f64().unwrap();
+                if f.fract() == 0.0 {
+                    format!("{f:.1}")
+                } else {
+                    format!("{f:.4}").trim_end_matches('0').trim_end_matches('.').to_string()
+                }
+            }
+            serde_json::Value::String(s) => format!("\"{s}\""),
+            other => other.to_string(),
+        }
+    };
+    // The keyword each parameter is passed as.
+    let keyword = |param: &str| -> Option<&'static str> {
+        Some(match param {
+            "smDegrainTr" => "tr",
+            "smDegrainThSAD" => "thSAD",
+            "mcTemporalProfile" => "settings",
+            "mcTemporalSigma" => "sigma",
+            "mcTemporalRadius" => "radius",
+            "qtgmcEzDenoise" => "EZDenoise",
+            "mcleanStrength" => "strength",
+            "mcleanThsad" => "thSAD",
+            "mcleanRn" => "rn",
+            "mcleanSharp" => "sharp",
+            "strength" => "strength",
+            "overshoot" => "overshoot",
+            "undershoot" => "undershoot",
+            "casSharpness" => "sharpness",
+            "warpDepth" => "depth",
+            // thSADC is written only when it differs from thSAD; keep grain
+            // is not a strength value. Both are covered by the app's tests.
+            _ => return None,
+        })
+    };
+    let rust_method = |filter: &str, id: &str| -> &'static str {
+        match (filter, id) {
+            ("noise_reduction", "smdegrain") => "smDegrain",
+            ("noise_reduction", "mc_temporal_denoise") => "mcTemporalDenoise",
+            ("noise_reduction", "qtgmc_builtin") => "qtgmcBuiltin",
+            ("noise_reduction", "mclean") => "mClean",
+            ("sharpen", "lsfmod") => "LSFmod",
+            ("sharpen", "cas") => "CAS",
+            ("sharpen", "awarpsharp2") => "AWarpSharp2",
+            other => panic!("steps.json names an unknown method {other:?}"),
+        }
+    };
+
+    let mut count = 0;
+    for filter in ["noise_reduction", "sharpen"] {
+        for (id, by_step) in steps[filter].as_object().expect(filter) {
+            for (step, values) in by_step.as_object().unwrap() {
+                let mut params = values.as_object().unwrap().clone();
+                params.insert("enabled".into(), true.into());
+                params.insert("method".into(), rust_method(filter, id).into());
+                let params = serde_json::Value::Object(params);
+                // QTGMC's built-in denoiser exists only with deinterlacing on.
+                let deinterlace_on = id == "qtgmc_builtin";
+                let mut job = create_base_job(&format!("test_271_{filter}_{id}"));
+                job.qtgmc_parameters.enabled = deinterlace_on;
+                job.qtgmc_parameters.tff = Some(true);
+                let mut pipeline = ProcessingPipeline {
+                    deinterlace: job.qtgmc_parameters.clone(),
+                    ..ProcessingPipeline::default()
+                };
+                if filter == "noise_reduction" {
+                    pipeline.noise_reduction = serde_json::from_value(params).unwrap();
+                } else {
+                    pipeline.sharpen = serde_json::from_value(params).unwrap();
+                }
+                job.processing_pipeline = Some(pipeline);
+
+                let expected: Vec<String> = values
+                    .as_object()
+                    .unwrap()
+                    .iter()
+                    .filter_map(|(k, v)| keyword(k).map(|kw| format!("{kw}={}", fmt_num(v))))
+                    .collect();
+                let refs: Vec<&str> = expected.iter().map(String::as_str).collect();
+                run_job_and_verify(&job, &format!("Strength {filter}/{id}/{step}"), &refs)
+                    .unwrap_or_else(|e| panic!("{filter}/{id}/{step}: {e}"));
+                count += 1;
+            }
+        }
+    }
+    assert_eq!(count, 7 * 4, "seven methods, four steps each");
+}
