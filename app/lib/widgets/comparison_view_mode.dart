@@ -12,6 +12,10 @@ enum ComparisonViewMode {
   final String description;
   const ComparisonViewMode(this.label, this.description);
 
+  /// The app version the Original / Split / Processed control shipped in,
+  /// for its NEW badge. Never change it once shipped.
+  static const sinceAppVersion = '1.8.0';
+
   /// The keyboard shortcut that selects this mode.
   AppShortcut get shortcut => switch (this) {
         ComparisonViewMode.original => AppShortcut.previewOriginal,

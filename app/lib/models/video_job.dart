@@ -249,6 +249,15 @@ enum VideoCodec {
   final String value;
   final String displayName;
 
+  /// The app version this codec was first offered in, for its NEW badge in
+  /// Settings → Output (`WhatsNewService.isNew`). Null for every codec that
+  /// shipped before codecs had stamps. Never change a shipped value: stamp
+  /// a new codec in the change that adds it.
+  String? get sinceAppVersion => switch (this) {
+        VideoCodec.av1 || VideoCodec.v210 => '1.8.0',
+        _ => null,
+      };
+
   String get description {
     switch (this) {
       case VideoCodec.h264:

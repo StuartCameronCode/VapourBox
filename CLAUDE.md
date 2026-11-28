@@ -779,7 +779,11 @@ in [docs/FILTER_SCHEMA.md](docs/FILTER_SCHEMA.md). **Stamp only what is new**
 (the option, not the parameter it was added to; never a hidden parameter):
 every control leading to it badges automatically — its dropdown, the switch
 that reveals it, its section, the pass row, and for a new Settings tab the
-Settings button.
+Settings button. Things outside the schemas take a hard-coded stamp: a codec
+`VideoCodec.sinceAppVersion` (badging its radio, the Video Codec heading, the
+Output tab and the Settings button through `SettingsDialog.isOutputTabNew` /
+`hasNew`), other UI a `static const sinceAppVersion` (`AddonsSettingsTab`,
+`CropDetectPanel`, `ComparisonViewMode`); see FILTER_SCHEMA.md.
 
 Several ongoing rules for schemas and the panel that renders them, each guarded by
 `filter_schema_curation_test.dart` unless noted — see
