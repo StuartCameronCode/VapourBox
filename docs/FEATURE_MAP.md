@@ -12,9 +12,7 @@ archive video:
 links at the end of this page before you rely on a cell. Corrections are welcome
 as an [issue](https://github.com/StuartCameronCode/VapourBox/issues).
 
-The VapourBox column was last checked on 2026-11-28, against the current source
-rather than only the latest release (1.7.0). Anything added since 1.7.0 is marked
-"(1.8.0)", the release it is due in.
+The VapourBox column was last checked on 2026-11-29, against release 1.8.0.
 
 ## How to read it
 
@@ -45,7 +43,7 @@ to the same standard as the others.
 
 | Tool | Platforms | Licence / price | QTGMC | IVTC | Classical restoration filters | AI upscaling | AI interpolation | Audio restoration | Speech-to-text subtitles | ProRes / FFV1 | AV1 | Hardware encoding | Before/after preview |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **VapourBox** | macOS, Win, Linux | GPL-3.0, free | ✅ | ✅ | ✅ broad | ✅ | ✅ RIFE | ✅ | ✅ Whisper | ✅ / ✅ | ✅ SVT-AV1 (1.8.0) | ✅ | ✅ |
+| **VapourBox** | macOS, Win, Linux | GPL-3.0, free | ✅ | ✅ | ✅ broad | ✅ | ✅ RIFE | ✅ | ✅ Whisper | ✅ / ✅ | ✅ SVT-AV1 | ✅ | ✅ |
 | HandBrake | macOS, Win, Linux | GPL-2.0, free | ❌ | ✅ | 🟡 a few | ❌ | ❌ | 🟡 in development | ❌ | ✅ / ✅ | ✅ | ✅ | 🟡 live preview |
 | FastFlix | macOS, Win, Linux | MIT, free | ❌ | ❓ | 🟡 a few | ❌ | ❌ | ❓ | ❓ | ❌ / ❌ | ✅ | ✅ | 🟡 thumbnail |
 | StaxRip | Win | MIT, free | ✅ | ✅ | ✅ broad (AviSynth/VapourSynth) | 🟡 NVIDIA VSR | ❓ | ❓ | ❓ | ❓ / ❓ | ✅ | ✅ | ✅ |
@@ -85,7 +83,7 @@ converter with some AI features.
 | Interface | GUI | GUI + CLI | GUI | GUI (switches drive the GUI) | GUI | GUI + CLI arguments (20.5) |
 | Engine | VapourSynth + FFmpeg; ncnn/Vulkan and ONNX Runtime for AI | libhb + FFmpeg libraries | FFmpeg + rigaya's NVEncC/QSVEncC/VCEEncC | AviSynth+ / VapourSynth + 200+ tools | FFmpeg + VapourSynth (+ AviSynth on Win) | FFmpeg + Real-ESRGAN-ncnn, Whisper, DeOldify |
 | Getting the dependencies | Downloaded on first launch (the Linux AppImage carries them) | Bundled | Offers to download FFmpeg | Bundled, portable | Bundled on Win/macOS; AI add-ons downloaded in the app | ❓ |
-| Latest release | 1.7.0 (2026-11-10) | 1.11.2 (2026-06-07) | 6.3.2 (2026-11-04) | 2.52.6 (2026-09-27) | 2026.10.09.1 | 20.5 (2026-11-04) |
+| Latest release | 1.8.0 (2026-11-29) | 1.11.2 (2026-06-07) | 6.3.2 (2026-11-04) | 2.52.6 (2026-09-27) | 2026.10.09.1 | 20.5 (2026-11-04) |
 | **Input** | | | | | | |
 | NTSC DV (4:1:1) | ✅ | ❓ | ❓ | ❓ | ❓ | ❓ |
 | DVD discs / `VIDEO_TS` | ✅ (encrypted discs need libdvdcss) | ✅ also Blu-ray | ❓ | ❓ | ✅ also Blu-ray | 🟡 merges VOB files |
@@ -136,17 +134,17 @@ converter with some AI features.
 | Burn-in | ✅ | ✅ | ✅ | ✅ | ❓ | ✅ |
 | **Output** | | | | | | |
 | H.264 / H.265 | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
-| AV1 / VP9 | ✅ SVT-AV1 (1.8.0) / ❌ | ✅ / ✅ | ✅ / ✅ | ✅ / ❓ | ✅ / ✅ | ✅ / ✅ |
-| ProRes / FFV1 | ✅ Proxy–4444 XQ / ✅; also uncompressed v210 (1.8.0) | ✅ / ✅ | ❌ / ❌ | ❓ / ❓ | ✅ / ✅ | ✅ / ✅ |
+| AV1 / VP9 | ✅ SVT-AV1 / ❌ | ✅ / ✅ | ✅ / ✅ | ✅ / ❓ | ✅ / ✅ | ✅ / ✅ |
+| ProRes / FFV1 | ✅ Proxy–4444 XQ / ✅; also uncompressed v210 | ✅ / ✅ | ❌ / ❌ | ❓ / ❓ | ✅ / ✅ | ✅ / ✅ |
 | Hardware encoders | NVENC, QSV, AMF, VideoToolbox | NVENC, QSV, AMF, VideoToolbox, MF, VAAPI | NVENC, QSV, AMF, VideoToolbox, VAAPI | NVENC, QSV, AMF | NVENC, QSV, AMF, VideoToolbox (ProRes) | NVENC, QSV, AMF, VideoToolbox, MF, VAAPI |
 | 10-bit | ✅ | ✅ | ✅ | ✅ | ❓ | ❓ |
-| HDR10 static metadata kept | ✅ (x265; SVT-AV1 from 1.8.0) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| HDR10 static metadata kept | ✅ (x265, SVT-AV1) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Dolby Vision RPU / HDR10+ kept | ❌ / ❌ | ✅ / ✅ | 🟡 rigaya encoders / ✅ | ✅ / ✅ | ❓ / ✅ | ❓ / ❓ |
 | Chapters kept | ❓ not handled explicitly | ✅ | ✅ | ✅ | ✅ | ❓ |
 | Containers | MKV, MP4, MOV, AVI | MP4, MKV, WebM, MOV | MKV, MP4 (+ GIF/WebP/AVIF) | MKV, MP4, others via FFmpeg | MOV, MP4, MKV, M2TS, WebM, AVI, Blu-ray | many, incl. MXF |
 | **Workflow** | | | | | | |
 | Presets | ✅ named after the source (VHS, DV, film scan, anime DVD…) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Preview | ✅ before/after, frame-accurate, 1:1; original / split / processed modes (1.8.0) | ✅ live preview | ✅ thumbnail | ✅ comparison tool | ✅ original/filtered/diff | 🟡 player |
+| Preview | ✅ before/after, frame-accurate, 1:1; original / split / processed modes | ✅ live preview | ✅ thumbnail | ✅ comparison tool | ✅ original/filtered/diff | 🟡 player |
 | Trim / queue | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
 | Custom script or FFmpeg arguments | ✅ both | 🟡 encoder options | ✅ FFmpeg | ✅ script editor | ✅ VapourSynth sections | ✅ FFmpeg |
 | Command line | 🟡 worker takes a JSON job; not documented for users | ✅ | ❓ | 🟡 | ❓ | ✅ |
@@ -168,7 +166,7 @@ Topaz Video is the commercial reference point.
 | Licence, price | GPL-3.0, free | Proprietary; from $299/yr (Personal) | AGPL-3.0, free | GPL-3.0; pay what you want, newer builds on Patreon | AGPL-3.0, free (also on Steam, Flathub) | MIT source; ready-made builds from $9.99 each |
 | Interface | GUI | GUI | CLI + GUI (Win) | GUI | GUI (+ backend CLI) | GUI |
 | Engine | VapourSynth + FFmpeg; ncnn/Vulkan, ONNX Runtime | Own models + FFmpeg | FFmpeg + ncnn/Vulkan + libplacebo | FFmpeg + PyTorch / ncnn | FFmpeg + PyTorch / TensorRT / ncnn | ONNX Runtime (DirectML) + FFmpeg |
-| Latest release | 1.7.0 (2026-11-10) | 1.7.2 (2026-11-03) | 6.4.0 (2025-01-24) | free build 1.36.0; last commit 2026-05-20 | RVE-2.4.1 (2026-01-02); refactor in progress | 2026.4 (2026-09 / 2026-08) |
+| Latest release | 1.8.0 (2026-11-29) | 1.7.2 (2026-11-03) | 6.4.0 (2025-01-24) | free build 1.36.0; last commit 2026-05-20 | RVE-2.4.1 (2026-01-02); refactor in progress | 2026.4 (2026-09 / 2026-08) |
 | **Input** | | | | | | |
 | NTSC DV / DVD | ✅ / ✅ | ✅ `.dv` / 🟡 `.vob` files | ❓ / ❓ | ❓ / ❓ | ❓ / ❓ | ❓ / ❓ |
 | 10–16-bit, HDR | ✅ | ❓ | 🟡 processed as 8-bit | ❓ | 🟡 HDR mode only | ❌ 8-bit processing |
@@ -199,8 +197,8 @@ Topaz Video is the commercial reference point.
 | Subtitles kept / speech-to-text | 🟡 / ✅ | ❓ / ❓ | ✅ / ❓ | ✅ / ❓ | ✅ / ❓ | ❌ / ❓ |
 | **Output** | | | | | | |
 | H.264 / H.265 | ✅ / ✅ | ✅ / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ✅ / ✅ |
-| AV1 / VP9 | ✅ SVT-AV1 (1.8.0) / ❌ | 🟡 Win, RTX 40 / Arc / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
-| ProRes / FFV1 | ✅ / ✅; also v210 (1.8.0) | ✅ / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
+| AV1 / VP9 | ✅ SVT-AV1 / ❌ | 🟡 Win, RTX 40 / Arc / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
+| ProRes / FFV1 | ✅ / ✅; also v210 | ✅ / ✅ | 🟡 any FFmpeg encoder | ✅ / ✅ | ✅ / ✅ | ❌ / ❌ |
 | Hardware encoders | NVENC, QSV, AMF, VideoToolbox | 🟡 NVENC documented | ❓ | NVENC, AMF, QSV | NVENC, VAAPI | NVENC, AMF, QSV |
 | 10-bit output | ✅ | ✅ | 🟡 | ✅ | ✅ | ❌ |
 | **Workflow** | | | | | | |
@@ -227,7 +225,7 @@ columns reflect what they document now.
 | Licence | GPL-3.0 | none stated | MIT (models have their own) | MIT | none stated; source not published | MIT | none stated | MIT | MIT |
 | Interface | GUI | Scripts + dialog | GUI + CLI | Web UI, REST API, CLI | GUI | GUI wizard | CLI script | CLI launcher | GUI |
 | Engine | VapourSynth + FFmpeg | VapourSynth + FFmpeg | FFmpeg + PyTorch | PyTorch + FFmpeg | ComfyUI + LTX-2.5 + FFmpeg | VapourSynth + FFmpeg | VapourSynth + FFmpeg | VapourSynth + FFmpeg | FFmpeg + AviSynth+ / VapourSynth |
-| Latest release | 1.7.0 (2026-11-10) | v0.1-ai (2026-06-19) | none (first commit 2026-10-12) | none (active) | v1.2.1 (2026-11-18) | v1.8.0 (2026-10-05) | none (last commit 2025-09-24) | v1.1.9 (2026-10-20) | 3.17.10 (2026-11-13) |
+| Latest release | 1.8.0 (2026-11-29) | v0.1-ai (2026-06-19) | none (first commit 2026-10-12) | none (active) | v1.2.1 (2026-11-18) | v1.8.0 (2026-10-05) | none (last commit 2025-09-24) | v1.1.9 (2026-10-20) | 3.17.10 (2026-11-13) |
 | **Input** | | | | | | | | | |
 | NTSC DV (4:1:1) | ✅ | ✅ DV presets | 🟡 `.dv` files | ❓ | ❓ | ✅ | ❓ | ❓ | ❓ |
 | DVD | ✅ discs, `VIDEO_TS` | ❓ | 🟡 `.vob` files | ❓ | ❓ | 🟡 MPEG-2 files | ❓ | ❓ | ❓ |
@@ -258,7 +256,7 @@ columns reflect what they document now.
 | **Subtitles** | | | | | | | | | |
 | Keep existing / speech-to-text | 🟡 / ✅ | ❓ / ❓ | ❌ / ❓ | ❓ / ❓ | ✅ / ❓ | ❓ / ❓ | ❓ / ❓ | ❓ / ❓ | ✅ / ❓ |
 | **Output** | | | | | | | | | |
-| Codecs | H.264, H.265, AV1 (1.8.0), ProRes, v210 (1.8.0), FFV1, HuffYUV, FFVHuff | H.264 | H.264, H.265 (NVENC) | H.264 by default; any FFmpeg encoder through the API's `output_codec` | H.265 (NVENC) | H.264, ProRes HQ, FFV1, HuffYUV, UT Video | ProRes HQ, FFV1 | ProRes HQ, AV1 | H.264, H.265, AV1, VP9, ProRes, VVC |
+| Codecs | H.264, H.265, AV1, ProRes, v210, FFV1, HuffYUV, FFVHuff | H.264 | H.264, H.265 (NVENC) | H.264 by default; any FFmpeg encoder through the API's `output_codec` | H.265 (NVENC) | H.264, ProRes HQ, FFV1, HuffYUV, UT Video | ProRes HQ, FFV1 | ProRes HQ, AV1 | H.264, H.265, AV1, VP9, ProRes, VVC |
 | 10-bit output | ✅ | ❌ | ❌ | ❌ | ✅ | 🟡 ProRes only | ✅ | ✅ | 🟡 |
 | Containers | MKV, MP4, MOV, AVI | MP4 | MP4 | by file extension | MP4, MOV, MKV | MP4, MOV, MKV, AVI | MKV, MOV | MOV, MKV | MKV, MP4, AVI, MOV, WebM |
 | **Workflow** | | | | | | | | | |
